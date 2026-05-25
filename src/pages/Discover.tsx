@@ -4781,7 +4781,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </section>
 
                     {/* Quick stat cards — free-stop horizontal rail */}
-                    <div className="mt-5 flex gap-3 overflow-x-auto no-scrollbar scroll-smooth -mx-3 px-3 pb-1">
+                    <div className="mt-5 flex gap-3 overflow-x-auto no-scrollbar scroll-smooth -mx-3 pb-1">
                       <button
                         type="button"
                         onClick={() => navigate('/search/main')}
@@ -5046,7 +5046,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     ref={recRailRef}
                     className={cn(
                       "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                      phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                      phoneMode ? "-mx-3" : "-mx-1 px-1",
                     )}
                     onScroll={(e) => {
                       if (recommendations.length >= 30) return;
@@ -5314,7 +5314,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </div>
                 <div className={cn(
                   "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                  phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                  phoneMode ? "-mx-3" : "-mx-1 px-1",
                 )}>
                   {/* Create-a-guide tile — soft accent surface so it doesn't
                       compete with real guides, but is still inviting. */}
@@ -5490,7 +5490,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     ref={recipeRailRef}
                     className={cn(
                       "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                      phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                      phoneMode ? "-mx-3" : "-mx-1 px-1",
                     )}
                   >
                     {recommendedRecipes.map((r) => {
