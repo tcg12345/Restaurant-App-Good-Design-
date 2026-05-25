@@ -276,6 +276,16 @@
 }
 .location-page-root .minimap.is-expanded { height: 590px; }
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
+/* Mobile: page itself has no horizontal padding, so the minimap
+   carries its own 16px side margin to inset from the phone-frame
+   edges. Border bumps to a solid 1px ink hairline matching the
+   filter-pill spec, and the radius opens up to 20px. */
+.location-page-root .minimap.is-mobile {
+  margin-left: 16px;
+  margin-right: 16px;
+  border-radius: 20px;
+  border-color: #1f1a17;
+}
 .location-page-root .minimap-canvas {
   position: absolute;
   left: 0;

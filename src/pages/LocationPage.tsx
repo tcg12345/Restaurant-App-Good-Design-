@@ -2337,7 +2337,7 @@ export const LocationPage: React.FC = () => {
 
         {/* ── Mini-map ────────────────────────────────────────────────── */}
         {hasCoords && (
-          <div ref={mapWrapperRef} className={cn('minimap', mapExpanded && !isMobile && 'is-expanded')}>
+          <div ref={mapWrapperRef} className={cn('minimap', isMobile && 'is-mobile', mapExpanded && !isMobile && 'is-expanded')}>
             <div ref={mapContainerRef} className="minimap-canvas" />
             <div className="minimap-info">
               <span className="pulse" />
