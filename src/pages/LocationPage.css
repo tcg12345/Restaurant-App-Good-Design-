@@ -1957,6 +1957,15 @@
 .location-page-root .lp-chat-inline-link:hover {
   background: rgba(168, 57, 42, 0.18);
 }
+/* User-link variant: green-tinted so friend / expert mentions read
+   as a distinct kind of link from restaurant mentions. */
+.location-page-root .lp-chat-inline-link.is-user {
+  background: rgba(46, 125, 92, 0.12);
+  color: var(--green);
+}
+.location-page-root .lp-chat-inline-link.is-user:hover {
+  background: rgba(46, 125, 92, 0.20);
+}
 
 /* Typing dots inside an assistant bubble while waiting for tokens. */
 .location-page-root .lp-chat-typing {

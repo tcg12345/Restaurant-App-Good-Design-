@@ -59,6 +59,7 @@ import {
   getFollowedExpertIds,
   getProfilesInArea,
   getRatingsByUserIds,
+  getProfilesByIds,
   searchUsersByUsername,
   sendFriendRequest,
   type CommunityRating,
@@ -1859,6 +1860,48 @@ export const LocationPage: React.FC = () => {
     }
   }, [userId]);
 
+  // ── Chat-tool: who in the user's circle rated this restaurant? ──
+  // Wired to Claude's get_circle_ratings tool. Reads from the same
+  // signals.communityByRestaurant map the recommendation engine
+  // already populates (all friend + expert ratings, not just for
+  // visible places). Profiles for raters that aren't already in the
+  // areaExperts / areaFriendCandidates pools are fetched lazily via
+  // getProfilesByIds. Returns a shape the chat can stash so any
+  // names Claude mentions auto-link to their profile.
+  const handleGetCircleRatings = useCallback(async (restaurantId: string) => {
+    const id = restaurantId.trim();
+    if (!id) return [];
+    const ratings = signals.communityByRestaurant.get(id) || [];
+    if (ratings.length === 0) return [];
+    // Build a profile lookup using what's already loaded for the page…
+    const profiles: Record<string, UserProfile> = {};
+    for (const e of areaExperts) profiles[e.user_id] = e;
+    for (const f of areaFriendCandidates) profiles[f.user_id] = f;
+    // …then fetch any raters we don't have profiles for yet.
+    const allUserIds: string[] = ratings.map((r) => r.user_id);
+    const missing: string[] = Array.from(new Set(allUserIds))
+      .filter((uid) => !profiles[uid]);
+    if (missing.length > 0) {
+      try {
+        const fetched = await getProfilesByIds(missing);
+        Object.assign(profiles, fetched);
+      } catch (err) {
+        console.error('[LocationPage] handleGetCircleRatings profile fetch error:', err);
+      }
+    }
+    return ratings.map((r) => {
+      const p = profiles[r.user_id];
+      return {
+        username: p?.username || '',
+        displayName: p?.display_name || p?.username || 'Unknown',
+        isExpert: signals.expertUserIds.has(r.user_id),
+        isFriend: signals.friendUserIds.has(r.user_id),
+        score: typeof r.score === 'number' ? r.score : undefined,
+        notes: r.notes || undefined,
+      };
+    });
+  }, [signals, areaExperts, areaFriendCandidates]);
+
   // ── Chat-tool: free-text search for the AI assistant ─────────────
   // Bound to the LocationChat's onSearchRestaurants prop. When the
   // model can't find what the user asked for in its system-prompt
@@ -2638,6 +2681,7 @@ export const LocationPage: React.FC = () => {
         origin={origin}
         onSearchRestaurants={handleChatSearch}
         onLookupUser={handleLookupUser}
+        onGetCircleRatings={handleGetCircleRatings}
         userContext={chatUserContext}
         recipes={chatRecipesAll}
         knownPlaces={chatKnownPlaces}

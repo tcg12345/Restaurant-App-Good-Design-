@@ -110,6 +110,22 @@ const TOOL_RECOMMEND_RECIPES = {
   },
 };
 
+const TOOL_GET_CIRCLE_RATINGS = {
+  name: 'get_circle_ratings',
+  description:
+    "Look up who in the user's circle (their friends + the experts they follow) has rated a specific restaurant. Returns each circle member's username, display name, score, optional notes, and whether they're a friend or an expert. Use this whenever the user asks 'have any of my friends been to X?', 'who in my circle rated X highly?', 'what did Mira think of Y?', etc. — pass the restaurant's Google place id. If the user mentions the restaurant by name only, first look up the id in the user's RATED / WISHLIST / Available sections, or call search_restaurants to resolve it.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      restaurant_id: {
+        type: 'string',
+        description: "Google place id of the restaurant (e.g. 'ChIJ...').",
+      },
+    },
+    required: ['restaurant_id'],
+  },
+};
+
 const TOOL_LOOKUP_USER = {
   name: 'lookup_user',
   description:
@@ -362,7 +378,7 @@ function buildSystemPrompt(body: ChatRequest): string {
     "2. If Available doesn't have what the user asked for (specific dish, vibe, cuisine missing), call search_restaurants with a focused query.",
   );
   lines.push(
-    "3. If the user mentions another person by name, or it'd help to weight a friend's / expert's taste, call lookup_user — you get back public profile info you can reference.",
+    "3. If the user mentions another person by name, or it'd help to weight a friend's / expert's taste, call lookup_user — you get back public profile info you can reference. When the user asks 'have my friends been to X' / 'who rated X' / 'what did <name> think of X', call get_circle_ratings(restaurant_id) — you'll get back a list of circle members with their scores. Names you mention in your reply will auto-link to their profile pages.",
   );
   lines.push(
     "4. If the user asks something that needs current real-world info (is X still open, recent press, new restaurant openings, who won a James Beard, etc.) use web_search. Don't use it for trivia covered in the Available list.",
@@ -445,7 +461,7 @@ export default async function handler(req: Request): Promise<Response> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [TOOL_RECOMMEND, TOOL_RECOMMEND_RECIPES, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_WEB_SEARCH],
+    tools: [TOOL_RECOMMEND, TOOL_RECOMMEND_RECIPES, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_GET_CIRCLE_RATINGS, TOOL_WEB_SEARCH],
     messages: body.messages,
   };
 

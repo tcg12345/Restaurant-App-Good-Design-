@@ -109,6 +109,17 @@ interface LocationChatProps {
     isExpert?: boolean;
     homeCity?: string;
   }>>;
+  /** Look up who in the user's circle (friends + followed experts)
+   *  rated a specific restaurant. Wired to Claude's get_circle_ratings
+   *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
+  onGetCircleRatings: (restaurantId: string) => Promise<Array<{
+    username: string;
+    displayName?: string;
+    isExpert?: boolean;
+    isFriend?: boolean;
+    score?: number;
+    notes?: string;
+  }>>;
 }
 
 interface UiMessage {
@@ -164,65 +175,99 @@ function buildCompactRestaurants(
 }
 
 /** Find a place in the lookup map by case-insensitive exact name match. */
-function findPlaceByName(name: string, places: Map<string, ScoredPlace>): ScoredPlace | null {
-  const norm = name.trim().toLowerCase();
-  for (const p of places.values()) {
-    if ((p.name || '').toLowerCase() === norm) return p;
-  }
-  return null;
+interface InlineLinkable {
+  /** Lowercase pattern to match against (case-insensitive). For
+   *  users this includes both the display name and "@username" forms. */
+  pattern: string;
+  kind: 'place' | 'user';
+  /** Click handler — closes the chat then navigates. */
+  navigate: () => void;
+  /** CSS class suffix so users and places can render slightly
+   *  differently if desired. */
+  className: string;
 }
 
 const MARKDOWN_BOLD_RE = /(\*\*[^*\n]+\*\*)/g;
 const REGEX_ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
 
+/** Build the longest-first alternation regex for the linkable list.
+ *  Display names get \b…\b word-boundaries; "@username" patterns
+ *  use a leading "@" + trailing \b. Sort by pattern length so
+ *  "Joe's Pizza & Wings" beats "Joe's". */
+function buildLinkableRegex(items: InlineLinkable[]): RegExp | null {
+  if (items.length === 0) return null;
+  const seen = new Set<string>();
+  const unique = items.filter((it) => {
+    const k = it.pattern.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const sorted = [...unique].sort((a, b) => b.pattern.length - a.pattern.length);
+  const alternations = sorted.map((it) => {
+    const esc = it.pattern.replace(REGEX_ESCAPE_RE, '\\$&');
+    if (it.pattern.startsWith('@')) {
+      // username pattern: literal @ + bare word characters; need a
+      // trailing word-boundary so @joe doesn't match part of @joey.
+      return esc + '\\b';
+    }
+    return `\\b${esc}\\b`;
+  });
+  return new RegExp(`(${alternations.join('|')})`, 'gi');
+}
+
+function findLinkable(matched: string, items: InlineLinkable[]): InlineLinkable | null {
+  const norm = matched.toLowerCase();
+  for (const it of items) {
+    if (it.pattern.toLowerCase() === norm) return it;
+  }
+  return null;
+}
+
 /** Render an assistant text block:
  *   - **bold** markdown becomes <strong> (or an inline link when the
- *     bolded text is a known restaurant name).
- *   - Plain-text restaurant names from `places` become inline links
- *     too — so even when Claude forgets the markdown, mentions are
- *     still clickable.
- *  Links are styled as accent-tinted pills and tap-through to the
- *  detail page via `onNavigate`. */
+ *     bolded text is a known restaurant or user name).
+ *   - Plain-text restaurant + user names become inline links too —
+ *     so even when Claude forgets the markdown, mentions are still
+ *     clickable. Restaurants tap-through to the detail page; users
+ *     tap-through to their profile.
+ *  Links are styled as accent-tinted pills. */
 function renderAssistantText(
   text: string,
-  places: Map<string, ScoredPlace>,
-  onNavigate: (id: string) => void,
-  placeNameRegex: RegExp | null,
+  linkables: InlineLinkable[],
+  linkRegex: RegExp | null,
 ): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let key = 0;
+  const renderLink = (it: InlineLinkable, label: string) => (
+    <button
+      key={key++}
+      type="button"
+      className={it.className}
+      onClick={it.navigate}
+    >
+      {label}
+    </button>
+  );
   const linkifyPlain = (segment: string): void => {
     if (!segment) return;
-    if (!placeNameRegex) {
+    if (!linkRegex) {
       out.push(<React.Fragment key={key++}>{segment}</React.Fragment>);
       return;
     }
-    placeNameRegex.lastIndex = 0;
+    linkRegex.lastIndex = 0;
     let lastEnd = 0;
     let m: RegExpExecArray | null;
-    while ((m = placeNameRegex.exec(segment)) !== null) {
+    while ((m = linkRegex.exec(segment)) !== null) {
       if (m.index > lastEnd) {
         out.push(<React.Fragment key={key++}>{segment.slice(lastEnd, m.index)}</React.Fragment>);
       }
       const matched = m[0];
-      const place = findPlaceByName(matched, places);
-      if (place) {
-        out.push(
-          <button
-            key={key++}
-            type="button"
-            className="lp-chat-inline-link"
-            onClick={() => onNavigate(place.id)}
-          >
-            {matched}
-          </button>,
-        );
-      } else {
-        out.push(<React.Fragment key={key++}>{matched}</React.Fragment>);
-      }
+      const it = findLinkable(matched, linkables);
+      if (it) out.push(renderLink(it, matched));
+      else out.push(<React.Fragment key={key++}>{matched}</React.Fragment>);
       lastEnd = m.index + matched.length;
-      // Defensive: a zero-width match would loop forever
-      if (m.index === placeNameRegex.lastIndex) placeNameRegex.lastIndex++;
+      if (m.index === linkRegex.lastIndex) linkRegex.lastIndex++;
     }
     if (lastEnd < segment.length) {
       out.push(<React.Fragment key={key++}>{segment.slice(lastEnd)}</React.Fragment>);
@@ -233,21 +278,9 @@ function renderAssistantText(
     if (!part) continue;
     if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
       const inner = part.slice(2, -2);
-      const exact = findPlaceByName(inner, places);
-      if (exact) {
-        out.push(
-          <button
-            key={key++}
-            type="button"
-            className="lp-chat-inline-link"
-            onClick={() => onNavigate(exact.id)}
-          >
-            {inner}
-          </button>,
-        );
-      } else {
-        out.push(<strong key={key++}>{inner}</strong>);
-      }
+      const exact = findLinkable(inner, linkables);
+      if (exact) out.push(renderLink(exact, inner));
+      else out.push(<strong key={key++}>{inner}</strong>);
     } else {
       linkifyPlain(part);
     }
@@ -479,6 +512,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onSearchRestaurants,
   userContext,
   onLookupUser,
+  onGetCircleRatings,
   recipes,
   knownPlaces,
 }) => {
@@ -496,6 +530,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // point of the tool) so we need somewhere to render cards from
   // regardless of visible[]. Keys are place ids.
   const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
+
+  // Chat-local cache for users surfaced via lookup_user or
+  // get_circle_ratings during this conversation. Augments the
+  // friend / expert lists from userContext when scanning prose for
+  // inline @username / display-name links.
+  const [chatKnownUsers, setChatKnownUsers] = useState<Record<string, { username: string; displayName?: string }>>({});
 
   // ── Chat history ────────────────────────────────────────────────
   // `view` swaps between the live conversation and the saved-chats
@@ -600,6 +640,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // here, so it's safe to wipe local state.
     setMessages([]);
     setChatPlaces({});
+    setChatKnownUsers({});
     setCurrentChatId(null);
     setError(null);
     setView('chat');
@@ -610,6 +651,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     abortRef.current?.abort();
     setMessages(chat.messages);
     setChatPlaces(chat.chatPlaces || {});
+    // Reset the user-link cache on chat switch — friends/experts from
+    // userContext still linkify; only mid-conversation lookups are lost.
+    setChatKnownUsers({});
     setCurrentChatId(chat.id);
     setError(null);
     setStreaming(false);
@@ -703,21 +747,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return m;
   }, [recipes]);
 
-  // Pre-built regex over every known restaurant name so the assistant
-  // text renderer can linkify mentions in O(text length) per render
-  // instead of N (places) × text length. Longest-first so 'Joe's Pizza
-  // & Wings' wins over 'Joe's'. Word-boundary-anchored so substrings
-  // inside other words don't get linkified.
-  const placeNameRegex = useMemo<RegExp | null>(() => {
-    const names = [...placeById.values()]
-      .map((p) => p.name)
-      .filter((n): n is string => !!n && n.length >= 3)
-      .sort((a, b) => b.length - a.length);
-    if (names.length === 0) return null;
-    const escaped = names.map((n) => n.replace(REGEX_ESCAPE_RE, '\\$&'));
-    return new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi');
-  }, [placeById]);
-
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
     // Defer the navigation a tick so the close animation has a
@@ -729,6 +758,63 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setOpen(false);
     setTimeout(() => navigate(`/recipe/${id}`), 60);
   }, [navigate]);
+
+  const handleNavigateUser = useCallback((username: string) => {
+    setOpen(false);
+    setTimeout(() => navigate(`/user/${username}`), 60);
+  }, [navigate]);
+
+  // Combined linkable set for the assistant-text renderer. Includes
+  // every known restaurant (visible + chatPlaces + knownPlaces from
+  // the rated/wishlist synth) AND every known user (friends +
+  // followed experts from userContext + anyone Claude has surfaced
+  // mid-conversation via lookup_user / get_circle_ratings).
+  const linkables = useMemo<InlineLinkable[]>(() => {
+    const items: InlineLinkable[] = [];
+    // Places — match restaurant name; tap-through to detail page.
+    for (const p of placeById.values()) {
+      if (!p.name || p.name.length < 3) continue;
+      items.push({
+        pattern: p.name,
+        kind: 'place',
+        navigate: () => handleNavigateRestaurant(p.id),
+        className: 'lp-chat-inline-link',
+      });
+    }
+    // Users — both '@username' and 'Display Name' patterns route to
+    // the same profile page. Deduped by username so a name doesn't
+    // get added once from userContext and once from chatKnownUsers.
+    const userMap = new Map<string, { username: string; displayName?: string }>();
+    for (const f of userContext?.friends || []) {
+      if (f.username) userMap.set(f.username, { username: f.username, displayName: f.displayName });
+    }
+    for (const e of userContext?.followedExperts || []) {
+      if (e.username) userMap.set(e.username, { username: e.username, displayName: e.displayName });
+    }
+    for (const k in chatKnownUsers) {
+      if (!userMap.has(k)) userMap.set(k, chatKnownUsers[k]);
+    }
+    for (const u of userMap.values()) {
+      items.push({
+        pattern: '@' + u.username,
+        kind: 'user',
+        navigate: () => handleNavigateUser(u.username),
+        className: 'lp-chat-inline-link is-user',
+      });
+      if (u.displayName && u.displayName.length >= 3 && u.displayName.toLowerCase() !== u.username.toLowerCase()) {
+        items.push({
+          pattern: u.displayName,
+          kind: 'user',
+          navigate: () => handleNavigateUser(u.username),
+          className: 'lp-chat-inline-link is-user',
+        });
+      }
+    }
+    return items;
+  }, [placeById, userContext, chatKnownUsers, handleNavigateRestaurant, handleNavigateUser]);
+
+  // One pre-built regex for everything — O(text length) per render.
+  const linkRegex = useMemo(() => buildLinkableRegex(linkables), [linkables]);
 
   const sendTurn = useCallback(async (userText: string) => {
     setError(null);
@@ -919,6 +1005,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 if (!hits || hits.length === 0) {
                   content = `No users matched "${query}". Tell the user honestly that you couldn't find that person.`;
                 } else {
+                  // Stash for inline-link rendering so any names
+                  // Claude mentions in its reply auto-link.
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
                   const lines = hits.slice(0, 5).map((h, i) => {
                     const flag = h.isExpert ? ' [expert]' : '';
                     const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
@@ -926,10 +1021,41 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       .join(' · ');
                     return `${i + 1}. ${bits}${flag}`;
                   }).join('\n');
-                  content = `Found ${hits.length} user(s) matching "${query}":\n${lines}`;
+                  content = `Found ${hits.length} user(s) matching "${query}":\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
                 }
               } catch (err) {
                 content = `User lookup for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'get_circle_ratings') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'No restaurant_id provided to get_circle_ratings.';
+            } else {
+              try {
+                const hits = await onGetCircleRatings(rid);
+                if (!hits || hits.length === 0) {
+                  content = 'No one in the user\'s circle has rated this restaurant. Tell the user plainly.';
+                } else {
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
+                  const lines = hits.map((h, i) => {
+                    const role = h.isExpert ? 'expert' : h.isFriend ? 'friend' : 'community';
+                    const score = typeof h.score === 'number' ? `${h.score.toFixed(1)}/10` : '—';
+                    const handle = h.username ? `@${h.username}` : '';
+                    const noteSnippet = h.notes ? ` "${h.notes.slice(0, 60).trim()}${h.notes.length > 60 ? '…' : ''}"` : '';
+                    return `${i + 1}. ${h.displayName || h.username} ${handle ? `(${handle})` : ''} — ${role} — ${score}${noteSnippet}`;
+                  }).join('\n');
+                  content = `${hits.length} member${hits.length === 1 ? '' : 's'} of the user's circle rated this restaurant:\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
+                }
+              } catch (err) {
+                content = `Circle-ratings lookup failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
               }
             }
           } else if (tu.name === 'search_restaurants') {
@@ -1006,7 +1132,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, recipeById]);
+  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, onGetCircleRatings, recipeById]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1244,7 +1370,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       return (
                         <div key={bi} className="lp-chat-bubble">
                           {m.role === 'assistant'
-                            ? renderAssistantText(b.text, placeById, handleNavigateRestaurant, placeNameRegex)
+                            ? renderAssistantText(b.text, linkables, linkRegex)
                             : b.text}
                         </div>
                       );
