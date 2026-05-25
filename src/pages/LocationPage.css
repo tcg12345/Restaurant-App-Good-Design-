@@ -782,6 +782,21 @@
   border: 1.5px solid rgba(255,255,255,0.4);
 }
 
+/* Smaller, denser guide cards on the mobile layout — matches the
+   compact card sizing the desktop Discover Guides rail uses. */
+.location-page-root .gd-row.is-mobile { grid-auto-columns: 180px; gap: 12px; }
+.location-page-root .gd-row.is-mobile .gd-card { aspect-ratio: 1 / 1.05; border-radius: 16px; }
+.location-page-root .gd-row.is-mobile .gd-stamp {
+  top: 10px; left: 10px;
+  padding: 4px 8px;
+  font-size: 9.5px;
+}
+.location-page-root .gd-row.is-mobile .gd-stamp svg { width: 11px; height: 11px; }
+.location-page-root .gd-row.is-mobile .gd-meta { left: 12px; right: 12px; bottom: 12px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-title { font-size: 15px; line-height: 1.18; margin-bottom: 4px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-by { font-size: 11.5px; gap: 6px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-by .av { width: 18px; height: 18px; font-size: 9px; }
+
 /* ============ EXPERT CARD ============ */
 .location-page-root .exp-row {
   display: grid;

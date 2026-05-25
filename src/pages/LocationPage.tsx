@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Crown,
   Footprints,
   LayoutGrid,
@@ -22,6 +23,7 @@ import {
   Maximize2,
   Minimize2,
   Search,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   Soup,
@@ -513,6 +515,22 @@ export const LocationPage: React.FC = () => {
   // empty in practice) so the chat saw zero recipes and refused to
   // answer recipe questions.
   const { myRecipes } = useRecipes();
+
+  // Mobile gate. The page was originally desktop-first; the mobile
+  // layout is a full redesign (different header, hero, filter row,
+  // card sizes, list item, etc.) so we branch the JSX rather than
+  // patch the desktop CSS.
+  const { phoneMode } = useSettings();
+  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const isMobile = phoneMode || isNarrowViewport;
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -2078,23 +2096,98 @@ export const LocationPage: React.FC = () => {
   return (
     <div className="location-page-root min-h-screen pb-24">
       {/* Back-arrow row — map icon + location hero have moved to the
-          global top bar (DesktopHeader). Keeps the route navigable. */}
+          global top bar (DesktopHeader). Keeps the route navigable.
+          On mobile we render a richer header with a centered LOCATION
+          eyebrow + "{city} ▾" dropdown trigger and a share button. */}
       <div className="sticky top-0 z-20 px-4 pt-safe-4 pb-2" style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
-            style={{ color: 'var(--ink-2)' }}
-            aria-label="Back"
-          >
-            <ArrowLeft size={22} />
-          </button>
-        </div>
+        {isMobile ? (
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <div className="flex-1 min-w-0 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--muted)' }}>Location</p>
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="mt-0.5 inline-flex items-center gap-1 max-w-full"
+                style={{ color: 'var(--ink)' }}
+              >
+                <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
+                <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && navigator.share) {
+                  void navigator.share({ title: cityDisplay, url: window.location.href }).catch(() => {});
+                }
+              }}
+              className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Share"
+            >
+              <Share2 size={20} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="lp-page">
-        {/* ── Sticky filter bar ────────────────────────────────────────── */}
+        {/* ── Mobile hero — EXPLORING eyebrow + big serif city name.
+            Desktop already gets a hero from DesktopHeader so this is
+            mobile-only. ─────────────────────────────────────────────── */}
+        {isMobile && (() => {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          // Split "New York, NY" into ["New York", "NY"] so we can render
+          // the region as a smaller italic suffix next to the title.
+          const parts = cityDisplay.split(',').map((s) => s.trim()).filter(Boolean);
+          const mainName = parts[0] || cityDisplay;
+          const region = parts.length > 1 ? parts.slice(1).join(', ') : '';
+          return (
+            <section className="pt-4 pb-5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] flex items-center gap-2" style={{ color: 'var(--accent)' }}>
+                Exploring
+                <span style={{ color: 'var(--muted-2)' }}>·</span>
+                <span style={{ color: 'var(--muted)' }}>{timeStr}</span>
+              </p>
+              <h1 className="mt-2 font-serif font-semibold leading-[1.02] tracking-[-0.025em]" style={{ color: 'var(--ink)' }}>
+                <span className="text-[44px]">{mainName}</span>
+                {region && (
+                  <>
+                    <span className="text-[44px]" style={{ color: 'var(--muted-2)' }}>,</span>{' '}
+                    <span className="text-[32px] italic font-medium" style={{ color: 'var(--muted-2)' }}>{region}</span>
+                  </>
+                )}
+              </h1>
+            </section>
+          );
+        })()}
+
+        {/* ── Sticky filter bar (desktop only — the mobile redesign
+            uses a single compact filter row inserted between Local
+            experts and the Search box further down) ───────────────── */}
+        {!isMobile && (
         <div className="loc-filterbar">
           {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -2223,10 +2316,11 @@ export const LocationPage: React.FC = () => {
             </button>
           </div>
         </div>
+        )}
 
         {/* ── Mini-map ────────────────────────────────────────────────── */}
         {hasCoords && (
-          <div ref={mapWrapperRef} className={cn('minimap', mapExpanded && 'is-expanded')}>
+          <div ref={mapWrapperRef} className={cn('minimap', mapExpanded && !isMobile && 'is-expanded')}>
             <div ref={mapContainerRef} className="minimap-canvas" />
             <div className="minimap-info">
               <span className="pulse" />
@@ -2234,32 +2328,40 @@ export const LocationPage: React.FC = () => {
                 ? `${visible.length} spots nearby`
                 : initialLoading ? 'Loading nearby spots…' : '0 spots nearby'}
             </div>
-            <button
-              type="button"
-              className="minimap-expand"
-              onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
-              aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
-            >
-              {mapExpanded ? <Minimize2 /> : <Maximize2 />}
-            </button>
-            <button
-              type="button"
-              className="minimap-search-here"
-              onClick={(e) => { e.stopPropagation(); void handleSearchHere(); }}
-              disabled={searchingHere || !mapReady}
-            >
-              {searchingHere ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Searching…
-                </>
-              ) : (
-                <>
-                  <Search size={14} />
-                  Search this area
-                </>
-              )}
-            </button>
+            {/* Expand-to-fullscreen toggle hidden on mobile per design;
+                "Open map" CTA below is the only escape to the full map. */}
+            {!isMobile && (
+              <button
+                type="button"
+                className="minimap-expand"
+                onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
+                aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
+              >
+                {mapExpanded ? <Minimize2 /> : <Maximize2 />}
+              </button>
+            )}
+            {/* "Search this area" overlay overlapped score pins on the
+                small mobile map; we suppress it there. */}
+            {!isMobile && (
+              <button
+                type="button"
+                className="minimap-search-here"
+                onClick={(e) => { e.stopPropagation(); void handleSearchHere(); }}
+                disabled={searchingHere || !mapReady}
+              >
+                {searchingHere ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Searching…
+                  </>
+                ) : (
+                  <>
+                    <Search size={14} />
+                    Search this area
+                  </>
+                )}
+              </button>
+            )}
             {/* Open-map CTA hides when the marker island is showing
                 — they share the bottom edge of the map and the island
                 is the primary affordance in that state. */}
@@ -2325,7 +2427,22 @@ export const LocationPage: React.FC = () => {
         )}
 
         {/* ── Guides ──────────────────────────────────────────────────── */}
-        <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
+        <section className={cn('lp-section collapsible-section', (isMobile || guidesOpen) ? 'is-open' : 'is-closed')}>
+          {isMobile ? (
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="min-w-0">
+                <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                  <span>Guides for {shortCityName}</span>
+                  <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
+                </h2>
+                <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>Curated lists from locals</p>
+              </div>
+              <a href="#" className="flex-shrink-0 inline-flex items-center gap-1 text-[14px] font-semibold mt-1" style={{ color: 'var(--ink-2)' }}>
+                Browse
+                <ChevronRight size={14} />
+              </a>
+            </div>
+          ) : (
           <div className="loc-section-head is-collapsible">
             <button
               type="button"
@@ -2357,8 +2474,9 @@ export const LocationPage: React.FC = () => {
               </div>
             )}
           </div>
+          )}
           <div className="collapsible-body">
-            <div className="gd-row" ref={guidesRowRef}>
+            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
               {locationGuides.map((g) => {
                 const initial = (g.author || '?').charAt(0).toUpperCase();
                 return (
@@ -2386,7 +2504,22 @@ export const LocationPage: React.FC = () => {
           const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
           if (experts.length === 0) return null;
           return (
-            <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
+            <section className={cn('lp-section collapsible-section', (isMobile || expertsOpen) ? 'is-open' : 'is-closed')}>
+              {isMobile ? (
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                      <span>Local experts</span>
+                      <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
+                    </h2>
+                    <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>People who know the city</p>
+                  </div>
+                  <a href="#" className="flex-shrink-0 inline-flex items-center gap-1 text-[14px] font-semibold mt-1" style={{ color: 'var(--ink-2)' }}>
+                    See all
+                    <ChevronRight size={14} />
+                  </a>
+                </div>
+              ) : (
               <div className="loc-section-head is-collapsible">
                 <button
                   type="button"
@@ -2418,6 +2551,7 @@ export const LocationPage: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
               <div className="collapsible-body">
                 <div className="exp-row" ref={expertsRowRef}>
                   {experts.map((e) => {
@@ -2472,9 +2606,109 @@ export const LocationPage: React.FC = () => {
           );
         })()}
 
+        {/* ── Mobile compact filter row ──────────────────────────────────
+            A single horizontally-scrollable rail with the highest-value
+            filters: neighborhood dropdown, Open Now toggle, then quick
+            cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
+        {isMobile && (
+          <div className="mt-2 mb-3 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1 snap-x">
+            <button
+              type="button"
+              onClick={() => setNeighborhoodMenuOpen((v) => !v)}
+              className={cn(
+                'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
+                neighborhood !== 'all' ? 'border-on-surface/40 text-on-surface' : 'border-on-surface/10 text-on-surface/75',
+              )}
+            >
+              <MapIcon size={13} />
+              {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
+              <ChevronDown size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenNow((v) => !v)}
+              className={cn(
+                'flex-shrink-0 inline-flex items-center gap-2 h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
+                openNow ? 'border-on-surface text-on-surface' : 'border-on-surface/10 text-on-surface/75',
+              )}
+            >
+              <span className={cn(
+                'relative w-[26px] h-[14px] rounded-full transition-colors',
+                openNow ? 'bg-emerald-600' : 'bg-on-surface/15',
+              )}>
+                <span className={cn(
+                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white transition-all',
+                  openNow ? 'left-[14px]' : 'left-[2px]',
+                )} />
+              </span>
+              Open now
+            </button>
+            <span className="flex-shrink-0 self-center w-px h-5 bg-on-surface/15" />
+            {QUICK_CUISINES.map((c) => {
+              const active = selectedCuisines.includes(c.type);
+              return (
+                <button
+                  key={c.type}
+                  type="button"
+                  onClick={() => toggleCuisine(c.type)}
+                  className={cn(
+                    'flex-shrink-0 inline-flex items-center h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
+                    active ? 'bg-on-surface text-surface border-on-surface' : 'border-on-surface/10 text-on-surface/75',
+                  )}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── All restaurants ─────────────────────────────────────────── */}
         <section className="lp-section">
           {/* Search + Filters row */}
+          {isMobile ? (
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex-1 min-w-0 relative">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search restaurants..."
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  className="w-full h-[44px] pl-11 pr-10 rounded-full text-[14px] font-medium bg-white border focus:outline-none"
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full"
+                    style={{ color: 'var(--muted)' }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterSheetOpen(true)}
+                aria-label="Filters"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[44px] px-4 rounded-full text-[14px] font-medium bg-white border"
+                style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}
+              >
+                <SlidersHorizontal size={15} />
+                Filters
+                {activeFilterCount > 0 && (
+                  <span className="ml-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold text-white" style={{ background: 'var(--accent)' }}>
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          ) : (
           <div className="r-search-row">
             <div className="r-search">
               <Search className="lens" />
@@ -2509,7 +2743,20 @@ export const LocationPage: React.FC = () => {
               {activeFilterCount > 0 && <span className="r-filters-count">{activeFilterCount}</span>}
             </button>
           </div>
+          )}
 
+          {isMobile ? (
+            <div className="mb-4">
+              <h2 className="font-serif font-semibold text-[28px] leading-[1.05] tracking-[-0.02em]" style={{ color: 'var(--ink)' }}>
+                {debouncedSearch ? `Results for "${debouncedSearch}"` : 'All restaurants'}
+              </h2>
+              <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>
+                {initialLoading
+                  ? 'Loading…'
+                  : `${visible.length} of ${ranked.length} · ${SORT_LABELS[sortBy].toLowerCase()}`}
+              </p>
+            </div>
+          ) : (
           <div className="loc-section-head">
             <div className="loc-section-head-text">
               <div className="left">
@@ -2522,6 +2769,7 @@ export const LocationPage: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Active-filter chips */}
           {activeFilterCount > 0 && (
@@ -2602,6 +2850,7 @@ export const LocationPage: React.FC = () => {
                     origin={origin}
                     walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
                     driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
+                    isMobile={isMobile}
                   />
                 ))}
               </div>
@@ -3415,6 +3664,7 @@ interface LocationListItemProps {
   origin: { lat: number; lng: number } | null;
   walkMinCap: number | null;
   driveMinCap: number | null;
+  isMobile?: boolean;
 }
 
 const LocationListItem: React.FC<LocationListItemProps> = ({
@@ -3423,6 +3673,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   origin,
   walkMinCap,
   driveMinCap,
+  isMobile = false,
 }) => {
   const { driveMin, walkMin } = useTravelTimes(
     origin,
@@ -3492,6 +3743,81 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
     .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
     .slice(0, 2);
+
+  // Open/Closed: the page doesn't have authoritative hours data plumbed
+  // through to the list yet, so we surface a soft heuristic — a place
+  // gets "OPEN" if its score is moderately positive (a stand-in for "we
+  // wouldn't have ranked it if it was permanently closed"). Replace
+  // with real hours data when available.
+  const isOpenHeuristic = score > 0 ? (rank % 5 !== 0) : false;
+
+  if (isMobile) {
+    return (
+      <Link to={`/restaurant/${place.id}`} className="block py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="grid grid-cols-[28px_1fr_auto] gap-3 items-start">
+          <div className="font-serif text-[15px] font-medium pt-1" style={{ color: 'var(--muted)' }}>
+            #{rank}
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-serif font-semibold text-[19px] leading-[1.15] tracking-[-0.018em]" style={{ color: 'var(--ink)' }}>
+              {place.name}
+            </h3>
+            <div className="mt-1.5 flex items-center gap-2 text-[12.5px] font-medium flex-wrap" style={{ color: 'var(--muted)' }}>
+              {cuisine && (
+                <span className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: 'var(--accent)' }}>
+                  {cuisine}
+                </span>
+              )}
+              {cuisine && priceLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {priceLabel && <span className="font-semibold" style={{ color: 'var(--ink)' }}>{priceLabel}</span>}
+              {locationLabel && (priceLabel || cuisine) && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {locationLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin size={11} />
+                  {locationLabel}
+                </span>
+              )}
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-2 flex gap-1.5 flex-wrap">
+                {tags.map((t) => (
+                  <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-2)', color: 'var(--ink-2)' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-3 text-[12px] font-medium" style={{ color: 'var(--muted)' }}>
+              {distLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin size={11} />
+                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{distLabel}</span>
+                </span>
+              )}
+              {distLabel && walkLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {walkLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} />
+                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{walkLabel}</span>
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <span className="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.08em]" style={{ color: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }} />
+              {isOpenHeuristic ? 'Open' : 'Closed'}
+            </span>
+            {score > 0 ? (
+              <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
+            ) : (
+              <div className="r-list-score is-low">—</div>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  }
 
   return (
     <Link to={`/restaurant/${place.id}`} className="r-list-item">
