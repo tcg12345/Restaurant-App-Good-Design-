@@ -17,6 +17,9 @@ export interface H2HCandidate {
   image: string;
   cuisine: string;
   price: string;
+  address: string;
+  notes: string;
+  tags: string[];
   score: number;
 }
 
@@ -74,6 +77,9 @@ function ratingToCandidate(r: RestaurantRating): H2HCandidate {
     image: r.image,
     cuisine: r.cuisine,
     price: r.price,
+    address: r.address || '',
+    notes: r.notes || '',
+    tags: r.tags || [],
     score: r.score,
   };
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChevronLeft, ChevronRight, Image, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import {
@@ -8,7 +8,6 @@ import {
   type Tier,
   type H2HCandidate,
   TIER_LABELS,
-  TIER_EMOJI,
   TIER_BLURB,
   computeFinalScore,
   totalEstimatedComparisons,
@@ -40,41 +39,18 @@ export const ModeSelectPage: React.FC<{
     <div className="flex-1 overflow-y-auto overscroll-contain px-5 pt-6 pb-6">
       <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/35 mb-4 text-center">Choose a way to rate</p>
       <div className="space-y-3 max-w-md mx-auto">
-        <motion.button
+        <ModeOption
+          icon={<Sliders size={20} />}
+          title="Quick rate"
+          subtitle="Pick a score from 1–10 with the slider"
           onClick={onPickSlider}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/8 text-left shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center flex-shrink-0 text-primary">
-            <Sliders size={22} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-serif font-bold text-[16px] mb-0.5">Quick rate</div>
-            <div className="text-[12px] text-on-surface/55">Pick a score from 1–10 with the slider</div>
-          </div>
-          <ChevronRight size={18} className="text-on-surface/30 flex-shrink-0" />
-        </motion.button>
-        <motion.button
+        />
+        <ModeOption
+          icon={<Swords size={20} />}
+          title="Head-to-head"
+          subtitle="Compare to restaurants you've already rated"
           onClick={onPickH2H}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-primary/8 to-primary/3 border border-primary/20 text-left shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 text-white shadow-sm">
-            <Swords size={22} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="font-serif font-bold text-[16px]">Head-to-head</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-primary text-white">New</span>
-            </div>
-            <div className="text-[12px] text-on-surface/60">Compare to restaurants you've already rated</div>
-          </div>
-          <ChevronRight size={18} className="text-primary/50 flex-shrink-0" />
-        </motion.button>
+        />
       </div>
       <p className="text-[11px] text-on-surface/35 text-center mt-6 leading-relaxed max-w-[280px] mx-auto">
         Head-to-head asks a few quick A-vs-B questions, then places this restaurant in the right spot on your list.
@@ -83,29 +59,38 @@ export const ModeSelectPage: React.FC<{
   </motion.div>
 );
 
+const ModeOption: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}> = ({ icon, title, subtitle, onClick }) => (
+  <motion.button
+    onClick={onClick}
+    whileHover={{ y: -1 }}
+    whileTap={{ scale: 0.98 }}
+    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/10 text-left shadow-sm hover:shadow-md hover:border-on-surface/20 transition-all"
+  >
+    <div className="w-10 h-10 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-on-surface/70">
+      {icon}
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="font-serif font-bold text-[16px] mb-0.5">{title}</div>
+      <div className="text-[12px] text-on-surface/55">{subtitle}</div>
+    </div>
+    <ChevronRight size={18} className="text-on-surface/25 flex-shrink-0" />
+  </motion.button>
+);
+
 /* ── Tier select ──────────────────────────────────────────────────── */
 
 const TIER_ORDER: Tier[] = ['loved', 'fine', 'disliked'];
 
-const TIER_STYLES: Record<Tier, { gradient: string; ring: string; iconBg: string; text: string }> = {
-  loved: {
-    gradient: 'from-green-500/15 to-green-600/5',
-    ring: 'ring-green-400/30',
-    iconBg: 'bg-green-500/20',
-    text: 'text-green-600',
-  },
-  fine: {
-    gradient: 'from-yellow-500/15 to-yellow-600/5',
-    ring: 'ring-yellow-400/30',
-    iconBg: 'bg-yellow-500/20',
-    text: 'text-yellow-600',
-  },
-  disliked: {
-    gradient: 'from-red-500/15 to-red-600/5',
-    ring: 'ring-red-400/30',
-    iconBg: 'bg-red-500/20',
-    text: 'text-red-500',
-  },
+const TIER_DOT: Record<Tier, string> = {
+  loved: 'bg-green-500',
+  fine: 'bg-yellow-500',
+  disliked: 'bg-red-500',
 };
 
 export const TierSelectPage: React.FC<{
@@ -130,34 +115,25 @@ export const TierSelectPage: React.FC<{
         First, how did you feel overall?
       </p>
       <div className="space-y-2.5 max-w-md mx-auto">
-        {TIER_ORDER.map((tier, idx) => {
-          const s = TIER_STYLES[tier];
-          return (
-            <motion.button
-              key={tier}
-              onClick={() => onPick(tier)}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.06, type: 'spring', stiffness: 400, damping: 26 }}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              className={cn(
-                "w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br border border-on-surface/8 ring-1 ring-inset text-left shadow-sm hover:shadow-md transition-shadow",
-                s.gradient,
-                s.ring,
-              )}
-            >
-              <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0", s.iconBg)}>
-                {TIER_EMOJI[tier]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={cn("font-serif font-bold text-[16px] mb-0.5", s.text)}>{TIER_LABELS[tier]}</div>
-                <div className="text-[12px] text-on-surface/55">{TIER_BLURB[tier]}</div>
-              </div>
-              <ChevronRight size={18} className="text-on-surface/30 flex-shrink-0" />
-            </motion.button>
-          );
-        })}
+        {TIER_ORDER.map((tier, idx) => (
+          <motion.button
+            key={tier}
+            onClick={() => onPick(tier)}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.05, type: 'spring', stiffness: 400, damping: 26 }}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            className="w-full flex items-center gap-3.5 p-4 rounded-2xl bg-white border border-on-surface/10 text-left shadow-sm hover:shadow-md hover:border-on-surface/20 transition-all"
+          >
+            <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", TIER_DOT[tier])} />
+            <div className="flex-1 min-w-0">
+              <div className="font-serif font-bold text-[16px] mb-0.5">{TIER_LABELS[tier]}</div>
+              <div className="text-[12px] text-on-surface/50">{TIER_BLURB[tier]}</div>
+            </div>
+            <ChevronRight size={18} className="text-on-surface/25 flex-shrink-0" />
+          </motion.button>
+        ))}
       </div>
     </div>
   </motion.div>
@@ -168,7 +144,7 @@ export const TierSelectPage: React.FC<{
 export const ComparePage: React.FC<{
   state: H2HState;
   comparison: H2HCandidate;
-  newRestaurant: { name: string; image: string; cuisine: string; price: string };
+  newRestaurant: { name: string; cuisine: string; price: string; address: string };
   onBack: () => void;
   onPick: (pickedNew: boolean) => void;
   onTie: () => void;
@@ -201,9 +177,9 @@ export const ComparePage: React.FC<{
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-3 flex flex-col">
-        <p className="text-center text-[15px] font-semibold text-on-surface/85 mt-2 mb-1">Which did you enjoy more?</p>
-        <p className="text-center text-[11px] text-on-surface/40 mb-5">Tap your pick</p>
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-3 flex flex-col">
+        <p className="text-center text-[15px] font-semibold text-on-surface/85 mt-1 mb-1">Which did you enjoy more?</p>
+        <p className="text-center text-[11px] text-on-surface/40 mb-4">Tap your pick</p>
         <AnimatePresence mode="wait">
           <motion.div
             key={comparison.restaurantId + ':' + state.history.length}
@@ -211,36 +187,37 @@ export const ComparePage: React.FC<{
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -30 }}
             transition={{ type: 'tween', duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="flex-1 flex flex-col sm:flex-row items-stretch gap-3 sm:gap-4"
+            className="flex items-stretch gap-2.5"
           >
             <CompareCard
               label="Rating now"
               labelTone="primary"
               name={newRestaurant.name}
-              image={newRestaurant.image}
               cuisine={newRestaurant.cuisine}
               price={newRestaurant.price}
+              address={newRestaurant.address}
               onPick={() => onPick(true)}
             />
-            <div className="hidden sm:flex flex-col items-center justify-center text-on-surface/30 font-serif font-bold text-sm tracking-widest">VS</div>
-            <div className="sm:hidden flex items-center justify-center -my-1">
-              <span className="px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest text-on-surface/35 bg-on-surface/5 rounded-full">VS</span>
-            </div>
+            <div className="flex flex-col items-center justify-center text-on-surface/25 font-serif font-bold text-xs tracking-widest">VS</div>
             <CompareCard
               label="Already rated"
               labelTone="neutral"
               name={comparison.name}
-              image={comparison.image}
               cuisine={comparison.cuisine}
               price={comparison.price}
+              address={comparison.address}
+              notes={comparison.notes}
+              tags={comparison.tags}
               score={comparison.score}
               onPick={() => onPick(false)}
             />
           </motion.div>
         </AnimatePresence>
+      </div>
+      <div className="px-5 pt-3 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
         <button
           onClick={onTie}
-          className="mt-4 self-center text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/70 transition-colors py-2 px-4"
+          className="w-full py-3 rounded-2xl bg-on-surface/[0.05] hover:bg-on-surface/[0.08] text-on-surface/70 hover:text-on-surface font-semibold text-sm transition-colors active:scale-[0.98]"
         >
           Too close to call
         </button>
@@ -253,53 +230,63 @@ const CompareCard: React.FC<{
   label: string;
   labelTone: 'primary' | 'neutral';
   name: string;
-  image: string;
   cuisine: string;
   price: string;
+  address: string;
+  notes?: string;
+  tags?: string[];
   score?: number;
   onPick: () => void;
-}> = ({ label, labelTone, name, image, cuisine, price, score, onPick }) => (
-  <motion.button
-    onClick={onPick}
-    whileHover={{ y: -3 }}
-    whileTap={{ scale: 0.97 }}
-    transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-    className="group relative flex-1 min-h-[140px] sm:min-h-0 rounded-2xl overflow-hidden bg-white border border-on-surface/8 shadow-sm hover:shadow-lg transition-shadow text-left"
-  >
-    <div className="relative h-32 sm:h-44 w-full bg-on-surface/5 overflow-hidden">
-      {image ? (
-        <img src={image} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-          <Image size={28} />
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/0 to-black/0" />
-      <div className="absolute top-2 left-2">
+}> = ({ label, labelTone, name, cuisine, price, address, notes, tags, score, onPick }) => {
+  const meta = [cuisine, price].filter(Boolean).join(' · ');
+  const trimmedNotes = (notes || '').trim();
+  const topTags = (tags || []).slice(0, 3);
+  return (
+    <motion.button
+      onClick={onPick}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 22 }}
+      className="group relative flex-1 min-w-0 rounded-2xl bg-white border border-on-surface/10 shadow-sm hover:shadow-lg hover:border-on-surface/20 transition-all text-left p-3.5 flex flex-col"
+    >
+      <div className="flex items-start justify-between gap-2 mb-2.5">
         <span className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm",
-          labelTone === 'primary' ? "bg-primary text-white" : "bg-white/85 text-on-surface/75"
+          "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider",
+          labelTone === 'primary' ? "bg-primary text-white" : "bg-on-surface/[0.06] text-on-surface/55"
         )}>
           {label}
         </span>
-      </div>
-      {typeof score === 'number' && (
-        <div className="absolute top-2 right-2">
+        {typeof score === 'number' && (
           <span className={cn(
-            "inline-flex items-center justify-center min-w-[34px] h-7 px-2 rounded-full bg-white shadow-sm text-[13px] font-serif font-bold tabular-nums",
+            "inline-flex items-center justify-center min-w-[36px] h-7 px-1.5 rounded-lg bg-on-surface/[0.04] text-[14px] font-serif font-bold tabular-nums leading-none",
             scoreColor(score)
           )}>
             {score.toFixed(1)}
           </span>
+        )}
+      </div>
+      <h3 className="font-serif font-bold text-[15px] sm:text-[16px] leading-snug line-clamp-3 mb-1.5">{name}</h3>
+      {meta && <p className="text-[11px] font-medium text-on-surface/55 leading-snug mb-1">{meta}</p>}
+      {address && (
+        <p className="text-[10.5px] text-on-surface/40 leading-snug line-clamp-2 mb-2">{address}</p>
+      )}
+      {topTags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-auto pt-1.5">
+          {topTags.map((t) => (
+            <span key={t} className="inline-block px-1.5 py-0.5 rounded-full bg-on-surface/[0.04] text-[9.5px] font-semibold text-on-surface/55 leading-none whitespace-nowrap">
+              {t}
+            </span>
+          ))}
         </div>
       )}
-    </div>
-    <div className="px-3 py-2.5">
-      <div className="font-serif font-bold text-[14px] leading-tight line-clamp-2">{name}</div>
-      <div className="mt-1 text-[11px] text-on-surface/50 truncate">{cuisine}{price ? ` · ${price}` : ''}</div>
-    </div>
-  </motion.button>
-);
+      {trimmedNotes && topTags.length === 0 && (
+        <p className="mt-auto pt-1.5 text-[10.5px] italic text-on-surface/50 leading-snug line-clamp-3">
+          “{trimmedNotes}”
+        </p>
+      )}
+    </motion.button>
+  );
+};
 
 /* ── Result ───────────────────────────────────────────────────────── */
 

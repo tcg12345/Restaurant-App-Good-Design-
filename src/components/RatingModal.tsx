@@ -93,10 +93,11 @@ export const RatingModal: React.FC = () => {
   useEffect(() => {
     if (!ratingModalOpen || !ratingModalRestaurant) return;
     if (userPickedSlider.current) return;
+    if (cameFromH2H) return; // user just landed on main from h2h continue — leave them be
     if (page !== 'main') return;
     const others = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
     if (others.length > 0) setPage('mode-select');
-  }, [ratings.length, ratingModalOpen, ratingModalRestaurant, page]);
+  }, [ratings.length, ratingModalOpen, ratingModalRestaurant, page, cameFromH2H]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);

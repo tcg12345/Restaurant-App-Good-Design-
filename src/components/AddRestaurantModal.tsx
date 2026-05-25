@@ -153,12 +153,13 @@ export const AddRestaurantModal: React.FC = () => {
   useEffect(() => {
     if (!addRestaurantModalOpen || !restaurant) return;
     if (userPickedSlider.current) return;
+    if (cameFromH2H) return; // user just landed on main from h2h continue — leave them be
     if (page !== 'main') return;
     if (getRating(restaurant.id)) return; // editing an existing rating — stay on slider
     if (isNewVisit) return; // logging a new visit on an existing rating — stay on slider
     const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
     if (others.length > 0) setPage('mode-select');
-  }, [ratings.length, addRestaurantModalOpen, restaurant, page, isNewVisit]);
+  }, [ratings.length, addRestaurantModalOpen, restaurant, page, isNewVisit, cameFromH2H]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
