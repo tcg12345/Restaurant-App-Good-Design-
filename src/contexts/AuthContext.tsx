@@ -3,6 +3,21 @@ import { supabase, supabaseConfigured } from '../lib/supabase';
 import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import type { User, Session } from '@supabase/supabase-js';
 
+/** Race a promise against a timeout. Used to make sure a hung Supabase
+ *  call can't park the app on the splash forever. The supabase-js client
+ *  doesn't impose its own timeout, so we add one at the call sites that
+ *  block first-paint (session check, profile load) and the sign-in
+ *  email-existence probe. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(`Timeout: ${label}`)), ms);
+    promise.then(
+      (value) => { clearTimeout(id); resolve(value); },
+      (err) => { clearTimeout(id); reject(err); },
+    );
+  });
+}
+
 interface AuthContextType {
   isSignedIn: boolean;
   user: User | null;
@@ -47,13 +62,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadProfile = useCallback(async (userId: string) => {
     try {
-      const p = await getProfile(userId);
+      const p = await withTimeout(getProfile(userId), 8000, 'getProfile');
       setProfile(p);
     } catch {
       setProfile(null);
     }
     try {
-      const reqs = await getPendingRequests(userId);
+      const reqs = await withTimeout(getPendingRequests(userId), 8000, 'getPendingRequests');
       setPendingRequestCount(reqs.length);
     } catch {
       setPendingRequestCount(0);
@@ -70,13 +85,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          6000,
+          'auth.getSession',
+        );
         if (!mounted) return;
         const u = session?.user ?? null;
         setUser(u);
         if (u) await loadProfile(u.id);
       } catch {
-        // Auth failed — continue as signed out
+        // Session check failed / timed out — fall through to signed-out so
+        // the splash clears and the user lands on the auth screen instead
+        // of being stuck.
       }
       if (mounted) setLoading(false);
     })();
@@ -95,14 +116,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        12000,
+        'auth.signInWithPassword',
+      );
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Sign in took too long. Check your connection and try again.' };
+    }
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signUp({ email, password }),
+        12000,
+        'auth.signUp',
+      );
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Sign up took too long. Check your connection and try again.' };
+    }
   }, []);
 
   const signOut = useCallback(async () => {
@@ -135,12 +172,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkEmailExists = useCallback(async (email: string): Promise<boolean> => {
     if (!supabaseConfigured) return false;
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: false },
-      });
+      const { error } = await withTimeout(
+        supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: false },
+        }),
+        8000,
+        'checkEmailExists',
+      );
       return !error;
     } catch {
+      // Timed out or threw — assume the email isn't on file. The caller will
+      // route to the sign-up step; if the user actually has an account they
+      // can hit back and try again.
       return false;
     }
   }, []);

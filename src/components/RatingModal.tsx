@@ -1,29 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sparkles, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
+import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
-import {
-  type H2HState,
-  type Tier,
-  TIER_LABELS,
-  TIER_EMOJI,
-  TIER_BLURB,
-  initH2H,
-  pickComparison,
-  applyChoice,
-  applyTie,
-  undoLastChoice,
-  isComplete,
-  computeFinalScore,
-  totalEstimatedComparisons,
-} from '../lib/headToHeadRating';
+import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
+import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
-type Page = 'mode-select' | 'h2h-tier' | 'h2h-compare' | 'h2h-result' | 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const RatingModal: React.FC = () => {
   const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings } = useLists();
@@ -50,8 +37,17 @@ export const RatingModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  // Inline rating method choice. `null` means the user hasn't picked one yet
+  // and the prominent chooser is shown.
+  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h' | null>(null);
+  // Active head-to-head session state; null on the slider or before tier pick.
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
-  const [cameFromH2H, setCameFromH2H] = useState(false);
+  // H2H-computed score, set when the user accepts an H2H result. Drives the
+  // "from head-to-head" pill and the revert button.
+  const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // When true, the running H2H is a tie-break triggered by Save on the
+  // slider — completing it auto-saves with the refined score.
+  const [tieBreakActive, setTieBreakActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
@@ -70,12 +66,14 @@ export const RatingModal: React.FC = () => {
       setSelectedFriends([]);
       setPriceIndex(-1);
       setPriceAmount('');
-      // If the user has any other rated restaurants, show the mode-select
-      // entry; otherwise fall through to the slider as before.
-      const others = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
-      setPage(others.length === 0 ? 'main' : 'mode-select');
+      setPage('main');
+      // Show the prominent chooser when there are other rated restaurants
+      // to compare against; otherwise jump straight to the slider.
+      const othersOnOpen = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
+      setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
-      setCameFromH2H(false);
+      setH2hScore(null);
+      setTieBreakActive(false);
       setCreatingList(false);
       setNewName('');
       setListDropdownOpen(false);
@@ -146,15 +144,29 @@ export const RatingModal: React.FC = () => {
     setNewName(''); setNewEmoji('📋'); setCreatingList(false);
   };
 
-  const handleSave = () => {
+  const persistRating = (finalScore: number) => {
     if (!ratingModalRestaurant) return;
     rateRestaurant({
       restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
       cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
-      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+      score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
       listIds: selectedListIds, createdAt: Date.now(),
     });
     closeRatingModal();
+  };
+
+  const handleSave = () => {
+    if (!ratingModalRestaurant) return;
+    if (ratingMethod === 'slider' && h2hScore === null) {
+      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id);
+      if (tieBreakState) {
+        setH2hState(tieBreakState);
+        setRatingMethod('h2h');
+        setTieBreakActive(true);
+        return;
+      }
+    }
+    persistRating(score);
   };
 
   const scoreClr = scoreColorLight(score);
@@ -205,91 +217,13 @@ export const RatingModal: React.FC = () => {
             )}>
             {photoInput}
             <AnimatePresence mode="wait">
-              {page === 'mode-select' && (
-                <ModeSelectPage
-                  key="mode-select"
-                  restaurantName={ratingModalRestaurant.name}
-                  isEdit={!!existing}
-                  onClose={closeRatingModal}
-                  onPickSlider={() => { setCameFromH2H(false); setPage('main'); }}
-                  onPickH2H={() => setPage('h2h-tier')}
-                />
-              )}
-
-              {page === 'h2h-tier' && (
-                <TierSelectPage
-                  key="h2h-tier"
-                  onBack={() => setPage('mode-select')}
-                  onPick={(tier) => {
-                    const fresh = initH2H(ratings, tier, ratingModalRestaurant.id);
-                    setH2hState(fresh);
-                    setPage(isComplete(fresh) ? 'h2h-result' : 'h2h-compare');
-                  }}
-                />
-              )}
-
-              {page === 'h2h-compare' && h2hState && (() => {
-                const comparison = pickComparison(h2hState);
-                if (!comparison) {
-                  // Defensive: shouldn't happen, but if we land here, jump to result.
-                  setTimeout(() => setPage('h2h-result'), 0);
-                  return null;
-                }
-                return (
-                  <ComparePage
-                    key="h2h-compare"
-                    state={h2hState}
-                    comparison={comparison}
-                    newRestaurant={ratingModalRestaurant}
-                    onBack={() => {
-                      if (h2hState.history.length > 0) {
-                        setH2hState((s) => (s ? undoLastChoice(s) : s));
-                      } else {
-                        setPage('h2h-tier');
-                      }
-                    }}
-                    onPick={(pickedNew) => {
-                      const next = applyChoice(h2hState, pickedNew);
-                      setH2hState(next);
-                      if (isComplete(next)) setPage('h2h-result');
-                    }}
-                    onTie={() => {
-                      const next = applyTie(h2hState);
-                      setH2hState(next);
-                      setPage('h2h-result');
-                    }}
-                  />
-                );
-              })()}
-
-              {page === 'h2h-result' && h2hState && (
-                <ResultPage
-                  key="h2h-result"
-                  state={h2hState}
-                  onRedo={() => { setH2hState(null); setPage('h2h-tier'); }}
-                  onContinue={() => {
-                    const final = computeFinalScore(h2hState);
-                    setScore(final);
-                    setCameFromH2H(true);
-                    setPage('main');
-                  }}
-                />
-              )}
-
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col h-full">
                   <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                    <div className="flex items-center gap-1 min-w-0">
-                      {ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
-                        <button onClick={() => { setCameFromH2H(false); setPage('mode-select'); }} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
-                          <ChevronLeft size={20} />
-                        </button>
-                      )}
-                      <div className="min-w-0">
-                        <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
-                        <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
-                      </div>
+                    <div className="min-w-0">
+                      <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
+                      <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
                     </div>
                     <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
@@ -354,36 +288,131 @@ export const RatingModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5">
-                    <div className="flex flex-col items-center pt-3 sm:pt-5">
-                      {cameFromH2H && (
+                    {ratingMethod !== null && !tieBreakActive && ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
+                      <div className="pt-2 pb-3">
+                        <MethodToggle
+                          method={ratingMethod}
+                          onChange={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      </div>
+                    )}
+                    {tieBreakActive && (
+                      <div className="pt-3 pb-2 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-1">Tie-break</p>
+                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
+                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
+                        </p>
+                      </div>
+                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                      {ratingMethod === null ? (
+                        <MethodChooser
+                          key="chooser"
+                          onPick={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      ) : ratingMethod === 'slider' ? (
                         <motion.div
-                          initial={{ opacity: 0, y: -4 }}
+                          key="slider"
+                          initial={{ opacity: 0, y: 4 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                          className="flex flex-col items-center pt-1"
                         >
-                          <Sparkles size={11} />
-                          From head-to-head
+                          {h2hScore !== null && (
+                            <AnimatePresence mode="wait" initial={false}>
+                              {Math.abs(score - h2hScore) > 0.05 ? (
+                                <motion.button
+                                  key="revert"
+                                  type="button"
+                                  onClick={() => setScore(h2hScore)}
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  whileTap={{ scale: 0.96 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
+                                >
+                                  <RotateCcw size={11} />
+                                  Revert to {h2hScore.toFixed(1)}
+                                </motion.button>
+                              ) : (
+                                <motion.div
+                                  key="from-h2h"
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                                >
+                                  <Sparkles size={11} />
+                                  From head-to-head
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          )}
+                          <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
+                            <div className="text-center">
+                              <div className={cn("text-[44px] sm:text-[56px] leading-none font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
+                              <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
+                            </div>
+                          </div>
+                          <div className="w-full max-w-[260px] mb-1.5">
+                            <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
+                              className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
+                              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+                            </div>
+                          </div>
+                          <p className="text-xs font-medium text-on-surface/40 mb-3">
+                            {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                          </p>
+                          <RankingContext score={score} ratings={ratings} excludeId={ratingModalRestaurant.id} />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="h2h"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <InlineH2H
+                            ratings={ratings}
+                            excludeId={ratingModalRestaurant.id}
+                            newRestaurant={ratingModalRestaurant}
+                            state={h2hState}
+                            setState={setH2hState}
+                            skipTierSelect={tieBreakActive}
+                            skipResult={tieBreakActive}
+                            onCancelFromStart={tieBreakActive ? () => {
+                              setTieBreakActive(false);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            } : undefined}
+                            onComplete={(finalScore) => {
+                              if (tieBreakActive) {
+                                setTieBreakActive(false);
+                                setH2hState(null);
+                                persistRating(finalScore);
+                                return;
+                              }
+                              setScore(finalScore);
+                              setH2hScore(finalScore);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            }}
+                          />
                         </motion.div>
                       )}
-                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                        <div className="text-center">
-                          <div className={cn("text-[44px] sm:text-[56px] leading-none font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
-                          <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
-                        </div>
-                      </div>
-                      <div className="w-full max-w-[260px] mb-1.5">
-                        <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                        <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                          <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                        </div>
-                      </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-4">
-                        {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                      </p>
-                    </div>
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
+                    </AnimatePresence>
+                    <div className="border-t border-on-surface/6 pt-3 mt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
                       <div>
                         <DetailRow icon={<StickyNote size={20} />} label="Notes" value={hasNotes ? notes : undefined} onClick={() => setPage('notes')} />
@@ -660,375 +689,3 @@ const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, on
   </div>
 );
 
-/* ── Head-to-head sub-pages ───────────────────────────────────────── */
-
-const ModeSelectPage: React.FC<{
-  restaurantName: string;
-  isEdit: boolean;
-  onClose: () => void;
-  onPickSlider: () => void;
-  onPickH2H: () => void;
-}> = ({ restaurantName, isEdit, onClose, onPickSlider, onPickH2H }) => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0, x: -30 }}
-    transition={{ duration: 0.18 }}
-    className="flex flex-col h-full"
-  >
-    <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-      <div className="min-w-0">
-        <h2 className="font-serif font-bold text-lg truncate">{isEdit ? 'Update Rating' : 'Rate Restaurant'}</h2>
-        <p className="text-xs text-on-surface/40 truncate">{restaurantName}</p>
-      </div>
-      <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
-    </div>
-    <div className="flex-1 overflow-y-auto overscroll-contain px-5 pt-6 pb-6">
-      <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/35 mb-4 text-center">Choose a way to rate</p>
-      <div className="space-y-3 max-w-md mx-auto">
-        <motion.button
-          onClick={onPickSlider}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/8 text-left shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center flex-shrink-0 text-primary">
-            <Sliders size={22} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-serif font-bold text-[16px] mb-0.5">Quick rate</div>
-            <div className="text-[12px] text-on-surface/55">Pick a score from 1–10 with the slider</div>
-          </div>
-          <ChevronRight size={18} className="text-on-surface/30 flex-shrink-0" />
-        </motion.button>
-        <motion.button
-          onClick={onPickH2H}
-          whileHover={{ y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          className="w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-primary/8 to-primary/3 border border-primary/20 text-left shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center flex-shrink-0 text-white shadow-sm">
-            <Swords size={22} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-0.5">
-              <span className="font-serif font-bold text-[16px]">Head-to-head</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-primary text-white">New</span>
-            </div>
-            <div className="text-[12px] text-on-surface/60">Compare to restaurants you've already rated</div>
-          </div>
-          <ChevronRight size={18} className="text-primary/50 flex-shrink-0" />
-        </motion.button>
-      </div>
-      <p className="text-[11px] text-on-surface/35 text-center mt-6 leading-relaxed max-w-[280px] mx-auto">
-        Head-to-head asks a few quick A-vs-B questions, then places this restaurant in the right spot on your list.
-      </p>
-    </div>
-  </motion.div>
-);
-
-const TIER_ORDER: Tier[] = ['loved', 'fine', 'disliked'];
-
-const TIER_STYLES: Record<Tier, { gradient: string; ring: string; iconBg: string; text: string }> = {
-  loved: {
-    gradient: 'from-green-500/15 to-green-600/5',
-    ring: 'ring-green-400/30',
-    iconBg: 'bg-green-500/20',
-    text: 'text-green-600',
-  },
-  fine: {
-    gradient: 'from-yellow-500/15 to-yellow-600/5',
-    ring: 'ring-yellow-400/30',
-    iconBg: 'bg-yellow-500/20',
-    text: 'text-yellow-600',
-  },
-  disliked: {
-    gradient: 'from-red-500/15 to-red-600/5',
-    ring: 'ring-red-400/30',
-    iconBg: 'bg-red-500/20',
-    text: 'text-red-500',
-  },
-};
-
-const TierSelectPage: React.FC<{
-  onBack: () => void;
-  onPick: (tier: Tier) => void;
-}> = ({ onBack, onPick }) => (
-  <motion.div
-    initial={{ x: '100%', opacity: 0.5 }}
-    animate={{ x: 0, opacity: 1 }}
-    exit={{ x: '100%', opacity: 0.5 }}
-    transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-    className="flex flex-col h-full"
-  >
-    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
-      <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
-        <ChevronLeft size={22} />
-      </button>
-      <h2 className="font-serif font-bold text-lg flex-1">Head-to-head</h2>
-    </div>
-    <div className="flex-1 overflow-y-auto overscroll-contain px-5 pt-6 pb-6">
-      <p className="text-center text-[13px] text-on-surface/55 mb-5 leading-relaxed max-w-[280px] mx-auto">
-        First, how did you feel overall?
-      </p>
-      <div className="space-y-2.5 max-w-md mx-auto">
-        {TIER_ORDER.map((tier, idx) => {
-          const s = TIER_STYLES[tier];
-          return (
-            <motion.button
-              key={tier}
-              onClick={() => onPick(tier)}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.06, type: 'spring', stiffness: 400, damping: 26 }}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              className={cn(
-                "w-full flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br border border-on-surface/8 ring-1 ring-inset text-left shadow-sm hover:shadow-md transition-shadow",
-                s.gradient,
-                s.ring,
-              )}
-            >
-              <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0", s.iconBg)}>
-                {TIER_EMOJI[tier]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={cn("font-serif font-bold text-[16px] mb-0.5", s.text)}>{TIER_LABELS[tier]}</div>
-                <div className="text-[12px] text-on-surface/55">{TIER_BLURB[tier]}</div>
-              </div>
-              <ChevronRight size={18} className="text-on-surface/30 flex-shrink-0" />
-            </motion.button>
-          );
-        })}
-      </div>
-    </div>
-  </motion.div>
-);
-
-const ComparePage: React.FC<{
-  state: H2HState;
-  comparison: import('../lib/headToHeadRating').H2HCandidate;
-  newRestaurant: { name: string; image: string; cuisine: string; price: string };
-  onBack: () => void;
-  onPick: (pickedNew: boolean) => void;
-  onTie: () => void;
-}> = ({ state, comparison, newRestaurant, onBack, onPick, onTie }) => {
-  const total = totalEstimatedComparisons(state);
-  const done = state.history.length;
-  const progress = total === 0 ? 1 : Math.min(1, done / total);
-  return (
-    <motion.div
-      initial={{ x: '100%', opacity: 0.5 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: '100%', opacity: 0.5 }}
-      transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-      className="flex flex-col h-full"
-    >
-      <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0">
-        <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
-          <ChevronLeft size={22} />
-        </button>
-        <h2 className="font-serif font-bold text-lg flex-1">Head-to-head</h2>
-        <span className="text-[11px] font-semibold text-on-surface/40 tabular-nums">{done + 1} / {total || done + 1}</span>
-      </div>
-      <div className="px-5 pb-3 flex-shrink-0">
-        <div className="h-1 bg-on-surface/8 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-primary rounded-full"
-            initial={false}
-            animate={{ width: `${progress * 100}%` }}
-            transition={{ type: 'spring', stiffness: 200, damping: 28 }}
-          />
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-3 flex flex-col">
-        <p className="text-center text-[15px] font-semibold text-on-surface/85 mt-2 mb-1">Which did you enjoy more?</p>
-        <p className="text-center text-[11px] text-on-surface/40 mb-5">Tap your pick</p>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={comparison.restaurantId + ':' + state.history.length}
-            initial={{ opacity: 0, x: 30 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -30 }}
-            transition={{ type: 'tween', duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-            className="flex-1 flex flex-col sm:flex-row items-stretch gap-3 sm:gap-4"
-          >
-            <CompareCard
-              label="Rating now"
-              labelTone="primary"
-              name={newRestaurant.name}
-              image={newRestaurant.image}
-              cuisine={newRestaurant.cuisine}
-              price={newRestaurant.price}
-              onPick={() => onPick(true)}
-            />
-            <div className="hidden sm:flex flex-col items-center justify-center text-on-surface/30 font-serif font-bold text-sm tracking-widest">VS</div>
-            <div className="sm:hidden flex items-center justify-center -my-1">
-              <span className="px-3 py-0.5 text-[10px] font-bold uppercase tracking-widest text-on-surface/35 bg-on-surface/5 rounded-full">VS</span>
-            </div>
-            <CompareCard
-              label="Already rated"
-              labelTone="neutral"
-              name={comparison.name}
-              image={comparison.image}
-              cuisine={comparison.cuisine}
-              price={comparison.price}
-              score={comparison.score}
-              onPick={() => onPick(false)}
-            />
-          </motion.div>
-        </AnimatePresence>
-        <button
-          onClick={onTie}
-          className="mt-4 self-center text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/70 transition-colors py-2 px-4"
-        >
-          Too close to call
-        </button>
-      </div>
-    </motion.div>
-  );
-};
-
-const CompareCard: React.FC<{
-  label: string;
-  labelTone: 'primary' | 'neutral';
-  name: string;
-  image: string;
-  cuisine: string;
-  price: string;
-  score?: number;
-  onPick: () => void;
-}> = ({ label, labelTone, name, image, cuisine, price, score, onPick }) => (
-  <motion.button
-    onClick={onPick}
-    whileHover={{ y: -3 }}
-    whileTap={{ scale: 0.97 }}
-    transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-    className="group relative flex-1 min-h-[140px] sm:min-h-0 rounded-2xl overflow-hidden bg-white border border-on-surface/8 shadow-sm hover:shadow-lg transition-shadow text-left"
-  >
-    <div className="relative h-32 sm:h-44 w-full bg-on-surface/5 overflow-hidden">
-      {image ? (
-        <img src={image} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-          <Image size={28} />
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/0 to-black/0" />
-      <div className="absolute top-2 left-2">
-        <span className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm",
-          labelTone === 'primary' ? "bg-primary text-white" : "bg-white/85 text-on-surface/75"
-        )}>
-          {label}
-        </span>
-      </div>
-      {typeof score === 'number' && (
-        <div className="absolute top-2 right-2">
-          <span className={cn(
-            "inline-flex items-center justify-center min-w-[34px] h-7 px-2 rounded-full bg-white shadow-sm text-[13px] font-serif font-bold tabular-nums",
-            scoreColor(score)
-          )}>
-            {score.toFixed(1)}
-          </span>
-        </div>
-      )}
-    </div>
-    <div className="px-3 py-2.5">
-      <div className="font-serif font-bold text-[14px] leading-tight line-clamp-2">{name}</div>
-      <div className="mt-1 text-[11px] text-on-surface/50 truncate">{cuisine}{price ? ` · ${price}` : ''}</div>
-    </div>
-  </motion.button>
-);
-
-const ResultPage: React.FC<{
-  state: H2HState;
-  onRedo: () => void;
-  onContinue: () => void;
-}> = ({ state, onRedo, onContinue }) => {
-  const target = computeFinalScore(state);
-  const [display, setDisplay] = useState(0);
-  useEffect(() => {
-    const duration = 800;
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(target * eased);
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target]);
-
-  const scoreClr = scoreColorLight(target);
-  const scoreBg = scoreBgGradient(target);
-  const scoreRing = scoreRingColor(target);
-
-  return (
-    <motion.div
-      initial={{ x: '100%', opacity: 0.5 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: '100%', opacity: 0.5 }}
-      transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-      className="flex flex-col h-full"
-    >
-      <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0">
-        <h2 className="font-serif font-bold text-lg flex-1">Your placement</h2>
-      </div>
-      <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 flex flex-col items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-4"
-        >
-          <Sparkles size={11} />
-          We ranked it at
-        </motion.div>
-        <motion.div
-          initial={{ scale: 0.85, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 22 }}
-          className={cn(
-            "relative w-40 h-40 sm:w-44 sm:h-44 rounded-full flex items-center justify-center bg-gradient-to-b ring-4",
-            scoreBg, scoreRing
-          )}
-        >
-          <div className="text-center">
-            <div className={cn("text-[64px] sm:text-[72px] leading-none font-serif font-bold tabular-nums", scoreClr)}>
-              {display.toFixed(1)}
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mt-1.5">out of 10</div>
-          </div>
-        </motion.div>
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="text-center text-[13px] text-on-surface/55 mt-5 max-w-[280px] leading-relaxed"
-        >
-          {state.history.length === 0
-            ? "We didn't have other restaurants to compare to — you can tweak the score next."
-            : `Based on ${state.history.length} comparison${state.history.length === 1 ? '' : 's'}. You can fine-tune the score next.`}
-        </motion.p>
-        <button
-          onClick={onRedo}
-          className="mt-5 inline-flex items-center gap-1.5 text-[12px] font-semibold text-on-surface/50 hover:text-on-surface/80 transition-colors py-2 px-3"
-        >
-          <RotateCcw size={13} />
-          Redo
-        </button>
-      </div>
-      <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-        <button onClick={onContinue} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
-          Continue
-        </button>
-      </div>
-    </motion.div>
-  );
-};
