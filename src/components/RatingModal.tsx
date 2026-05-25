@@ -7,19 +7,10 @@ import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
-import {
-  type H2HState,
-  initH2H,
-  pickComparison,
-  applyChoice,
-  applyTie,
-  undoLastChoice,
-  isComplete,
-  computeFinalScore,
-} from '../lib/headToHeadRating';
-import { ModeSelectPage, TierSelectPage, ComparePage, ResultPage, RankingContext } from './HeadToHeadRatingPages';
+import type { H2HState } from '../lib/headToHeadRating';
+import { MethodToggle, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
-type Page = 'mode-select' | 'h2h-tier' | 'h2h-compare' | 'h2h-result' | 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const RatingModal: React.FC = () => {
   const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings } = useLists();
@@ -46,16 +37,13 @@ export const RatingModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  // Inline rating method toggle.
+  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h'>('slider');
+  // Active head-to-head session state; null on the slider or before tier pick.
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
-  // Set to the H2H-computed score when the user lands on the slider via
-  // head-to-head Continue. Used to show the "from head-to-head" pill, gate
-  // the safety-net effect, and surface a revert button when the slider
-  // drifts off the computed value.
+  // H2H-computed score, set when the user accepts an H2H result. Drives the
+  // "from head-to-head" pill and the revert button.
   const [h2hScore, setH2hScore] = useState<number | null>(null);
-  // Tracks whether the user explicitly chose Quick rate on the mode-select
-  // screen. Without this, the async-ratings safety net below would yank a
-  // user who'd intentionally picked the slider back to mode-select.
-  const userPickedSlider = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
@@ -74,13 +62,10 @@ export const RatingModal: React.FC = () => {
       setSelectedFriends([]);
       setPriceIndex(-1);
       setPriceAmount('');
-      // If the user has any other rated restaurants, show the mode-select
-      // entry; otherwise fall through to the slider as before.
-      const others = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
-      setPage(others.length === 0 ? 'main' : 'mode-select');
+      setPage('main');
+      setRatingMethod('slider');
       setH2hState(null);
       setH2hScore(null);
-      userPickedSlider.current = false;
       setCreatingList(false);
       setNewName('');
       setListDropdownOpen(false);
@@ -89,19 +74,6 @@ export const RatingModal: React.FC = () => {
       setSelectedPhotoIdx(null);
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
-
-  // Safety net for the race where the modal opens before Supabase has
-  // finished syncing the user's ratings down: if ratings becomes non-empty
-  // while we're still parked on the slider with no user interaction,
-  // upgrade to the mode-select entry so head-to-head is reachable.
-  useEffect(() => {
-    if (!ratingModalOpen || !ratingModalRestaurant) return;
-    if (userPickedSlider.current) return;
-    if (h2hScore !== null) return; // user just landed on main from h2h continue — leave them be
-    if (page !== 'main') return;
-    const others = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
-    if (others.length > 0) setPage('mode-select');
-  }, [ratings.length, ratingModalOpen, ratingModalRestaurant, page, h2hScore]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -223,91 +195,13 @@ export const RatingModal: React.FC = () => {
             )}>
             {photoInput}
             <AnimatePresence mode="wait">
-              {page === 'mode-select' && (
-                <ModeSelectPage
-                  key="mode-select"
-                  restaurantName={ratingModalRestaurant.name}
-                  isEdit={!!existing}
-                  onClose={closeRatingModal}
-                  onPickSlider={() => { userPickedSlider.current = true; setH2hScore(null); setPage('main'); }}
-                  onPickH2H={() => setPage('h2h-tier')}
-                />
-              )}
-
-              {page === 'h2h-tier' && (
-                <TierSelectPage
-                  key="h2h-tier"
-                  onBack={() => setPage('mode-select')}
-                  onPick={(tier) => {
-                    const fresh = initH2H(ratings, tier, ratingModalRestaurant.id);
-                    setH2hState(fresh);
-                    setPage(isComplete(fresh) ? 'h2h-result' : 'h2h-compare');
-                  }}
-                />
-              )}
-
-              {page === 'h2h-compare' && h2hState && (() => {
-                const comparison = pickComparison(h2hState);
-                if (!comparison) {
-                  // Defensive: shouldn't happen, but if we land here, jump to result.
-                  setTimeout(() => setPage('h2h-result'), 0);
-                  return null;
-                }
-                return (
-                  <ComparePage
-                    key="h2h-compare"
-                    state={h2hState}
-                    comparison={comparison}
-                    newRestaurant={ratingModalRestaurant}
-                    onBack={() => {
-                      if (h2hState.history.length > 0) {
-                        setH2hState((s) => (s ? undoLastChoice(s) : s));
-                      } else {
-                        setPage('h2h-tier');
-                      }
-                    }}
-                    onPick={(pickedNew) => {
-                      const next = applyChoice(h2hState, pickedNew);
-                      setH2hState(next);
-                      if (isComplete(next)) setPage('h2h-result');
-                    }}
-                    onTie={() => {
-                      const next = applyTie(h2hState);
-                      setH2hState(next);
-                      setPage('h2h-result');
-                    }}
-                  />
-                );
-              })()}
-
-              {page === 'h2h-result' && h2hState && (
-                <ResultPage
-                  key="h2h-result"
-                  state={h2hState}
-                  onRedo={() => { setH2hState(null); setPage('h2h-tier'); }}
-                  onContinue={() => {
-                    const final = computeFinalScore(h2hState);
-                    setScore(final);
-                    setH2hScore(final);
-                    setPage('main');
-                  }}
-                />
-              )}
-
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col h-full">
                   <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                    <div className="flex items-center gap-1 min-w-0">
-                      {ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
-                        <button onClick={() => { setH2hScore(null); setPage('mode-select'); }} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
-                          <ChevronLeft size={20} />
-                        </button>
-                      )}
-                      <div className="min-w-0">
-                        <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
-                        <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
-                      </div>
+                    <div className="min-w-0">
+                      <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
+                      <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
                     </div>
                     <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
@@ -372,57 +266,101 @@ export const RatingModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5">
-                    <div className="flex flex-col items-center pt-3 sm:pt-5">
-                      {h2hScore !== null && (
-                        <AnimatePresence mode="wait" initial={false}>
-                          {Math.abs(score - h2hScore) > 0.05 ? (
-                            <motion.button
-                              key="revert"
-                              type="button"
-                              onClick={() => setScore(h2hScore)}
-                              initial={{ opacity: 0, y: -4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -4 }}
-                              transition={{ duration: 0.18 }}
-                              whileTap={{ scale: 0.96 }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
-                            >
-                              <RotateCcw size={11} />
-                              Revert to {h2hScore.toFixed(1)}
-                            </motion.button>
-                          ) : (
-                            <motion.div
-                              key="from-h2h"
-                              initial={{ opacity: 0, y: -4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -4 }}
-                              transition={{ duration: 0.18 }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
-                            >
-                              <Sparkles size={11} />
-                              From head-to-head
-                            </motion.div>
+                    {ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
+                      <div className="pt-2 pb-3">
+                        <MethodToggle
+                          method={ratingMethod}
+                          onChange={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      </div>
+                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                      {ratingMethod === 'slider' ? (
+                        <motion.div
+                          key="slider"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                          className="flex flex-col items-center pt-1"
+                        >
+                          {h2hScore !== null && (
+                            <AnimatePresence mode="wait" initial={false}>
+                              {Math.abs(score - h2hScore) > 0.05 ? (
+                                <motion.button
+                                  key="revert"
+                                  type="button"
+                                  onClick={() => setScore(h2hScore)}
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  whileTap={{ scale: 0.96 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
+                                >
+                                  <RotateCcw size={11} />
+                                  Revert to {h2hScore.toFixed(1)}
+                                </motion.button>
+                              ) : (
+                                <motion.div
+                                  key="from-h2h"
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                                >
+                                  <Sparkles size={11} />
+                                  From head-to-head
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
                           )}
-                        </AnimatePresence>
+                          <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
+                            <div className="text-center">
+                              <div className={cn("text-[44px] sm:text-[56px] leading-none font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
+                              <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
+                            </div>
+                          </div>
+                          <div className="w-full max-w-[260px] mb-1.5">
+                            <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
+                              className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
+                              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+                            </div>
+                          </div>
+                          <p className="text-xs font-medium text-on-surface/40 mb-3">
+                            {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                          </p>
+                          <RankingContext score={score} ratings={ratings} excludeId={ratingModalRestaurant.id} />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="h2h"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <InlineH2H
+                            ratings={ratings}
+                            excludeId={ratingModalRestaurant.id}
+                            newRestaurant={ratingModalRestaurant}
+                            state={h2hState}
+                            setState={setH2hState}
+                            onComplete={(finalScore) => {
+                              setScore(finalScore);
+                              setH2hScore(finalScore);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            }}
+                          />
+                        </motion.div>
                       )}
-                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                        <div className="text-center">
-                          <div className={cn("text-[44px] sm:text-[56px] leading-none font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
-                          <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
-                        </div>
-                      </div>
-                      <div className="w-full max-w-[260px] mb-1.5">
-                        <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                        <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                          <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                        </div>
-                      </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-3">
-                        {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                      </p>
-                      <RankingContext score={score} ratings={ratings} excludeId={ratingModalRestaurant.id} />
-                    </div>
+                    </AnimatePresence>
                     <div className="border-t border-on-surface/6 pt-3 mt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
                       <div>
