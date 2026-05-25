@@ -1,30 +1,29 @@
 /**
- * RecipePage — single canonical recipe detail page.
+ * RecipePage — editorial recipe detail.
  *
- * Replaces the old RecipeDetail (formal recipes at /recipe/:id) and
- * MealRecipePage (home meals at /meal/:userId/:mealId). Mounts at
- * /recipe/:userId/:id (new canonical) AND /meal/:userId/:mealId
- * (kept as an alias so reels/messages/RecipePanel keep working).
+ * Mounts at /recipe/:userId/:id (canonical), /meal/:userId/:mealId (alias),
+ * and /recipe/:id (legacy single-id fallback). Loads the recipe by trying
+ * local stores (own recipes / own home meals), then the formal `recipes`
+ * table, then user_app_data.home_meals. The matched source drives review
+ * fetch (recipe_reviews vs home_meal_reviews) and the owner-edit affordance.
  *
- * Data-source-agnostic: the page resolves the recipe by trying:
- *   1. Local stores when the current user is the owner (own recipes
- *      from RecipesContext, own home meals from ListsContext).
- *   2. The formal `recipes` table (when the id is UUID-shaped).
- *   3. `user_app_data.home_meals` via getPublicHomeMealById.
- * Whichever wins is normalized into a common view model; reviews and the
- * owner-edit affordance branch on the matched source.
+ * Layout: editorial split hero (text + image) on top, stats strip, action
+ * row with primary "Start cooking" + secondary buttons + tag pills, an
+ * intro prose with drop cap, then a two-column body (sticky ingredients
+ * card next to numbered directions). Below: Notes from the kitchen,
+ * Nutrition, About the chef, Reviews with rating breakdown, You might
+ * also like. Plus a Cook mode dark overlay and a Write-a-review modal.
  *
- * Layout: editorial 60vh hero with title overlay on phone, two-column
- * editorial split on desktop with sticky ingredients next to directions.
+ * All styling lives in RecipePage.css under .recipe-detail-page so the
+ * editorial tokens don't leak into other routes.
  */
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Share2, Star, Check, Edit3, MessageSquare, ChefHat, Loader2,
+  ArrowLeft, Award, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
+  Edit3, Flame, Heart, Loader2, MessageCircle, Play, Plus, Printer,
+  Share2, Sparkles, Star, Users, X,
 } from 'lucide-react';
-import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
-import type { SharedRecipe } from '../contexts/ChatContext';
-import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
@@ -36,39 +35,129 @@ import {
   type FriendHomeMeal,
   type UserProfile,
 } from '../lib/supabase-community';
-import { getRecipe as fetchRecipeFromDb, getRecipeReviews } from '../lib/supabase-recipes';
+import { getRecipe as fetchRecipeFromDb, getRecipeReviews, getPublicRecipes, upsertReview as upsertFormalReview } from '../lib/supabase-recipes';
 import {
   upsertHomeMealReview,
   getHomeMealReviews,
   getMyHomeMealReview,
-  summarizeReviews,
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
-import {
-  formatDuration,
-  formatDurationCompact,
-  PhotoLightbox,
-  RecipeQuickInfoRow,
-  RecipeIngredientList,
-  RecipeDirectionsList,
-  RecipeReviewList,
-  RecipeMobileSectionNav,
-  RecipeEmptyState,
-  type QuickInfoItem,
-  type ReviewListItem,
-} from '../lib/recipe-display';
+import { cn } from '../lib/utils';
+import './RecipePage.css';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuidLike = (v: string): boolean => UUID_RE.test(v);
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
-/* ── Unified view model ─────────────────────────────────────────────────
-   Both `Recipe` (from the `recipes` table) and `FriendHomeMeal` (from
-   `user_app_data.home_meals`) collapse into this shape so the rest of
-   the page renders identically regardless of source. The `source` flag
-   drives the few branches that have to differ — review table, rating
-   scale, edit affordance, etc.
+const STORAGE_KEY_SAVED = 'gourmad-saved-recipes';
+const STORAGE_KEY_COOKED = 'gourmad-cooked-recipes';
+
+// Hash a string to a stable hue 0–360. Used for avatar gradients.
+const hashToHue = (s: string): number => {
+  let h = 0;
+  for (let i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+};
+
+// Quantity formatter — supports common fractions (¼, ½, ¾, ⅓, ⅔, ⅛)
+// so the ingredient list reads like a cookbook rather than dumping "0.5 cups".
+const VULGAR_FRAC: Record<string, string> = {
+  '0.25': '¼', '0.5': '½', '0.75': '¾',
+  '0.33': '⅓', '0.67': '⅔', '0.125': '⅛', '0.375': '⅜', '0.625': '⅝', '0.875': '⅞',
+};
+function formatQty(raw: string | number | undefined, scale: number): string {
+  if (raw === undefined || raw === null || raw === '') return '';
+  // The amount string in our DB might be "1", "1/2", "1 1/2", "0.5", or
+  // free text like "to taste". Parse to a number when possible; otherwise
+  // pass through unchanged (still scaled? no — only numeric values scale).
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  // Pure numeric / fraction parser shared with recipe-display.tsx.
+  const mixed = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  let value: number | null = null;
+  if (mixed) {
+    const d = parseInt(mixed[3], 10);
+    if (d) value = parseInt(mixed[1], 10) + parseInt(mixed[2], 10) / d;
+  } else {
+    const frac = trimmed.match(/^(\d+)\/(\d+)$/);
+    if (frac) {
+      const d = parseInt(frac[2], 10);
+      if (d) value = parseInt(frac[1], 10) / d;
+    } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      value = parseFloat(trimmed);
+    }
+  }
+  if (value === null) return trimmed;
+  const v = value * scale;
+  if (v === 0) return '0';
+  const whole = Math.floor(v);
+  const frac = +(v - whole).toFixed(3);
+  const fracStr = VULGAR_FRAC[frac.toFixed(2)] || (frac > 0 ? frac.toFixed(2).replace(/\.?0+$/, '') : '');
+  if (whole === 0) return fracStr || '0';
+  if (!fracStr) return String(whole);
+  // Use unicode vulgar fraction inline with whole (e.g. "1½")
+  if (VULGAR_FRAC[frac.toFixed(2)]) return `${whole}${fracStr}`;
+  return `${whole} ${fracStr}`;
+}
+
+// Parse a step's first sentence as a title and the rest as body. Falls back
+// to using the whole string as the body with no title when the step is just
+// one short sentence (the visual still works — there's a numbered circle).
+function splitStep(text: string): { title: string | null; body: string } {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return { title: null, body: '' };
+  // Look for a colon-style title: "Salt the water heavily: bring a pot..."
+  const colonIdx = trimmed.indexOf(':');
+  if (colonIdx > 4 && colonIdx < 80) {
+    const candidate = trimmed.slice(0, colonIdx).trim();
+    if (!/[.!?]/.test(candidate)) {
+      return { title: candidate, body: trimmed.slice(colonIdx + 1).trim() };
+    }
+  }
+  // Otherwise split on the first sentence-ending punctuation when the
+  // sentence is short enough to feel like a heading.
+  const m = trimmed.match(/^([^.!?]+[.!?])\s+(.+)$/s);
+  if (m && m[1].length <= 60 && m[2].length > 0) {
+    return { title: m[1].replace(/[.!?]$/, '').trim(), body: m[2].trim() };
+  }
+  return { title: null, body: trimmed };
+}
+
+// Extract minutes/seconds from a step's body text so we can show a Start
+// timer pill. Returns null when nothing time-like is mentioned.
+function extractStepMs(text: string): { label: string; ms: number } | null {
+  const haystack = text || '';
+  const hour = haystack.match(/(\d+)\s?(?:hours?|hr|h)\b/i);
+  const min = haystack.match(/(\d+)\s?(?:minutes?|mins?|m)\b/i);
+  const sec = haystack.match(/(\d+)\s?(?:seconds?|secs?|s)\b/i);
+  let ms = 0;
+  const parts: string[] = [];
+  if (hour) { ms += parseInt(hour[1]) * 3_600_000; parts.push(`${hour[1]}h`); }
+  if (min)  { ms += parseInt(min[1])  * 60_000;    parts.push(`${min[1]} min`); }
+  if (sec && !min && !hour) { ms += parseInt(sec[1]) * 1000; parts.push(`${sec[1]}s`); }
+  if (ms === 0) return null;
+  return { label: parts.join(' '), ms };
+}
+
+// Format minute total ("12 min", "1 h", "1 h 25 min")
+function formatMinutes(mins: number): string {
+  if (!Number.isFinite(mins) || mins <= 0) return '';
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
+}
+
+// Normalize a rating to 5-point scale for display. Legacy formal-recipe
+// data was stored as 0–10; anything > 5 gets halved.
+const norm5 = (n: number): number => (n > 5 ? n / 2 : n);
+
+/* ── Unified view model ──────────────────────────────────────────────
+   Both Recipe (formal table) and FriendHomeMeal (home_meals JSON in
+   user_app_data) flatten into this shape. `source` distinguishes them
+   for the few branches that have to differ — review table, owner edit
+   affordance, save target, etc. Everything else renders identically.
    ──────────────────────────────────────────────────────────────────── */
 type UnifiedRecipe = {
   source: 'recipe' | 'homeMeal';
@@ -76,50 +165,61 @@ type UnifiedRecipe = {
   ownerId: string;
   title: string;
   description: string;
+  intro: string[];
   cuisine: string;
   difficulty: 'easy' | 'medium' | 'hard' | '';
   tags: string[];
   ingredients: RecipeIngredient[];
   steps: string[];
-  photos: Array<{ url: string; caption: string }>;
+  photos: string[];
   coverPhoto: string;
   prepMinutes: number;
   cookMinutes: number;
   servings: number;
-  date?: string;
-  authorScore?: number;
+  date: string;
+  updatedAt: string;
   sourceType?: 'user' | 'expert';
   raw: Recipe | FriendHomeMeal;
 };
 
+// Description may be a long multi-paragraph chef's note. Split on blank
+// lines so each paragraph gets its own <p> and the drop cap applies to the
+// first one. Falls back to a single paragraph or an empty array.
+function splitIntro(description: string): string[] {
+  const cleaned = (description || '').trim();
+  if (!cleaned) return [];
+  return cleaned.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean);
+}
+
 function adaptRecipe(r: Recipe): UnifiedRecipe {
-  const photos = (r.photos || []).map((url) => ({ url, caption: '' }));
   return {
     source: 'recipe',
     id: r.id,
     ownerId: r.userId,
     title: r.title || '',
     description: r.description || '',
+    intro: splitIntro(r.description || ''),
     cuisine: r.cuisine || '',
     difficulty: (r.difficulty || '') as UnifiedRecipe['difficulty'],
     tags: r.tags || [],
     ingredients: r.ingredients || [],
     steps: (r.steps || []).map((s) => s.text),
-    photos,
-    coverPhoto: photos[0]?.url || '',
+    photos: r.photos || [],
+    coverPhoto: r.photos?.[0] || '',
     prepMinutes: r.prepTimeMinutes ?? 0,
     cookMinutes: r.cookTimeMinutes ?? 0,
     servings: r.servings ?? 0,
-    date: r.updatedAt || r.createdAt,
+    date: r.createdAt || '',
+    updatedAt: r.updatedAt || r.createdAt || '',
     sourceType: r.sourceType,
     raw: r,
   };
 }
 
 function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
-  const photoList = [
-    ...(m.coverPhoto ? [{ url: m.coverPhoto, caption: '' }] : []),
-    ...(m.photos || []).map((p) => ({ url: p.url, caption: p.caption })),
+  const photos = [
+    ...(m.coverPhoto ? [m.coverPhoto] : []),
+    ...(m.photos || []).map((p) => p.url).filter(Boolean),
   ];
   return {
     source: 'homeMeal',
@@ -127,25 +227,35 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     ownerId: m.userId,
     title: m.name || '',
     description: m.description || '',
+    intro: splitIntro(m.description || ''),
     cuisine: m.cuisine || '',
     difficulty: ((m.difficulty || '').toLowerCase() || '') as UnifiedRecipe['difficulty'],
     tags: m.tags || [],
     ingredients: m.ingredients || [],
     steps: m.steps || [],
-    photos: photoList,
-    coverPhoto: photoList[0]?.url || '',
+    photos,
+    coverPhoto: photos[0] || '',
     prepMinutes: m.prepTime ?? 0,
     cookMinutes: m.cookTime ?? 0,
     servings: m.servings ?? 0,
-    date: m.date,
-    authorScore: m.score,
+    date: m.date || '',
+    updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
     raw: m,
   };
 }
 
+type UnifiedReview = {
+  id: string;
+  userId: string;
+  rating: number;
+  notes: string;
+  photo: string;
+  createdAt: string;
+  verified?: boolean;
+};
+
 export const RecipePage: React.FC = () => {
   const params = useParams<{ userId?: string; id?: string; mealId?: string }>();
-  // Support both /recipe/:userId/:id and /meal/:userId/:mealId.
   const ownerId = params.userId || '';
   const resolvedId = params.id || params.mealId || '';
 
@@ -156,29 +266,36 @@ export const RecipePage: React.FC = () => {
   const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
+  // ── Data ──
   const [data, setData] = useState<UnifiedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<UserProfile | null>(null);
-
-  // ── Home-meal review state ──
-  const [homeMealReviews, setHomeMealReviews] = useState<HomeMealReview[]>([]);
+  const [reviews, setReviews] = useState<UnifiedReview[]>([]);
   const [reviewerProfiles, setReviewerProfiles] = useState<Record<string, UserProfile>>({});
-  const [loadingReviews, setLoadingReviews] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [myRating, setMyRating] = useState(0);
-  const [myHoverRating, setMyHoverRating] = useState<number | null>(null);
-  const [myNotes, setMyNotes] = useState('');
-  const [submittedAt, setSubmittedAt] = useState<number | null>(null);
-  const [submitError, setSubmitError] = useState(false);
+  const [myReview, setMyReview] = useState<UnifiedReview | null>(null);
+  const [related, setRelated] = useState<Recipe[]>([]);
+  const [relatedAuthors, setRelatedAuthors] = useState<Record<string, UserProfile>>({});
 
-  // ── Formal-recipe review state ──
-  const [formalReviews, setFormalReviews] = useState<RecipeReview[]>([]);
+  // ── User interactions ──
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
+    try { const raw = localStorage.getItem(STORAGE_KEY_SAVED); return new Set(raw ? JSON.parse(raw) : []); }
+    catch { return new Set(); }
+  });
+  const [cookedIds, setCookedIds] = useState<Set<string>>(() => {
+    try { const raw = localStorage.getItem(STORAGE_KEY_COOKED); return new Set(raw ? JSON.parse(raw) : []); }
+    catch { return new Set(); }
+  });
+  const [servings, setServings] = useState<number>(0);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
+  const [cookMode, setCookMode] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  // ── Transient UI ──
-  const [servingsScale, setServingsScale] = useState(1);
-  const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
-  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
+  const saved = data ? savedIds.has(data.id) : false;
+  const cooked = data ? cookedIds.has(data.id) : false;
 
   // ── Load the recipe ──
   useEffect(() => {
@@ -188,100 +305,81 @@ export const RecipePage: React.FC = () => {
     setNotFound(false);
     setData(null);
     setAuthorProfile(null);
+    setReviews([]);
+    setMyReview(null);
+    setReviewerProfiles({});
 
     (async () => {
-      // 1. Local stores win when the current user owns the content.
-      //    This lets the cookbook open the user's own (potentially
-      //    private) meals without hitting the public-meal endpoint.
+      // 1. Local stores — owner viewing their own content.
       if (ownerId && currentUserId === ownerId) {
         const ownRecipe = myRecipes.find((r) => r.id === resolvedId);
         if (ownRecipe) {
-          if (!cancelled) {
-            setData(adaptRecipe(ownRecipe));
-            setLoading(false);
-          }
+          if (!cancelled) { setData(adaptRecipe(ownRecipe)); setLoading(false); }
           return;
         }
         const ownMeal = myHomeMeals.find((m) => m.id === resolvedId);
         if (ownMeal) {
-          if (!cancelled) {
-            setData(adaptHomeMeal({ ...ownMeal, userId: ownerId }));
-            setLoading(false);
-          }
+          if (!cancelled) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); setLoading(false); }
           return;
         }
       }
-
-      // 2. Formal recipe lookup. The id column is uuid, so only try the
-      //    table when the id is shaped like one — otherwise PostgREST
-      //    400s and the console gets noisy for every home-meal load.
+      // 2. Formal recipe table (UUID-shaped only).
       if (isUuidLike(resolvedId)) {
         const formal = await fetchRecipeFromDb(resolvedId);
         if (cancelled) return;
-        if (formal) {
-          // Public OR the viewer is the owner.
-          if (formal.isPublic || formal.userId === currentUserId) {
-            setData(adaptRecipe(formal));
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // 3. Public home meal lookup needs the owner id from the URL.
-      if (ownerId) {
-        const meal = await getPublicHomeMealById(ownerId, resolvedId);
-        if (cancelled) return;
-        if (meal) {
-          setData(adaptHomeMeal(meal));
+        if (formal && (formal.isPublic || formal.userId === currentUserId)) {
+          setData(adaptRecipe(formal));
           setLoading(false);
           return;
         }
       }
-
-      if (!cancelled) {
-        setNotFound(true);
-        setLoading(false);
+      // 3. Public home meal.
+      if (ownerId) {
+        const meal = await getPublicHomeMealById(ownerId, resolvedId);
+        if (cancelled) return;
+        if (meal) { setData(adaptHomeMeal(meal)); setLoading(false); return; }
       }
+      if (!cancelled) { setNotFound(true); setLoading(false); }
     })();
-
     return () => { cancelled = true; };
   }, [resolvedId, ownerId, currentUserId, myRecipes, myHomeMeals]);
 
-  // ── Load author profile + reviews once the recipe is known ──
+  // ── Reviews + author profile + related recipes ──
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
 
+    // Seed the servings stepper from the recipe's base each time data changes.
+    setServings(data.servings > 0 ? data.servings : 4);
+    setChecked(new Set());
+    setDoneSteps(new Set());
+
     (async () => {
       const profileMap = await getProfilesByIds([data.ownerId]);
-      if (cancelled) return;
-      setAuthorProfile(profileMap[data.ownerId] ?? null);
+      if (!cancelled) setAuthorProfile(profileMap[data.ownerId] ?? null);
     })();
-
-    setLoadingReviews(true);
-    setMyRating(0);
-    setMyNotes('');
-    setSubmittedAt(null);
-    setFormalReviews([]);
-    setHomeMealReviews([]);
-    setReviewerProfiles({});
 
     (async () => {
       try {
         if (data.source === 'recipe') {
-          const reviews = await getRecipeReviews(data.id);
+          const rows = await getRecipeReviews(data.id);
           if (cancelled) return;
-          setFormalReviews(reviews);
-          const reviewerIds = Array.from(new Set(reviews.map((r) => r.userId).filter(Boolean)));
-          if (reviewerIds.length > 0) {
-            const map = await getProfilesByIds(reviewerIds);
-            if (!cancelled) setReviewerProfiles(map);
-          }
+          const reviewerIds = Array.from(new Set(rows.map((r) => r.userId).filter(Boolean)));
+          const profiles = reviewerIds.length > 0 ? await getProfilesByIds(reviewerIds) : {};
+          if (cancelled) return;
+          const adapted: UnifiedReview[] = rows.map((r: RecipeReview) => ({
+            id: r.id,
+            userId: r.userId,
+            rating: norm5(r.rating),
+            notes: r.notes || '',
+            photo: r.photo || '',
+            createdAt: r.createdAt,
+          }));
+          setReviewerProfiles(profiles);
+          setReviews(adapted.filter((r) => r.userId !== currentUserId));
+          const mine = adapted.find((r) => r.userId === currentUserId) || null;
+          setMyReview(mine);
         } else {
-          // Home meal: pull the dedicated table + meta-fallback rows
-          // across the viewer's friend graph so reviews persisted via
-          // ListsContext's meta path also show up.
           let scanIds: string[] = [data.ownerId];
           if (currentUserId) {
             scanIds.push(currentUserId);
@@ -295,745 +393,1015 @@ export const RecipePage: React.FC = () => {
             currentUserId ? getMyHomeMealReview(currentUserId, data.id) : Promise.resolve(null),
           ]);
           if (cancelled) return;
-          setHomeMealReviews(all);
-          let myReview = mine;
-          if (!myReview && currentUserId) {
+          const reviewerIds = Array.from(new Set(all.map((r) => r.userId).filter(Boolean)));
+          const profiles = reviewerIds.length > 0 ? await getProfilesByIds(reviewerIds) : {};
+          if (cancelled) return;
+          setReviewerProfiles(profiles);
+          const adapted: UnifiedReview[] = all.map((r: HomeMealReview) => ({
+            id: r.id,
+            userId: r.userId,
+            rating: norm5(r.rating),
+            notes: r.notes || '',
+            photo: '',
+            createdAt: r.createdAt,
+          }));
+          setReviews(adapted.filter((r) => r.userId !== currentUserId));
+          // Layered fallback: dedicated table → ListsContext meta
+          let resolvedMine: UnifiedReview | null = null;
+          if (mine) {
+            resolvedMine = { id: mine.id, userId: mine.userId, rating: norm5(mine.rating), notes: mine.notes || '', photo: '', createdAt: mine.createdAt };
+          } else if (currentUserId) {
             const metaReviews = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, { rating: number; notes: string }>;
-            const localEntry = metaReviews[data.id];
-            if (localEntry) {
-              myReview = { id: 'local', userId: currentUserId, mealId: data.id, rating: localEntry.rating, notes: localEntry.notes || '', createdAt: '', updatedAt: '' };
+            const local = metaReviews[data.id];
+            if (local) {
+              resolvedMine = { id: 'local', userId: currentUserId, rating: norm5(local.rating), notes: local.notes || '', photo: '', createdAt: '' };
             }
           }
-          if (myReview) {
-            setMyRating(myReview.rating);
-            setMyNotes(myReview.notes);
-          }
-          const reviewerIds = Array.from(new Set(all.map((r) => r.userId)));
-          if (reviewerIds.length > 0) {
-            const map = await getProfilesByIds(reviewerIds);
-            if (!cancelled) setReviewerProfiles(map);
-          }
+          setMyReview(resolvedMine);
         }
       } catch (err) {
         console.warn('[RecipePage] failed to load reviews:', err);
-      } finally {
-        if (!cancelled) setLoadingReviews(false);
       }
     })();
 
+    // Related — fetch a slice and filter to same-cuisine + not-self + not-this-recipe.
+    (async () => {
+      try {
+        const all = await getPublicRecipes(60);
+        if (cancelled) return;
+        const wantCuisine = (data.cuisine || '').toLowerCase();
+        const filtered = all.filter((r) => {
+          if (r.id === data.id) return false;
+          if (r.userId === data.ownerId && wantCuisine) {
+            // Same chef + same cuisine still feels like "more like this".
+            return r.cuisine.toLowerCase() === wantCuisine;
+          }
+          if (wantCuisine) return r.cuisine.toLowerCase() === wantCuisine;
+          return true;
+        });
+        const top = (filtered.length >= 4 ? filtered : all.filter((r) => r.id !== data.id)).slice(0, 4);
+        setRelated(top);
+        const relatedAuthorIds = Array.from(new Set(top.map((r) => r.userId).filter(Boolean)));
+        if (relatedAuthorIds.length > 0) {
+          const profiles = await getProfilesByIds(relatedAuthorIds);
+          if (!cancelled) setRelatedAuthors(profiles);
+        }
+      } catch { /* non-fatal */ }
+    })();
+
     return () => { cancelled = true; };
-    // restaurantMeta intentionally not in deps — the meta fallback only
-    // matters at initial load; rereading on every meta-sync would spam.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, currentUserId]);
 
-  const homeMealSummary = useMemo(() => summarizeReviews(homeMealReviews), [homeMealReviews]);
-  const formalAvgRating = useMemo(() => {
-    if (formalReviews.length === 0) return null;
-    return formalReviews.reduce((s, r) => s + r.rating, 0) / formalReviews.length;
-  }, [formalReviews]);
+  // ── Sticky-nav scroll state ──
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 200);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
-  const handleSubmitHomeMealReview = async () => {
-    if (!currentUserId || !data || data.source !== 'homeMeal' || myRating < 1) return;
-    setSaving(true);
-    setSubmitError(false);
+  // ── Toast auto-dismiss ──
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // ── Helpers ──
+  const showToast = useCallback((msg: string) => setToast(msg), []);
+  const persistSet = (set: Set<string>, key: string) => {
+    try { localStorage.setItem(key, JSON.stringify(Array.from(set))); } catch { /* quota */ }
+  };
+  const handleSave = useCallback(() => {
+    if (!data) return;
+    setSavedIds((prev) => {
+      const next = new Set<string>(prev);
+      if (next.has(data.id)) { next.delete(data.id); showToast('Removed from saved'); }
+      else { next.add(data.id); showToast('Saved to your recipe box'); }
+      persistSet(next, STORAGE_KEY_SAVED);
+      return next;
+    });
+  }, [data, showToast]);
+  const handleCooked = useCallback(() => {
+    if (!data) return;
+    setCookedIds((prev) => {
+      const next = new Set<string>(prev);
+      if (next.has(data.id)) { next.delete(data.id); showToast('Removed from cooked'); }
+      else { next.add(data.id); showToast('Nice — marked as cooked'); }
+      persistSet(next, STORAGE_KEY_COOKED);
+      return next;
+    });
+  }, [data, showToast]);
+  const handleShare = useCallback(() => {
+    if (!data) return;
+    const url = `${window.location.origin}/recipe/${data.ownerId}/${data.id}`;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      navigator.share({ title: data.title, url }).catch(() => { /* user cancel */ });
+    } else {
+      navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
+      showToast('Link copied to clipboard');
+    }
+  }, [data, showToast]);
+  const handlePrint = useCallback(() => window.print(), []);
+  const handleEdit = useCallback(() => {
+    if (!data) return;
+    if (data.source === 'recipe') openRecipeModal(data.raw as Recipe);
+    else navigate('/pantry?view=home-cooking');
+  }, [data, openRecipeModal, navigate]);
+
+  const submitReview = useCallback(async (
+    rating: number,
+    title: string,
+    body: string,
+    cookedIt: boolean,
+  ) => {
+    if (!data || !currentUserId || rating < 1) return false;
     try {
-      const reviewData = { rating: myRating, notes: myNotes.trim() };
-      const saved = await upsertHomeMealReview(currentUserId, data.id, reviewData);
-
-      const existingReviews = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
-      stashMetaKey('__my_meal_reviews__', {
-        ...existingReviews,
-        [data.id]: { rating: myRating, notes: myNotes.trim(), updatedAt: new Date().toISOString() },
-      });
-
-      if (saved) {
-        setHomeMealReviews((prev) => {
-          const filtered = prev.filter((r) => r.userId !== currentUserId);
-          return [saved, ...filtered];
+      if (data.source === 'recipe') {
+        const saved = await upsertFormalReview(currentUserId, data.id, {
+          rating,
+          notes: title ? `${title}\n\n${body}` : body,
+          photo: '',
+        });
+        if (saved) {
+          setMyReview({
+            id: saved.id,
+            userId: saved.userId,
+            rating: norm5(saved.rating),
+            notes: saved.notes,
+            photo: saved.photo || '',
+            createdAt: saved.createdAt,
+          });
+        }
+      } else {
+        const notes = title ? `${title}\n\n${body}` : body;
+        const saved = await upsertHomeMealReview(currentUserId, data.id, { rating, notes });
+        // Also stash via ListsContext meta so the home-meal fallback path
+        // surfaces the review for the author.
+        const existing = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
+        stashMetaKey('__my_meal_reviews__', {
+          ...existing,
+          [data.id]: { rating, notes, updatedAt: new Date().toISOString() },
+        });
+        if (saved) {
+          setMyReview({ id: saved.id, userId: saved.userId, rating: norm5(saved.rating), notes: saved.notes, photo: '', createdAt: saved.createdAt });
+        }
+      }
+      if (cookedIt && data && !cookedIds.has(data.id)) {
+        setCookedIds((prev) => {
+          const next = new Set<string>(prev); next.add(data.id);
+          persistSet(next, STORAGE_KEY_COOKED);
+          return next;
         });
       }
-      setSubmittedAt(Date.now());
-    } catch {
-      setSubmitError(true);
-    } finally {
-      setSaving(false);
+      showToast('Review posted — thanks for cooking!');
+      return true;
+    } catch (err) {
+      console.warn('[RecipePage] review submit failed:', err);
+      showToast('Could not post review');
+      return false;
     }
-  };
+  }, [data, currentUserId, cookedIds, restaurantMeta, stashMetaKey, showToast]);
+
+  // ── Derived view data ──
+  const stars5 = useMemo(() => {
+    if (!data) return 0;
+    const all = [...reviews, ...(myReview ? [myReview] : [])];
+    if (all.length === 0) return 0;
+    return all.reduce((s, r) => s + r.rating, 0) / all.length;
+  }, [reviews, myReview, data]);
+  const ratingsCount = useMemo(() => reviews.length + (myReview ? 1 : 0), [reviews.length, myReview]);
+  const ratingBreakdown = useMemo<Record<number, number>>(() => {
+    const all = [...reviews, ...(myReview ? [myReview] : [])];
+    const out: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    for (const r of all) {
+      const rounded = Math.max(1, Math.min(5, Math.round(r.rating)));
+      out[rounded]++;
+    }
+    return out;
+  }, [reviews, myReview]);
+
+  const totalMinutes = (data?.prepMinutes || 0) + (data?.cookMinutes || 0);
+
+  // Servings scaling for the ingredient list. Base is the original recipe's
+  // serves (≥ 1) so scaling never divides by zero on quirky data.
+  const baseServings = Math.max(1, data?.servings || 4);
+  const scale = servings > 0 ? servings / baseServings : 1;
+
+  const isOwner = !!data && !!currentUserId && data.ownerId === currentUserId;
+
+  const toggleCheck = useCallback((key: string) => {
+    setChecked((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  }, []);
+  const toggleStep = useCallback((i: number) => {
+    setDoneSteps((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
+  }, []);
 
   // ── Render guards ──
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={36} className="animate-spin text-primary/60" />
+      <div className="recipe-detail-page">
+        <div className="rd-state">
+          <Loader2 size={32} className="animate-spin icon" />
+        </div>
       </div>
     );
   }
-
   if (notFound || !data) {
     return (
-      <div className="max-w-[680px] mx-auto px-6 py-16 text-center">
-        <ChefHat size={36} className="mx-auto text-on-surface/20 mb-3" />
-        <p className="text-sm font-semibold text-on-surface/50">Recipe not found</p>
-        <p className="text-xs text-on-surface/35 mt-1">It may have been deleted or made private.</p>
-        <button
-          onClick={() => navigate(-1)}
-          className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-on-surface/5 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/10 transition-colors"
-        >
-          <ArrowLeft size={14} /> Back
-        </button>
-      </div>
-    );
-  }
-
-  const isOwner = !!currentUserId && data.ownerId === currentUserId;
-  const totalTime = data.prepMinutes + data.cookMinutes;
-  const hasIngredients = data.ingredients.length > 0;
-  const hasSteps = data.steps.length > 0;
-  const baseServings = data.servings > 0 ? data.servings : 4;
-  const authorName = authorProfile?.display_name || authorProfile?.username || 'A friend';
-  const heroPhoto = data.coverPhoto;
-
-  const handleShare = () => {
-    setShareRecipeData({
-      mealId: data.id,
-      authorId: data.ownerId,
-      authorName,
-      name: data.title,
-      image: heroPhoto,
-      description: data.description || undefined,
-      tags: data.tags.length > 0 ? data.tags : undefined,
-      totalTime: totalTime || undefined,
-      difficulty: data.difficulty || undefined,
-      ingredientCount: data.ingredients.length || undefined,
-      stepCount: data.steps.length || undefined,
-    });
-  };
-
-  const handleEditOwn = () => {
-    if (data.source === 'recipe') {
-      openRecipeModal(data.raw as Recipe);
-    } else {
-      // Home meals don't have an in-page editor; the Pantry cookbook
-      // is the single edit surface for home meals today.
-      navigate('/pantry?view=home-cooking');
-    }
-  };
-
-  // ── Section blocks (shared between phone + desktop) ──
-  const durationLabel = (m: number) => phoneMode ? formatDurationCompact(m) : formatDuration(m);
-  const quickInfoItems: QuickInfoItem[] = [];
-  if (data.prepMinutes > 0) quickInfoItems.push({ label: 'Prep', value: durationLabel(data.prepMinutes) });
-  if (data.cookMinutes > 0) quickInfoItems.push({ label: 'Cook', value: durationLabel(data.cookMinutes) });
-  if (totalTime > 0 && data.prepMinutes > 0 && data.cookMinutes > 0) {
-    quickInfoItems.push({ label: 'Total', value: durationLabel(totalTime) });
-  }
-  if (data.servings > 0) quickInfoItems.push({ label: 'Serves', value: String(data.servings) });
-  if (data.difficulty) {
-    quickInfoItems.push({ label: 'Level', value: DIFFICULTY_LABEL[data.difficulty] || data.difficulty });
-  }
-
-  const statCardsBlock = quickInfoItems.length > 0 ? (
-    <div className="py-4 border-y border-on-surface/8">
-      <RecipeQuickInfoRow items={quickInfoItems} />
-    </div>
-  ) : null;
-
-  // Aggregate rating: native scale per source so the number matches
-  // what reviewers actually entered (5-star for meals, 10-point for
-  // formal recipes).
-  const ratingDisplay = (() => {
-    if (data.source === 'homeMeal') {
-      return (
-        <div className="flex items-center gap-4">
-          <div className="flex items-baseline">
-            <span className="text-5xl font-serif font-bold tabular-nums text-amber-600">
-              {homeMealSummary.count > 0 ? homeMealSummary.average.toFixed(1) : '—'}
-            </span>
-            <span className="text-sm text-on-surface/35 font-medium ml-1">/ 5</span>
-          </div>
-          <div>
-            <div className="flex gap-0.5 mb-0.5">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                  key={n}
-                  size={15}
-                  className={cn(
-                    homeMealSummary.count > 0 && n <= Math.round(homeMealSummary.average)
-                      ? 'text-amber-500 fill-amber-500'
-                      : 'text-amber-200',
-                  )}
-                />
-              ))}
-            </div>
-            <p className="text-[11px] text-on-surface/50">
-              {homeMealSummary.count === 0 ? 'No reviews yet' : `${homeMealSummary.count} review${homeMealSummary.count !== 1 ? 's' : ''}`}
-            </p>
-          </div>
-        </div>
-      );
-    }
-    // Formal recipe: 10-point numeric, color-coded.
-    if (formalAvgRating === null) {
-      return (
-        <p className="text-[11px] text-on-surface/40 font-medium">No reviews yet</p>
-      );
-    }
-    const color = formalAvgRating >= 8 ? 'text-green-600' : formalAvgRating >= 5 ? 'text-yellow-600' : 'text-red-500';
-    return (
-      <div className="flex items-baseline">
-        <span className={cn('text-5xl font-serif font-bold tabular-nums leading-none', color)}>
-          {formalAvgRating.toFixed(1)}
-        </span>
-        <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
-        <span className="text-[11px] text-on-surface/40 ml-3">
-          {formalReviews.length} review{formalReviews.length !== 1 ? 's' : ''}
-        </span>
-      </div>
-    );
-  })();
-
-  // Title block for desktop hero (includes the h1) and the "subtitle"
-  // block for below the phone editorial hero (rating + tags only — the
-  // h1 already lives in the hero overlay so don't repeat it).
-  const renderTitleBlock = (includeTitle: boolean) => (
-    <header>
-      {data.date && (
-        <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
-          {data.source === 'homeMeal'
-            ? new Date(data.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-            : `Updated ${new Date(data.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}
-        </p>
-      )}
-      {includeTitle && (
-        <h1 className="font-serif font-bold text-[28px] leading-[1.1] sm:text-5xl text-on-surface mb-4">
-          {data.title}
-        </h1>
-      )}
-      <div className="mb-4">{ratingDisplay}</div>
-      {data.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {data.tags.map((tag) => (
-            <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
-              {tag}
-            </span>
-          ))}
-        </div>
-      )}
-    </header>
-  );
-
-  const ingredientsBlock = hasIngredients ? (
-    <section id="ingredients" className="scroll-mt-20">
-      <div className="flex items-baseline justify-between gap-3 mb-4">
-        <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
-        <span className="text-[11px] text-on-surface/40 font-medium">
-          {data.ingredients.length} item{data.ingredients.length !== 1 ? 's' : ''}
-        </span>
-      </div>
-      <RecipeIngredientList
-        recipeKey={`${data.source}-${data.id}`}
-        ingredients={data.ingredients}
-        servings={{
-          base: baseServings,
-          scale: servingsScale,
-          onScaleChange: setServingsScale,
-        }}
-      />
-    </section>
-  ) : (
-    <section id="ingredients" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Ingredients</h2>
-      <RecipeEmptyState
-        icon={ChefHat}
-        title="No ingredients listed"
-        hint={isOwner ? 'Add ingredients by editing this recipe.' : undefined}
-      />
-    </section>
-  );
-
-  const directionsBlock = hasSteps ? (
-    <section id="directions" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Directions</h2>
-      <RecipeDirectionsList steps={data.steps} />
-    </section>
-  ) : (
-    <section id="directions" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Directions</h2>
-      <RecipeEmptyState
-        title="No directions yet"
-        hint={isOwner ? 'Add step-by-step directions by editing this recipe.' : undefined}
-      />
-    </section>
-  );
-
-  const notesBlock = data.description ? (
-    <section id="notes" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Notes</h2>
-      <blockquote className="relative bg-amber-50/60 border-l-4 border-amber-400 rounded-r-xl px-5 py-4 sm:px-6 sm:py-5">
-        <p className="italic font-serif text-on-surface/75 leading-[1.7] text-[15px] sm:text-[16px] whitespace-pre-wrap">
-          {data.description}
-        </p>
-      </blockquote>
-    </section>
-  ) : null;
-
-  const photosBlock = data.photos.length > 0 ? (
-    <section id="photos">
-      <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Photos</h2>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-        {data.photos.map((photo, i) => (
-          <button
-            key={i}
-            onClick={() => setLightboxPhotoIdx(i)}
-            className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
-          >
-            <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+      <div className="recipe-detail-page">
+        <div className="rd-state">
+          <ChefHat size={36} className="icon" />
+          <p className="title">Recipe not found</p>
+          <p className="sub">It may have been deleted or made private.</p>
+          <button type="button" className="back-link" onClick={() => navigate(-1)}>
+            <ArrowLeft /> Back
           </button>
-        ))}
+        </div>
       </div>
-    </section>
-  ) : null;
+    );
+  }
 
-  // Inline 5-star rating form — only home meals have a write path
-  // wired up today. Formal recipes get a quiet placeholder.
-  const rateBlock = (
-    <section id="rate" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Rate this recipe</h2>
-      {data.source === 'recipe' ? (
-        <p className="text-sm text-on-surface/50 italic">Reviews for this recipe are coming soon.</p>
-      ) : !currentUserId ? (
-        <p className="text-sm text-on-surface/50 italic">Sign in to leave a rating.</p>
-      ) : isOwner ? (
-        <p className="text-sm text-on-surface/50 italic">You can&rsquo;t rate your own recipe.</p>
-      ) : (
-        <div className="bg-white rounded-2xl border-2 border-emerald-200 p-5 sm:p-6">
-          <p className="text-sm text-on-surface/60 mb-4">
-            Tried it? Let {authorName} know what you thought.
-          </p>
-          <div className="flex items-center justify-center gap-1 mb-4">
-            {[1, 2, 3, 4, 5].map((n) => {
-              const displayRating = myHoverRating ?? myRating;
-              const filled = n <= displayRating;
+  // ── Author display ──
+  const authorName = authorProfile?.display_name || authorProfile?.username || 'Anonymous';
+  const authorRole = authorProfile?.is_expert
+    ? `Chef${authorProfile.home_city ? ` · ${authorProfile.home_city}` : ''}`
+    : 'Home cook';
+  const authorInitial = (authorName[0] || '?').toUpperCase();
+  const authorInitials = authorName.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || 'A';
+  const authorHue = hashToHue(data.ownerId || authorName);
+  const authorBg = `hsl(${authorHue} 45% 38%)`;
+
+  // ── Stars renderer ──
+  const renderStars = (value: number, size = 13) => {
+    const rounded = Math.round(value);
+    return Array.from({ length: 5 }).map((_, i) => (
+      <Star
+        key={i}
+        size={size}
+        className={i < rounded ? '' : 'empty'}
+        fill={i < rounded ? 'currentColor' : 'currentColor'}
+      />
+    ));
+  };
+
+  return (
+    <div className="recipe-detail-page">
+      {/* ── Top nav ───────────────────────────────────────────────── */}
+      <nav className={cn('rd-nav', scrolled && 'scrolled')}>
+        <div className="rd-nav-inner">
+          <div className="rd-nav-left">
+            <button type="button" className="rd-nav-back" onClick={() => navigate(-1)} aria-label="Back">
+              <ArrowLeft />
+            </button>
+            <span className="crumbs">
+              <Link to="/">Discover</Link>
+              <span className="crumb-sep">/</span>
+              <Link to="/recipes-for-you">Recipes</Link>
+              <span className="crumb-sep">/</span>
+              <span className="here">{data.title.split(' ').slice(-1)[0] || 'Recipe'}</span>
+            </span>
+          </div>
+          <div className="rd-nav-title">{data.title}</div>
+          <div className="rd-nav-actions">
+            <button type="button" className="icon-btn" title="Print" onClick={handlePrint} aria-label="Print"><Printer /></button>
+            <button type="button" className={cn('icon-btn', saved && 'saved')} title={saved ? 'Saved' : 'Save'} onClick={handleSave} aria-label="Save">
+              <Heart fill={saved ? 'currentColor' : 'none'} />
+            </button>
+            <button type="button" className="icon-btn" title="Share" onClick={handleShare} aria-label="Share"><Share2 /></button>
+            {isOwner && (
+              <button type="button" className="icon-btn" title="Edit" onClick={handleEdit} aria-label="Edit"><Edit3 /></button>
+            )}
+            <button type="button" className="rd-nav-primary" onClick={() => setCookMode(true)}>
+              <Play fill="currentColor" /> Cook
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* ── Hero ──────────────────────────────────────────────────── */}
+      <header className="rd-hero">
+        <div className="rd-hero-text">
+          <div className="rd-hero-eyebrow">
+            {data.cuisine && <span>{data.cuisine}</span>}
+            {data.cuisine && data.difficulty && <span className="sep">·</span>}
+            {data.difficulty && <span>{DIFFICULTY_LABEL[data.difficulty]}</span>}
+            {data.sourceType === 'expert' && (
+              <span className="badge"><Sparkles /> Editor's pick</span>
+            )}
+          </div>
+          <h1 className="rd-hero-title">{data.title}</h1>
+          {data.intro[0] && (
+            <p className="rd-hero-byline">{data.intro[0].length > 180 ? data.intro[0].slice(0, 177) + '…' : data.intro[0]}</p>
+          )}
+          {(ratingsCount > 0 || data.updatedAt) && (
+            <div className="rd-hero-meta-row">
+              {ratingsCount > 0 && (
+                <span className="rating">
+                  <span className="stars">{renderStars(stars5)}</span>
+                  {stars5.toFixed(1)}
+                </span>
+              )}
+              {ratingsCount > 0 && (
+                <span className="ratings-link">{ratingsCount.toLocaleString()} rating{ratingsCount === 1 ? '' : 's'}</span>
+              )}
+              {cookedIds.size > 0 && data && cookedIds.has(data.id) && (
+                <>
+                  {ratingsCount > 0 && <span className="sep" />}
+                  <span>You cooked this</span>
+                </>
+              )}
+              {data.updatedAt && (
+                <>
+                  {(ratingsCount > 0 || (data && cookedIds.has(data.id))) && <span className="sep" />}
+                  <span>Updated {new Date(data.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </>
+              )}
+            </div>
+          )}
+          {(authorProfile || data.ownerId) && (
+            <button
+              type="button"
+              className="rd-hero-author"
+              onClick={() => authorProfile?.username && navigate(`/user/${authorProfile.username}`)}
+              style={{ background: 'transparent', textAlign: 'left' }}
+            >
+              <div className="rd-hero-author-av" style={{ background: authorBg }}>{authorInitial}</div>
+              <div className="rd-hero-author-info">
+                <span className="rd-hero-author-byline">Recipe by</span>
+                <span className="rd-hero-author-name">
+                  {authorName} <span className="rd-hero-author-role">— {authorRole}</span>
+                </span>
+              </div>
+            </button>
+          )}
+        </div>
+        <div className="rd-hero-image">
+          {data.coverPhoto ? (
+            <img src={data.coverPhoto} alt={data.title} referrerPolicy="no-referrer" />
+          ) : (
+            <div className="ph-fallback"><ChefHat /></div>
+          )}
+        </div>
+      </header>
+
+      {/* ── Stats strip ───────────────────────────────────────────── */}
+      <section className="rd-stats">
+        <div className="rd-stats-inner">
+          <div className="rd-stat">
+            <div className="rd-stat-label"><Clock /> Prep</div>
+            <div className="rd-stat-value">
+              {data.prepMinutes > 0 ? <>{data.prepMinutes} <span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rd-stat">
+            <div className="rd-stat-label"><Flame /> Cook</div>
+            <div className="rd-stat-value">
+              {data.cookMinutes > 0 ? <>{data.cookMinutes} <span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rd-stat">
+            <div className="rd-stat-label"><Clock /> Total</div>
+            <div className="rd-stat-value">
+              {totalMinutes > 0 ? <>{totalMinutes} <span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rd-stat">
+            <div className="rd-stat-label"><Users /> Serves</div>
+            <div className="rd-stat-value">{data.servings > 0 ? data.servings : '—'}</div>
+          </div>
+          <div className="rd-stat">
+            <div className="rd-stat-label"><Award /> Level</div>
+            <div className="rd-stat-value" data-large="true" style={{ fontSize: 20 }}>
+              {data.difficulty ? DIFFICULTY_LABEL[data.difficulty] : '—'}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Action bar ────────────────────────────────────────────── */}
+      <section className="rd-actions">
+        <button type="button" className="rd-action-btn primary" onClick={() => setCookMode(true)}>
+          <Play fill="currentColor" /> Start cooking
+        </button>
+        <button type="button" className={cn('rd-action-btn', saved && 'saved')} onClick={handleSave}>
+          <Heart fill={saved ? 'currentColor' : 'none'} />
+          {saved ? 'Saved' : 'Save'}
+        </button>
+        <button type="button" className={cn('rd-action-btn', cooked && 'cooked-state')} onClick={handleCooked}>
+          {cooked ? <Check /> : <ChefHat />}
+          {cooked ? "I've cooked this" : 'Mark as cooked'}
+        </button>
+        <button type="button" className="rd-action-btn" onClick={handleShare}><Share2 /> Share</button>
+        <button type="button" className="rd-action-btn" onClick={handlePrint}><Printer /> Print</button>
+        {isOwner && (
+          <button type="button" className="rd-action-btn" onClick={handleEdit}><Edit3 /> Edit</button>
+        )}
+        <div className="rd-action-divider" />
+        {data.tags.length > 0 && (
+          <div className="rd-tags">
+            {data.tags.map((t) => <span key={t} className="rd-tag">{t}</span>)}
+          </div>
+        )}
+      </section>
+
+      {/* ── Intro prose with drop cap ─────────────────────────────── */}
+      {data.intro.length > 0 && (
+        <section className="rd-intro">
+          {data.intro.map((p, i) => <p key={i}>{p}</p>)}
+        </section>
+      )}
+
+      {/* ── Body: ingredients sidebar + directions ────────────────── */}
+      <div className="rd-body">
+        <aside className="rd-ingredients">
+          <div className="rd-section-head">
+            <h2 className="rd-section-title">Ingredients</h2>
+            <span className="rd-section-count">{data.ingredients.length} item{data.ingredients.length === 1 ? '' : 's'}</span>
+          </div>
+          {data.ingredients.length === 0 ? (
+            <p style={{ marginTop: 16, fontSize: 14, color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--serif)' }}>
+              No ingredients listed.
+            </p>
+          ) : (
+            <>
+              <div className="rd-servings-control">
+                <div>
+                  <div className="rd-servings-label">Servings</div>
+                  <div className="scaled-from">Scaled from {baseServings}</div>
+                </div>
+                <div className="rd-servings-stepper">
+                  <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
+                  <span className="value">{servings}</span>
+                  <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
+                </div>
+              </div>
+              <div className="rd-ingr-group">
+                <div className="rd-ingr-list">
+                  {data.ingredients.map((ing, i) => {
+                    const key = `i-${i}`;
+                    const isChecked = checked.has(key);
+                    const qty = formatQty(ing.amount, scale);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={cn('rd-ingr-item', isChecked && 'checked')}
+                        onClick={() => toggleCheck(key)}
+                      >
+                        <span className="check"><Check /></span>
+                        <span className="rd-ingr-text text">
+                          {qty && <span className="qty">{qty}</span>}
+                          {ing.unit && <span className="unit">{ing.unit}</span>}
+                          <span className="name">{ing.name}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rd-ingr-actions">
+                <button type="button" className="rd-ingr-action" onClick={() => showToast('Coming soon')}>
+                  <Plus /> Add to list
+                </button>
+                <button type="button" className="rd-ingr-action" onClick={handlePrint}>
+                  <Printer /> Print
+                </button>
+              </div>
+            </>
+          )}
+        </aside>
+
+        <section className="rd-main-col">
+          <div className="rd-directions-head">
+            <div>
+              <h2 className="rd-section-title">Directions</h2>
+              <div className="sub">
+                {data.steps.length} step{data.steps.length === 1 ? '' : 's'}
+                {totalMinutes > 0 ? ` · estimated ${formatMinutes(totalMinutes)}` : ''}
+              </div>
+            </div>
+            <button type="button" className="rd-cookmode-btn" onClick={() => setCookMode(true)}>
+              <Play fill="currentColor" /> Cook mode
+            </button>
+          </div>
+
+          {data.steps.length === 0 ? (
+            <p style={{ fontSize: 15, color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--serif)' }}>
+              No directions yet.
+            </p>
+          ) : (
+            <ol className="rd-steps">
+              {data.steps.map((step, i) => {
+                const split = splitStep(step);
+                const timer = extractStepMs(step);
+                const isDone = doneSteps.has(i);
+                return (
+                  <li key={i} className={cn('rd-step', isDone && 'done')}>
+                    <div className="rd-step-num-wrap">
+                      <div className="rd-step-num">{String(i + 1).padStart(2, '0')}</div>
+                      <button
+                        type="button"
+                        className="rd-step-check"
+                        onClick={() => toggleStep(i)}
+                        title={isDone ? 'Mark as not done' : 'Mark as done'}
+                        aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                      >
+                        <Check />
+                      </button>
+                    </div>
+                    <div className="rd-step-content">
+                      {split.title && <h3 className="rd-step-title">{split.title}</h3>}
+                      <p className="rd-step-body">{split.body || step}</p>
+                      {timer && (
+                        <div className="rd-step-meta">
+                          <StepTimerButton label={timer.label} durationMs={timer.ms} />
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      </div>
+
+      {/* ── Author bio ────────────────────────────────────────────── */}
+      {authorProfile && (
+        <section className="rd-author-bio">
+          <div className="rd-author-bio-inner">
+            <div className="rd-author-bio-av" style={{ background: authorBg }}>{authorInitials}</div>
+            <div className="rd-author-bio-info">
+              <div className="rd-author-bio-label">About the {authorProfile.is_expert ? 'chef' : 'cook'}</div>
+              <h3 className="rd-author-bio-name">{authorName}</h3>
+              <div className="rd-author-bio-role">{authorRole}</div>
+              {authorProfile.bio && <p className="rd-author-bio-text">{authorProfile.bio}</p>}
+              <button
+                type="button"
+                className="rd-author-follow"
+                onClick={() => authorProfile.username && navigate(`/user/${authorProfile.username}`)}
+              >
+                View profile
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Reviews ───────────────────────────────────────────────── */}
+      <section className="rd-reviews-section">
+        <div className="rd-reviews-head">
+          <div>
+            <h2 className="rd-reviews-title">What people are saying</h2>
+            <div className="rd-reviews-summary">
+              <span className="rd-reviews-avg">
+                {ratingsCount > 0 ? stars5.toFixed(1) : '—'}<span className="of">/5</span>
+              </span>
+              <div>
+                <div className="rd-reviews-stars">{renderStars(stars5, 18)}</div>
+                <div className="rd-reviews-count">
+                  {ratingsCount > 0
+                    ? `${ratingsCount.toLocaleString()} rating${ratingsCount === 1 ? '' : 's'}`
+                    : 'No reviews yet'}
+                </div>
+              </div>
+            </div>
+            {myReview ? (
+              <div className="rd-reviews-cta-done">
+                <Check /> Thanks for reviewing — you rated this {Math.round(myReview.rating)}/5
+              </div>
+            ) : (
+              currentUserId && !isOwner && (
+                <button type="button" className="rd-reviews-cta" onClick={() => setReviewOpen(true)}>
+                  <Star fill="currentColor" /> Write a review
+                </button>
+              )
+            )}
+          </div>
+          <div className="rd-rating-bars">
+            {([5, 4, 3, 2, 1] as const).map((n) => {
+              const count = ratingBreakdown[n] || 0;
+              const pct = ratingsCount > 0 ? (count / ratingsCount) * 100 : 0;
+              return (
+                <React.Fragment key={n}>
+                  <span className="rd-rating-bar-label">{n} <Star fill="currentColor" /></span>
+                  <div className="rd-rating-bar-track">
+                    <div className="rd-rating-bar-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="rd-rating-bar-count">{count.toLocaleString()}</span>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rd-reviews-list">
+          {myReview && (
+            <ReviewCard
+              review={myReview}
+              isMine
+              profile={null}
+              currentUserName={user?.email?.split('@')[0]}
+              renderStars={renderStars}
+            />
+          )}
+          {reviews.map((r) => (
+            <ReviewCard
+              key={r.id}
+              review={r}
+              profile={reviewerProfiles[r.userId]}
+              renderStars={renderStars}
+            />
+          ))}
+          {reviews.length === 0 && !myReview && (
+            <p style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px', fontFamily: 'var(--serif)', fontStyle: 'italic', color: 'var(--muted)' }}>
+              Be the first to cook and review this.
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* ── Related recipes ──────────────────────────────────────── */}
+      {related.length > 0 && (
+        <section className="rd-related-section">
+          <div className="rd-related-head">
+            <h2 className="rd-related-title">
+              You might also <span className="accent">like</span>
+            </h2>
+            <Link to="/recipes-for-you" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-2)' }}>
+              Browse all recipes →
+            </Link>
+          </div>
+          <div className="rd-related-grid">
+            {related.map((r) => {
+              const ra = relatedAuthors[r.userId];
+              const rAuthor = ra?.display_name || ra?.username || 'Chef';
+              const rHue = hashToHue(r.userId || rAuthor);
+              const rTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+              const rCover = r.photos?.[0] || '';
               return (
                 <button
-                  key={n}
+                  key={r.id}
                   type="button"
-                  onClick={() => setMyRating(n)}
-                  onMouseEnter={() => setMyHoverRating(n)}
-                  onMouseLeave={() => setMyHoverRating(null)}
-                  className="p-1 transition-transform hover:scale-110"
-                  aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                  className="rd-related-card"
+                  onClick={() => navigate(`/recipe/${r.userId}/${r.id}`)}
                 >
-                  <Star
-                    size={40}
-                    className={cn(
-                      'transition-colors',
-                      filled ? 'text-amber-500 fill-amber-500' : 'text-on-surface/20',
+                  <div className="rd-related-img" style={{ background: `linear-gradient(135deg, hsl(${rHue} 50% 52%), hsl(${(rHue + 25) % 360} 50% 42%))` }}>
+                    {rCover ? (
+                      <img src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="ph-fallback"><ChefHat /></div>
                     )}
-                  />
+                  </div>
+                  <div className="rd-related-body">
+                    <h3 className="rd-related-name">{r.title}</h3>
+                    <div className="rd-related-meta">
+                      {r.cuisine && <span>{r.cuisine}</span>}
+                      {r.cuisine && rTime > 0 && <span className="sep" />}
+                      {rTime > 0 && <span><Clock /> {formatMinutes(rTime)}</span>}
+                      <span className="sep" />
+                      <span className="author">
+                        <span className="av" style={{ background: `hsl(${rHue} 45% 38%)` }}>{(rAuthor[0] || '?').toUpperCase()}</span>
+                        {rAuthor}
+                      </span>
+                    </div>
+                  </div>
                 </button>
               );
             })}
           </div>
-          {myRating > 0 && (
-            <p className="text-center text-sm text-on-surface/55 font-medium mb-4">
-              {['', 'Poor', 'Just ok', 'Good', 'Great', 'Amazing!'][myRating]}
-            </p>
-          )}
-          <textarea
-            value={myNotes}
-            onChange={(e) => setMyNotes(e.target.value)}
-            placeholder="Any notes? (optional)"
-            rows={4}
-            className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-3 px-4 text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none mb-3"
-          />
-          <button
-            onClick={handleSubmitHomeMealReview}
-            disabled={myRating < 1 || saving}
-            className="w-full py-3.5 bg-emerald-600 text-white rounded-full font-semibold text-sm hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving…' : submittedAt ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Check size={14} /> Review saved
-              </span>
-            ) : 'Submit review'}
-          </button>
-          {submitError && (
-            <p className="text-xs text-red-500 text-center mt-2">
-              Something went wrong. Please try again.
-            </p>
-          )}
+        </section>
+      )}
+
+      {/* ── Cook mode overlay ────────────────────────────────────── */}
+      {cookMode && (
+        <CookMode recipe={data} onClose={() => setCookMode(false)} />
+      )}
+
+      {/* ── Review modal ─────────────────────────────────────────── */}
+      {reviewOpen && data && (
+        <ReviewModal
+          recipe={data}
+          authorName={authorName}
+          currentUserName={user?.email?.split('@')[0] || 'You'}
+          onClose={() => setReviewOpen(false)}
+          onSubmit={async (form) => {
+            const ok = await submitReview(form.rating, form.title, form.body, form.cookedIt);
+            if (ok) setReviewOpen(false);
+          }}
+        />
+      )}
+
+      {/* ── Toast ────────────────────────────────────────────────── */}
+      {toast && (
+        <div className="rd-toast">
+          <Check /> {toast}
         </div>
       )}
-    </section>
+    </div>
   );
+};
 
-  // Reviews block — render rating in the source's native scale so the
-  // number reads consistently with what the reviewer entered.
-  const reviewListItems: ReviewListItem[] = data.source === 'homeMeal'
-    ? homeMealReviews.map((r) => ({
-        id: r.id, userId: r.userId, rating: r.rating, notes: r.notes, createdAt: r.createdAt,
-      }))
-    : formalReviews.map((r) => ({
-        id: r.id, userId: r.userId, rating: r.rating, notes: r.notes, photo: r.photo, createdAt: r.createdAt,
-      }));
+/* ── Sub-components ──────────────────────────────────────────────── */
 
-  const reviewsBlock = (
-    <section id="reviews" className="scroll-mt-20">
-      <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
-        {reviewListItems.length > 0 ? `Reviews (${reviewListItems.length})` : 'Reviews'}
-      </h2>
-      {loadingReviews ? (
-        <p className="text-sm text-on-surface/40 text-center py-6">Loading reviews…</p>
-      ) : reviewListItems.length === 0 ? (
-        <RecipeEmptyState
-          icon={MessageSquare}
-          title="No reviews yet"
-          hint={data.source === 'homeMeal' ? 'Be the first to rate this recipe.' : 'Cook this recipe and share your thoughts.'}
-        />
-      ) : (
-        <RecipeReviewList
-          reviews={reviewListItems}
-          profiles={reviewerProfiles}
-          currentUserId={currentUserId}
-          renderRating={(rating) => data.source === 'homeMeal' ? (
-            <div className="flex gap-0.5">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                  key={n}
-                  size={13}
-                  className={cn(
-                    n <= rating ? 'text-amber-500 fill-amber-500' : 'text-on-surface/15',
-                  )}
-                />
-              ))}
-            </div>
-          ) : (
-            <span className={cn(
-              'text-base font-serif font-bold tabular-nums',
-              rating >= 8 ? 'text-green-600' : rating >= 5 ? 'text-yellow-600' : 'text-red-500',
-            )}>
-              {rating.toFixed(1)}
-              <span className="text-[10px] text-on-surface/35 font-sans font-medium ml-0.5">/10</span>
-            </span>
-          )}
-        />
-      )}
-    </section>
+const StepTimerButton: React.FC<{ label: string; durationMs: number }> = ({ label, durationMs }) => {
+  const [running, setRunning] = useState(false);
+  const [remaining, setRemaining] = useState(durationMs);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (running) {
+      intervalRef.current = window.setInterval(() => {
+        setRemaining((r) => {
+          if (r <= 1000) {
+            if (intervalRef.current) window.clearInterval(intervalRef.current);
+            setRunning(false);
+            return 0;
+          }
+          return r - 1000;
+        });
+      }, 1000);
+    } else if (intervalRef.current) {
+      window.clearInterval(intervalRef.current);
+    }
+    return () => { if (intervalRef.current) window.clearInterval(intervalRef.current); };
+  }, [running]);
+
+  const display = useMemo(() => {
+    const total = Math.ceil(remaining / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    if (m > 0) return `${m}:${String(s).padStart(2, '0')}`;
+    return `${s}s`;
+  }, [remaining]);
+
+  return (
+    <button
+      type="button"
+      className="rd-step-timer"
+      onClick={() => {
+        if (!running && remaining === 0) setRemaining(durationMs);
+        setRunning(!running);
+      }}
+    >
+      <Clock />
+      <span>{label}</span>
+      <span className="play">
+        {running ? display : (remaining > 0 && remaining < durationMs ? `${display} · paused` : 'Start')}
+      </span>
+    </button>
   );
+};
 
-  const mobileSections: { id: string; label: string }[] = [
-    { id: 'ingredients', label: 'Ingredients' },
-    { id: 'directions', label: 'Directions' },
-    ...(data.description ? [{ id: 'notes', label: 'Notes' }] : []),
-    ...(data.photos.length > 0 ? [{ id: 'photos', label: 'Photos' }] : []),
-    { id: 'reviews', label: 'Reviews' },
-  ];
+const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ recipe, onClose }) => {
+  const [step, setStep] = useState(0);
+  const total = recipe.steps.length;
+  const current = recipe.steps[step] || '';
+  const split = splitStep(current);
 
-  const jumpTargets = mobileSections.concat(
-    data.source === 'homeMeal' ? [{ id: 'rate', label: 'Rate' }] : [],
-  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setStep((s) => Math.min(total - 1, s + 1));
+      if (e.key === 'ArrowLeft') setStep((s) => Math.max(0, s - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [total, onClose]);
 
-  // ── Phone layout: editorial 60vh hero with title overlay ──
-  if (phoneMode) {
+  if (total === 0) {
     return (
-      <div className="pb-32 bg-surface min-h-screen">
-        {/* Hero with title overlay */}
-        <div
-          className="relative w-full overflow-hidden"
-          style={{ height: heroPhoto ? '60vh' : '20vh', maxHeight: '70vh' }}
-        >
-          {heroPhoto ? (
-            <button
-              type="button"
-              onClick={() => setLightboxPhotoIdx(0)}
-              className="block w-full h-full"
-              aria-label="Open photo gallery"
-            >
-              <img src={heroPhoto} alt={data.title} className="h-full w-full object-cover" />
-            </button>
-          ) : (
-            <div className="absolute inset-0 w-full h-full bg-primary/5 flex items-center justify-center">
-              <ChefHat size={64} className="text-primary/20" />
-            </div>
-          )}
-
-          {heroPhoto && (
-            <>
-              <div
-                className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none"
-                style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.45) 40%, rgba(0,0,0,0.1) 75%, transparent 100%)' }}
-              />
-              <div
-                className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
-                style={{ background: 'linear-gradient(to top, #fff8f6, transparent)' }}
-              />
-            </>
-          )}
-
-          {/* Top-left back button */}
-          <button
-            onClick={() => navigate(-1)}
-            className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
-            aria-label="Back"
-          >
-            <ArrowLeft size={18} />
-          </button>
-
-          {/* Top-right actions */}
-          <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 flex items-center gap-2 z-10">
-            {isOwner && (
-              <button
-                onClick={handleEditOwn}
-                className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
-                aria-label="Edit"
-              >
-                <Edit3 size={16} />
-              </button>
-            )}
-            <button
-              onClick={handleShare}
-              className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
-              aria-label="Share"
-            >
-              <Share2 size={16} />
-            </button>
+      <div className="rd-cookmode">
+        <div className="rd-cookmode-nav">
+          <div className="rd-cookmode-title">Cook mode · {recipe.title}</div>
+          <button type="button" className="rd-cookmode-close" onClick={onClose} aria-label="Exit (Esc)"><X /></button>
+        </div>
+        <div className="rd-cookmode-body">
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', fontFamily: 'var(--serif)', color: 'rgba(255,255,255,0.6)' }}>
+            No directions to step through yet.
           </div>
-
-          {/* Title overlay (only when there's a cover photo) */}
-          {heroPhoto && (
-            <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
-              <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">
-                {data.title}
-              </h1>
-              <div className="flex items-center gap-2 flex-wrap">
-                {data.cuisine && (
-                  <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">
-                    {data.cuisine}
-                  </span>
-                )}
-                {data.difficulty && (
-                  <>
-                    {data.cuisine && <span className="text-white/50">·</span>}
-                    <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">
-                      {DIFFICULTY_LABEL[data.difficulty]}
-                    </span>
-                  </>
-                )}
-                {data.sourceType === 'expert' && (
-                  <>
-                    <span className="text-white/50">·</span>
-                    <span className="text-[11px] font-semibold text-yellow-300 uppercase tracking-wider flex items-center gap-1">
-                      <Star size={10} fill="currentColor" />Expert
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
         </div>
-
-        {/* Sticky section nav */}
-        <RecipeMobileSectionNav sections={mobileSections} />
-
-        {/* Content column — keep editorial reading measure */}
-        <div className="max-w-[680px] mx-auto px-5 pt-6 space-y-8">
-          {/* Show title here too only when there was NO hero photo to overlay */}
-          {!heroPhoto && (
-            <div>
-              <h1 className="font-serif font-bold text-[28px] leading-[1.1] text-on-surface mb-3">
-                {data.title}
-              </h1>
-              <div className="flex items-center gap-2 flex-wrap mb-3">
-                {data.cuisine && (
-                  <span className="text-[11px] font-semibold text-on-surface/50 uppercase tracking-wider">
-                    {data.cuisine}
-                  </span>
-                )}
-                {data.difficulty && (
-                  <span className="text-[11px] font-semibold text-on-surface/50 uppercase tracking-wider">
-                    {DIFFICULTY_LABEL[data.difficulty]}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Author row + rating + tags */}
-          {renderTitleBlock(false)}
-
-          {/* Author chip */}
-          {authorProfile && (
-            <div className="-mt-4">
-              <button
-                onClick={() => navigate(`/user/${authorProfile.username}`)}
-                className="inline-flex items-center gap-2.5 group"
-              >
-                <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary/60 flex-shrink-0">
-                  {authorProfile.display_name?.charAt(0) || authorProfile.username?.charAt(0) || '?'}
-                </div>
-                <div className="min-w-0 text-left">
-                  <p className="text-sm font-semibold text-on-surface group-hover:text-primary transition-colors truncate">
-                    {authorProfile.display_name || `@${authorProfile.username}`}
-                  </p>
-                  {data.sourceType === 'expert' && (
-                    <p className="text-[10px] font-semibold text-yellow-600 flex items-center gap-1">
-                      <Star size={9} fill="currentColor" />Expert Chef
-                    </p>
-                  )}
-                </div>
-              </button>
-            </div>
-          )}
-
-          {statCardsBlock}
-          {ingredientsBlock}
-          {directionsBlock}
-          {notesBlock}
-          {photosBlock}
-          {rateBlock}
-          {reviewsBlock}
-        </div>
-
-        <PhotoLightbox
-          photos={data.photos}
-          index={lightboxPhotoIdx}
-          onClose={() => setLightboxPhotoIdx(null)}
-          onChange={setLightboxPhotoIdx}
-        />
-
-        <ShareRecipeSheet
-          open={!!shareRecipeData}
-          recipe={shareRecipeData}
-          onClose={() => setShareRecipeData(null)}
-        />
       </div>
     );
   }
 
-  // ── Desktop layout: editorial 2-col hero + sticky ingredients ──
+  const timer = extractStepMs(current);
+
   return (
-    <div className="max-w-[880px] mx-auto px-3 pb-32 pt-safe-4">
-      {/* Back header */}
-      <div className="flex items-center gap-3 mb-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors"
-          aria-label="Back"
-        >
-          <ArrowLeft size={20} />
+    <div className="rd-cookmode">
+      <div className="rd-cookmode-nav">
+        <div className="rd-cookmode-title">Cook mode · {recipe.title}</div>
+        <button type="button" className="rd-cookmode-close" onClick={onClose} aria-label="Exit (Esc)"><X /></button>
+      </div>
+      <div className="rd-cookmode-progress">
+        {recipe.steps.map((_, i) => (
+          <div key={i} className={cn('rd-cm-dot', i < step && 'done', i === step && 'current')} />
+        ))}
+      </div>
+      <div className="rd-cookmode-body">
+        <div>
+          <div className="rd-cookmode-step-num">{String(step + 1).padStart(2, '0')}</div>
+          {timer && (
+            <div className="rd-cookmode-step-meta" style={{ marginTop: 16 }}>
+              <Clock size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: '-2px' }} />
+              {timer.label}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="rd-cookmode-step-meta">Step {step + 1} of {total}</div>
+          {split.title && <h2 className="rd-cookmode-step-title">{split.title}</h2>}
+          <p className="rd-cookmode-step-body">{split.body || current}</p>
+        </div>
+      </div>
+      <div className="rd-cookmode-controls">
+        <button type="button" className="rd-cm-btn" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
+          <ChevronLeft /> Previous
         </button>
-        <p className="flex-1 text-[11px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">
-          From {authorName}&rsquo;s kitchen
-        </p>
-        {isOwner && (
-          <button
-            onClick={handleEditOwn}
-            className="p-2 text-on-surface/40 hover:text-primary transition-colors"
-            aria-label="Edit"
-          >
-            <Edit3 size={18} />
-          </button>
-        )}
+        <div className="rd-cm-counter">
+          <span className="n">{step + 1}</span> <span style={{ opacity: 0.5 }}>/ {total}</span>
+        </div>
         <button
-          onClick={handleShare}
-          className="p-2 -mr-2 text-on-surface/40 hover:text-emerald-600 transition-colors"
-          aria-label="Share"
+          type="button"
+          className="rd-cm-btn primary"
+          onClick={() => { if (step >= total - 1) onClose(); else setStep(step + 1); }}
         >
-          <Share2 size={18} />
+          {step >= total - 1 ? 'Finished' : 'Next step'} <ChevronRight />
         </button>
       </div>
+    </div>
+  );
+};
 
-      {/* Hero row */}
-      <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-6 items-stretch mb-8">
-        {renderTitleBlock(true)}
-        {heroPhoto && (
-          <button
-            type="button"
-            onClick={() => setLightboxPhotoIdx(0)}
-            className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
-            aria-label="Open photo gallery"
-          >
-            <img src={heroPhoto} alt={data.title} className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
-          </button>
-        )}
-      </div>
+const ReviewModal: React.FC<{
+  recipe: UnifiedRecipe;
+  authorName: string;
+  currentUserName: string;
+  onClose: () => void;
+  onSubmit: (form: { rating: number; title: string; body: string; cookedIt: boolean }) => void;
+}> = ({ recipe, currentUserName, onClose, onSubmit }) => {
+  const [rating, setRating] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [cookedIt, setCookedIt] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-      {/* Author chip */}
-      {authorProfile && (
-        <div className="mb-6">
-          <button
-            onClick={() => navigate(`/user/${authorProfile.username}`)}
-            className="inline-flex items-center gap-2.5 group"
-          >
-            <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary/60 flex-shrink-0">
-              {authorProfile.display_name?.charAt(0) || authorProfile.username?.charAt(0) || '?'}
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
+  }, [onClose]);
+
+  const labels = ['', 'Did not like it', 'Just okay', 'Pretty good', 'Really good', 'Loved it'];
+  const canSubmit = rating > 0 && body.trim().length >= 10 && !submitting;
+
+  return (
+    <div className="rd-modal-overlay" onClick={onClose}>
+      <form
+        className="rd-modal"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!canSubmit) return;
+          setSubmitting(true);
+          await onSubmit({ rating, title: title.trim(), body: body.trim(), cookedIt });
+          setSubmitting(false);
+        }}
+      >
+        <header className="rd-modal-head">
+          <div>
+            <div className="rd-modal-eyebrow">Write a review</div>
+            <h2 className="rd-modal-title">{recipe.title}</h2>
+          </div>
+          <button type="button" className="rd-modal-close" onClick={onClose} aria-label="Close"><X /></button>
+        </header>
+        <div className="rd-modal-body">
+          <div className="rd-modal-field">
+            <label className="rd-modal-label">Your rating</label>
+            <div className="rd-modal-stars">
+              {[1, 2, 3, 4, 5].map((n) => {
+                const active = n <= (hover || rating);
+                return (
+                  <button
+                    type="button"
+                    key={n}
+                    className={cn('rd-modal-star', active && 'active')}
+                    onMouseEnter={() => setHover(n)}
+                    onMouseLeave={() => setHover(0)}
+                    onClick={() => setRating(n)}
+                    aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                  >
+                    <Star />
+                  </button>
+                );
+              })}
+              <span className="rd-modal-star-label">{labels[hover || rating] || 'Tap to rate'}</span>
             </div>
-            <div className="min-w-0 text-left">
-              <p className="text-sm font-semibold text-on-surface group-hover:text-primary transition-colors truncate">
-                {authorProfile.display_name || `@${authorProfile.username}`}
-              </p>
-              {data.sourceType === 'expert' && (
-                <p className="text-[10px] font-semibold text-yellow-600 flex items-center gap-1">
-                  <Star size={9} fill="currentColor" />Expert Chef
-                </p>
-              )}
-            </div>
-          </button>
+          </div>
+          <div className="rd-modal-field">
+            <label className="rd-modal-toggle">
+              <input type="checkbox" checked={cookedIt} onChange={(e) => setCookedIt(e.target.checked)} />
+              <span className="box"><Check /></span>
+              <span>I actually cooked this recipe</span>
+            </label>
+          </div>
+          <div className="rd-modal-field">
+            <label className="rd-modal-label" htmlFor="rd-title">Headline <span className="opt">(optional)</span></label>
+            <input
+              id="rd-title"
+              className="rd-modal-input"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Sum it up in a few words"
+              maxLength={80}
+            />
+          </div>
+          <div className="rd-modal-field">
+            <label className="rd-modal-label" htmlFor="rd-body">
+              Your review
+              <span className="hint">{body.length}/600 · min 10</span>
+            </label>
+            <textarea
+              id="rd-body"
+              className="rd-modal-textarea"
+              value={body}
+              onChange={(e) => setBody(e.target.value.slice(0, 600))}
+              placeholder="What did you make of it? Any tips for other cooks? Subs you tried?"
+              rows={5}
+            />
+          </div>
+        </div>
+        <footer className="rd-modal-foot">
+          <div className="rd-modal-foot-hint">
+            Posted as <strong>{currentUserName}</strong>
+          </div>
+          <div className="rd-modal-foot-actions">
+            <button type="button" className="rd-action-btn" onClick={onClose}>Cancel</button>
+            <button type="submit" className={cn('rd-action-btn', 'primary', !canSubmit && 'disabled')} disabled={!canSubmit}>
+              <Check /> {submitting ? 'Posting…' : 'Post review'}
+            </button>
+          </div>
+        </footer>
+      </form>
+    </div>
+  );
+};
+
+const ReviewCard: React.FC<{
+  review: UnifiedReview;
+  profile?: UserProfile | null;
+  isMine?: boolean;
+  currentUserName?: string;
+  renderStars: (value: number, size?: number) => React.ReactNode;
+}> = ({ review, profile, isMine, currentUserName, renderStars }) => {
+  const name = isMine
+    ? (currentUserName || 'You')
+    : (profile?.display_name || profile?.username || 'Anonymous');
+  const initial = (name[0] || '?').toUpperCase();
+  const hue = hashToHue(review.userId || name);
+  const date = review.createdAt
+    ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'just now';
+  // The headline/body separator we wrote when submitting was "\n\n".
+  const splitIdx = review.notes.indexOf('\n\n');
+  const reviewTitle = splitIdx > 0 ? review.notes.slice(0, splitIdx).trim() : '';
+  const reviewBody = splitIdx > 0 ? review.notes.slice(splitIdx + 2).trim() : review.notes;
+  return (
+    <article className={cn('rd-review', isMine && 'rd-review-mine')}>
+      {isMine && <div className="rd-review-mine-badge">Your review</div>}
+      <header className="rd-review-head">
+        <div className="rd-review-av" style={{ background: `hsl(${hue} 45% 38%)` }}>{initial}</div>
+        <div className="rd-review-meta">
+          <div className="rd-review-name">
+            {name}
+            {isMine && <span className="verified"><Check /> Verified cook</span>}
+          </div>
+          <div className="rd-review-info">
+            <span>{date}</span>
+          </div>
+        </div>
+        <div className="rd-review-rating">{renderStars(review.rating)}</div>
+      </header>
+      {reviewTitle && (
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>
+          {reviewTitle}
         </div>
       )}
-
-      {statCardsBlock && <div className="mb-8">{statCardsBlock}</div>}
-
-      {/* Sticky jump nav */}
-      {jumpTargets.length > 1 && (
-        <nav className="sticky top-0 z-20 bg-surface/75 backdrop-blur-md mb-6">
-          <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
-            {jumpTargets.map((t) => (
-              <a
-                key={t.id}
-                href={`#${t.id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  const el = document.getElementById(t.id);
-                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-                className="px-3 py-1.5 rounded-full text-xs font-semibold text-on-surface/60 hover:bg-on-surface/5 hover:text-on-surface transition-colors whitespace-nowrap"
-              >
-                {t.label}
-              </a>
-            ))}
-          </div>
-        </nav>
+      {reviewBody && <p className="rd-review-body">"{reviewBody}"</p>}
+      {!isMine && (
+        <div className="rd-review-actions">
+          <button type="button"><Heart /> Helpful</button>
+          <button type="button"><MessageCircle /> Reply</button>
+        </div>
       )}
-
-      {/* Two-column ingredients + directions */}
-      <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-10 mb-10">
-        <div className="md:sticky md:top-16 md:self-start">{ingredientsBlock}</div>
-        {directionsBlock}
-      </div>
-
-      <div className="space-y-8 mb-12">
-        {notesBlock}
-        {photosBlock}
-        {rateBlock}
-        {reviewsBlock}
-      </div>
-
-      <PhotoLightbox
-        photos={data.photos}
-        index={lightboxPhotoIdx}
-        onClose={() => setLightboxPhotoIdx(null)}
-        onChange={setLightboxPhotoIdx}
-      />
-
-      <ShareRecipeSheet
-        open={!!shareRecipeData}
-        recipe={shareRecipeData}
-        onClose={() => setShareRecipeData(null)}
-      />
-    </div>
+    </article>
   );
 };
