@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
@@ -9,6 +9,8 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
+import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -16,7 +18,7 @@ export const AddRestaurantModal: React.FC = () => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating,
-    lists, createList,
+    lists, createList, ratings,
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
@@ -60,6 +62,22 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  // Inline rating method choice. `null` means the user hasn't picked one yet
+  // and the prominent chooser is shown. Set to a concrete method on pick or
+  // when there are no other ratings to compare against (slider only).
+  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h' | null>(null);
+  // Active head-to-head session state. null while user is on the slider or
+  // before they've picked a tier.
+  const [h2hState, setH2hState] = useState<H2HState | null>(null);
+  // Set to the H2H-computed score when the user lands on the slider via the
+  // head-to-head "Use this score" hand-off. Used to show the "from
+  // head-to-head" pill and surface a revert button when the slider drifts
+  // off the computed value.
+  const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // When true, the running H2H is a tie-break triggered by Save on the
+  // slider — completing it auto-saves with the refined score instead of
+  // returning the user to the slider.
+  const [tieBreakActive, setTieBreakActive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isNewVisit, setIsNewVisit] = useState(false);
   const [visitCount, setVisitCount] = useState(0);
@@ -93,7 +111,18 @@ export const AddRestaurantModal: React.FC = () => {
       setIsNewVisit(startAsNewVisit);
       setPriceIndex(-1);
       setPriceAmount('');
-      setPage(startAsNewVisit ? 'main' : ((addRestaurantModalInitialPage as Page) || 'main'));
+      // Caller-requested initial page wins (e.g. opening directly to "notes"
+      // from RestaurantPanel); otherwise the modal always opens on main.
+      const requestedInitial = addRestaurantModalInitialPage as Page | null;
+      setPage(requestedInitial && requestedInitial !== 'main' ? requestedInitial : 'main');
+      // Show the prominent chooser when there are other rated restaurants to
+      // compare against; otherwise jump straight to the slider since H2H
+      // wouldn't have a pool.
+      const othersOnOpen = ratings.filter((r) => r.restaurantId !== restaurant.id);
+      setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
+      setH2hState(null);
+      setH2hScore(null);
+      setTieBreakActive(false);
       setConfirmDelete(false);
       setCreatingList(false);
       setNewListSheetOpen(false);
@@ -111,6 +140,18 @@ export const AddRestaurantModal: React.FC = () => {
       }
     }
   }, [addRestaurantModalOpen, restaurant]);
+
+  // When the user toggles between Log New Visit and Update Current, reset
+  // the method choice so they re-pick — switching visit context invalidates
+  // any in-progress head-to-head and the choice itself.
+  useEffect(() => {
+    if (!restaurant) return;
+    const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
+    setRatingMethod(others.length > 0 ? null : 'slider');
+    setH2hState(null);
+    setH2hScore(null);
+    setTieBreakActive(false);
+  }, [isNewVisit]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -198,6 +239,24 @@ export const AddRestaurantModal: React.FC = () => {
   // save button briefly shakes.
   const [dateError, setDateError] = useState(false);
 
+  const persistRating = (finalScore: number) => {
+    if (!restaurant) return;
+    rateRestaurant(
+      {
+        restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+        score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+        listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
+      },
+      // Only archive the existing rating into visit history when the
+      // user is on the "Log New Visit" tab. The "Update Current" tab
+      // edits the existing record in place and shouldn't manufacture
+      // a phantom visit.
+      { isNewVisit },
+    );
+    closeAddRestaurantModal();
+  };
+
   const handleSaveRating = () => {
     if (!restaurant) return;
     // A visit date is required when logging a new visit — without it
@@ -208,20 +267,20 @@ export const AddRestaurantModal: React.FC = () => {
       setPage('date');
       return;
     }
-    rateRestaurant(
-      {
-        restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-        listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
-      },
-      // Only archive the existing rating into visit history when the
-      // user is on the "Log New Visit" tab. The "Update Current" tab
-      // edits the existing record in place and shouldn't manufacture
-      // a phantom visit.
-      { isNewVisit },
-    );
-    closeAddRestaurantModal();
+    // Slider tie-break: if the user picked a score that ties with
+    // existing rated restaurants (and they didn't already go through an
+    // H2H), force a quick H2H against just the tied ones so the new
+    // rating lands in the right spot relative to them.
+    if (ratingMethod === 'slider' && h2hScore === null) {
+      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id);
+      if (tieBreakState) {
+        setH2hState(tieBreakState);
+        setRatingMethod('h2h');
+        setTieBreakActive(true);
+        return;
+      }
+    }
+    persistRating(score);
   };
 
   // Clear the date-error state as soon as the user picks one.
@@ -410,24 +469,132 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    <div className="flex flex-col items-center pt-3 sm:pt-5">
-                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                        <div className="text-center">
-                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
-                        </div>
+                    {ratingMethod !== null && !tieBreakActive && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
+                      <div className="pt-2 pb-3">
+                        <MethodToggle
+                          method={ratingMethod}
+                          onChange={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
                       </div>
-                      <div className="w-full max-w-[260px] mb-1.5">
-                        <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                        <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                          <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                        </div>
+                    )}
+                    {tieBreakActive && (
+                      <div className="pt-3 pb-2 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-1">Tie-break</p>
+                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
+                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
+                        </p>
                       </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-4">
-                        {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                      </p>
-                    </div>
+                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                      {ratingMethod === null ? (
+                        <MethodChooser
+                          key="chooser"
+                          onPick={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      ) : ratingMethod === 'slider' ? (
+                        <motion.div
+                          key="slider"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                          className="flex flex-col items-center pt-1"
+                        >
+                          {h2hScore !== null && (
+                            <AnimatePresence mode="wait" initial={false}>
+                              {Math.abs(score - h2hScore) > 0.05 ? (
+                                <motion.button
+                                  key="revert"
+                                  type="button"
+                                  onClick={() => setScore(h2hScore)}
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  whileTap={{ scale: 0.96 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
+                                >
+                                  <RotateCcw size={11} />
+                                  Revert to {h2hScore.toFixed(1)}
+                                </motion.button>
+                              ) : (
+                                <motion.div
+                                  key="from-h2h"
+                                  initial={{ opacity: 0, y: -4 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -4 }}
+                                  transition={{ duration: 0.18 }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                                >
+                                  <Sparkles size={11} />
+                                  From head-to-head
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          )}
+                          <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
+                            <div className="text-center">
+                              <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
+                              <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
+                            </div>
+                          </div>
+                          <div className="w-full max-w-[260px] mb-1.5">
+                            <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
+                              className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
+                              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+                            </div>
+                          </div>
+                          <p className="text-xs font-medium text-on-surface/40 mb-3">
+                            {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                          </p>
+                          <RankingContext score={score} ratings={ratings} excludeId={restaurant.id} />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="h2h"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          <InlineH2H
+                            ratings={ratings}
+                            excludeId={restaurant.id}
+                            newRestaurant={restaurant}
+                            state={h2hState}
+                            setState={setH2hState}
+                            skipTierSelect={tieBreakActive}
+                            skipResult={tieBreakActive}
+                            onCancelFromStart={tieBreakActive ? () => {
+                              setTieBreakActive(false);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            } : undefined}
+                            onComplete={(finalScore) => {
+                              if (tieBreakActive) {
+                                // Tie-break completion auto-saves with the
+                                // refined score; no return trip to the slider.
+                                setTieBreakActive(false);
+                                setH2hState(null);
+                                persistRating(finalScore);
+                                return;
+                              }
+                              setScore(finalScore);
+                              setH2hScore(finalScore);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            }}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Add details</p>
                       <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
