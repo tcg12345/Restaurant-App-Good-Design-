@@ -188,9 +188,21 @@ export const InlineH2H: React.FC<{
   state: H2HState | null;
   setState: (s: H2HState | null) => void;
   onComplete: (finalScore: number) => void;
-}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete }) => {
-  // Tier select
+  /** Called when the user taps back at the first comparison (no history).
+   *  When provided, used instead of resetting to tier-select — lets the
+   *  parent abort a tie-break or other externally-initiated H2H. */
+  onCancelFromStart?: () => void;
+  /** When true, the tier-select step is hidden (state must be supplied
+   *  externally). Used by the slider tie-break flow. */
+  skipTierSelect?: boolean;
+  /** When true, the result step is bypassed and onComplete fires
+   *  immediately after the last comparison resolves. Used by the tie-break
+   *  flow so the modal saves straight after the search. */
+  skipResult?: boolean;
+}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult }) => {
+  // Tier select (skipped when the caller supplies state externally)
   if (!state) {
+    if (skipTierSelect) return null;
     return (
       <InlineTierSelect
         onPick={(tier) => {
@@ -205,8 +217,14 @@ export const InlineH2H: React.FC<{
     );
   }
 
-  // Result
+  // Result (skipped when the caller wants immediate completion)
   if (isComplete(state)) {
+    if (skipResult) {
+      // Defer so React can settle the current render before we trigger the
+      // parent's onComplete (which may unmount this component).
+      setTimeout(() => onComplete(computeFinalScore(state)), 0);
+      return null;
+    }
     return (
       <InlineResult
         state={state}
@@ -231,6 +249,8 @@ export const InlineH2H: React.FC<{
       onBack={() => {
         if (state.history.length > 0) {
           setState(undoLastChoice(state));
+        } else if (onCancelFromStart) {
+          onCancelFromStart();
         } else {
           setState(null);
         }

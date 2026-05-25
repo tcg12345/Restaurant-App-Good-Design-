@@ -126,6 +126,55 @@ export function initH2H(
   };
 }
 
+/** Init a tie-break H2H session: candidates are only the restaurants whose
+ *  rounded score matches `targetScore`, and bounds are the neighbouring
+ *  ratings' scores so the search can refine the final score slightly above
+ *  or below the tied group. Returns null if there are no tied candidates —
+ *  the caller should just save with the slider score in that case. */
+export function initH2HTieBreak(
+  allRatings: RestaurantRating[],
+  targetScore: number,
+  excludeId?: string,
+): H2HState | null {
+  const targetRounded = round1(targetScore);
+  const others = allRatings.filter((r) => r.restaurantId !== excludeId);
+  const tiedRaw = others
+    .filter((r) => round1(r.score) === targetRounded)
+    .sort((a, b) => b.score - a.score);
+  if (tiedRaw.length === 0) return null;
+  const candidates = tiedRaw.map(ratingToCandidate);
+
+  // Neighbours: highest score strictly less than target, lowest score
+  // strictly greater. Bound on each side gives the search room to spill the
+  // final score above or below the tied group when the user clearly beat
+  // or lost to all of them.
+  const sortedDesc = [...others].sort((a, b) => b.score - a.score);
+  const higher = sortedDesc.filter((r) => round1(r.score) > targetRounded);
+  const lower = sortedDesc.filter((r) => round1(r.score) < targetRounded);
+  const upperBound = higher.length > 0 ? higher[higher.length - 1].score : 10;
+  const lowerBound = lower.length > 0 ? lower[0].score : 0;
+
+  // Tier is only used by computeFinalScore's empty-init fallback (which we
+  // don't hit here because tiedRaw is non-empty). Pick the tier containing
+  // the target so the value is at least coherent if read elsewhere.
+  const tier: Tier = targetRounded >= 7 ? 'loved' : targetRounded >= 4 ? 'fine' : 'disliked';
+
+  return {
+    tier,
+    candidates,
+    lo: 0,
+    hi: candidates.length - 1,
+    upperBound,
+    lowerBound,
+    upperBoundFromComparison: false,
+    lowerBoundFromComparison: false,
+    excluded: [],
+    tiedScores: [],
+    history: [],
+    initialPoolSize: candidates.length,
+  };
+}
+
 /** Return the next index to compare against, or null when nothing valid
  *  remains in [lo, hi]. Walks outward from the midpoint so we keep the
  *  search balanced even after several ties have eaten into the window. */

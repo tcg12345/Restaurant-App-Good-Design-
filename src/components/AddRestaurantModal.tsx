@@ -9,7 +9,7 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import type { H2HState } from '../lib/headToHeadRating';
+import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -74,6 +74,10 @@ export const AddRestaurantModal: React.FC = () => {
   // head-to-head" pill and surface a revert button when the slider drifts
   // off the computed value.
   const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // When true, the running H2H is a tie-break triggered by Save on the
+  // slider — completing it auto-saves with the refined score instead of
+  // returning the user to the slider.
+  const [tieBreakActive, setTieBreakActive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isNewVisit, setIsNewVisit] = useState(false);
   const [visitCount, setVisitCount] = useState(0);
@@ -118,6 +122,7 @@ export const AddRestaurantModal: React.FC = () => {
       setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
       setH2hScore(null);
+      setTieBreakActive(false);
       setConfirmDelete(false);
       setCreatingList(false);
       setNewListSheetOpen(false);
@@ -145,6 +150,7 @@ export const AddRestaurantModal: React.FC = () => {
     setRatingMethod(others.length > 0 ? null : 'slider');
     setH2hState(null);
     setH2hScore(null);
+    setTieBreakActive(false);
   }, [isNewVisit]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
@@ -233,6 +239,24 @@ export const AddRestaurantModal: React.FC = () => {
   // save button briefly shakes.
   const [dateError, setDateError] = useState(false);
 
+  const persistRating = (finalScore: number) => {
+    if (!restaurant) return;
+    rateRestaurant(
+      {
+        restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+        score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+        listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
+      },
+      // Only archive the existing rating into visit history when the
+      // user is on the "Log New Visit" tab. The "Update Current" tab
+      // edits the existing record in place and shouldn't manufacture
+      // a phantom visit.
+      { isNewVisit },
+    );
+    closeAddRestaurantModal();
+  };
+
   const handleSaveRating = () => {
     if (!restaurant) return;
     // A visit date is required when logging a new visit — without it
@@ -243,20 +267,20 @@ export const AddRestaurantModal: React.FC = () => {
       setPage('date');
       return;
     }
-    rateRestaurant(
-      {
-        restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-        listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
-      },
-      // Only archive the existing rating into visit history when the
-      // user is on the "Log New Visit" tab. The "Update Current" tab
-      // edits the existing record in place and shouldn't manufacture
-      // a phantom visit.
-      { isNewVisit },
-    );
-    closeAddRestaurantModal();
+    // Slider tie-break: if the user picked a score that ties with
+    // existing rated restaurants (and they didn't already go through an
+    // H2H), force a quick H2H against just the tied ones so the new
+    // rating lands in the right spot relative to them.
+    if (ratingMethod === 'slider' && h2hScore === null) {
+      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id);
+      if (tieBreakState) {
+        setH2hState(tieBreakState);
+        setRatingMethod('h2h');
+        setTieBreakActive(true);
+        return;
+      }
+    }
+    persistRating(score);
   };
 
   // Clear the date-error state as soon as the user picks one.
@@ -445,7 +469,7 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    {ratingMethod !== null && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
+                    {ratingMethod !== null && !tieBreakActive && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
                       <div className="pt-2 pb-3">
                         <MethodToggle
                           method={ratingMethod}
@@ -454,6 +478,14 @@ export const AddRestaurantModal: React.FC = () => {
                             if (m === 'slider') setH2hState(null);
                           }}
                         />
+                      </div>
+                    )}
+                    {tieBreakActive && (
+                      <div className="pt-3 pb-2 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-1">Tie-break</p>
+                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
+                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
+                        </p>
                       </div>
                     )}
                     <AnimatePresence mode="wait" initial={false}>
@@ -538,7 +570,22 @@ export const AddRestaurantModal: React.FC = () => {
                             newRestaurant={restaurant}
                             state={h2hState}
                             setState={setH2hState}
+                            skipTierSelect={tieBreakActive}
+                            skipResult={tieBreakActive}
+                            onCancelFromStart={tieBreakActive ? () => {
+                              setTieBreakActive(false);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            } : undefined}
                             onComplete={(finalScore) => {
+                              if (tieBreakActive) {
+                                // Tie-break completion auto-saves with the
+                                // refined score; no return trip to the slider.
+                                setTieBreakActive(false);
+                                setH2hState(null);
+                                persistRating(finalScore);
+                                return;
+                              }
                               setScore(finalScore);
                               setH2hScore(finalScore);
                               setH2hState(null);

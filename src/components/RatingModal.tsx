@@ -7,7 +7,7 @@ import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
-import type { H2HState } from '../lib/headToHeadRating';
+import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -45,6 +45,9 @@ export const RatingModal: React.FC = () => {
   // H2H-computed score, set when the user accepts an H2H result. Drives the
   // "from head-to-head" pill and the revert button.
   const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // When true, the running H2H is a tie-break triggered by Save on the
+  // slider — completing it auto-saves with the refined score.
+  const [tieBreakActive, setTieBreakActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
@@ -70,6 +73,7 @@ export const RatingModal: React.FC = () => {
       setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
       setH2hScore(null);
+      setTieBreakActive(false);
       setCreatingList(false);
       setNewName('');
       setListDropdownOpen(false);
@@ -140,15 +144,29 @@ export const RatingModal: React.FC = () => {
     setNewName(''); setNewEmoji('📋'); setCreatingList(false);
   };
 
-  const handleSave = () => {
+  const persistRating = (finalScore: number) => {
     if (!ratingModalRestaurant) return;
     rateRestaurant({
       restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
       cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
-      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+      score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
       listIds: selectedListIds, createdAt: Date.now(),
     });
     closeRatingModal();
+  };
+
+  const handleSave = () => {
+    if (!ratingModalRestaurant) return;
+    if (ratingMethod === 'slider' && h2hScore === null) {
+      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id);
+      if (tieBreakState) {
+        setH2hState(tieBreakState);
+        setRatingMethod('h2h');
+        setTieBreakActive(true);
+        return;
+      }
+    }
+    persistRating(score);
   };
 
   const scoreClr = scoreColorLight(score);
@@ -270,7 +288,7 @@ export const RatingModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5">
-                    {ratingMethod !== null && ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
+                    {ratingMethod !== null && !tieBreakActive && ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
                       <div className="pt-2 pb-3">
                         <MethodToggle
                           method={ratingMethod}
@@ -279,6 +297,14 @@ export const RatingModal: React.FC = () => {
                             if (m === 'slider') setH2hState(null);
                           }}
                         />
+                      </div>
+                    )}
+                    {tieBreakActive && (
+                      <div className="pt-3 pb-2 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-1">Tie-break</p>
+                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
+                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
+                        </p>
                       </div>
                     )}
                     <AnimatePresence mode="wait" initial={false}>
@@ -363,7 +389,20 @@ export const RatingModal: React.FC = () => {
                             newRestaurant={ratingModalRestaurant}
                             state={h2hState}
                             setState={setH2hState}
+                            skipTierSelect={tieBreakActive}
+                            skipResult={tieBreakActive}
+                            onCancelFromStart={tieBreakActive ? () => {
+                              setTieBreakActive(false);
+                              setH2hState(null);
+                              setRatingMethod('slider');
+                            } : undefined}
                             onComplete={(finalScore) => {
+                              if (tieBreakActive) {
+                                setTieBreakActive(false);
+                                setH2hState(null);
+                                persistRating(finalScore);
+                                return;
+                              }
                               setScore(finalScore);
                               setH2hScore(finalScore);
                               setH2hState(null);
