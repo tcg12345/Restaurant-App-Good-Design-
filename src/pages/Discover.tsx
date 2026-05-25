@@ -443,6 +443,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const guidesSectionRef = useRef<HTMLElement>(null);
   const recipesSectionRef = useRef<HTMLElement>(null);
   const [discoverChip, setDiscoverChip] = useState<'all' | 'restaurants' | 'recipes' | 'guides'>('all');
+  // Drives the headless HomeLocationBar picker from the greeting's
+  // neighborhood label — restores the location-switch popup the old
+  // mobile header used to expose via the chevron control.
+  const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
 
   // Data for My Ratings and Friends tabs — initialized from cache if it was
   // populated for this user earlier in the session. Cache lives until reload.
@@ -4759,24 +4763,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 return (
                   <>
                     <section className="mt-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
-                        {dayName}
-                        {neighborhood && (
-                          <>
-                            <span className="text-on-surface/30 font-bold"> · </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                homeLocation && navigate(
-                                  `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                                )
-                              }
-                              className="hover:underline underline-offset-4"
-                            >
-                              {neighborhood}
-                            </button>
-                          </>
-                        )}
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary flex items-center gap-1">
+                        <span>{dayName}</span>
+                        <span className="text-on-surface/30 font-bold">·</span>
+                        <button
+                          type="button"
+                          onClick={() => setMobileLocationPickerOpen(true)}
+                          className="inline-flex items-center gap-1 hover:underline underline-offset-4"
+                        >
+                          {neighborhood || 'Pick a location'}
+                          <ChevronDown size={11} strokeWidth={2.5} className="text-primary/70" />
+                        </button>
                       </p>
                       <h1 className="mt-2 font-serif font-semibold text-on-surface text-[34px] leading-[1.05] tracking-[-0.02em]">
                         Good {greetingPart},{' '}
@@ -4905,6 +4902,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         );
                       })}
                     </div>
+
+                    {/* Headless picker — the trigger lives on the
+                        greeting's "{neighborhood} ▾" button above. */}
+                    <HomeLocationBar
+                      variant="headless"
+                      location={homeLocation}
+                      onChange={handleHomeLocationChange}
+                      onUseCurrent={handleHomeUseCurrent}
+                      open={mobileLocationPickerOpen}
+                      onOpenChange={setMobileLocationPickerOpen}
+                    />
                   </>
                 );
               })()}
