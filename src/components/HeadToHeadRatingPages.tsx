@@ -97,6 +97,62 @@ const NeighborRow: React.FC<{
 
 /* ── Inline H2H (lives inside the rating page, swaps with the slider) ─ */
 
+export const MethodChooser: React.FC<{
+  onPick: (m: 'slider' | 'h2h') => void;
+}> = ({ onPick }) => (
+  <motion.div
+    key="method-chooser"
+    initial={{ opacity: 0, y: 4 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -4 }}
+    transition={{ duration: 0.18 }}
+    className="pt-2 pb-1"
+  >
+    <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-4 text-center">
+      How do you want to rate?
+    </p>
+    <div className="space-y-2.5 max-w-md mx-auto">
+      <ChooserCard
+        icon={<Sliders size={22} />}
+        title="Slider"
+        subtitle="Pick a score from 1–10 yourself"
+        onClick={() => onPick('slider')}
+      />
+      <ChooserCard
+        icon={<Swords size={22} />}
+        title="Head-to-Head"
+        subtitle="Compare to restaurants you've already rated"
+        onClick={() => onPick('h2h')}
+      />
+    </div>
+  </motion.div>
+);
+
+const ChooserCard: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}> = ({ icon, title, subtitle, onClick }) => (
+  <motion.button
+    type="button"
+    onClick={onClick}
+    whileHover={{ y: -2 }}
+    whileTap={{ scale: 0.98 }}
+    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/10 text-left shadow-sm hover:shadow-md hover:border-on-surface/25 transition-all"
+  >
+    <div className="w-12 h-12 rounded-xl bg-on-surface/[0.05] flex items-center justify-center flex-shrink-0 text-on-surface/75">
+      {icon}
+    </div>
+    <div className="flex-1 min-w-0">
+      <div className="font-serif font-bold text-[17px] mb-0.5">{title}</div>
+      <div className="text-[12px] text-on-surface/55 leading-snug">{subtitle}</div>
+    </div>
+    <ChevronRight size={18} className="text-on-surface/25 flex-shrink-0" />
+  </motion.button>
+);
+
 export const MethodToggle: React.FC<{
   method: 'slider' | 'h2h';
   onChange: (m: 'slider' | 'h2h') => void;
@@ -186,6 +242,14 @@ export const InlineH2H: React.FC<{
       onTie={() => setState(applyTie(state))}
     />
   );
+};
+
+const TIER_ORDER: Tier[] = ['loved', 'fine', 'disliked'];
+
+const TIER_DOT: Record<Tier, string> = {
+  loved: 'bg-green-500',
+  fine: 'bg-yellow-500',
+  disliked: 'bg-red-500',
 };
 
 const InlineTierSelect: React.FC<{

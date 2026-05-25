@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import type { H2HState } from '../lib/headToHeadRating';
-import { MethodToggle, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
+import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -62,8 +62,10 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
-  // Inline rating method toggle (sits inside the main page, above the score).
-  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h'>('slider');
+  // Inline rating method choice. `null` means the user hasn't picked one yet
+  // and the prominent chooser is shown. Set to a concrete method on pick or
+  // when there are no other ratings to compare against (slider only).
+  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h' | null>(null);
   // Active head-to-head session state. null while user is on the slider or
   // before they've picked a tier.
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
@@ -109,7 +111,11 @@ export const AddRestaurantModal: React.FC = () => {
       // from RestaurantPanel); otherwise the modal always opens on main.
       const requestedInitial = addRestaurantModalInitialPage as Page | null;
       setPage(requestedInitial && requestedInitial !== 'main' ? requestedInitial : 'main');
-      setRatingMethod('slider');
+      // Show the prominent chooser when there are other rated restaurants to
+      // compare against; otherwise jump straight to the slider since H2H
+      // wouldn't have a pool.
+      const othersOnOpen = ratings.filter((r) => r.restaurantId !== restaurant.id);
+      setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
       setH2hScore(null);
       setConfirmDelete(false);
@@ -130,12 +136,13 @@ export const AddRestaurantModal: React.FC = () => {
     }
   }, [addRestaurantModalOpen, restaurant]);
 
-  // When the user toggles between Log New Visit and Update Current, the
-  // rating method should reset to slider and any in-progress H2H state
-  // should be cleared — switching visit context invalidates a half-finished
-  // head-to-head.
+  // When the user toggles between Log New Visit and Update Current, reset
+  // the method choice so they re-pick — switching visit context invalidates
+  // any in-progress head-to-head and the choice itself.
   useEffect(() => {
-    setRatingMethod('slider');
+    if (!restaurant) return;
+    const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
+    setRatingMethod(others.length > 0 ? null : 'slider');
     setH2hState(null);
     setH2hScore(null);
   }, [isNewVisit]);
@@ -438,7 +445,7 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    {ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
+                    {ratingMethod !== null && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
                       <div className="pt-2 pb-3">
                         <MethodToggle
                           method={ratingMethod}
@@ -450,7 +457,15 @@ export const AddRestaurantModal: React.FC = () => {
                       </div>
                     )}
                     <AnimatePresence mode="wait" initial={false}>
-                      {ratingMethod === 'slider' ? (
+                      {ratingMethod === null ? (
+                        <MethodChooser
+                          key="chooser"
+                          onPick={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      ) : ratingMethod === 'slider' ? (
                         <motion.div
                           key="slider"
                           initial={{ opacity: 0, y: 4 }}

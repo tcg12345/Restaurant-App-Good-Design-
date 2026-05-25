@@ -8,7 +8,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import type { H2HState } from '../lib/headToHeadRating';
-import { MethodToggle, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
+import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -37,8 +37,9 @@ export const RatingModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
-  // Inline rating method toggle.
-  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h'>('slider');
+  // Inline rating method choice. `null` means the user hasn't picked one yet
+  // and the prominent chooser is shown.
+  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h' | null>(null);
   // Active head-to-head session state; null on the slider or before tier pick.
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
   // H2H-computed score, set when the user accepts an H2H result. Drives the
@@ -63,7 +64,10 @@ export const RatingModal: React.FC = () => {
       setPriceIndex(-1);
       setPriceAmount('');
       setPage('main');
-      setRatingMethod('slider');
+      // Show the prominent chooser when there are other rated restaurants
+      // to compare against; otherwise jump straight to the slider.
+      const othersOnOpen = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
+      setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
       setH2hScore(null);
       setCreatingList(false);
@@ -266,7 +270,7 @@ export const RatingModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5">
-                    {ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
+                    {ratingMethod !== null && ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id).length > 0 && (
                       <div className="pt-2 pb-3">
                         <MethodToggle
                           method={ratingMethod}
@@ -278,7 +282,15 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                     <AnimatePresence mode="wait" initial={false}>
-                      {ratingMethod === 'slider' ? (
+                      {ratingMethod === null ? (
+                        <MethodChooser
+                          key="chooser"
+                          onPick={(m) => {
+                            setRatingMethod(m);
+                            if (m === 'slider') setH2hState(null);
+                          }}
+                        />
+                      ) : ratingMethod === 'slider' ? (
                         <motion.div
                           key="slider"
                           initial={{ opacity: 0, y: 4 }}
