@@ -2102,7 +2102,7 @@ export const LocationPage: React.FC = () => {
           global top bar (DesktopHeader). Keeps the route navigable.
           On mobile we render a richer header with a centered LOCATION
           eyebrow + "{city} ▾" dropdown trigger and a share button. */}
-      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-3' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
         {isMobile ? (
           <div className="flex items-center justify-between gap-3">
             <button
@@ -2182,7 +2182,7 @@ export const LocationPage: React.FC = () => {
           const mainName = parts[0] || cityDisplay;
           const region = parts.length > 1 ? parts.slice(1).join(', ') : '';
           return (
-            <section className="pt-4 pb-5">
+            <section className="pt-4 pb-5 px-3">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] flex items-center gap-2" style={{ color: 'var(--accent)' }}>
                 Exploring
                 <span style={{ color: 'var(--muted-2)' }}>·</span>
@@ -2449,7 +2449,7 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setGuidesOpen((v) => !v)}
-              className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+              className="w-full flex items-center justify-between gap-3 mb-3 text-left px-3"
             >
               <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
                 <span>Guides for {shortCityName}</span>
@@ -2529,7 +2529,7 @@ export const LocationPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setExpertsOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+                  className="w-full flex items-center justify-between gap-3 mb-3 text-left px-3"
                 >
                   <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
                     <span>Local experts</span>
@@ -2639,13 +2639,13 @@ export const LocationPage: React.FC = () => {
           const pillIdle = '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)';
           const pillActive = '0 0 0 1.5px rgba(28, 24, 22, 0.88), 0 1px 2px rgba(28, 24, 22, 0.06)';
           const pillSelected = '0 2px 6px rgba(28, 24, 22, 0.18)';
-          const pillBase = 'flex-shrink-0 inline-flex items-center h-[36px] rounded-full text-[13px] font-medium transition-all active:scale-[0.97]';
+          const pillBase = 'flex-shrink-0 inline-flex items-center h-[36px] rounded-full text-[13px] font-semibold transition-all active:scale-[0.97]';
           return (
-          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-0.5">
+          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={cn(pillBase, 'gap-1.5 px-3')}
+              className={cn(pillBase, 'gap-1.5 px-3.5')}
               style={{
                 background: '#FFFFFF',
                 color: 'var(--ink)',
@@ -2659,7 +2659,7 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={cn(pillBase, 'gap-1.5 px-3')}
+              className={cn(pillBase, 'gap-1.5 px-3.5')}
               style={{
                 background: '#FFFFFF',
                 color: 'var(--ink)',
@@ -2685,7 +2685,7 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={cn(pillBase, 'px-3')}
+                  className={cn(pillBase, 'px-3.5')}
                   style={active
                     ? { background: 'var(--ink)', color: '#FFFFFF', boxShadow: pillSelected }
                     : { background: '#FFFFFF', color: 'var(--ink)', boxShadow: pillIdle }}
@@ -2702,7 +2702,7 @@ export const LocationPage: React.FC = () => {
         <section className="lp-section">
           {/* Search + Filters row */}
           {isMobile ? (
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-4 px-3">
               <div className="flex-1 min-w-0 relative">
                 <Search size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
                 <input
@@ -2789,7 +2789,7 @@ export const LocationPage: React.FC = () => {
           )}
 
           {isMobile ? (
-            <div className="mb-4">
+            <div className="mb-4 px-3">
               <h2 className="font-serif font-semibold text-[28px] leading-[1.05] tracking-[-0.02em]" style={{ color: 'var(--ink)' }}>
                 {debouncedSearch ? `Results for "${debouncedSearch}"` : 'All restaurants'}
               </h2>
@@ -3796,7 +3796,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
 
   if (isMobile) {
     return (
-      <Link to={`/restaurant/${place.id}`} className="block py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+      <Link to={`/restaurant/${place.id}`} className="block py-4 px-3 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="grid grid-cols-[28px_1fr_auto] gap-3 items-start">
           <div className="font-serif text-[15px] font-medium pt-1" style={{ color: 'var(--muted)' }}>
             #{rank}

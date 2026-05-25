@@ -52,7 +52,12 @@
    items, and the editorial hero can breathe out closer to the
    phone-frame edge. Overrides the 16px set by the 900px media
    query further below. */
-.location-page-root .lp-page.is-mobile { padding-left: 12px; padding-right: 12px; padding-top: 4px; }
+/* Mobile layout: page itself has NO horizontal padding so the page
+   background runs to the phone-frame edges. Individual sections
+   (titles, hero, list items, search row) apply their own px-3 inline
+   for readability; rails apply pl-12px / pr-0 so the first card has
+   breathing room at scroll=0 but trailing cards can scroll off. */
+.location-page-root .lp-page.is-mobile { padding-left: 0; padding-right: 0; padding-top: 4px; }
 
 /* ============ LOCATION HERO ============ */
 .location-page-root .loc-hero {
@@ -798,13 +803,14 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  /* Escape the 12px .lp-page side padding so the rail spans
-     edge-to-edge of the phone-frame. No inner padding — first and
-     last cards sit flush with the frame edges; the cream "borders"
-     the desktop layout had on either side are gone. */
-  margin-left: -12px;
-  margin-right: -12px;
-  padding-left: 0;
+  /* Page no longer has horizontal padding, so the rail already
+     spans the phone-frame width naturally. We just add a 12px
+     left padding inside the rail so the first card doesn't kiss
+     the bezel at scroll=0; right padding stays 0 so trailing
+     cards scroll fully off the right edge. */
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 12px;
   padding-right: 0;
 }
 .location-page-root .gd-row.is-mobile > * { scroll-snap-align: none; }
@@ -954,9 +960,9 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
-  margin-left: -12px;
-  margin-right: -12px;
-  padding-left: 0;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 12px;
   padding-right: 0;
 }
 .location-page-root .exp-row.is-mobile > * { scroll-snap-align: none; }
