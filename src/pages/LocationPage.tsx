@@ -2115,11 +2115,10 @@ export const LocationPage: React.FC = () => {
               <ArrowLeft size={22} />
             </button>
             <div className="flex-1 min-w-0 text-center">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--muted)' }}>Location</p>
               <button
                 type="button"
                 onClick={() => setMobileLocationPickerOpen(true)}
-                className="mt-0.5 inline-flex items-center gap-1 max-w-full"
+                className="inline-flex items-center gap-1 max-w-full"
                 style={{ color: 'var(--ink)' }}
                 aria-label="Change location"
               >
