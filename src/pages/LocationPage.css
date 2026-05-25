@@ -788,8 +788,18 @@
 }
 
 /* Smaller, denser guide cards on the mobile layout — matches the
-   compact card sizing the desktop Discover Guides rail uses. */
-.location-page-root .gd-row.is-mobile { grid-auto-columns: 180px; gap: 12px; }
+   compact card sizing the desktop Discover Guides rail uses. The
+   snap-mandatory behavior is also dropped so the user can stop the
+   horizontal scroll anywhere instead of jumping to fixed columns. */
+.location-page-root .gd-row.is-mobile {
+  grid-auto-columns: 180px;
+  gap: 12px;
+  scroll-snap-type: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.location-page-root .gd-row.is-mobile > * { scroll-snap-align: none; }
 .location-page-root .gd-row.is-mobile .gd-card { aspect-ratio: 1 / 1.05; border-radius: 16px; }
 .location-page-root .gd-row.is-mobile .gd-stamp {
   top: 10px; left: 10px;
@@ -925,6 +935,28 @@
 }
 .location-page-root .exp-cta .btn-view:hover { border-color: var(--ink); color: var(--ink); }
 .location-page-root .exp-cta .btn-view svg { width: 15px; height: 15px; }
+
+/* Slightly smaller expert cards on the mobile layout + free-stop
+   horizontal scroll (no snap, smooth momentum). */
+.location-page-root .exp-row.is-mobile {
+  grid-auto-columns: 260px;
+  gap: 12px;
+  scroll-snap-type: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.location-page-root .exp-row.is-mobile > * { scroll-snap-align: none; }
+.location-page-root .exp-row.is-mobile .exp-card { padding: 16px; gap: 12px; border-radius: 18px; }
+.location-page-root .exp-row.is-mobile .exp-av { width: 40px; height: 40px; font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-name { font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-handle { font-size: 12px; }
+.location-page-root .exp-row.is-mobile .exp-tag { font-size: 12.5px; min-height: 32px; }
+.location-page-root .exp-row.is-mobile .exp-stats { padding-top: 12px; }
+.location-page-root .exp-row.is-mobile .exp-stat .n { font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-stat + .exp-stat { padding-left: 10px; }
+.location-page-root .exp-row.is-mobile .exp-cta .btn-follow { height: 34px; font-size: 12.5px; }
+.location-page-root .exp-row.is-mobile .exp-cta .btn-view { width: 34px; height: 34px; }
 
 /* ============ SEARCH ROW ============ */
 .location-page-root .r-search-row {

@@ -2446,18 +2446,11 @@ export const LocationPage: React.FC = () => {
         {/* ── Guides ──────────────────────────────────────────────────── */}
         <section className={cn('lp-section collapsible-section', (isMobile || guidesOpen) ? 'is-open' : 'is-closed')}>
           {isMobile ? (
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="min-w-0">
-                <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
-                  <span>Guides for {shortCityName}</span>
-                  <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
-                </h2>
-                <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>Curated lists from locals</p>
-              </div>
-              <a href="#" className="flex-shrink-0 inline-flex items-center gap-1 text-[14px] font-semibold mt-1" style={{ color: 'var(--ink-2)' }}>
-                Browse
-                <ChevronRight size={14} />
-              </a>
+            <div className="mb-3">
+              <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                <span>Guides for {shortCityName}</span>
+                <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
+              </h2>
             </div>
           ) : (
           <div className="loc-section-head is-collapsible">
@@ -2523,18 +2516,11 @@ export const LocationPage: React.FC = () => {
           return (
             <section className={cn('lp-section collapsible-section', (isMobile || expertsOpen) ? 'is-open' : 'is-closed')}>
               {isMobile ? (
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
-                      <span>Local experts</span>
-                      <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
-                    </h2>
-                    <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>People who know the city</p>
-                  </div>
-                  <a href="#" className="flex-shrink-0 inline-flex items-center gap-1 text-[14px] font-semibold mt-1" style={{ color: 'var(--ink-2)' }}>
-                    See all
-                    <ChevronRight size={14} />
-                  </a>
+                <div className="mb-3">
+                  <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                    <span>Local experts</span>
+                    <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
+                  </h2>
                 </div>
               ) : (
               <div className="loc-section-head is-collapsible">
@@ -2570,7 +2556,7 @@ export const LocationPage: React.FC = () => {
               </div>
               )}
               <div className="collapsible-body">
-                <div className="exp-row" ref={expertsRowRef}>
+                <div className={cn('exp-row', isMobile && 'is-mobile')} ref={expertsRowRef}>
                   {experts.map((e) => {
                     const filler = isFillerProfile(e);
                     const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
