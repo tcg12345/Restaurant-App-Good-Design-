@@ -2635,19 +2635,27 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (() => {
-          // Matches the Discover filter-chip recipe:
-          //   h-[40px] px-4 rounded-full text-[14px] font-medium border.
-          //   Inactive: bg-white text-on-surface/75 border-on-surface/10
-          //   Active:   bg-on-surface text-surface border-on-surface
-          const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border transition-colors';
-          const pillIdle = 'bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface';
-          const pillActive = 'bg-on-surface text-surface border-on-surface';
+          // Matches the Discover filter-chip recipe. Border applied
+          // inline because the .location-page-root button reset zeroes
+          // out Tailwind's border class otherwise.
+          const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors';
+          const idleStyle: React.CSSProperties = {
+            background: '#FFFFFF',
+            color: 'rgba(28, 24, 22, 0.75)',
+            border: '1px solid rgba(28, 24, 22, 0.12)',
+          };
+          const activeStyle: React.CSSProperties = {
+            background: '#1C1816',
+            color: '#FFFFFF',
+            border: '1px solid #1C1816',
+          };
           return (
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={cn(pillBase, neighborhood !== 'all' ? pillActive : pillIdle)}
+              className={pillBase}
+              style={neighborhood !== 'all' ? activeStyle : idleStyle}
             >
               <MapIcon size={14} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
@@ -2656,7 +2664,8 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={cn(pillBase, openNow ? pillActive : pillIdle)}
+              className={pillBase}
+              style={openNow ? activeStyle : idleStyle}
             >
               <span className={cn(
                 'relative w-[24px] h-[14px] rounded-full transition-colors',
@@ -2669,7 +2678,7 @@ export const LocationPage: React.FC = () => {
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'var(--border-strong)' }} />
+            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'rgba(28, 24, 22, 0.14)' }} />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2677,7 +2686,8 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={cn(pillBase, active ? pillActive : pillIdle)}
+                  className={pillBase}
+                  style={active ? activeStyle : idleStyle}
                 >
                   {c.label}
                 </button>
@@ -2693,7 +2703,7 @@ export const LocationPage: React.FC = () => {
           {isMobile ? (
             <div className="flex items-center gap-2 mb-4 px-3">
               <div className="flex-1 min-w-0 relative">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10 text-on-surface/55" />
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'rgba(28, 24, 22, 0.55)' }} />
                 <input
                   type="text"
                   value={searchQuery}
@@ -2701,14 +2711,20 @@ export const LocationPage: React.FC = () => {
                   placeholder="Search restaurants..."
                   autoCapitalize="off"
                   autoCorrect="off"
-                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium bg-white border border-on-surface/10 text-on-surface placeholder:text-on-surface/45 focus:outline-none focus:border-on-surface/25 transition-colors"
+                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium focus:outline-none transition-colors"
+                  style={{
+                    background: '#FFFFFF',
+                    color: 'var(--ink)',
+                    border: '1px solid rgba(28, 24, 22, 0.12)',
+                  }}
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full text-on-surface/55 hover:bg-on-surface/[0.06] transition-colors z-10"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
+                    style={{ color: 'rgba(28, 24, 22, 0.55)' }}
                   >
                     <X size={13} />
                   </button>
@@ -2718,7 +2734,12 @@ export const LocationPage: React.FC = () => {
                 type="button"
                 onClick={() => setFilterSheetOpen(true)}
                 aria-label="Filters"
-                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface transition-colors"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors"
+                style={{
+                  background: '#FFFFFF',
+                  color: 'rgba(28, 24, 22, 0.75)',
+                  border: '1px solid rgba(28, 24, 22, 0.12)',
+                }}
               >
                 <SlidersHorizontal size={14} />
                 Filters
