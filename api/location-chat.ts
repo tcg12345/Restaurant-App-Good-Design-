@@ -23,10 +23,7 @@ export const config = { runtime: 'edge' };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// @ts-expect-error — process.env is available in Vercel Edge at runtime
-// even though @types/node isn't installed in this project's tsconfig.
 const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
-  // @ts-expect-error see above
   ? process.env?.ANTHROPIC_API_KEY
   : undefined;
 
