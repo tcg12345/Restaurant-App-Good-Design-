@@ -2444,14 +2444,24 @@ export const LocationPage: React.FC = () => {
         )}
 
         {/* ── Guides ──────────────────────────────────────────────────── */}
-        <section className={cn('lp-section collapsible-section', (isMobile || guidesOpen) ? 'is-open' : 'is-closed')}>
+        <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
           {isMobile ? (
-            <div className="mb-3">
-              <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+            <button
+              type="button"
+              onClick={() => setGuidesOpen((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+            >
+              <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
                 <span>Guides for {shortCityName}</span>
                 <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
               </h2>
-            </div>
+              <span
+                className={cn('loc-section-chev', guidesOpen && 'is-open')}
+                aria-hidden="true"
+              >
+                <ChevronDown />
+              </span>
+            </button>
           ) : (
           <div className="loc-section-head is-collapsible">
             <button
@@ -2514,14 +2524,24 @@ export const LocationPage: React.FC = () => {
           const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
           if (experts.length === 0) return null;
           return (
-            <section className={cn('lp-section collapsible-section', (isMobile || expertsOpen) ? 'is-open' : 'is-closed')}>
+            <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
               {isMobile ? (
-                <div className="mb-3">
-                  <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                <button
+                  type="button"
+                  onClick={() => setExpertsOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+                >
+                  <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
                     <span>Local experts</span>
                     <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
                   </h2>
-                </div>
+                  <span
+                    className={cn('loc-section-chev', expertsOpen && 'is-open')}
+                    aria-hidden="true"
+                  >
+                    <ChevronDown />
+                  </span>
+                </button>
               ) : (
               <div className="loc-section-head is-collapsible">
                 <button
