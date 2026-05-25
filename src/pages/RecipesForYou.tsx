@@ -753,12 +753,32 @@ export const RecipesForYou: React.FC = () => {
           </section>
         )}
 
-        {/* ── Explore (2-col grid) ───────────────────────── */}
+        {/* ── Explore (2-col grid / list) ─────────────────── */}
         <section className="m-section m-explore" style={{ marginBottom: 12 }}>
           <div className="m-explore-section-head">
             <div>
               <h2 className="m-explore-title">Explore <span className="accent">recipes</span></h2>
               <div className="m-explore-sub">The full library, filterable</div>
+            </div>
+            <div className="m-er-view">
+              <button
+                type="button"
+                className={cn(view === 'grid' && 'on')}
+                onClick={() => setView('grid')}
+                aria-label="Grid view"
+                title="Grid"
+              >
+                <LayoutGrid />
+              </button>
+              <button
+                type="button"
+                className={cn(view === 'list' && 'on')}
+                onClick={() => setView('list')}
+                aria-label="List view"
+                title="List"
+              >
+                <List />
+              </button>
             </div>
           </div>
 
@@ -809,22 +829,24 @@ export const RecipesForYou: React.FC = () => {
           </div>
 
           {loading ? (
-            <div className="m-er-grid">
+            <div className={cn('m-er-grid', view === 'list' && 'list')}>
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: 200 }} />
+                <div key={i} className="skeleton" style={{ height: view === 'list' ? 130 : 200 }} />
               ))}
             </div>
           ) : filtered.length === 0 ? (
             <div className="m-empty">No recipes match those filters.</div>
           ) : (
-            <div className="m-er-grid">
+            <div className={cn('m-er-grid', view === 'list' && 'list')}>
               {filtered.map((r) => (
                 <MobileExploreCard
                   key={r.id}
                   r={r}
                   source={recipeSource(r)}
+                  author={authors[r.userId]}
                   saved={savedIds.has(r.id)}
                   onSave={toggleSave}
+                  view={view}
                   onClick={() => goToRecipe(r)}
                 />
               ))}
@@ -1670,32 +1692,85 @@ const MobileExploreCard: React.FC<{
   saved: boolean;
   onSave: (id: string) => void;
   onClick: () => void;
-}> = ({ r, source, saved, onSave, onClick }) => {
+  view?: ViewMode;
+  author?: UserProfile;
+}> = ({ r, source, saved, onSave, onClick, view = 'grid', author }) => {
   const cover = r.photos?.[0] || '';
   const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
   const time = formatTime(totalTime);
   const saveCount = 4 + (stableHash(r.id) % 30);
   const hue = hashToHue(r.userId || r.id);
+
+  const ImageBlock = (
+    <div className="m-er-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
+      {cover ? (
+        <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+      ) : (
+        <div className="ph-fallback"><ChefHat /></div>
+      )}
+      <span className={cn('m-er-source', source)}>
+        <SourceIcon source={source} /> {source === 'home' ? 'Home' : source === 'chef' ? 'Chef' : 'Friend'}
+      </span>
+      <button
+        type="button"
+        className={cn('m-er-save', saved && 'saved')}
+        onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
+        aria-label={saved ? 'Saved' : 'Save'}
+      >
+        <Heart fill={saved ? 'currentColor' : 'none'} />
+      </button>
+    </div>
+  );
+
+  if (view === 'list') {
+    const authorName = author?.display_name || author?.username || 'Anonymous';
+    const visibleTags = r.tags.slice(0, 2);
+    const extraTags = r.tags.length - 2;
+    return (
+      <article
+        className="m-er-card"
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      >
+        {ImageBlock}
+        <div className="m-er-body">
+          <h3 className="m-er-name">{r.title}</h3>
+          <div className="m-er-cuisine">
+            {[r.cuisine, r.difficulty && DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ') || 'Recipe'}
+          </div>
+          {r.description && <p className="m-er-desc">{r.description}</p>}
+          {visibleTags.length > 0 && (
+            <div className="m-er-tags">
+              {visibleTags.map((t) => <span key={t} className="m-er-tag">{t}</span>)}
+              {extraTags > 0 && <span className="m-er-tag more">+{extraTags}</span>}
+            </div>
+          )}
+          <div className="m-er-footer">
+            <span className="av" style={{ background: `hsl(${hue} 45% 40%)` }}>
+              {(authorName[0] || '?').toUpperCase()}
+            </span>
+            <span className="author">{authorName}</span>
+            <span className="sep" />
+            {time && <span className="item"><Clock /> {time}</span>}
+            {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
+            <span className="item"><Bookmark /> {saveCount}</span>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
-    <article className="m-er-card" role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
-      <div className="m-er-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
-        {cover ? (
-          <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="ph-fallback"><ChefHat /></div>
-        )}
-        <span className={cn('m-er-source', source)}>
-          <SourceIcon source={source} /> {source === 'home' ? 'Home' : source === 'chef' ? 'Chef' : 'Friend'}
-        </span>
-        <button
-          type="button"
-          className={cn('m-er-save', saved && 'saved')}
-          onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
-          aria-label={saved ? 'Saved' : 'Save'}
-        >
-          <Heart fill={saved ? 'currentColor' : 'none'} />
-        </button>
-      </div>
+    <article
+      className="m-er-card"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+    >
+      {ImageBlock}
       <div className="m-er-body">
         <h3 className="m-er-name">{r.title}</h3>
         <div className="m-er-cuisine">
