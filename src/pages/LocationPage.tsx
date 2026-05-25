@@ -2614,39 +2614,43 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (
-          <div className="mt-2 mb-3 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
+          <div className="mt-2 mb-3 flex items-center gap-2.5 overflow-x-auto no-scrollbar -mx-3 px-3 py-1">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
               className={cn(
-                'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
-                neighborhood !== 'all' ? 'border-on-surface/40 text-on-surface' : 'border-on-surface/10 text-on-surface/75',
+                'flex-shrink-0 inline-flex items-center gap-1.5 h-[44px] px-4 rounded-full text-[14px] font-medium bg-white transition-all shadow-[0_1px_3px_rgba(31,26,23,0.06),0_0_0_1px_rgba(31,26,23,0.06)]',
+                'active:scale-[0.98]',
+                neighborhood !== 'all' && 'shadow-[0_1px_3px_rgba(31,26,23,0.10),0_0_0_1.5px_rgba(31,26,23,0.85)]',
               )}
+              style={{ color: 'var(--ink)' }}
             >
-              <MapIcon size={13} />
+              <MapIcon size={15} strokeWidth={1.75} style={{ color: 'var(--ink-2)' }} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={13} />
+              <ChevronDown size={15} strokeWidth={2} style={{ color: 'var(--muted-2)' }} />
             </button>
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
               className={cn(
-                'flex-shrink-0 inline-flex items-center gap-2 h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
-                openNow ? 'border-on-surface text-on-surface' : 'border-on-surface/10 text-on-surface/75',
+                'flex-shrink-0 inline-flex items-center gap-2 h-[44px] px-4 rounded-full text-[14px] font-medium bg-white transition-all shadow-[0_1px_3px_rgba(31,26,23,0.06),0_0_0_1px_rgba(31,26,23,0.06)]',
+                'active:scale-[0.98]',
+                openNow && 'shadow-[0_1px_3px_rgba(31,26,23,0.10),0_0_0_1.5px_rgba(31,26,23,0.85)]',
               )}
+              style={{ color: 'var(--ink)' }}
             >
               <span className={cn(
-                'relative w-[26px] h-[14px] rounded-full transition-colors',
+                'relative w-[28px] h-[16px] rounded-full transition-colors',
                 openNow ? 'bg-emerald-600' : 'bg-on-surface/15',
               )}>
                 <span className={cn(
-                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white transition-all',
+                  'absolute top-[2px] w-[12px] h-[12px] rounded-full bg-white shadow-sm transition-all',
                   openNow ? 'left-[14px]' : 'left-[2px]',
                 )} />
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-5 bg-on-surface/15" />
+            <span className="flex-shrink-0 self-center w-px h-6" style={{ background: 'var(--border-strong)' }} />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2655,9 +2659,12 @@ export const LocationPage: React.FC = () => {
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
                   className={cn(
-                    'flex-shrink-0 inline-flex items-center h-[40px] px-3.5 rounded-full text-[13px] font-medium border bg-white transition-colors',
-                    active ? 'bg-on-surface text-surface border-on-surface' : 'border-on-surface/10 text-on-surface/75',
+                    'flex-shrink-0 inline-flex items-center h-[44px] px-4 rounded-full text-[14px] font-medium transition-all active:scale-[0.98]',
+                    active
+                      ? 'text-white shadow-[0_2px_6px_rgba(31,26,23,0.18)]'
+                      : 'bg-white shadow-[0_1px_3px_rgba(31,26,23,0.06),0_0_0_1px_rgba(31,26,23,0.06)]',
                   )}
+                  style={active ? { background: 'var(--ink)' } : { color: 'var(--ink)' }}
                 >
                   {c.label}
                 </button>
@@ -2670,9 +2677,9 @@ export const LocationPage: React.FC = () => {
         <section className="lp-section">
           {/* Search + Filters row */}
           {isMobile ? (
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2.5 mb-5">
               <div className="flex-1 min-w-0 relative">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+                <Search size={17} strokeWidth={1.75} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--muted)' }} />
                 <input
                   type="text"
                   value={searchQuery}
@@ -2680,15 +2687,15 @@ export const LocationPage: React.FC = () => {
                   placeholder="Search restaurants..."
                   autoCapitalize="off"
                   autoCorrect="off"
-                  className="w-full h-[44px] pl-11 pr-10 rounded-full text-[14px] font-medium bg-white border focus:outline-none"
-                  style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}
+                  className="w-full h-[48px] pl-11 pr-10 rounded-full text-[14px] font-medium bg-white focus:outline-none focus:shadow-[0_1px_3px_rgba(31,26,23,0.10),0_0_0_1.5px_rgba(31,26,23,0.45)] shadow-[0_1px_3px_rgba(31,26,23,0.06),0_0_0_1px_rgba(31,26,23,0.06)] transition-shadow"
+                  style={{ color: 'var(--ink)' }}
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors"
                     style={{ color: 'var(--muted)' }}
                   >
                     <X size={14} />
@@ -2699,15 +2706,17 @@ export const LocationPage: React.FC = () => {
                 type="button"
                 onClick={() => setFilterSheetOpen(true)}
                 aria-label="Filters"
-                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[44px] px-4 rounded-full text-[14px] font-medium bg-white border"
-                style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}
+                className="flex-shrink-0 inline-flex items-center gap-2 h-[48px] pl-4 pr-3 rounded-full text-[14px] font-semibold bg-white shadow-[0_1px_3px_rgba(31,26,23,0.06),0_0_0_1px_rgba(31,26,23,0.06)] active:scale-[0.98] transition-all"
+                style={{ color: 'var(--ink)' }}
               >
-                <SlidersHorizontal size={15} />
+                <SlidersHorizontal size={16} strokeWidth={1.75} />
                 Filters
-                {activeFilterCount > 0 && (
-                  <span className="ml-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold text-white" style={{ background: 'var(--accent)' }}>
+                {activeFilterCount > 0 ? (
+                  <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full text-[12px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
                     {activeFilterCount}
                   </span>
+                ) : (
+                  <span className="w-1" />
                 )}
               </button>
             </div>
