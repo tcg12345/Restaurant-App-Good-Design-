@@ -645,6 +645,63 @@ export const RecipePage: React.FC = () => {
     ));
   };
 
+  // ── Mobile layout (rendered when phoneMode is true) ──────────────
+  //    Different markup using .rdm-* classes so the page renders as a
+  //    phone screen instead of the desktop layout squashed down. Shares
+  //    all data hooks, save/cook handlers, and review submission with
+  //    the desktop branch below.
+  if (phoneMode) {
+    return (
+      <div className="recipe-detail-page">
+        <MobileRecipeView
+          data={data}
+          authorProfile={authorProfile}
+          reviews={reviews}
+          reviewerProfiles={reviewerProfiles}
+          myReview={myReview}
+          related={related}
+          relatedAuthors={relatedAuthors}
+          stars5={stars5}
+          ratingsCount={ratingsCount}
+          ratingBreakdown={ratingBreakdown}
+          totalMinutes={totalMinutes}
+          baseServings={baseServings}
+          scale={scale}
+          servings={servings}
+          setServings={setServings}
+          checked={checked}
+          toggleCheck={toggleCheck}
+          doneSteps={doneSteps}
+          toggleStep={toggleStep}
+          saved={saved}
+          cooked={cooked}
+          isOwner={isOwner}
+          scrolled={scrolled}
+          toast={toast}
+          cookMode={cookMode}
+          setCookMode={setCookMode}
+          reviewOpen={reviewOpen}
+          setReviewOpen={setReviewOpen}
+          handleSave={handleSave}
+          handleCooked={handleCooked}
+          handleShare={handleShare}
+          handleEdit={handleEdit}
+          submitReview={submitReview}
+          renderStars={renderStars}
+          authorName={authorName}
+          authorRole={authorRole}
+          authorInitial={authorInitial}
+          authorInitials={authorInitials}
+          authorBg={authorBg}
+          authorUsername={authorProfile?.username || ''}
+          currentUserId={currentUserId}
+          currentUserName={user?.email?.split('@')[0] || 'You'}
+          navigate={navigate}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="recipe-detail-page">
       {/* ── Top nav ───────────────────────────────────────────────── */}
@@ -1403,5 +1460,650 @@ const ReviewCard: React.FC<{
         </div>
       )}
     </article>
+  );
+};
+
+/* ── Mobile render tree ─────────────────────────────────────────────
+   Renders a phone-shaped recipe detail view that mirrors the supplied
+   mock-up. Receives all the parent state + handlers as props so the
+   data hooks aren't duplicated between layouts. Keeps a sticky header
+   with a Back + heart + share, a 4:3 hero image, a title block with
+   eyebrow/title/byline/rating/author/3×2 stats/3 action buttons, then
+   tags, an intro with drop cap, an ingredients section, a directions
+   section, notes, nutrition (hidden), author bio, reviews, and a
+   horizontal "you might also like" rail. A black FAB pinned to the
+   bottom-right launches Cook mode.
+   ──────────────────────────────────────────────────────────────────── */
+
+interface MobileViewProps {
+  data: UnifiedRecipe;
+  authorProfile: UserProfile | null;
+  reviews: UnifiedReview[];
+  reviewerProfiles: Record<string, UserProfile>;
+  myReview: UnifiedReview | null;
+  related: Recipe[];
+  relatedAuthors: Record<string, UserProfile>;
+  stars5: number;
+  ratingsCount: number;
+  ratingBreakdown: Record<number, number>;
+  totalMinutes: number;
+  baseServings: number;
+  scale: number;
+  servings: number;
+  setServings: React.Dispatch<React.SetStateAction<number>>;
+  checked: Set<string>;
+  toggleCheck: (key: string) => void;
+  doneSteps: Set<number>;
+  toggleStep: (i: number) => void;
+  saved: boolean;
+  cooked: boolean;
+  isOwner: boolean;
+  scrolled: boolean;
+  toast: string | null;
+  cookMode: boolean;
+  setCookMode: React.Dispatch<React.SetStateAction<boolean>>;
+  reviewOpen: boolean;
+  setReviewOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  handleSave: () => void;
+  handleCooked: () => void;
+  handleShare: () => void;
+  handleEdit: () => void;
+  submitReview: (rating: number, title: string, body: string, cookedIt: boolean) => Promise<boolean>;
+  renderStars: (value: number, size?: number) => React.ReactNode;
+  authorName: string;
+  authorRole: string;
+  authorInitial: string;
+  authorInitials: string;
+  authorBg: string;
+  authorUsername: string;
+  currentUserId: string | null;
+  currentUserName: string;
+  navigate: (to: string | number) => void;
+}
+
+const MobileRecipeView: React.FC<MobileViewProps> = ({
+  data, authorProfile, reviews, reviewerProfiles, myReview, related, relatedAuthors,
+  stars5, ratingsCount, ratingBreakdown, totalMinutes, baseServings, scale,
+  servings, setServings, checked, toggleCheck, doneSteps, toggleStep,
+  saved, cooked, isOwner, scrolled, toast, cookMode, setCookMode, reviewOpen, setReviewOpen,
+  handleSave, handleCooked, handleShare, handleEdit, submitReview,
+  renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
+  authorUsername, currentUserId, currentUserName, navigate,
+}) => (
+  <div className="rdm">
+    {/* Sticky header */}
+    <nav className={cn('rdm-nav', scrolled && 'scrolled')}>
+      <div className="rdm-nav-row">
+        <button type="button" className="rdm-back" onClick={() => navigate(-1)} aria-label="Back">
+          <ArrowLeft />
+        </button>
+        <div className="rdm-nav-title">{data.title}</div>
+        <button
+          type="button"
+          className={cn('rdm-nav-icon', saved && 'saved')}
+          onClick={handleSave}
+          aria-label={saved ? 'Saved' : 'Save'}
+        >
+          <Heart fill={saved ? 'currentColor' : 'none'} />
+        </button>
+        <button type="button" className="rdm-nav-icon" onClick={handleShare} aria-label="Share">
+          <Share2 />
+        </button>
+      </div>
+    </nav>
+
+    <div className="rdm-page">
+      {/* Hero image */}
+      <div className="rdm-hero-img">
+        {data.coverPhoto ? (
+          <img src={data.coverPhoto} alt={data.title} referrerPolicy="no-referrer" />
+        ) : (
+          <div className="ph-fallback"><ChefHat /></div>
+        )}
+        {data.sourceType === 'expert' && (
+          <div className="badge"><Sparkles /> Editor's pick</div>
+        )}
+      </div>
+
+      {/* Title block */}
+      <section className="rdm-title-block">
+        {(data.cuisine || data.difficulty) && (
+          <div className="rdm-eyebrow">
+            {data.cuisine && <span>{data.cuisine}</span>}
+            {data.cuisine && data.difficulty && <span className="sep">·</span>}
+            {data.difficulty && <span>{DIFFICULTY_LABEL[data.difficulty]}</span>}
+          </div>
+        )}
+        <h1 className="rdm-title">{data.title}</h1>
+        {data.intro[0] && (
+          <p className="rdm-byline">
+            {data.intro[0].length > 220 ? data.intro[0].slice(0, 217) + '…' : data.intro[0]}
+          </p>
+        )}
+
+        {(ratingsCount > 0 || cooked) && (
+          <div className="rdm-rating-row">
+            {ratingsCount > 0 && (
+              <span className="rating">
+                <Star fill="currentColor" /> {stars5.toFixed(1)}
+              </span>
+            )}
+            {ratingsCount > 0 && (
+              <span>{ratingsCount.toLocaleString()} rating{ratingsCount === 1 ? '' : 's'}</span>
+            )}
+            {cooked && (
+              <>
+                {ratingsCount > 0 && <span className="sep" />}
+                <span>You cooked this</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {(authorProfile || data.ownerId) && (
+          <button
+            type="button"
+            className="rdm-author"
+            onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
+          >
+            <div className="av" style={{ background: authorBg }}>{authorInitial}</div>
+            <div className="rdm-author-info">
+              <span className="byline">Recipe by</span>
+              <span className="name">{authorName}</span>
+              <span className="role">{authorRole}</span>
+            </div>
+          </button>
+        )}
+
+        <div className="rdm-stats">
+          <div className="rdm-stat">
+            <div className="l">Prep</div>
+            <div className="v">
+              {data.prepMinutes > 0 ? <>{data.prepMinutes}<span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rdm-stat">
+            <div className="l">Cook</div>
+            <div className="v">
+              {data.cookMinutes > 0 ? <>{data.cookMinutes}<span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rdm-stat">
+            <div className="l">Total</div>
+            <div className="v">
+              {totalMinutes > 0 ? <>{totalMinutes}<span className="unit">min</span></> : '—'}
+            </div>
+          </div>
+          <div className="rdm-stat">
+            <div className="l">Serves</div>
+            <div className="v">{data.servings > 0 ? data.servings : '—'}</div>
+          </div>
+          <div className="rdm-stat">
+            <div className="l">Level</div>
+            <div className="v" style={{ fontSize: 14, paddingTop: 4 }}>
+              {data.difficulty ? DIFFICULTY_LABEL[data.difficulty] : '—'}
+            </div>
+          </div>
+          <div className="rdm-stat">
+            <div className="l">Steps</div>
+            <div className="v">{data.steps.length || '—'}</div>
+          </div>
+        </div>
+
+        <div className="rdm-actions">
+          <button type="button" className={cn('rdm-act', saved && 'saved')} onClick={handleSave}>
+            <Heart fill={saved ? 'currentColor' : 'none'} />
+            {saved ? 'Saved' : 'Save'}
+          </button>
+          <button type="button" className={cn('rdm-act', cooked && 'cooked-state')} onClick={handleCooked}>
+            {cooked ? <Check /> : <ChefHat />}
+            {cooked ? 'Cooked' : 'Cooked it'}
+          </button>
+          <button type="button" className="rdm-act" onClick={() => window.print()}>
+            <Printer /> Print
+          </button>
+        </div>
+      </section>
+
+      {/* Tags */}
+      {data.tags.length > 0 && (
+        <div className="rdm-tags">
+          {data.tags.map((t) => <span key={t} className="rdm-tag">{t}</span>)}
+        </div>
+      )}
+
+      {/* Intro */}
+      {data.intro.length > 0 && (
+        <section className="rdm-intro">
+          {data.intro.map((p, i) => <p key={i}>{p}</p>)}
+        </section>
+      )}
+
+      {/* Ingredients */}
+      <section className="rdm-section">
+        <h2 className="rdm-section-title">
+          Ingredients
+          <span className="count">{data.ingredients.length} item{data.ingredients.length === 1 ? '' : 's'}</span>
+        </h2>
+        {data.ingredients.length === 0 ? (
+          <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
+            No ingredients listed.
+          </p>
+        ) : (
+          <>
+            <div className="rdm-servings">
+              <div>
+                <div className="lbl">Servings</div>
+                <div className="sub">Scaled from {baseServings}</div>
+              </div>
+              <div className="rdm-stepper">
+                <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
+                <span className="v">{servings}</span>
+                <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
+              </div>
+            </div>
+            <div className="rdm-ingr-group">
+              {data.ingredients.map((ing, i) => {
+                const key = `i-${i}`;
+                const isChecked = checked.has(key);
+                const qty = formatQty(ing.amount, scale);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={cn('rdm-ingr-item', isChecked && 'checked')}
+                    onClick={() => toggleCheck(key)}
+                  >
+                    <span className="check"><Check /></span>
+                    <span className="rdm-ingr-text text">
+                      {qty && <span className="qty">{qty}</span>}
+                      {ing.unit && <span className="unit">{ing.unit}</span>}
+                      <span className="name">{ing.name}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Directions */}
+      <section className="rdm-section">
+        <h2 className="rdm-section-title">
+          Directions
+          <span className="count">{data.steps.length} step{data.steps.length === 1 ? '' : 's'}</span>
+        </h2>
+        {data.steps.length === 0 ? (
+          <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
+            No directions yet.
+          </p>
+        ) : (
+          <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+            {data.steps.map((step, i) => {
+              const split = splitStep(step);
+              const timer = extractStepMs(step);
+              const isDone = doneSteps.has(i);
+              return (
+                <li key={i} className={cn('rdm-step', isDone && 'done')}>
+                  <div className="rdm-step-num-wrap">
+                    <div className="rdm-step-num">{String(i + 1).padStart(2, '0')}</div>
+                    <button
+                      type="button"
+                      className="rdm-step-check"
+                      onClick={() => toggleStep(i)}
+                      aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                    >
+                      <Check />
+                    </button>
+                  </div>
+                  <div>
+                    {split.title && <h3 className="rdm-step-title">{split.title}</h3>}
+                    <p className="rdm-step-body">{split.body || step}</p>
+                    {timer && (
+                      <div className="rdm-step-meta">
+                        <MobileStepTimer label={timer.label} durationMs={timer.ms} />
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </section>
+
+      {/* Author bio */}
+      {authorProfile && (
+        <section className="rdm-section">
+          <h2 className="rdm-section-title">About the {authorProfile.is_expert ? 'chef' : 'cook'}</h2>
+          <div className="rdm-author-bio">
+            <div className="rdm-author-bio-row">
+              <div className="rdm-author-bio-av" style={{ background: authorBg }}>{authorInitials}</div>
+              <div className="rdm-author-bio-info">
+                <h3 className="rdm-author-bio-name">{authorName}</h3>
+                <div className="rdm-author-bio-role">{authorRole}</div>
+              </div>
+            </div>
+            {authorProfile.bio && <p className="rdm-author-bio-text">{authorProfile.bio}</p>}
+            <div className="rdm-author-bio-stats">
+              <button
+                type="button"
+                className="rdm-author-bio-follow"
+                onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
+              >
+                View profile
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Reviews */}
+      <section className="rdm-section">
+        <h2 className="rdm-section-title">
+          Reviews
+          {ratingsCount > 0 && <span className="count">{ratingsCount.toLocaleString()}</span>}
+        </h2>
+        <div className="rdm-reviews-summary">
+          <div className="rdm-reviews-avg">
+            {ratingsCount > 0 ? stars5.toFixed(1) : '—'}<span className="of">/5</span>
+          </div>
+          <div>
+            <div className="rdm-reviews-stars">{renderStars(stars5)}</div>
+            <div className="rdm-reviews-count">
+              {ratingsCount > 0
+                ? `${ratingsCount.toLocaleString()} rating${ratingsCount === 1 ? '' : 's'}`
+                : 'No reviews yet'}
+            </div>
+            {myReview ? (
+              <div className="rdm-reviews-cta-done">
+                <Check /> Rated {Math.round(myReview.rating)}/5
+              </div>
+            ) : (
+              currentUserId && !isOwner && (
+                <button type="button" className="rdm-reviews-cta" onClick={() => setReviewOpen(true)}>
+                  <Star fill="currentColor" /> Write a review
+                </button>
+              )
+            )}
+          </div>
+        </div>
+        {ratingsCount > 0 && (
+          <div className="rdm-rating-bars">
+            {([5, 4, 3, 2, 1] as const).map((n) => {
+              const count = ratingBreakdown[n] || 0;
+              const pct = ratingsCount > 0 ? (count / ratingsCount) * 100 : 0;
+              return (
+                <React.Fragment key={n}>
+                  <span className="rdm-rating-bar-label">{n} <Star fill="currentColor" /></span>
+                  <div className="rdm-rating-bar-track">
+                    <div className="rdm-rating-bar-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="rdm-rating-bar-count">{count.toLocaleString()}</span>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
+        {myReview && (
+          <MobileReviewCard
+            review={myReview}
+            isMine
+            currentUserName={currentUserName}
+            renderStars={renderStars}
+          />
+        )}
+        {reviews.slice(0, 3).map((r) => (
+          <MobileReviewCard
+            key={r.id}
+            review={r}
+            profile={reviewerProfiles[r.userId]}
+            renderStars={renderStars}
+          />
+        ))}
+        {reviews.length === 0 && !myReview && (
+          <p style={{ textAlign: 'center', padding: '20px 8px', fontFamily: 'var(--serif)', fontStyle: 'italic', color: 'var(--muted)', fontSize: 14 }}>
+            Be the first to cook and review this.
+          </p>
+        )}
+      </section>
+
+      {/* Related */}
+      {related.length > 0 && (
+        <section className="rdm-section">
+          <h2 className="rdm-section-title">You might also like</h2>
+          <div className="rdm-related-row">
+            {related.map((r) => {
+              const ra = relatedAuthors[r.userId];
+              const rAuthor = ra?.display_name || ra?.username || 'Chef';
+              const rHue = hashToHue(r.userId || rAuthor);
+              const rTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+              const rCover = r.photos?.[0] || '';
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  className="rdm-related"
+                  onClick={() => navigate(`/recipe/${r.userId}/${r.id}`)}
+                >
+                  <div className="rdm-related-img" style={{ background: `linear-gradient(135deg, hsl(${rHue} 50% 52%), hsl(${(rHue + 25) % 360} 50% 42%))` }}>
+                    {rCover ? (
+                      <img src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="ph-fallback"><ChefHat /></div>
+                    )}
+                  </div>
+                  <div className="rdm-related-body">
+                    <h3 className="rdm-related-name">{r.title}</h3>
+                    <div className="rdm-related-meta">
+                      {r.cuisine && <span>{r.cuisine}</span>}
+                      {r.cuisine && rTime > 0 && <span className="sep" />}
+                      {rTime > 0 && <span>{formatMinutes(rTime)}</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Owner edit (small inline link, since the design lacks an edit affordance) */}
+      {isOwner && (
+        <section className="rdm-section" style={{ paddingBottom: 40 }}>
+          <button
+            type="button"
+            className="rdm-act"
+            onClick={handleEdit}
+            style={{ flex: 'none', width: '100%' }}
+          >
+            <Edit3 /> Edit this recipe
+          </button>
+        </section>
+      )}
+    </div>
+
+    {/* Cook mode FAB (hidden when overlay open) */}
+    {!cookMode && data.steps.length > 0 && (
+      <button type="button" className="rdm-cookmode-fab" onClick={() => setCookMode(true)}>
+        <Play fill="currentColor" /> Cook mode
+      </button>
+    )}
+
+    {/* Cook mode overlay */}
+    {cookMode && (
+      <MobileCookMode recipe={data} onClose={() => setCookMode(false)} />
+    )}
+
+    {/* Review modal */}
+    {reviewOpen && (
+      <ReviewModal
+        recipe={data}
+        authorName={authorName}
+        currentUserName={currentUserName}
+        onClose={() => setReviewOpen(false)}
+        onSubmit={async (form) => {
+          const ok = await submitReview(form.rating, form.title, form.body, form.cookedIt);
+          if (ok) setReviewOpen(false);
+        }}
+      />
+    )}
+
+    {/* Toast */}
+    {toast && (
+      <div className="rdm-toast">
+        <Check /> {toast}
+      </div>
+    )}
+  </div>
+);
+
+const MobileStepTimer: React.FC<{ label: string; durationMs: number }> = ({ label, durationMs }) => {
+  const [running, setRunning] = useState(false);
+  const [remaining, setRemaining] = useState(durationMs);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (running) {
+      intervalRef.current = window.setInterval(() => {
+        setRemaining((r) => {
+          if (r <= 1000) {
+            if (intervalRef.current) window.clearInterval(intervalRef.current);
+            setRunning(false);
+            return 0;
+          }
+          return r - 1000;
+        });
+      }, 1000);
+    } else if (intervalRef.current) {
+      window.clearInterval(intervalRef.current);
+    }
+    return () => { if (intervalRef.current) window.clearInterval(intervalRef.current); };
+  }, [running]);
+
+  const display = useMemo(() => {
+    const total = Math.ceil(remaining / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    if (m > 0) return `${m}:${String(s).padStart(2, '0')}`;
+    return `${s}s`;
+  }, [remaining]);
+
+  return (
+    <button
+      type="button"
+      className="rdm-step-timer"
+      onClick={() => {
+        if (!running && remaining === 0) setRemaining(durationMs);
+        setRunning(!running);
+      }}
+    >
+      <Clock />
+      <span>{label}</span>
+      <span className="play">
+        {running ? display : (remaining > 0 && remaining < durationMs ? display : 'Start')}
+      </span>
+    </button>
+  );
+};
+
+const MobileReviewCard: React.FC<{
+  review: UnifiedReview;
+  profile?: UserProfile | null;
+  isMine?: boolean;
+  currentUserName?: string;
+  renderStars: (value: number, size?: number) => React.ReactNode;
+}> = ({ review, profile, isMine, currentUserName, renderStars }) => {
+  const name = isMine
+    ? (currentUserName || 'You')
+    : (profile?.display_name || profile?.username || 'Anonymous');
+  const initial = (name[0] || '?').toUpperCase();
+  const hue = hashToHue(review.userId || name);
+  const date = review.createdAt
+    ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'just now';
+  const splitIdx = review.notes.indexOf('\n\n');
+  const reviewBody = splitIdx > 0 ? review.notes.slice(splitIdx + 2).trim() : review.notes;
+  return (
+    <article className={cn('rdm-review', isMine && 'rdm-review-mine')}>
+      {isMine && <div className="rdm-review-mine-badge">Your review</div>}
+      <header className="rdm-review-head">
+        <div className="rdm-review-av" style={{ background: `hsl(${hue} 45% 38%)` }}>{initial}</div>
+        <div className="rdm-review-meta">
+          <div className="rdm-review-name">
+            {name}
+            {isMine && <span className="verified"><Check /> Verified</span>}
+          </div>
+          <div className="rdm-review-info">
+            <span>{date}</span>
+          </div>
+        </div>
+        <div className="rdm-review-rating">{renderStars(review.rating)}</div>
+      </header>
+      {reviewBody && <p className="rdm-review-body">"{reviewBody}"</p>}
+    </article>
+  );
+};
+
+const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ recipe, onClose }) => {
+  const [step, setStep] = useState(0);
+  const total = recipe.steps.length;
+  const current = recipe.steps[step] || '';
+  const split = splitStep(current);
+  const timer = extractStepMs(current);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setStep((s) => Math.min(total - 1, s + 1));
+      if (e.key === 'ArrowLeft') setStep((s) => Math.max(0, s - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [total, onClose]);
+
+  return (
+    <div className="rdm-cookmode">
+      <div className="rdm-cm-nav">
+        <button type="button" className="rdm-cm-close" onClick={onClose} aria-label="Exit"><X /></button>
+        <div className="rdm-cm-title">Cook mode</div>
+        <div style={{ width: 36 }} />
+      </div>
+      <div className="rdm-cm-progress">
+        {recipe.steps.map((_, i) => (
+          <div key={i} className={cn('rdm-cm-dot', i < step && 'done', i === step && 'current')} />
+        ))}
+      </div>
+      <div className="rdm-cm-body">
+        <div className="rdm-cm-stepmeta">
+          Step {step + 1} of {total}{timer ? ` · ${timer.label}` : ''}
+        </div>
+        <div className="rdm-cm-num">{String(step + 1).padStart(2, '0')}</div>
+        {split.title && <h2 className="rdm-cm-step-title">{split.title}</h2>}
+        <p className="rdm-cm-step-body">{split.body || current}</p>
+      </div>
+      <div className="rdm-cm-controls">
+        <button
+          type="button"
+          className="rdm-cm-btn"
+          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={step === 0}
+        >
+          <ChevronLeft /> Back
+        </button>
+        <button
+          type="button"
+          className="rdm-cm-btn primary"
+          onClick={() => { if (step >= total - 1) onClose(); else setStep(step + 1); }}
+        >
+          {step >= total - 1 ? 'Finish' : 'Next'} <ChevronRight />
+        </button>
+      </div>
+    </div>
   );
 };
