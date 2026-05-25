@@ -1304,8 +1304,15 @@
 .location-page-root .lp-filter-drag-handle {
   display: flex;
   justify-content: center;
-  padding: 10px 0 4px;
+  align-items: center;
+  /* Generous vertical touch target so the user can grab anywhere
+     along the top strip — pairs with onPointerDown={startDrag}. */
+  padding: 12px 0;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
 }
+.location-page-root .lp-filter-drag-handle:active { cursor: grabbing; }
 .location-page-root .lp-filter-drag-handle > span {
   width: 40px;
   height: 4px;
@@ -1693,7 +1700,9 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 22px;
+  /* Stack the design's 14px bottom gutter on top of the iPhone home
+     indicator's safe-area inset so Reset / Apply never sit under it. */
+  padding: 14px 22px calc(14px + env(safe-area-inset-bottom, 0px));
   background: var(--surface-2);
   border-top: 1px solid var(--border);
   flex-shrink: 0;

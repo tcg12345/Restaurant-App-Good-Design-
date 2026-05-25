@@ -3374,7 +3374,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onDriveMinChange,
 }) => {
   const { phoneMode } = useSettings();
-  const { dragProps } = useBottomSheet(open, onClose);
+  const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cuisineQuery, setCuisineQuery] = useState('');
   const cuisineOptions = useMemo(
@@ -3441,7 +3441,12 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
             className={cn('lp-filter-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
           >
             {phoneMode && (
-              <div className="lp-filter-drag-handle">
+              <div
+                className="lp-filter-drag-handle"
+                onPointerDown={startDrag}
+                style={{ touchAction: 'none' }}
+                aria-hidden="true"
+              >
                 <span />
               </div>
             )}
