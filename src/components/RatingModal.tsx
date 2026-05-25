@@ -52,6 +52,10 @@ export const RatingModal: React.FC = () => {
   const [page, setPage] = useState<Page>('main');
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
   const [cameFromH2H, setCameFromH2H] = useState(false);
+  // Tracks whether the user explicitly chose Quick rate on the mode-select
+  // screen. Without this, the async-ratings safety net below would yank a
+  // user who'd intentionally picked the slider back to mode-select.
+  const userPickedSlider = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
@@ -76,6 +80,7 @@ export const RatingModal: React.FC = () => {
       setPage(others.length === 0 ? 'main' : 'mode-select');
       setH2hState(null);
       setCameFromH2H(false);
+      userPickedSlider.current = false;
       setCreatingList(false);
       setNewName('');
       setListDropdownOpen(false);
@@ -84,6 +89,18 @@ export const RatingModal: React.FC = () => {
       setSelectedPhotoIdx(null);
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
+
+  // Safety net for the race where the modal opens before Supabase has
+  // finished syncing the user's ratings down: if ratings becomes non-empty
+  // while we're still parked on the slider with no user interaction,
+  // upgrade to the mode-select entry so head-to-head is reachable.
+  useEffect(() => {
+    if (!ratingModalOpen || !ratingModalRestaurant) return;
+    if (userPickedSlider.current) return;
+    if (page !== 'main') return;
+    const others = ratings.filter((r) => r.restaurantId !== ratingModalRestaurant.id);
+    if (others.length > 0) setPage('mode-select');
+  }, [ratings.length, ratingModalOpen, ratingModalRestaurant, page]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -211,7 +228,7 @@ export const RatingModal: React.FC = () => {
                   restaurantName={ratingModalRestaurant.name}
                   isEdit={!!existing}
                   onClose={closeRatingModal}
-                  onPickSlider={() => { setCameFromH2H(false); setPage('main'); }}
+                  onPickSlider={() => { userPickedSlider.current = true; setCameFromH2H(false); setPage('main'); }}
                   onPickH2H={() => setPage('h2h-tier')}
                 />
               )}
