@@ -432,7 +432,11 @@ export const GuideDetail: React.FC = () => {
             {guide.entries.map((entry, idx) => {
               const orderedFields = guide.type === 'restaurants' ? entry.mustOrder : entry.keyIngredients;
               const orderedLabel = guide.type === 'restaurants' ? 'Must Order' : 'Key Ingredients';
-              const linkTarget = guide.type === 'restaurants' ? `/restaurant/${entry.refId}` : `/recipe/${entry.refId}`;
+              const linkTarget = guide.type === 'restaurants'
+                ? `/restaurant/${entry.refId}`
+                : entry.authorId
+                  ? `/recipe/${entry.authorId}/${entry.refId}`
+                  : `/recipe/${entry.refId}`;
               const isRestaurant = guide.type === 'restaurants';
               const wishlisted = isRestaurant && isWishlisted(entry.refId);
               const parsed = parseRestaurantSubtitle(entry.subtitle);

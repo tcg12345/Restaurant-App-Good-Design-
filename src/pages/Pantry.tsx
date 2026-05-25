@@ -4531,6 +4531,7 @@ const HomeCookingTab: React.FC<{
 }> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
@@ -5549,7 +5550,7 @@ const HomeCookingTab: React.FC<{
             <RecipeGridCard
               key={meal.id}
               meal={meal}
-              onClick={() => onSelectMeal(meal.id)}
+              onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
             />
           ))}
@@ -5560,7 +5561,7 @@ const HomeCookingTab: React.FC<{
             <RecipeRow
               key={meal.id}
               meal={meal}
-              onClick={() => onSelectMeal(meal.id)}
+              onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
             />
           ))}

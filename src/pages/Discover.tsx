@@ -923,10 +923,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // stored in user_app_data.home_meals). Both count as "friend
     // recipes" for the home rail — adapt the HomeMeal shape into the
     // Recipe contract on the fly so the same scoring works for both.
+    // The raw meal id is preserved (no prefix) so the card link can
+    // resolve to /recipe/:userId/:id and the unified RecipePage fetches
+    // the home meal from user_app_data.home_meals.
     const friendHomeMealsAsRecipes: Recipe[] = (friendRecipes || [])
       .filter((m) => m.isPublic !== false && (m.name || '').trim().length > 0)
       .map((m) => ({
-        id: `homemeal-${m.id}`,
+        id: m.id,
         userId: m.userId,
         title: m.name,
         description: m.description || '',
@@ -5518,7 +5521,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       return (
                         <Link
                           key={r.id}
-                          to={`/recipe/${r.id}`}
+                          to={`/recipe/${r.userId}/${r.id}`}
                           className={cn(
                             'flex-shrink-0 snap-start group',
                             usingDesktopHeader ? 'w-[224px]' : 'w-[200px]',
