@@ -2634,51 +2634,50 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (() => {
-          // Inline shadows — Tailwind's arbitrary `shadow-[a,b]` syntax
-          // doesn't always emit multi-shadow CSS reliably under v4, so we
-          // attach the lift directly via style for a guaranteed render.
-          const pillShadowIdle = '0 1px 2px rgba(28, 24, 22, 0.05), 0 2px 8px rgba(28, 24, 22, 0.08)';
-          const pillShadowActive = '0 1px 3px rgba(28, 24, 22, 0.10), 0 0 0 1.5px rgba(28, 24, 22, 0.9)';
-          const pillShadowSelected = '0 3px 10px rgba(28, 24, 22, 0.22)';
-          const pillBase = 'flex-shrink-0 inline-flex items-center h-[44px] rounded-full text-[14px] font-medium transition-all active:scale-[0.98]';
+          // Compact pill recipe — tight padding, 36px height, thin
+          // hairline ring with a soft contact shadow.
+          const pillIdle = '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)';
+          const pillActive = '0 0 0 1.5px rgba(28, 24, 22, 0.88), 0 1px 2px rgba(28, 24, 22, 0.06)';
+          const pillSelected = '0 2px 6px rgba(28, 24, 22, 0.18)';
+          const pillBase = 'flex-shrink-0 inline-flex items-center h-[36px] rounded-full text-[13px] font-medium transition-all active:scale-[0.97]';
           return (
-          <div className="mt-2 mb-3 flex items-center gap-2.5 overflow-x-auto no-scrollbar -mx-3 px-3 py-1">
+          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={cn(pillBase, 'gap-1.5 px-4')}
+              className={cn(pillBase, 'gap-1.5 px-3')}
               style={{
                 background: '#FFFFFF',
                 color: 'var(--ink)',
-                boxShadow: neighborhood !== 'all' ? pillShadowActive : pillShadowIdle,
+                boxShadow: neighborhood !== 'all' ? pillActive : pillIdle,
               }}
             >
-              <MapIcon size={15} strokeWidth={1.75} style={{ color: 'var(--ink-2)' }} />
+              <MapIcon size={13} strokeWidth={1.75} style={{ color: 'var(--ink-2)' }} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={15} strokeWidth={2} style={{ color: 'var(--muted-2)' }} />
+              <ChevronDown size={13} strokeWidth={2} style={{ color: 'var(--muted-2)' }} />
             </button>
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={cn(pillBase, 'gap-2 px-4')}
+              className={cn(pillBase, 'gap-1.5 px-3')}
               style={{
                 background: '#FFFFFF',
                 color: 'var(--ink)',
-                boxShadow: openNow ? pillShadowActive : pillShadowIdle,
+                boxShadow: openNow ? pillActive : pillIdle,
               }}
             >
               <span className={cn(
-                'relative w-[28px] h-[16px] rounded-full transition-colors',
+                'relative w-[24px] h-[14px] rounded-full transition-colors',
                 openNow ? 'bg-emerald-600' : 'bg-on-surface/20',
               )}>
                 <span className={cn(
-                  'absolute top-[2px] w-[12px] h-[12px] rounded-full bg-white shadow-sm transition-all',
-                  openNow ? 'left-[14px]' : 'left-[2px]',
+                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
+                  openNow ? 'left-[12px]' : 'left-[2px]',
                 )} />
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-6" style={{ background: 'var(--border-strong)' }} />
+            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'var(--border-strong)' }} />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2686,10 +2685,10 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={cn(pillBase, 'px-4')}
+                  className={cn(pillBase, 'px-3')}
                   style={active
-                    ? { background: 'var(--ink)', color: '#FFFFFF', boxShadow: pillShadowSelected }
-                    : { background: '#FFFFFF', color: 'var(--ink)', boxShadow: pillShadowIdle }}
+                    ? { background: 'var(--ink)', color: '#FFFFFF', boxShadow: pillSelected }
+                    : { background: '#FFFFFF', color: 'var(--ink)', boxShadow: pillIdle }}
                 >
                   {c.label}
                 </button>
@@ -2703,9 +2702,9 @@ export const LocationPage: React.FC = () => {
         <section className="lp-section">
           {/* Search + Filters row */}
           {isMobile ? (
-            <div className="flex items-center gap-2.5 mb-5">
+            <div className="flex items-center gap-2 mb-4">
               <div className="flex-1 min-w-0 relative">
-                <Search size={17} strokeWidth={1.75} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
+                <Search size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
                 <input
                   type="text"
                   value={searchQuery}
@@ -2713,11 +2712,11 @@ export const LocationPage: React.FC = () => {
                   placeholder="Search restaurants..."
                   autoCapitalize="off"
                   autoCorrect="off"
-                  className="w-full h-[48px] pl-11 pr-10 rounded-full text-[14px] font-medium focus:outline-none transition-shadow"
+                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[13px] font-medium focus:outline-none"
                   style={{
                     background: '#FFFFFF',
                     color: 'var(--ink)',
-                    boxShadow: '0 1px 2px rgba(28, 24, 22, 0.05), 0 2px 8px rgba(28, 24, 22, 0.08)',
+                    boxShadow: '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)',
                   }}
                 />
                 {searchQuery && (
@@ -2725,10 +2724,10 @@ export const LocationPage: React.FC = () => {
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
                     style={{ color: 'var(--muted)' }}
                   >
-                    <X size={14} />
+                    <X size={13} />
                   </button>
                 )}
               </div>
@@ -2736,21 +2735,19 @@ export const LocationPage: React.FC = () => {
                 type="button"
                 onClick={() => setFilterSheetOpen(true)}
                 aria-label="Filters"
-                className="flex-shrink-0 inline-flex items-center gap-2 h-[48px] pl-4 pr-3 rounded-full text-[14px] font-semibold active:scale-[0.98] transition-all"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] pl-3 pr-3 rounded-full text-[13px] font-semibold active:scale-[0.97] transition-all"
                 style={{
                   background: '#FFFFFF',
                   color: 'var(--ink)',
-                  boxShadow: '0 1px 2px rgba(28, 24, 22, 0.05), 0 2px 8px rgba(28, 24, 22, 0.08)',
+                  boxShadow: '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)',
                 }}
               >
-                <SlidersHorizontal size={16} strokeWidth={1.75} />
+                <SlidersHorizontal size={14} strokeWidth={1.75} />
                 Filters
-                {activeFilterCount > 0 ? (
-                  <span className="inline-flex items-center justify-center min-w-[24px] h-[24px] px-1.5 rounded-full text-[12px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
+                {activeFilterCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full text-[11px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
                     {activeFilterCount}
                   </span>
-                ) : (
-                  <span className="w-1.5" />
                 )}
               </button>
             </div>
