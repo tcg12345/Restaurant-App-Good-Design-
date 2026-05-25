@@ -14,8 +14,8 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat,
-  ChevronDown, ChevronLeft, ChevronRight, Clock, Crown, Heart,
-  LayoutGrid, List, Search, Share2, Soup, Sparkles, Star, Sun, Tag,
+  ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown, Heart,
+  LayoutGrid, List, Plus, Search, Share2, Soup, Sparkles, Star, Sun, Tag,
   TrendingUp, UtensilsCrossed, Users, Wheat, Wine, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -380,6 +380,399 @@ export const RecipesForYou: React.FC = () => {
     if (r.userId) navigate(`/recipe/${r.userId}/${r.id}`);
     else navigate(`/recipe/${r.id}`);
   }, [navigate]);
+
+  // ── Mobile layout (rendered when phoneMode is true) ─────────────
+  //    Different markup using .m-* classes so the page looks like a
+  //    proper phone screen instead of the desktop layout squashed down.
+  if (phoneMode) {
+    const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+    const recipeOfDayCover = recipeOfDay?.photos?.[0] || '';
+    const rodAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
+    const rodAuthorName = rodAuthor?.display_name || rodAuthor?.username || 'Anonymous';
+    const rodAuthorHue = recipeOfDay ? hashToHue(recipeOfDay.userId || 'x') : 0;
+    const rodAuthorRole = rodAuthor?.is_expert
+      ? `Chef${rodAuthor.home_city ? ` · ${rodAuthor.home_city}` : ''}`
+      : rodAuthor?.bio || 'Home cook';
+    const rodTotal = recipeOfDay ? ((recipeOfDay.prepTimeMinutes ?? 0) + (recipeOfDay.cookTimeMinutes ?? 0)) : 0;
+    const rodTime = formatTime(rodTotal);
+
+    return (
+      <div className="recipes-page-root">
+        {/* ── Sticky header ───────────────────────────────── */}
+        <header className="m-header">
+          <div className="m-header-row">
+            <button type="button" className="m-back-btn" onClick={() => navigate(-1)} aria-label="Back">
+              <ArrowLeft />
+            </button>
+            <div className="m-loc">
+              <div className="m-loc-line">Discover · Recipes</div>
+              <div className="m-loc-name">The Recipe Box</div>
+            </div>
+            <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate('/activity/saved')}>
+              <Bookmark />
+            </button>
+            <button type="button" className="m-icon-btn" title="Add Recipe" aria-label="Add Recipe" onClick={() => navigate('/create')}>
+              <Plus />
+            </button>
+          </div>
+          <div className="m-search">
+            <Search />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search recipes, ingredients, cuisines…"
+            />
+            {searchQuery && (
+              <button type="button" className="clr" onClick={() => setSearchQuery('')} aria-label="Clear">
+                <X />
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* ── Intro + stats ───────────────────────────────── */}
+        <section className="m-r-intro">
+          <div className="m-r-eyebrow">Today · {today}</div>
+          <h1 className="m-r-title">Cook something <span className="accent">new</span></h1>
+          <p className="m-r-sub">What friends made this week, chefs you follow, and editor picks.</p>
+          <div className="m-r-stats">
+            <div className="m-r-stat">
+              <div className="n">{loading ? '—' : recipesCount}</div>
+              <div className="l">Recipes</div>
+            </div>
+            <div className="m-r-stat">
+              <div className="n">{savedCount}</div>
+              <div className="l">Saved</div>
+            </div>
+            <div className="m-r-stat">
+              <div className="n">{cookedCount}</div>
+              <div className="l">Cooked</div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Recipe of the Day (stacked) ─────────────────── */}
+        {recipeOfDay && (
+          <article className="m-rod">
+            <div
+              className="m-rod-img"
+              style={{ background: `linear-gradient(135deg, hsl(${rodAuthorHue} 50% 52%), hsl(${(rodAuthorHue + 25) % 360} 50% 42%))` }}
+            >
+              {recipeOfDayCover ? (
+                <img className="m-rod-photo" src={recipeOfDayCover} alt={recipeOfDay.title} referrerPolicy="no-referrer" />
+              ) : (
+                <div className="ph-fallback"><ChefHat /></div>
+              )}
+              <div className="badge"><Sparkles /> Recipe of the Day</div>
+              <button
+                type="button"
+                className={cn('save', savedIds.has(recipeOfDay.id) && 'saved')}
+                onClick={() => toggleSave(recipeOfDay.id)}
+                aria-label={savedIds.has(recipeOfDay.id) ? 'Saved' : 'Save'}
+              >
+                <Heart fill={savedIds.has(recipeOfDay.id) ? 'currentColor' : 'none'} />
+              </button>
+            </div>
+            <div className="m-rod-body">
+              <div className="m-rod-eyebrow">
+                <span className="pulse" />
+                Editor's pick
+              </div>
+              <h2 className="m-rod-name">{recipeOfDay.title}</h2>
+              {recipeOfDay.description && <p className="m-rod-byline">{recipeOfDay.description}</p>}
+              <div className="m-rod-meta">
+                {rodTime && <span><Clock /> {rodTime}</span>}
+                {rodTime && recipeOfDay.servings ? <span className="dot-sep" /> : null}
+                {recipeOfDay.servings ? <span>{recipeOfDay.servings} servings</span> : null}
+                {recipeOfDay.difficulty && (recipeOfDay.servings || rodTime) ? <span className="dot-sep" /> : null}
+                {recipeOfDay.difficulty && <span>{DIFFICULTY_LABEL[recipeOfDay.difficulty]}</span>}
+              </div>
+              <div className="m-rod-author">
+                <div className="av" style={{ background: `hsl(${rodAuthorHue} 45% 38%)` }}>
+                  {(rodAuthorName[0] || '?').toUpperCase()}
+                </div>
+                <div className="m-rod-author-info">
+                  <span className="name">{rodAuthorName}</span>
+                  <span className="role">{rodAuthorRole}</span>
+                </div>
+              </div>
+              <div className="m-rod-cta">
+                <button type="button" className="m-btn m-btn-primary" onClick={() => goToRecipe(recipeOfDay)}>
+                  Start cooking <ChevRight />
+                </button>
+                <button
+                  type="button"
+                  className="m-btn m-btn-ghost"
+                  aria-label="Share"
+                  onClick={() => {
+                    const url = `${window.location.origin}/recipe/${recipeOfDay.userId}/${recipeOfDay.id}`;
+                    if (navigator.share) navigator.share({ title: recipeOfDay.title, url }).catch(() => { /* user cancel */ });
+                    else navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
+                  }}
+                >
+                  <Share2 />
+                </button>
+              </div>
+            </div>
+          </article>
+        )}
+
+        {/* ── Browse by meal (3×2 grid) ───────────────────── */}
+        <section className="m-section">
+          <div className="m-section-head">
+            <div>
+              <h2 className="m-section-title">Browse by meal</h2>
+              <div className="m-section-sub">Quick filters</div>
+            </div>
+          </div>
+          <div className="m-cat-grid">
+            {MEAL_CATEGORIES.map((c) => {
+              const Ico = c.icon;
+              return (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={cn('m-cat', meal === c.key && 'active')}
+                  onClick={() => setMeal(meal === c.key ? null : c.key)}
+                >
+                  <div className="m-cat-icon" style={{ background: `hsl(${c.hue} 50% 48%)` }}>
+                    <Ico />
+                  </div>
+                  <div className="m-cat-text">
+                    <div className="m-cat-label">{c.label}</div>
+                    <div className="m-cat-count">{mealCounts[c.key] || 0}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* ── Trending (h-scroll w/ hero+rank cards) ───────── */}
+        {trending.length > 0 && (
+          <section className="m-section">
+            <div className="m-section-head">
+              <div>
+                <h2 className="m-section-title">Trending</h2>
+                <div className="m-section-sub">What people are saving right now</div>
+              </div>
+              <button
+                type="button"
+                className="m-section-link"
+                onClick={() => { setSortBy('popular'); setSource('all'); setTag(null); setMeal(null); }}
+              >
+                All <ChevRight />
+              </button>
+            </div>
+            <div className="m-hscroll">
+              {trending.map((r, i) => (
+                <MobileTrendCard key={r.id} r={r} rank={i + 1} onClick={() => goToRecipe(r)} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Friend activity strip (compact) ─────────────── */}
+        {activeFriends.length >= 2 && (
+          <button
+            type="button"
+            className="m-activity-strip"
+            onClick={() => { setSource('friend'); setMeal(null); setTag(null); }}
+          >
+            <div className="strip-avs">
+              {activeFriends.map((f) => (
+                <span
+                  key={f.userId}
+                  className="av"
+                  style={{ background: `hsl(${hashToHue(f.userId)} 45% 42%)` }}
+                >
+                  {(f.name[0] || 'F').toUpperCase()}
+                </span>
+              ))}
+            </div>
+            <div className="strip-msg">
+              {activeFriends.slice(0, -1).map((f, i, arr) => (
+                <React.Fragment key={f.userId}>
+                  <span className="b">{f.name}</span>{i < arr.length - 1 ? ', ' : ''}
+                </React.Fragment>
+              ))}
+              {activeFriends.length > 1 && ' & '}
+              <span className="b">{activeFriends[activeFriends.length - 1].name}</span>
+              {' cooked '}
+              <span className="b">{friendRecipes.length} recipe{friendRecipes.length === 1 ? '' : 's'}</span>
+              {' this week'}
+            </div>
+            <span className="strip-arrow">›</span>
+          </button>
+        )}
+
+        {/* ── Collections (h-scroll small) ────────────────── */}
+        <section className="m-section">
+          <div className="m-section-head">
+            <div>
+              <h2 className="m-section-title">Collections</h2>
+              <div className="m-section-sub">Editor's picks for the week</div>
+            </div>
+            <button type="button" className="m-section-link">See all <ChevRight /></button>
+          </div>
+          <div className="m-hscroll">
+            {COLLECTIONS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="m-collection"
+                onClick={() => {
+                  if (c.filter.source) setSource(c.filter.source);
+                  if (c.filter.meal) setMeal(c.filter.meal);
+                  if (c.filter.tag) setTag(c.filter.tag);
+                  document.querySelector('.recipes-page-root .m-explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+              >
+                <div className="m-collection-bg">
+                  <img className="m-collection-photo" src={c.img} alt={c.title} loading="lazy" />
+                  <div className="m-collection-overlay" />
+                </div>
+                <span className="m-collection-tag">Collection</span>
+                <div className="m-collection-body">
+                  <div className="m-collection-count">{c.count} recipes · {c.by}</div>
+                  <h3 className="m-collection-title">{c.title}</h3>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* ── From your friends (uses trending card style) ── */}
+        {friendRecipes.length > 0 && (
+          <section className="m-section">
+            <div className="m-section-head">
+              <div>
+                <h2 className="m-section-title">From your friends <span className="count">{friendRecipes.length}</span></h2>
+                <div className="m-section-sub">{activeFriends.map((f) => f.name).join(' & ') || 'Friends'} cooked recently</div>
+              </div>
+              <button
+                type="button"
+                className="m-section-link"
+                onClick={() => { setSource('friend'); setMeal(null); setTag(null); document.querySelector('.recipes-page-root .m-explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              >
+                See all <ChevRight />
+              </button>
+            </div>
+            <div className="m-hscroll">
+              {friendRecipes.map((r) => (
+                <MobileTrendCard key={r.id} r={r} rank="" onClick={() => goToRecipe(r)} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Chef spotlight (h-scroll w/ Follow button) ──── */}
+        {chefSpotlight.length > 0 && (
+          <section className="m-section">
+            <div className="m-section-head">
+              <div>
+                <h2 className="m-section-title">Chef spotlight</h2>
+                <div className="m-section-sub">Recipes from chefs you follow</div>
+              </div>
+              <button type="button" className="m-section-link" onClick={() => navigate('/experts')}>
+                Browse <ChevRight />
+              </button>
+            </div>
+            <div className="m-hscroll">
+              {chefSpotlight.map((c) => (
+                <MobileChefCard
+                  key={c.profile.user_id}
+                  profile={c.profile}
+                  recipeCount={c.recipeCount}
+                  onClick={() => navigate(`/user/${c.profile.username}`)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Explore (2-col grid) ───────────────────────── */}
+        <section className="m-section m-explore" style={{ marginBottom: 12 }}>
+          <div className="m-explore-section-head">
+            <div>
+              <h2 className="m-explore-title">Explore <span className="accent">recipes</span></h2>
+              <div className="m-explore-sub">The full library, filterable</div>
+            </div>
+          </div>
+
+          <div className="m-source-tabs">
+            {(['all', 'friend', 'chef', 'home'] as SourceFilter[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={cn('m-source-tab', source === s && 'active')}
+                onClick={() => setSource(s)}
+              >
+                {s === 'friend' && <Users />}
+                {s === 'chef' && <ChefHat />}
+                {s === 'home' && <UtensilsCrossed />}
+                <span>{SOURCE_LABELS[s]}</span>
+                <span className="badge">{sourceCounts[s]}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="m-tag-chips">
+            <button
+              type="button"
+              className={cn('m-tag-chip', !tag && 'active')}
+              onClick={() => setTag(null)}
+            >
+              All
+            </button>
+            {allTags.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={cn('m-tag-chip', tag === t && 'active')}
+                onClick={() => setTag(tag === t ? null : t)}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <div className="m-result-count">
+            <span><span className="n">{filtered.length}</span> recipes</span>
+            {filtersActive && (
+              <button type="button" className="m-result-clear" onClick={clearFilters}>
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="m-er-grid">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="skeleton" style={{ height: 200 }} />
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="m-empty">No recipes match those filters.</div>
+          ) : (
+            <div className="m-er-grid">
+              {filtered.map((r) => (
+                <MobileExploreCard
+                  key={r.id}
+                  r={r}
+                  source={recipeSource(r)}
+                  saved={savedIds.has(r.id)}
+                  onSave={toggleSave}
+                  onClick={() => goToRecipe(r)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="recipes-page-root">
@@ -1136,5 +1529,122 @@ const ChefCard: React.FC<{
         </div>
       </div>
     </button>
+  );
+};
+
+/* ── Mobile sub-components ─────────────────────────────────────────── */
+
+const MobileTrendCard: React.FC<{ r: Recipe; rank: number | ''; onClick: () => void }> = ({ r, rank, onClick }) => {
+  const cover = r.photos?.[0] || '';
+  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+  const time = formatTime(totalTime);
+  const trendCount = 80 + (stableHash(r.id) % 200);
+  const hue = hashToHue(r.userId || r.id);
+  return (
+    <article className="m-trend" role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
+      <div className="m-trend-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
+        {cover ? (
+          <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="ph-fallback"><ChefHat /></div>
+        )}
+        {rank !== '' && (
+          <div className={cn('m-trend-rank', typeof rank === 'number' && rank > 3 && 'dim')}>{rank}</div>
+        )}
+      </div>
+      <div className="m-trend-body">
+        <h4 className="m-trend-name">{r.title}</h4>
+        <div className="m-trend-meta">
+          {r.cuisine && <span>{r.cuisine}</span>}
+          {r.cuisine && time ? <span className="sep" /> : null}
+          {time && <span>{time}</span>}
+          <span className="sep" />
+          <span className="up"><TrendingUp /> {trendCount}</span>
+        </div>
+      </div>
+    </article>
+  );
+};
+
+const MobileChefCard: React.FC<{ profile: UserProfile; recipeCount: number; onClick: () => void }> = ({ profile, recipeCount, onClick }) => {
+  const name = profile.display_name || profile.username || 'Chef';
+  const role = profile.home_city || 'Featured chef';
+  const initials = name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() || 'C';
+  const hue = hashToHue(profile.user_id || name);
+  const followers = 1000 + (stableHash(profile.user_id) % 16000);
+  const followersLabel = followers >= 1000 ? `${(followers / 1000).toFixed(1)}k` : String(followers);
+  return (
+    <article className="m-chef">
+      <button
+        type="button"
+        className="m-chef-av"
+        style={{ background: `hsl(${hue} 50% 32%)` }}
+        onClick={onClick}
+        aria-label={`View ${name}'s profile`}
+      >
+        {initials}
+      </button>
+      <button
+        type="button"
+        className="m-chef-info"
+        onClick={onClick}
+        style={{ background: 'transparent', textAlign: 'left' }}
+      >
+        <h3 className="m-chef-name">{name}</h3>
+        <div className="m-chef-role">{role}</div>
+        <div className="m-chef-stats">
+          <span><span className="b">{recipeCount}</span> recipes</span>
+          <span className="sep" />
+          <span><span className="b">{followersLabel}</span> followers</span>
+        </div>
+      </button>
+      <button type="button" className="m-chef-follow" onClick={onClick}>Follow</button>
+    </article>
+  );
+};
+
+const MobileExploreCard: React.FC<{
+  r: Recipe;
+  source: SourceFilter;
+  saved: boolean;
+  onSave: (id: string) => void;
+  onClick: () => void;
+}> = ({ r, source, saved, onSave, onClick }) => {
+  const cover = r.photos?.[0] || '';
+  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+  const time = formatTime(totalTime);
+  const saveCount = 4 + (stableHash(r.id) % 30);
+  const hue = hashToHue(r.userId || r.id);
+  return (
+    <article className="m-er-card" role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
+      <div className="m-er-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
+        {cover ? (
+          <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="ph-fallback"><ChefHat /></div>
+        )}
+        <span className={cn('m-er-source', source)}>
+          <SourceIcon source={source} /> {source === 'home' ? 'Home' : source === 'chef' ? 'Chef' : 'Friend'}
+        </span>
+        <button
+          type="button"
+          className={cn('m-er-save', saved && 'saved')}
+          onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
+          aria-label={saved ? 'Saved' : 'Save'}
+        >
+          <Heart fill={saved ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <div className="m-er-body">
+        <h3 className="m-er-name">{r.title}</h3>
+        <div className="m-er-cuisine">
+          {[r.cuisine, r.difficulty && DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ') || 'Recipe'}
+        </div>
+        <div className="m-er-meta">
+          {time && <span><Clock /> {time}</span>}
+          <span><Bookmark /> {saveCount}</span>
+        </div>
+      </div>
+    </article>
   );
 };
