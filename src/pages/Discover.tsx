@@ -5162,18 +5162,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 </div>
                                 {/* Bottom strip: name + address + meta on the left,
                                     bold score disc on the right. */}
-                                <div className="flex items-center gap-2.5 px-3.5 py-3.5">
+                                <div className="flex items-center gap-2.5 px-3.5 py-3.5 min-h-[96px]">
                                   <div className="flex-1 min-w-0 flex flex-col gap-1">
                                     <h3 className="font-serif font-semibold text-on-surface text-[18px] leading-[1.1] tracking-[-0.018em] line-clamp-1">
                                       {place.name}
                                     </h3>
-                                    {street && (
-                                      <div className="flex items-center gap-1.5 text-[12px] text-on-surface/55">
-                                        <MapPin size={11} className="text-on-surface/35 flex-shrink-0" />
-                                        <span className="truncate">{street}</span>
-                                      </div>
-                                    )}
-                                    <div className="flex items-center gap-2 text-[12.5px] text-on-surface/70 font-medium">
+                                    <div className="flex items-center gap-1.5 text-[12px] text-on-surface/55 min-h-[16px]">
+                                      {street && (
+                                        <>
+                                          <MapPin size={11} className="text-on-surface/35 flex-shrink-0" />
+                                          <span className="truncate">{street}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[12.5px] text-on-surface/70 font-medium min-h-[16px]">
                                       {price && <span>{price}</span>}
                                       {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
                                       {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
