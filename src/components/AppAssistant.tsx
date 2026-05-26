@@ -87,6 +87,77 @@ function routeShowsBottomNav(pathname: string): boolean {
   return true;
 }
 
+/* ── Scroll-driven hide for the FAB on mobile ────────────────────
+   Twitter / Instagram-style: the floating button slips down + fades
+   out when the user scrolls DOWN, and snaps back when they scroll UP.
+   We listen on the phone-frame's inner scroll container when it
+   exists (phoneMode + non-native), and on the window otherwise.
+
+   - `enabled=false` short-circuits the listener so desktop / sidebar
+     mode keeps the FAB pinned.
+   - `pathname` is in the dep list so the hook re-installs on route
+     changes (each fresh page starts at scroll 0 so the FAB returns
+     into view).
+   - We require a small DELTA threshold so a single jittery wheel
+     tick can't flip-flop the state, and always show near the top
+     so a scroll-to-top doesn't leave the FAB hidden. */
+function useFabScrollHide(enabled: boolean, pathname: string): boolean {
+  const [hidden, setHidden] = React.useState(false);
+
+  // Whenever the route changes the new page starts at scroll 0 —
+  // reveal the FAB so the user always sees it on page load.
+  React.useEffect(() => {
+    setHidden(false);
+  }, [pathname]);
+
+  React.useEffect(() => {
+    if (!enabled) {
+      setHidden(false);
+      return;
+    }
+    // Phone-frame mode wraps the routes in a div with overflow-y-auto;
+    // that's where scroll events fire. On native / no-frame layouts
+    // the window scrolls normally.
+    const root = document.getElementById('phone-frame-root');
+    const inner = root?.firstElementChild;
+    const scroller: HTMLElement | null = inner instanceof HTMLElement ? inner : null;
+    const useWindow = !scroller;
+
+    const readY = (): number => useWindow ? window.scrollY : (scroller as HTMLElement).scrollTop;
+
+    let lastY = readY();
+    let raf = 0;
+    const SHOW_NEAR_TOP = 80;
+    const DELTA_THRESHOLD = 10;
+
+    const handle = () => {
+      raf = 0;
+      const y = readY();
+      const dy = y - lastY;
+      if (y < SHOW_NEAR_TOP) {
+        setHidden(false);
+      } else if (Math.abs(dy) > DELTA_THRESHOLD) {
+        setHidden(dy > 0);
+      }
+      lastY = y;
+    };
+
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(handle);
+    };
+
+    const target: EventTarget = scroller || window;
+    target.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      target.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [enabled, pathname]);
+
+  return hidden;
+}
+
 /* ── Human labels for routes (sent to the system prompt). ────────── */
 function labelForPath(path: string): string {
   if (path === '/') return 'the Discover home feed';
@@ -760,15 +831,20 @@ export const AppAssistant: React.FC = () => {
     return { ok: true };
   }, [guides]);
 
-  if (hidden) return null;
-
   const currentPath = location.pathname;
   const currentPageLabel = labelForPath(currentPath);
   const fabAboveBottomNav = settings.phoneMode && routeShowsBottomNav(currentPath);
+  // Only enable scroll-hide on the mobile / phone-frame layout.
+  // Desktop sidebar mode keeps the FAB pinned. Hook MUST run before
+  // any early return so the rules-of-hooks order stays stable.
+  const fabHidden = useFabScrollHide(settings.phoneMode, currentPath);
+
+  if (hidden) return null;
 
   return (
     <LocationChat
       fabAboveBottomNav={fabAboveBottomNav}
+      fabHidden={fabHidden}
       visible={visible}
       restaurantMeta={restaurantMeta}
       cityDisplay={cityDisplay}

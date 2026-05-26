@@ -203,6 +203,11 @@ interface LocationChatProps {
    *  false, which keeps the original low-and-tight placement that
    *  works well on /location and on desktop. */
   fabAboveBottomNav?: boolean;
+  /** When true the FAB animates down + fades out (Twitter / Instagram
+   *  scroll-hide). AppAssistant flips this on mobile while the user
+   *  scrolls DOWN and flips it back off when they scroll UP. Always
+   *  false on desktop. */
+  fabHidden?: boolean;
 }
 
 interface UiMessage {
@@ -613,6 +618,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onOpenHomeMealModal,
   onOpenGuideCreator,
   fabAboveBottomNav,
+  fabHidden,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -1604,10 +1610,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav')}
             onClick={() => setOpen(true)}
             initial={{ opacity: 0, scale: 0.85, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
+            // Scroll-hide on mobile: while `fabHidden` is true the
+            // button slips down + fades out, but stays mounted so the
+            // pulse animation doesn't restart on every reveal. Click
+            // events are suppressed while it's invisible.
+            animate={fabHidden
+              ? { opacity: 0, scale: 0.8, y: 24 }
+              : { opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.85, y: 8 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            style={{ pointerEvents: fabHidden ? 'none' : 'auto' }}
             aria-label="Open assistant"
+            aria-hidden={fabHidden || undefined}
           >
             <span className="lp-chat-fab-pulse" aria-hidden="true" />
             <Sparkles />
