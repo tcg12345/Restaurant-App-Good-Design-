@@ -65,13 +65,13 @@ export interface AdvancedRecipeState {
   isPublic: boolean;
 }
 
-const STEP_LABELS: Array<{ title: string; sub: string }> = [
-  { title: 'The basics', sub: 'Name, cuisine, difficulty' },
-  { title: 'Timing & yield', sub: 'Prep, cook, servings' },
-  { title: 'Ingredients', sub: 'Grouped or flat list' },
-  { title: 'Method', sub: 'Step-by-step instructions' },
-  { title: 'Equipment & notes', sub: 'Tools, tags, callouts' },
-  { title: 'Review & publish', sub: 'Final check' },
+const STEP_LABELS: Array<{ title: string }> = [
+  { title: 'The basics' },
+  { title: 'Timing & yield' },
+  { title: 'Ingredients' },
+  { title: 'Method' },
+  { title: 'Equipment & notes' },
+  { title: 'Review & publish' },
 ];
 const NEXT_LABELS = ['Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
 
@@ -634,7 +634,6 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
                     </span>
                     <span className="arb-rail-step-text">
                       <span className="arb-rail-step-title">{s.title}</span>
-                      <span className="arb-rail-step-sub">{s.sub}</span>
                     </span>
                   </button>
                 );
