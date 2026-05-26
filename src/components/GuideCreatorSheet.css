@@ -495,7 +495,13 @@
   justify-content: center;
   flex-shrink: 0;
 }
-.gc-source-card-text { flex: 1; min-width: 0; }
+.gc-source-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .gc-source-card-title {
   font-family: var(--serif, Georgia, serif);
   font-size: 17px;
@@ -504,9 +510,9 @@
   line-height: 1.2;
 }
 .gc-source-card-sub {
-  margin-top: 3px;
   font-size: 12.5px;
   color: var(--muted, #8C8278);
+  line-height: 1.45;
 }
 .gc-source-card-chev {
   color: var(--muted-2, #B8AFA4);
@@ -907,26 +913,35 @@
 }
 .gc-switch {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 48px;
+  height: 26px;
   border-radius: 999px;
   background: rgba(31,26,23,0.18);
   flex-shrink: 0;
   transition: background 0.15s;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
 }
 .gc-switch.is-on { background: var(--accent, #A8392A); }
 .gc-switch-knob {
   position: absolute;
   top: 2px;
-  width: 20px;
-  height: 20px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0,0,0,0.15);
   transition: transform 0.15s;
+  display: block;
 }
 .gc-switch.is-on .gc-switch-knob { transform: translateX(22px); }
-.gc-switch:not(.is-on) .gc-switch-knob { transform: translateX(2px); }
+.gc-switch:not(.is-on) .gc-switch-knob { transform: translateX(0); }
 
 .gc-entries-head {
   display: flex;
