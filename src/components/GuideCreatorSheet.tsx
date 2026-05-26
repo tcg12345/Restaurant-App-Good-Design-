@@ -793,7 +793,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                     <span className="gc-pick-row-sub">{l.restaurantIds.length} places</span>
                   </span>
                   <span className="gc-pick-row-add">
-                    {isImported ? <Check size={13} strokeWidth={3} /> : <Plus size={13} />}
+                    {isImported ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                   </span>
                 </button>
               );
@@ -858,7 +858,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                       </span>
                       <span className="gc-pick-row-score">{r.score.toFixed(1)}</span>
                       <span className="gc-pick-row-add">
-                        {isAdded ? <Check size={13} strokeWidth={3} /> : <Plus size={13} />}
+                        {isAdded ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                       </span>
                     </button>
                   );
@@ -911,7 +911,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                   <span className="gc-pick-row-sub">{p.address}</span>
                 </span>
                 <span className="gc-pick-row-add">
-                  {isAdded ? <Check size={13} strokeWidth={3} /> : <Plus size={13} />}
+                  {isAdded ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                 </span>
               </button>
             );
@@ -960,7 +960,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                     <span className="gc-pick-row-sub">{l.recipes?.length || 0} recipes</span>
                   </span>
                   <span className="gc-pick-row-add">
-                    {isImported ? <Check size={13} strokeWidth={3} /> : <Plus size={13} />}
+                    {isImported ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                   </span>
                 </button>
               );
@@ -1024,7 +1024,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                         <span className="gc-pick-row-sub">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</span>
                       </span>
                       <span className="gc-pick-row-add">
-                        {isAdded ? <Check size={13} strokeWidth={3} /> : <Plus size={13} />}
+                        {isAdded ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                       </span>
                     </button>
                   );
