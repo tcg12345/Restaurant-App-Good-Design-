@@ -267,6 +267,29 @@ function validate(state: AdvancedRecipeState): ValidationResult {
   return { ok: errors.length === 0, errors };
 }
 
+/** Per-step gate for the "Next" button. Today only Steps 3 (Ingredients)
+ *  and 4 (Method) hard-block — the user must add at least one real
+ *  ingredient / step before moving on. Other steps' missing-required
+ *  warnings still surface on Publish via `validate`. */
+function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; reason?: string } {
+  if (step === 2) {
+    const count = state.ingredientGroups.reduce(
+      (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
+      0,
+    );
+    if (count === 0) {
+      return { ok: false, reason: 'Add at least one ingredient before moving on.' };
+    }
+  }
+  if (step === 3) {
+    const count = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
+    if (count === 0) {
+      return { ok: false, reason: 'Add at least one method step before moving on.' };
+    }
+  }
+  return { ok: true };
+}
+
 /* ── Draft persistence ───────────────────────────────────────── */
 
 function draftKey(userId: string | null, mealId: string | null): string {
@@ -384,10 +407,18 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [key]);
 
   const validation = useMemo(() => validate(state), [state]);
+  // Per-step gate. When the current step blocks (Ingredients with
+  // nothing in it, Method with nothing in it) the Next button goes
+  // disabled and an inline note explains why.
+  const gate = useMemo(() => canLeaveStep(state, currentStep), [state, currentStep]);
 
   const handleNext = useCallback(() => {
+    // Belt-and-suspenders: the Next button is also disabled by `gate`
+    // in the render, but block here too in case it's clicked via the
+    // keyboard while still focused.
+    if (!canLeaveStep(state, currentStep).ok) return;
     if (currentStep < 5) setCurrentStep(currentStep + 1);
-  }, [currentStep]);
+  }, [currentStep, state]);
 
   const handleBack = useCallback(() => {
     if (currentStep > 0) setCurrentStep(currentStep - 1);
@@ -591,6 +622,11 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           </div>
           <div className="arb-pane-body">
             {renderStep()}
+            {!gate.ok && gate.reason && (
+              <div className="arb-step-gate" style={{ marginTop: 14 }}>
+                {gate.reason}
+              </div>
+            )}
             {showValidation && !validation.ok && (
               <div className="arb-review-validation" style={{ marginTop: 16 }}>
                 Fix these before publishing:
@@ -615,7 +651,13 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             Save draft
           </button>
           {currentStep < 5 ? (
-            <button type="button" className="arb-foot-next" onClick={handleNext}>
+            <button
+              type="button"
+              className="arb-foot-next"
+              onClick={handleNext}
+              disabled={!gate.ok}
+              title={gate.ok ? undefined : gate.reason}
+            >
               Next: {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
             </button>
           ) : (

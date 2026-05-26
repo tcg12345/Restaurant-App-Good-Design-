@@ -1130,6 +1130,20 @@
 }
 .arb-review-validation ul { margin-top: 6px; padding-left: 18px; }
 
+/* Inline gate message — appears under the step body when the Next
+   button is disabled because a required field isn't satisfied. Soft
+   rust card, smaller than the publish-time validation list. */
+.arb-step-gate {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-soft, #F4DCD2);
+  border-left: 3px solid var(--accent, #A8392A);
+  color: var(--accent, #A8392A);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 /* ── Publish-time controls (rating + visibility) ───────────────
    Sit below the review preview on Step 6. Distinct visual treatment
    from the preview itself so it reads as "your inputs / before you
