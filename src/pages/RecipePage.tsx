@@ -929,18 +929,6 @@ export const RecipePage: React.FC = () => {
         </section>
       )}
 
-      {/* ── Equipment (Advanced builder field; renders only when set) ── */}
-      {data.equipment && data.equipment.length > 0 && (
-        <section className="rd-equipment">
-          <h2 className="rd-section-title">What you'll need</h2>
-          <ul className="rd-equipment-list">
-            {data.equipment.map((e, i) => (
-              <li key={i}>{e}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {/* ── Body: ingredients sidebar + directions ────────────────── */}
       <div className="rd-body">
         <aside className="rd-ingredients">
@@ -1034,6 +1022,20 @@ export const RecipePage: React.FC = () => {
               <Play fill="currentColor" /> Cook mode
             </button>
           </div>
+
+          {/* Equipment row — only renders for recipes that have it.
+              Sits between the Directions header and the first step,
+              same editorial card style as the cookbook reference. */}
+          {data.equipment && data.equipment.length > 0 && (
+            <div className="rd-equipment-card">
+              <span className="rd-equipment-card-label">Equipment</span>
+              <ul className="rd-equipment-card-list">
+                {data.equipment.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {(() => {
             // Prefer rich stepDetails when present (Advanced builder).
@@ -1873,6 +1875,18 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           Directions
           <span className="count">{data.steps.length} step{data.steps.length === 1 ? '' : 's'}</span>
         </h2>
+        {/* Equipment card — sits between the Directions title and the
+            first step on phone too, but stacked vertically to fit. */}
+        {data.equipment && data.equipment.length > 0 && (
+          <div className="rd-equipment-card">
+            <span className="rd-equipment-card-label">Equipment</span>
+            <ul className="rd-equipment-card-list">
+              {data.equipment.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {data.steps.length === 0 ? (
           <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
             No directions yet.

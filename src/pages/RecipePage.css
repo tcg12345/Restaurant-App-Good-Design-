@@ -863,34 +863,74 @@
   font-family: var(--serif);
 }
 
-.recipe-detail-page .rd-equipment {
-  max-width: 1320px;
-  margin: 40px auto 0;
-  padding: 24px 28px;
-  background: var(--surface-2);
-  border-radius: var(--radius-lg);
+/* Equipment row — sits inside the Directions column between the
+   "Cook mode" header and the first step. Single bordered card with a
+   small uppercase EQUIPMENT label on the left and a flex-wrapping
+   list of items, each leading with a rust-accent bullet. Matches the
+   editorial cookbook reference in the spec. */
+.recipe-detail-page .rd-equipment-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 18px 22px;
+  margin: 0 0 36px;
+  background: #ffffff;
+  border: 1px solid var(--ink, #1f1a17);
+  border-radius: 20px;
+  font-family: var(--sans);
+  line-height: 1.4;
 }
-.recipe-detail-page .rd-equipment .rd-section-title {
-  margin: 0 0 14px;
-  font-size: 22px;
+.recipe-detail-page .rd-equipment-card-label {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  padding-top: 2px;
+  /* Roughly aligns the label to the first item's text baseline. */
 }
-.recipe-detail-page .rd-equipment-list {
+.recipe-detail-page .rd-equipment-card-list {
   list-style: none;
   padding: 0;
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  column-gap: 26px;
+  row-gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  color: var(--ink, #1f1a17);
 }
-.recipe-detail-page .rd-equipment-list li {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 14px;
-  color: var(--ink-2);
+.recipe-detail-page .rd-equipment-card-list li {
+  position: relative;
+  padding-left: 14px;
+}
+.recipe-detail-page .rd-equipment-card-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--accent, #A8392A);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .recipe-detail-page .rd-equipment-card {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+    margin-bottom: 24px;
+  }
+  .recipe-detail-page .rd-equipment-card-label {
+    padding-top: 0;
+  }
+  .recipe-detail-page .rd-equipment-card-list {
+    column-gap: 18px;
+    font-size: 14.5px;
+  }
 }
 
 .recipe-detail-page .rd-ingr-group + .rd-ingr-group { margin-top: 22px; }
