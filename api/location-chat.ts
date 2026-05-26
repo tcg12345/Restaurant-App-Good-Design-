@@ -110,7 +110,7 @@ const TOOL_RECOMMEND_RECIPES = {
 const TOOL_SEARCH_COMMUNITY_RECIPES = {
   name: 'search_community_recipes',
   description:
-    "Search public recipes from friends, experts, and other users across the app. Use this whenever the user asks for a recipe and the RECIPES section of the system prompt (their own saved recipes) doesn't cover the ask. ALSO use it any time the user explicitly mentions friends / experts / 'someone' (e.g. 'find me a recipe from a friend', 'any expert pasta recipes?'). Returns up to 10 matching recipes with id, title, cuisine, time, difficulty, author username. You can then pass any returned id to recommend_recipes — the cards will resolve and show the author. ALWAYS try this BEFORE telling the user there are no recipes; only fall back to restaurants if the user asks for restaurants or community search also returns nothing.",
+    "Search public recipes across the entire app — pulls from BOTH the formal recipes table AND public home-meals (the Log Home Meal flow, which is where the bulk of friends' cooking actually lives). Sources include friends, followed experts, AND every other user with public meals/recipes. Use this whenever the user asks for a recipe and their own RECIPES section doesn't cover the ask. ALSO use it any time the user mentions friends / experts / 'someone' (e.g. 'find me a recipe from a friend', 'any expert pasta recipes?', 'what are people cooking?'). Returns up to 10 matching recipes with id, title, cuisine, time, difficulty, author username, and whether the author is a friend/expert. Pass any returned id to recommend_recipes — cards resolve and show the author. ALWAYS try this BEFORE telling the user there are no recipes; only fall back to restaurants if the user asks for restaurants or community search also returns nothing.",
   input_schema: {
     type: 'object',
     properties: {
@@ -125,7 +125,7 @@ const TOOL_SEARCH_COMMUNITY_RECIPES = {
       source: {
         type: 'string',
         enum: ['friends', 'experts', 'public', 'all'],
-        description: "Optional. 'friends' = only the user's friends; 'experts' = only experts; 'public' = all public recipes; 'all' (default) = friends + experts + general public combined.",
+        description: "Optional. 'friends' = only the user's accepted friends; 'experts' = only followed experts; 'public' = everyone else; 'all' (default) = no source filter (results are still ranked friends-first, experts-second, others last).",
       },
     },
     required: [],

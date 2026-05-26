@@ -75,8 +75,11 @@ export interface AssistantUser {
  *  with the author's display name + username so the card can show
  *  "by @joesmith" and the bot can mention attribution in prose. */
 export interface CommunityRecipeHit {
-  /** Same shape as the user's own Recipe, so the card render code
-   *  works without branching. */
+  /** Source-agnostic id. For home meals it's prefixed with
+   *  "hm:userId:mealId" so it can't collide with formal recipe
+   *  UUIDs; the navigate handler strips the prefix and routes to
+   *  /meal/:userId/:mealId. Formal recipe ids are passed through
+   *  unchanged and route to /recipe/:userId/:id. */
   id: string;
   userId: string;
   title: string;
@@ -87,6 +90,8 @@ export interface CommunityRecipeHit {
   photos?: string[];
   ingredientCount?: number;
   stepCount?: number;
+  /** Where the recipe lives — drives the navigate URL pattern. */
+  source?: 'recipe' | 'home_meal';
   authorUsername?: string;
   authorDisplayName?: string;
   authorIsExpert?: boolean;
@@ -866,15 +871,24 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleNavigateRecipe = useCallback((id: string) => {
     setOpen(false);
-    // The canonical recipe page needs the owner id in the URL to
-    // disambiguate formal recipes from home meals. Pull it from the
-    // recipe map populated above (works for both the user's own
-    // recipes and community-recipe hits); fall back to the legacy
-    // id-only URL if for some reason the recipe isn't loaded yet
-    // (RecipePage will still resolve formal recipes by id alone).
+    // Resolve from the union map (user's own Recipe[] OR
+    // CommunityRecipeHit[]). Three URL patterns:
+    //   - Home meal community hit  → /meal/<userId>/<mealId>
+    //   - Formal recipe with owner → /recipe/<userId>/<id>
+    //   - Unknown / fallback       → /recipe/<id>
     const recipe = recipeById.get(id);
-    const ownerId = recipe && 'userId' in recipe ? recipe.userId : undefined;
-    const target = ownerId ? `/recipe/${ownerId}/${id}` : `/recipe/${id}`;
+    let target = `/recipe/${id}`;
+    if (recipe && 'source' in recipe && recipe.source === 'home_meal') {
+      // Home-meal ids are prefixed "hm:<userId>:<mealId>" — strip
+      // the prefix to recover the real meal id; userId is on the
+      // hit object directly.
+      const realMealId = id.startsWith('hm:')
+        ? id.split(':').slice(2).join(':')
+        : id;
+      target = `/meal/${recipe.userId}/${realMealId}`;
+    } else if (recipe && 'userId' in recipe && recipe.userId) {
+      target = `/recipe/${recipe.userId}/${id}`;
+    }
     setTimeout(() => navigate(target), 60);
   }, [navigate, recipeById]);
 

@@ -34,7 +34,10 @@ import {
   getExpertProfiles,
   getProfilesByIds,
   getFriends,
+  getFriendsPublicHomeMeals,
+  getAllPublicHomeMeals,
   type UserProfile,
+  type FriendHomeMeal,
 } from '../lib/supabase-community';
 import {
   getPublicRecipes,
@@ -42,6 +45,7 @@ import {
   getFriendRecipes,
   type Recipe,
 } from '../lib/supabase-recipes';
+import type { HomeMeal } from '../contexts/ListsContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import type { ChatFilters, UserContext } from '../lib/location-chat-client';
 
@@ -328,27 +332,55 @@ export const AppAssistant: React.FC = () => {
   }, [recipes.myRecipes]);
 
   /* ── Community recipes cache + lazy loader ───────────────────────
-     The search_community_recipes tool needs access to public recipes
-     from friends, experts, and other users. We fetch on first call
-     (de-duped by the in-flight ref) and cache for the rest of the
-     session. Author profiles are looked up in parallel so cards can
-     show "by @username" without a second round-trip. */
+     The search_community_recipes tool needs access to TWO data
+     sources, because "recipes" in this app split across two tables:
+       (1) Formal recipes — `recipes` table (Recipe[]). The
+           list-scoped Add Recipe modal writes here. Few power users
+           use this, so it's usually sparse.
+       (2) Home meals — `user_app_data.home_meals` (HomeMeal[]). The
+           Log Home Meal modal writes here. This is where the bulk of
+           friends' "recipes" live; isPublic gates whether they're
+           shareable.
+     We fetch both on first call (deduped by an in-flight ref) and
+     cache for the session. Author profiles are looked up in parallel
+     so cards / tool results can show "by @username".
+
+     Both sources are normalized to CommunityRecipeHit downstream. */
   const userId = auth.user?.id || null;
+  type CommunityCacheEntry = {
+    /** Source-agnostic id used in the bot/card flow. For home meals
+     *  we prefix with "hm:" so they can't collide with formal recipe
+     *  UUIDs and so the navigate handler can route correctly. */
+    id: string;
+    userId: string;
+    title: string;
+    cuisine: string;
+    description: string;
+    tags: string[];
+    ingredientText: string;       // joined names for query matching
+    prepTime: number | null;
+    cookTime: number | null;
+    difficulty: string;           // lowercase "easy"/"medium"/"hard"
+    photos: string[];
+    ingredientCount: number;
+    stepCount: number;
+    updatedAt: string;            // ISO for ranking
+    /** Where this came from so the navigate handler can route to the
+     *  right detail page (formal recipe vs home meal). */
+    source: 'recipe' | 'home_meal';
+  };
+
   const communityCacheRef = useRef<{
     loaded: boolean;
     loading: Promise<void> | null;
-    publicRecipes: Recipe[];
-    friendRecipes: Recipe[];
-    expertRecipes: Recipe[];
+    entries: CommunityCacheEntry[];
     friendIds: Set<string>;
     expertIds: Set<string>;
     authors: Record<string, UserProfile>;
   }>({
     loaded: false,
     loading: null,
-    publicRecipes: [],
-    friendRecipes: [],
-    expertRecipes: [],
+    entries: [],
     friendIds: new Set(),
     expertIds: new Set(),
     authors: {},
@@ -359,9 +391,7 @@ export const AppAssistant: React.FC = () => {
     communityCacheRef.current = {
       loaded: false,
       loading: null,
-      publicRecipes: [],
-      friendRecipes: [],
-      expertRecipes: [],
+      entries: [],
       friendIds: new Set(),
       expertIds: new Set(),
       authors: {},
@@ -374,23 +404,107 @@ export const AppAssistant: React.FC = () => {
     if (cache.loading) return cache.loading;
     const work = (async () => {
       try {
-        // Fetch friend ids first so the friend-recipes query has a list.
+        // Friend ids drive both the friend-recipes and friend-home-meals
+        // queries.
         const friends = userId ? await getFriends(userId).catch(() => []) : [];
         const friendIds = new Set(friends.map((f) => f.friend_id));
-        // Parallelize the three recipe sources + the experts list.
-        const [publicRs, expertRs, friendRs, expertProfiles] = await Promise.all([
+        // Parallelize every fetch — six independent network calls.
+        // Formal recipes from each source + home meals from friends,
+        // experts, and a broader public scan + the experts list.
+        const friendIdsArr = Array.from(friendIds);
+        const [publicRs, expertRs, friendRs, expertProfiles, friendMeals, allPublicMeals] = await Promise.all([
           getPublicRecipes(40).catch(() => []),
           getExpertRecipes(40).catch(() => []),
-          friendIds.size > 0 ? getFriendRecipes(Array.from(friendIds), 40).catch(() => []) : Promise.resolve([] as Recipe[]),
+          friendIdsArr.length > 0 ? getFriendRecipes(friendIdsArr, 40).catch(() => []) : Promise.resolve([] as Recipe[]),
           getExpertProfiles().catch(() => []),
+          friendIdsArr.length > 0 ? getFriendsPublicHomeMeals(friendIdsArr).catch(() => []) : Promise.resolve([] as FriendHomeMeal[]),
+          userId ? getAllPublicHomeMeals(userId, { userScanLimit: 250, mealLimit: 80 }).catch(() => []) : Promise.resolve([] as FriendHomeMeal[]),
         ]);
         const expertIds = new Set(expertProfiles.map((p) => p.user_id));
+        // Also fetch home meals from every expert (some experts only
+        // log via Home Meal). Skip ids we already covered as friends
+        // so the same row isn't fetched twice.
+        const expertOnlyIds = Array.from(expertIds).filter((id) => !friendIds.has(id));
+        const expertMeals = expertOnlyIds.length > 0
+          ? await getFriendsPublicHomeMeals(expertOnlyIds).catch(() => [] as FriendHomeMeal[])
+          : [];
+
+        // Normalize everything into the source-agnostic shape, deduped
+        // by id. Home-meal ids get a prefix so they can't collide with
+        // formal recipe UUIDs.
+        const byId = new Map<string, CommunityCacheEntry>();
+        for (const r of [...friendRs, ...expertRs, ...publicRs]) {
+          if (!r?.id || byId.has(r.id)) continue;
+          byId.set(r.id, {
+            id: r.id,
+            userId: r.userId,
+            title: r.title,
+            cuisine: r.cuisine || '',
+            description: r.description || '',
+            tags: r.tags || [],
+            ingredientText: (r.ingredients || []).map((i) => i.name).join(' '),
+            prepTime: r.prepTimeMinutes,
+            cookTime: r.cookTimeMinutes,
+            difficulty: r.difficulty || '',
+            photos: r.photos || [],
+            ingredientCount: r.ingredients?.length || 0,
+            stepCount: r.steps?.length || 0,
+            updatedAt: r.updatedAt || r.createdAt || '',
+            source: 'recipe',
+          });
+        }
+        // Home meals can repeat (a friend who's also an expert; the
+        // all-public scan may overlap). Dedupe across them all.
+        const mealsCombined: FriendHomeMeal[] = [];
+        const seenMealKey = new Set<string>();
+        for (const m of [...friendMeals, ...expertMeals, ...allPublicMeals]) {
+          const key = `${m.userId}:${m.id}`;
+          if (seenMealKey.has(key)) continue;
+          seenMealKey.add(key);
+          mealsCombined.push(m);
+        }
+        for (const m of mealsCombined) {
+          const prefixed = `hm:${m.userId}:${m.id}`;
+          if (byId.has(prefixed)) continue;
+          // Home meal photos can be PhotoItem objects or plain URL strings;
+          // normalize to strings for the card cover.
+          const photoUrls: string[] = [];
+          if (m.coverPhoto) photoUrls.push(m.coverPhoto);
+          for (const p of m.photos || []) {
+            if (!p) continue;
+            if (typeof p === 'string') photoUrls.push(p);
+            else if (typeof p === 'object' && 'url' in p && typeof p.url === 'string') photoUrls.push(p.url);
+          }
+          const ingredientText = (m.ingredients || []).map((i) => i.name || '').join(' ')
+            + ' '
+            + (m.dishes || []).map((d) => d.name || '').join(' ');
+          byId.set(prefixed, {
+            id: prefixed,
+            userId: m.userId,
+            title: m.name || 'Untitled meal',
+            cuisine: m.cuisine || '',
+            description: m.description || '',
+            tags: m.tags || [],
+            ingredientText,
+            prepTime: m.prepTime ?? null,
+            cookTime: m.cookTime ?? null,
+            // HomeMeal difficulty is capitalized ("Easy") — lowercase
+            // here so the search filter matches uniformly across sources.
+            difficulty: (m.difficulty || '').toLowerCase(),
+            photos: photoUrls,
+            ingredientCount: m.ingredients?.length || 0,
+            stepCount: m.steps?.length || 0,
+            // home meals store createdAt as a number (ms epoch); convert
+            // for a comparable ISO string.
+            updatedAt: m.createdAt ? new Date(m.createdAt).toISOString() : '',
+            source: 'home_meal',
+          });
+        }
+        const entries = Array.from(byId.values());
+
         // Author profiles — batch over every unique user id surfaced.
         const allUserIds = new Set<string>();
-        for (const r of publicRs) allUserIds.add(r.userId);
-        for (const r of expertRs) allUserIds.add(r.userId);
-        for (const r of friendRs) allUserIds.add(r.userId);
-        // Seed the author map with experts we already have profiles for.
+        for (const e of entries) allUserIds.add(e.userId);
         const authors: Record<string, UserProfile> = {};
         for (const p of expertProfiles) authors[p.user_id] = p;
         const missing = Array.from(allUserIds).filter((id) => !authors[id]);
@@ -403,9 +517,7 @@ export const AppAssistant: React.FC = () => {
         communityCacheRef.current = {
           loaded: true,
           loading: null,
-          publicRecipes: publicRs,
-          friendRecipes: friendRs,
-          expertRecipes: expertRs,
+          entries,
           friendIds,
           expertIds,
           authors,
@@ -427,24 +539,19 @@ export const AppAssistant: React.FC = () => {
     const cache = communityCacheRef.current;
     if (!cache.loaded) return [];
 
-    // Build the candidate pool based on the requested source. 'all'
-    // means: friends + experts + public, deduped by id.
+    // Filter by source. 'friends' = entries authored by accepted
+    // friends; 'experts' = entries authored by experts (including
+    // experts who are also friends); 'public' = everyone else;
+    // 'all' (default) = no source filter.
     const source = opts.source || 'all';
     const ownId = userId || '';
-    const dedupe = new Map<string, Recipe>();
-    const addAll = (rs: Recipe[]) => {
-      for (const r of rs) {
-        if (!r?.id) continue;
-        // Don't surface the user's own recipes through community
-        // search — they're already in the RECIPES section. (And the
-        // bot is told to prefer their own pool when it matches.)
-        if (r.userId === ownId) continue;
-        if (!dedupe.has(r.id)) dedupe.set(r.id, r);
-      }
-    };
-    if (source === 'friends' || source === 'all') addAll(cache.friendRecipes);
-    if (source === 'experts' || source === 'all') addAll(cache.expertRecipes);
-    if (source === 'public' || source === 'all') addAll(cache.publicRecipes);
+    const candidates = cache.entries.filter((e) => {
+      if (e.userId === ownId) return false;
+      if (source === 'friends') return cache.friendIds.has(e.userId);
+      if (source === 'experts') return cache.expertIds.has(e.userId);
+      if (source === 'public') return !cache.friendIds.has(e.userId) && !cache.expertIds.has(e.userId);
+      return true;
+    });
 
     // Apply query + cuisine filters. Both are case-insensitive
     // substring matches across title / cuisine / tags / description /
@@ -452,23 +559,14 @@ export const AppAssistant: React.FC = () => {
     // catches anything that mentions it anywhere.
     const queryLower = (opts.query || '').trim().toLowerCase();
     const cuisineLower = (opts.cuisine || '').trim().toLowerCase();
-    const matches: Recipe[] = [];
-    for (const r of dedupe.values()) {
-      if (cuisineLower) {
-        if (!(r.cuisine || '').toLowerCase().includes(cuisineLower)) continue;
-      }
+    const matches = candidates.filter((e) => {
+      if (cuisineLower && !e.cuisine.toLowerCase().includes(cuisineLower)) return false;
       if (queryLower) {
-        const hay = [
-          r.title,
-          r.cuisine,
-          r.description,
-          (r.tags || []).join(' '),
-          (r.ingredients || []).map((i) => i.name).join(' '),
-        ].join(' ').toLowerCase();
-        if (!hay.includes(queryLower)) continue;
+        const hay = `${e.title} ${e.cuisine} ${e.description} ${e.tags.join(' ')} ${e.ingredientText}`.toLowerCase();
+        if (!hay.includes(queryLower)) return false;
       }
-      matches.push(r);
-    }
+      return true;
+    });
 
     // Sort: friends first (closer connection), then experts, then
     // everyone else. Within each tier, newer updated_at wins.
@@ -482,23 +580,24 @@ export const AppAssistant: React.FC = () => {
       return (b.updatedAt || '').localeCompare(a.updatedAt || '');
     });
 
-    return matches.slice(0, 10).map<CommunityRecipeHit>((r) => {
-      const author = cache.authors[r.userId];
+    return matches.slice(0, 10).map<CommunityRecipeHit>((e) => {
+      const author = cache.authors[e.userId];
       return {
-        id: r.id,
-        userId: r.userId,
-        title: r.title,
-        cuisine: r.cuisine || undefined,
-        prepTimeMinutes: r.prepTimeMinutes ?? undefined,
-        cookTimeMinutes: r.cookTimeMinutes ?? undefined,
-        difficulty: r.difficulty || undefined,
-        photos: r.photos || [],
-        ingredientCount: r.ingredients?.length || 0,
-        stepCount: r.steps?.length || 0,
+        id: e.id,
+        userId: e.userId,
+        title: e.title,
+        cuisine: e.cuisine || undefined,
+        prepTimeMinutes: e.prepTime ?? undefined,
+        cookTimeMinutes: e.cookTime ?? undefined,
+        difficulty: e.difficulty || undefined,
+        photos: e.photos,
+        ingredientCount: e.ingredientCount,
+        stepCount: e.stepCount,
+        source: e.source,
         authorUsername: author?.username,
         authorDisplayName: author?.display_name || author?.username,
-        authorIsExpert: cache.expertIds.has(r.userId),
-        authorIsFriend: cache.friendIds.has(r.userId),
+        authorIsExpert: cache.expertIds.has(e.userId),
+        authorIsFriend: cache.friendIds.has(e.userId),
       };
     });
   }, [loadCommunityRecipes, userId]);
