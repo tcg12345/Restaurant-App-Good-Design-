@@ -20,6 +20,7 @@ import {
   type BulkResult,
 } from '../lib/ingredient-parsing';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
+import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 
 /* ── Tab-mode preference (sticky across sessions) ────────────── */
 const MODE_KEY = 'gourmad-recipe-builder-mode';
@@ -119,19 +120,26 @@ export const AddHomeMealModal: React.FC = () => {
   // Basic vs Advanced tab. Recipes published via the Advanced builder
   // carry `builderVersion: 'advanced'` so re-opening them forces the
   // Advanced tab — Basic doesn't have the fields to round-trip rich
-  // data (groups, tips, equipment, notes). When editing a Basic meal,
-  // open Basic. Otherwise (new recipe), default to the user's last-used.
+  // data. Same forcing happens when the user resumed an Advanced
+  // draft from Activity (pending-resume flag is set in localStorage).
+  // When editing a Basic meal, open Basic. Otherwise (new recipe),
+  // default to the user's last-used tab.
   const forceAdvanced = !!(existing && existing.builderVersion === 'advanced');
   const [mode, setMode] = useState<'basic' | 'advanced'>(() => {
     if (forceAdvanced) return 'advanced';
+    // Pending resume from Activity → Recipe drafts always lands the
+    // user on Advanced (Basic can't render an Advanced draft anyway).
+    if (peekPendingResumeDraftId()) return 'advanced';
     if (existing) return 'basic';
     return loadMode();
   });
-  // Re-evaluate when the modal opens with a different `existing` meal.
+  // Re-evaluate when the modal opens with a different `existing` meal
+  // or a new pending-resume flag.
   useEffect(() => {
     if (forceAdvanced) setMode('advanced');
+    else if (peekPendingResumeDraftId()) setMode('advanced');
     else if (existing) setMode('basic');
-  }, [forceAdvanced, existing]);
+  }, [forceAdvanced, existing, homeMealModalOpen]);
   const handleModeChange = (m: 'basic' | 'advanced') => {
     if (forceAdvanced && m === 'basic') return;
     setMode(m);

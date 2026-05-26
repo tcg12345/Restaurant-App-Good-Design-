@@ -234,6 +234,7 @@ const AppContent: React.FC = () => {
           <Route path="/activity/saved" element={<Activity />} />
           <Route path="/activity/likes" element={<Activity />} />
           <Route path="/activity/comments" element={<Activity />} />
+          <Route path="/activity/drafts" element={<Activity />} />
           <Route path="/experts" element={<Experts />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/pantry" element={<Pantry />} />

@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Check, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from '../contexts/ToastContext';
 import {
   useLists,
   type HomeMeal,
@@ -22,6 +23,13 @@ import {
   type RecipeStepDetail,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
+import {
+  saveDraft as saveExplicitDraft,
+  removeDraft as removeExplicitDraft,
+  getDraft,
+  consumePendingResumeDraftId,
+  deriveDraftTitle,
+} from '../lib/recipe-drafts';
 import { StepBasics } from './advanced-recipe-steps/StepBasics';
 import { StepTiming } from './advanced-recipe-steps/StepTiming';
 import { StepIngredients } from './advanced-recipe-steps/StepIngredients';
@@ -292,32 +300,34 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; 
 
 /* ── Draft persistence ───────────────────────────────────────── */
 
-function draftKey(userId: string | null, mealId: string | null): string {
+/* ── Auto-resume slot (single, transient — used by the "Resume your
+     draft?" prompt on next modal open). Not exposed in Activity. ─ */
+function resumeSlotKey(userId: string | null, mealId: string | null): string {
   const u = userId || 'anon';
   return mealId ? `gourmad-recipe-draft-${u}-edit-${mealId}` : `gourmad-recipe-draft-${u}`;
 }
 
-interface DraftSlot {
+interface ResumeSlot {
   state: AdvancedRecipeState;
   currentStep: number;
   savedAt: number;
 }
 
-function loadDraft(key: string): DraftSlot | null {
+function loadResumeSlot(key: string): ResumeSlot | null {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !parsed.state) return null;
-    return parsed as DraftSlot;
+    return parsed as ResumeSlot;
   } catch { return null; }
 }
 
-function saveDraft(key: string, slot: DraftSlot): void {
+function saveResumeSlot(key: string, slot: ResumeSlot): void {
   try { localStorage.setItem(key, JSON.stringify(slot)); } catch { /* quota — skip */ }
 }
 
-function clearDraft(key: string): void {
+function clearResumeSlot(key: string): void {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
@@ -354,28 +364,51 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const [currentStep, setCurrentStep] = useState(0);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [showResume, setShowResume] = useState(false);
-  const [resumeSlot, setResumeSlot] = useState<DraftSlot | null>(null);
+  const [resumeSlot, setResumeSlot] = useState<ResumeSlot | null>(null);
   const [showValidation, setShowValidation] = useState(false);
+  /** Once the user explicitly clicks Save draft (or resumes a draft
+   *  from Activity), we remember that draft's id so further saves
+   *  update the same row rather than spawning a new one. */
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  const toast = useToast();
 
-  const key = useMemo(() => draftKey(userId, existing?.id || null), [userId, existing?.id]);
+  const key = useMemo(() => resumeSlotKey(userId, existing?.id || null), [userId, existing?.id]);
   const saveTimerRef = useRef<number | null>(null);
   const hasUserInputRef = useRef(false);
   const initialHydratedRef = useRef(false);
 
-  // On mount: check for a saved draft and offer to resume. Skip when
-  // editing — that path is already prefilled from the existing meal.
+  // On mount: prefer a pending Activity-resume draft over the
+  // single-slot autoresume. Otherwise fall back to the "Resume your
+  // draft?" prompt as before. Skip both when editing — that path is
+  // already prefilled from the existing meal.
   useEffect(() => {
-    if (existing || initialHydratedRef.current) return;
+    if (initialHydratedRef.current) return;
     initialHydratedRef.current = true;
-    const slot = loadDraft(key);
+    if (existing) return;
+    const pendingId = consumePendingResumeDraftId();
+    if (pendingId) {
+      const draft = getDraft(userId, pendingId);
+      if (draft) {
+        dispatch({ type: 'HYDRATE', state: draft.state });
+        setCurrentStep(Math.max(0, Math.min(5, draft.currentStep)));
+        setCurrentDraftId(draft.id);
+        setDraftSavedAt(draft.savedAt);
+        return;
+      }
+    }
+    const slot = loadResumeSlot(key);
     if (slot && (slot.state.name || slot.state.summary || slot.state.ingredientGroups.some((g) => g.ingredients.length > 0))) {
       setResumeSlot(slot);
       setShowResume(true);
     }
-  }, [existing, key]);
+  }, [existing, key, userId]);
 
   // Autosave: debounce 400ms after any state change. Any keystroke
-  // flips hasUserInputRef so we don't write a draft for a no-op mount.
+  // flips hasUserInputRef so we don't write a draft for a no-op
+  // mount. Writes the resume slot AND — if there's already an
+  // explicit saved-draft row for this session — updates that too so
+  // Activity stays in sync without requiring a Save-draft tap on
+  // every change.
   useEffect(() => {
     if (!hasUserInputRef.current) {
       hasUserInputRef.current = true;
@@ -384,13 +417,23 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       const now = Date.now();
-      saveDraft(key, { state, currentStep, savedAt: now });
+      saveResumeSlot(key, { state, currentStep, savedAt: now });
       setDraftSavedAt(now);
+      if (currentDraftId) {
+        saveExplicitDraft(userId, {
+          id: currentDraftId,
+          title: deriveDraftTitle(state),
+          coverPhoto: state.coverPhoto || undefined,
+          currentStep,
+          state,
+          editingMealId: existing?.id,
+        });
+      }
     }, 400);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [state, currentStep, key]);
+  }, [state, currentStep, key, currentDraftId, userId, existing]);
 
   const handleResumeAccept = useCallback(() => {
     if (!resumeSlot) return;
@@ -401,7 +444,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [resumeSlot]);
 
   const handleResumeDiscard = useCallback(() => {
-    clearDraft(key);
+    clearResumeSlot(key);
     setShowResume(false);
     setResumeSlot(null);
   }, [key]);
@@ -429,10 +472,27 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, []);
 
   const handleSaveDraft = useCallback(() => {
-    // Force an immediate snapshot — bypasses the debounce.
-    saveDraft(key, { state, currentStep, savedAt: Date.now() });
-    setDraftSavedAt(Date.now());
-  }, [key, state, currentStep]);
+    // Two things happen on an explicit Save:
+    //   1. Force the autoresume snapshot immediately (bypass debounce)
+    //   2. Persist or update the row in the user's saved-drafts list
+    //      so it surfaces on Activity → Recipe drafts.
+    const now = Date.now();
+    saveResumeSlot(key, { state, currentStep, savedAt: now });
+    setDraftSavedAt(now);
+    const saved = saveExplicitDraft(userId, {
+      id: currentDraftId || undefined,
+      title: deriveDraftTitle(state),
+      coverPhoto: state.coverPhoto || undefined,
+      currentStep,
+      state,
+      editingMealId: existing?.id,
+    });
+    if (!currentDraftId) setCurrentDraftId(saved.id);
+    toast.showToast(currentDraftId ? 'Draft updated' : 'Draft saved', {
+      subtitle: 'Find it in Activity → Recipe drafts.',
+      variant: 'success',
+    });
+  }, [key, state, currentStep, currentDraftId, userId, existing, toast]);
 
   const handlePublish = useCallback(() => {
     const v = validate(state);
@@ -489,18 +549,26 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       builderVersion: 'advanced',
     };
 
+    // Clear both the autoresume slot AND the explicit Activity draft
+    // (if any). Publishing means the recipe lives in the user's pantry
+    // now — no need to keep the draft hanging around.
+    const cleanup = () => {
+      clearResumeSlot(key);
+      if (currentDraftId) removeExplicitDraft(userId, currentDraftId);
+    };
+
     if (existing) {
       lists.updateHomeMeal(existing.id, payload);
-      clearDraft(key);
+      cleanup();
       onClose();
       if (userId) setTimeout(() => navigate(`/recipe/${userId}/${existing.id}`), 80);
     } else {
       const created = lists.createHomeMeal(payload);
-      clearDraft(key);
+      cleanup();
       onClose();
       if (userId && created?.id) setTimeout(() => navigate(`/recipe/${userId}/${created.id}`), 80);
     }
-  }, [state, existing, key, lists, onClose, userId, navigate]);
+  }, [state, existing, key, lists, onClose, userId, navigate, currentDraftId]);
 
   // Progress bar fill: 5/6 when on step 5, etc. Step 6 (index 5) at
   // full bar (100%) is reached only when the user actually publishes,

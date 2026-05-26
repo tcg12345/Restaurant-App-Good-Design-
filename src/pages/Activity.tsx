@@ -1,38 +1,48 @@
 /**
- * Activity — "your activity" hub: a tiny index page that fans out to three
- * lists of feed items (saved / liked / commented).
+ * Activity — "your activity" hub: a tiny index page that fans out to four
+ * lists (saved / liked / commented / recipe drafts).
  *
  * Routing is path-driven so each list has its own URL:
- *   /activity           → index (3 navigation rows)
+ *   /activity           → index (4 navigation rows)
  *   /activity/saved     → reels + posts the user has bookmarked
  *   /activity/likes     → reels + posts the user has liked
  *   /activity/comments  → reels + posts the user has commented on
+ *   /activity/drafts    → saved Advanced-builder recipe drafts
  *
  * Saved / liked lists are derived locally from the already-loaded reels +
  * posts (each carries a per-viewer `saved` / `liked` flag from the
- * PostgREST embed). Commented requires a dedicated query because the
- * Reel / Post object doesn't tell us whether the viewer has commented.
+ * PostgREST embed). Commented requires a dedicated query. Drafts live in
+ * localStorage via src/lib/recipe-drafts.ts.
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   ArrowLeft, Bookmark, Heart, MessageCircle, ChefHat, MapPin, Play, Loader2,
-  ChevronRight, Layers,
+  ChevronRight, Layers, FileText, Trash2, Clock,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel } from '../contexts/ReelsContext';
 import { usePosts, type Post } from '../contexts/PostsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
 import { listReelIdsCommentedByUser } from '../lib/supabase-reels';
 import { listPostIdsCommentedByUser } from '../lib/supabase-posts';
+import {
+  loadDrafts,
+  removeDraft,
+  setPendingResumeDraftId,
+  formatDraftTimeAgo,
+  type RecipeDraft,
+} from '../lib/recipe-drafts';
 
-type ActivityTab = 'saved' | 'likes' | 'comments';
+type ActivityTab = 'saved' | 'likes' | 'comments' | 'drafts';
 
 function tabFromPathname(pathname: string): ActivityTab | null {
   if (pathname.endsWith('/saved')) return 'saved';
   if (pathname.endsWith('/likes')) return 'likes';
   if (pathname.endsWith('/comments')) return 'comments';
+  if (pathname.endsWith('/drafts')) return 'drafts';
   return null;
 }
 
@@ -241,6 +251,88 @@ const IndexRow: React.FC<IndexRowProps> = ({ icon, label, description, count, lo
   );
 };
 
+/* ── Recipe draft row ──────────────────────────────────────────
+   Tappable card showing the draft title, a small thumbnail preview
+   from the cover photo if set, last-saved time + step indicator,
+   and an inline delete button. */
+
+interface DraftRowProps {
+  draft: RecipeDraft;
+  onOpen: () => void;
+  onDelete: () => void;
+}
+
+const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
+  const [confirmDel, setConfirmDel] = useState(false);
+  return (
+    <motion.div
+      whileHover={{ x: 2 }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] hover:ring-on-surface/[0.14] hover:bg-on-surface/[0.02] transition-colors text-left shadow-sm"
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex items-center gap-4 flex-1 min-w-0 text-left"
+      >
+        <span
+          className="w-14 h-14 rounded-xl bg-on-surface/[0.06] flex items-center justify-center text-on-surface/40 flex-shrink-0 overflow-hidden"
+          style={draft.coverPhoto ? { backgroundImage: `url("${draft.coverPhoto}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+        >
+          {!draft.coverPhoto && <FileText size={20} />}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-serif font-bold text-on-surface text-[16px] leading-tight truncate">
+            {draft.title}
+          </p>
+          <p className="text-on-surface/55 text-[12px] mt-0.5 flex items-center gap-3 flex-wrap">
+            <span className="inline-flex items-center gap-1">
+              <Clock size={11} />
+              {formatDraftTimeAgo(draft.savedAt)}
+            </span>
+            <span className="text-on-surface/30">·</span>
+            <span>Step {draft.currentStep + 1} of 6</span>
+            {draft.editingMealId && (
+              <>
+                <span className="text-on-surface/30">·</span>
+                <span className="text-on-surface/50 italic">Editing existing recipe</span>
+              </>
+            )}
+          </p>
+        </div>
+      </button>
+      {confirmDel ? (
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setConfirmDel(false); }}
+            className="px-3 py-1.5 text-[11px] font-semibold text-on-surface/60 border border-on-surface/15 rounded-full hover:bg-on-surface/[0.04]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="px-3 py-1.5 text-[11px] font-semibold text-white bg-red-500 rounded-full hover:bg-red-600"
+          >
+            Delete
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setConfirmDel(true); }}
+          aria-label={`Delete draft "${draft.title}"`}
+          className="w-9 h-9 rounded-full text-on-surface/40 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center flex-shrink-0 transition-colors"
+        >
+          <Trash2 size={15} />
+        </button>
+      )}
+    </motion.div>
+  );
+};
+
 /* ── Top header (back arrow + title) ──────────────────────────────────── */
 
 const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => (
@@ -313,6 +405,28 @@ export const Activity: React.FC = () => {
   // count reflects every comment in the DB even if a reel was deleted
   // or isn't currently in the loaded list.
   const commentedCount = commentedReelIds.length + commentedPostIds.length;
+
+  /* ── Recipe drafts (Advanced-builder Save Draft entries). Local
+        state mirrors localStorage so deletes / opens reflect
+        immediately without a page reload. */
+  const { openHomeMealModal } = useLists();
+  const [drafts, setDrafts] = useState<RecipeDraft[]>(() => loadDrafts(user?.id || null));
+  // Refresh whenever the user lands on the page or returns to it —
+  // a draft could've been added from elsewhere in the app.
+  useEffect(() => {
+    setDrafts(loadDrafts(user?.id || null));
+  }, [user?.id, location.pathname]);
+
+  const handleResumeDraft = (draft: RecipeDraft) => {
+    setPendingResumeDraftId(draft.id);
+    // Re-route to a surface that mounts the modal. The modal lives
+    // app-global so we can open it directly from here.
+    openHomeMealModal();
+  };
+  const handleDeleteDraft = (id: string) => {
+    removeDraft(user?.id || null, id);
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+  };
 
   /* ── Click handler: open the focused single-item viewer. Same Reels
         component, but routed to /r/:focusKey so it shows just this item
@@ -396,7 +510,52 @@ export const Activity: React.FC = () => {
               loading={commentsLoading}
               to="/activity/comments"
             />
+            <IndexRow
+              icon={<FileText size={20} />}
+              label="Recipe drafts"
+              description="Saved drafts from the Advanced recipe builder"
+              count={drafts.length}
+              to="/activity/drafts"
+            />
           </div>
+        </main>
+      </div>
+    );
+  }
+
+  /* ── Drafts sub-page ──────────────────────────────────────────
+        Drafts are stored locally per-user. Tapping a row sets a
+        pending-resume flag and opens the Add Recipe modal, which
+        forces the Advanced tab and hydrates the wizard from the
+        draft on mount. */
+  if (tab === 'drafts') {
+    return (
+      <div className="min-h-screen bg-surface pb-32">
+        <ActivityHeader title="Recipe drafts" onBack={() => navigate('/activity')} />
+        <main className="max-w-2xl mx-auto px-5 pt-5">
+          {drafts.length === 0 ? (
+            <EmptyState
+              icon={<FileText size={28} />}
+              title="No drafts yet"
+              body="Tap Save draft inside the Advanced recipe builder and it'll land here."
+            />
+          ) : (
+            <>
+              <p className="text-on-surface/55 text-[12px] mb-4 tabular-nums">
+                {drafts.length} {drafts.length === 1 ? 'draft' : 'drafts'}
+              </p>
+              <div className="space-y-2.5">
+                {drafts.map((d) => (
+                  <DraftRow
+                    key={d.id}
+                    draft={d}
+                    onOpen={() => handleResumeDraft(d)}
+                    onDelete={() => handleDeleteDraft(d.id)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </main>
       </div>
     );
