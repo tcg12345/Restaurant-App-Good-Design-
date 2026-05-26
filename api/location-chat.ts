@@ -88,7 +88,7 @@ const TOOL_SEARCH = {
 const TOOL_RECOMMEND_RECIPES = {
   name: 'recommend_recipes',
   description:
-    "Surface recipe cards for recipes the user has saved (from the RECIPES section of the system prompt). Use this — not prose — when you want to point the user at one of their own recipes (e.g. they ask 'what should I cook tonight?' or 'do I have any pasta recipes?'). IDs MUST be from the RECIPES section.",
+    "Surface recipe cards. Use this — not prose — whenever you want to point the user at a specific recipe. IDs MUST come from one of two sources:\n  (a) the user's own RECIPES section in the system prompt, OR\n  (b) a previous search_community_recipes tool result in this conversation (friends' / experts' / public recipes).\nNever invent ids. Cards for community recipes auto-show the author's name so the user knows it's not their own.",
   input_schema: {
     type: 'object',
     properties: {
@@ -104,6 +104,31 @@ const TOOL_RECOMMEND_RECIPES = {
       },
     },
     required: ['recipe_ids'],
+  },
+};
+
+const TOOL_SEARCH_COMMUNITY_RECIPES = {
+  name: 'search_community_recipes',
+  description:
+    "Search public recipes from friends, experts, and other users across the app. Use this whenever the user asks for a recipe and the RECIPES section of the system prompt (their own saved recipes) doesn't cover the ask. ALSO use it any time the user explicitly mentions friends / experts / 'someone' (e.g. 'find me a recipe from a friend', 'any expert pasta recipes?'). Returns up to 10 matching recipes with id, title, cuisine, time, difficulty, author username. You can then pass any returned id to recommend_recipes — the cards will resolve and show the author. ALWAYS try this BEFORE telling the user there are no recipes; only fall back to restaurants if the user asks for restaurants or community search also returns nothing.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: "Free-text search — cuisine, dish, ingredient, technique. Examples: 'korean', 'pasta', 'chicken stir fry', 'quick weeknight'. Pass an empty string to browse everything.",
+      },
+      cuisine: {
+        type: 'string',
+        description: "Optional explicit cuisine filter (e.g. 'Italian', 'Korean'). Matched case-insensitively against the recipe's cuisine field.",
+      },
+      source: {
+        type: 'string',
+        enum: ['friends', 'experts', 'public', 'all'],
+        description: "Optional. 'friends' = only the user's friends; 'experts' = only experts; 'public' = all public recipes; 'all' (default) = friends + experts + general public combined.",
+      },
+    },
+    required: [],
   },
 };
 
@@ -521,7 +546,7 @@ function buildSystemPrompt(body: ChatRequest): string {
     } else {
       // Be explicit when empty — gives the AI a definite signal so it
       // doesn't try to be helpful by surfacing restaurants instead.
-      lines.push(`- RECIPES: the user has NO saved cooking recipes. If they ask about recipes, tell them this honestly — do not substitute restaurants from RATED or WISHLIST.`);
+      lines.push(`- RECIPES: the user has NO saved cooking recipes of their own. If they ask about recipes, DO NOT say "you don't have any" and stop — call search_community_recipes to look across friends / experts / public recipes FIRST.`);
     }
     if (u.friends && u.friends.length > 0) {
       lines.push(`- Friends: ${u.friends.slice(0, 10).map((f) => f.username ? `${f.displayName} (@${f.username})` : f.displayName).join(', ')}`);
@@ -599,7 +624,19 @@ function buildSystemPrompt(body: ChatRequest): string {
     "5. ALWAYS surface places via the recommend_restaurants tool. EVERY restaurant you mention by name — including ones from the user's RATED list, their WISHLIST, or anywhere else — needs to be passed to recommend_restaurants with the place id from that row. The card render is what makes the name clickable for the user. Likewise, when surfacing one of the user's own RECIPES, use the recommend_recipes tool — never just type names in prose.",
   );
   lines.push(
-    "5a. RECIPES vs RESTAURANTS — these are SEPARATE worlds. Restaurants are places to eat out (RATED, WISHLIST, the Available pool). Recipes are dishes to cook at home (the RECIPES section). NEVER pass a restaurant id to recommend_recipes, and NEVER pass a recipe id to recommend_restaurants. When the user asks about RECIPES (\"what should I cook tonight?\", \"what recipe have I rated highest?\", \"any rice recipes?\"), look ONLY at the RECIPES section. If RECIPES is empty or has no match, say so honestly — DO NOT substitute restaurants from RATED / WISHLIST as if they were recipes. The correct response when there are no matching recipes is: \"You don't have a saved recipe for [X]. Want me to suggest some general ideas, or look up restaurants serving it?\"",
+    "5a. RECIPES vs RESTAURANTS — these are SEPARATE worlds. Restaurants are places to eat out (RATED, WISHLIST, the Available pool). Recipes are dishes to cook at home. NEVER pass a restaurant id to recommend_recipes, and NEVER pass a recipe id to recommend_restaurants.",
+  );
+  lines.push(
+    "5b. RECIPES — TWO POOLS. (1) The user's OWN RECIPES (the RECIPES section of this prompt). (2) The COMMUNITY RECIPES pool — public recipes from friends, followed experts, and other users — fetched on demand via the search_community_recipes tool. When the user asks about a recipe (\"find me a korean recipe\", \"any good pasta recipes?\", \"what should I cook tonight?\"):",
+  );
+  lines.push(
+    "    Step 1. Check the user's OWN RECIPES first. If something matches, recommend it via recommend_recipes.",
+  );
+  lines.push(
+    "    Step 2. If nothing in their own pool matches (or they explicitly ask for friends' / experts' / other people's recipes), CALL search_community_recipes with a focused query. Pass any returned id to recommend_recipes — the card will render with the author's name.",
+  );
+  lines.push(
+    "    Step 3. ONLY after both pools come up empty should you offer alternatives — and even then, prefer 'here are some general ideas / want me to web_search for one?' over 'want restaurants instead?'. NEVER pivot to restaurants unprompted when the user clearly wanted a recipe. Restaurants are an option only if the user accepts the pivot or explicitly asks for them.",
   );
   lines.push(
     "6. Only say 'I couldn't find anything' AFTER trying search_restaurants and / or web_search and they genuinely returned nothing useful.",
@@ -674,6 +711,7 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_RECOMMEND,
       TOOL_RECOMMEND_RECIPES,
       TOOL_SEARCH,
+      TOOL_SEARCH_COMMUNITY_RECIPES,
       TOOL_LOOKUP_USER,
       TOOL_FIND_EXPERTS,
       TOOL_GET_CIRCLE_RATINGS,

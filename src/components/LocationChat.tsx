@@ -71,6 +71,28 @@ export interface AssistantUser {
   homeCity?: string;
 }
 
+/** Public recipe surfaced via search_community_recipes — augmented
+ *  with the author's display name + username so the card can show
+ *  "by @joesmith" and the bot can mention attribution in prose. */
+export interface CommunityRecipeHit {
+  /** Same shape as the user's own Recipe, so the card render code
+   *  works without branching. */
+  id: string;
+  userId: string;
+  title: string;
+  cuisine?: string;
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  difficulty?: string;
+  photos?: string[];
+  ingredientCount?: number;
+  stepCount?: number;
+  authorUsername?: string;
+  authorDisplayName?: string;
+  authorIsExpert?: boolean;
+  authorIsFriend?: boolean;
+}
+
 export interface AssistantCircleRating {
   username: string;
   displayName?: string;
@@ -131,6 +153,11 @@ interface LocationChatProps {
   /** Browse experts. Optional filters narrow by cuisine focus (bio
    *  match) or home city. Wired to Claude's find_experts tool. */
   onFindExperts?: (opts: { cuisine?: string; city?: string }) => Promise<AssistantUser[]>;
+  /** Search public recipes from friends, experts, and other users
+   *  on the platform. Wired to Claude's search_community_recipes
+   *  tool. Returns hits with author metadata so cards can show
+   *  "by @username" and the bot can mention attribution. */
+  onSearchCommunityRecipes?: (opts: { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' }) => Promise<CommunityRecipeHit[]>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
@@ -564,6 +591,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   userContext,
   onLookupUser,
   onFindExperts,
+  onSearchCommunityRecipes,
   onGetCircleRatings,
   recipes,
   knownPlaces,
@@ -601,6 +629,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // friend / expert lists from userContext when scanning prose for
   // inline @username / display-name links.
   const [chatKnownUsers, setChatKnownUsers] = useState<Record<string, { username: string; displayName?: string }>>({});
+
+  // Chat-local cache for community recipes surfaced via
+  // search_community_recipes. Folded into recipeById so cards
+  // rendered by recommend_recipes resolve even when the id isn't
+  // one of the user's own saved recipes.
+  const [chatCommunityRecipes, setChatCommunityRecipes] = useState<Record<string, CommunityRecipeHit>>({});
 
   // ── Chat history ────────────────────────────────────────────────
   // `view` swaps between the live conversation and the saved-chats
@@ -806,11 +840,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return m;
   }, [visible, chatPlaces, knownPlaces]);
 
+  /** Recipe lookup for card rendering. The user's own recipes come
+   *  through `recipes` (typed Recipe[]); community recipes surfaced
+   *  by search_community_recipes are stored chat-local under the
+   *  CommunityRecipeHit shape (a flatter projection that includes
+   *  author info). The card render branches on which field set is
+   *  present, so we don't need to coerce them into the same type. */
   const recipeById = useMemo(() => {
-    const m = new Map<string, Recipe>();
+    const m = new Map<string, Recipe | CommunityRecipeHit>();
     for (const r of recipes) if (r?.id) m.set(r.id, r);
+    for (const id in chatCommunityRecipes) {
+      // Don't let community hits overwrite the user's own version
+      // of a recipe — the user's own card shouldn't carry "by @them".
+      if (!m.has(id)) m.set(id, chatCommunityRecipes[id]);
+    }
     return m;
-  }, [recipes]);
+  }, [recipes, chatCommunityRecipes]);
 
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
@@ -823,11 +868,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setOpen(false);
     // The canonical recipe page needs the owner id in the URL to
     // disambiguate formal recipes from home meals. Pull it from the
-    // recipe map populated above; fall back to the legacy id-only URL
-    // if for some reason the recipe isn't loaded yet (RecipePage will
-    // still resolve formal recipes by id alone).
+    // recipe map populated above (works for both the user's own
+    // recipes and community-recipe hits); fall back to the legacy
+    // id-only URL if for some reason the recipe isn't loaded yet
+    // (RecipePage will still resolve formal recipes by id alone).
     const recipe = recipeById.get(id);
-    const target = recipe?.userId ? `/recipe/${recipe.userId}/${id}` : `/recipe/${id}`;
+    const ownerId = recipe && 'userId' in recipe ? recipe.userId : undefined;
+    const target = ownerId ? `/recipe/${ownerId}/${id}` : `/recipe/${id}`;
     setTimeout(() => navigate(target), 60);
   }, [navigate, recipeById]);
 
@@ -1055,14 +1102,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           } else if (tu.name === 'recommend_recipes') {
             const input = (tu.input || {}) as { recipe_ids?: string[] };
             const ids = Array.isArray(input.recipe_ids) ? input.recipe_ids : [];
-            // Filter out ids the user doesn't actually own so we can
-            // tell Claude what stuck vs what was a hallucination.
+            // Valid = either the user's own saved recipes OR community
+            // hits we've already cached from a previous
+            // search_community_recipes call this conversation.
             const valid = ids.filter((id) => recipeById.has(id));
             const invalid = ids.filter((id) => !recipeById.has(id));
             if (valid.length === 0 && invalid.length === 0) {
               content = 'No recipe ids provided.';
             } else if (valid.length === 0) {
-              content = `None of the recipe ids matched the user's saved recipes (${invalid.join(', ')}). Don't fabricate — only use ids from the RECIPES section of the system prompt.`;
+              content = `None of the recipe ids matched the user's saved RECIPES or any cached community-recipes hits (${invalid.join(', ')}). Don't fabricate — call search_community_recipes first to get real ids, or pick from the RECIPES section.`;
             } else if (invalid.length > 0) {
               content = `Rendered ${valid.length} recipe card(s) for the user. Skipped ${invalid.length} unknown id(s): ${invalid.join(', ')}.`;
             } else {
@@ -1163,6 +1211,59 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 }
               } catch (err) {
                 content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
+              }
+            }
+          } else if (tu.name === 'search_community_recipes') {
+            const input = (tu.input || {}) as { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' };
+            const query = (input.query || '').trim();
+            const cuisine = (input.cuisine || '').trim() || undefined;
+            const source = input.source || 'all';
+            if (!onSearchCommunityRecipes) {
+              content = 'search_community_recipes is not wired up in this context.';
+            } else {
+              try {
+                const hits = await onSearchCommunityRecipes({ query, cuisine, source });
+                if (!hits || hits.length === 0) {
+                  const bits = [query, cuisine, source !== 'all' ? source : null].filter(Boolean).join(' / ');
+                  content = bits
+                    ? `No community recipes matched "${bits}". Tell the user honestly nothing came back across friends / experts / public — DO NOT pivot to restaurants unless they ask.`
+                    : 'No community recipes available right now.';
+                } else {
+                  // Stash for the card-lookup map so any IDs Claude
+                  // recommends from this batch resolve.
+                  setChatCommunityRecipes((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) next[h.id] = h;
+                    return next;
+                  });
+                  // Stash authors as known users so any name mentions
+                  // in the bot's reply auto-link to their profiles.
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.authorUsername) {
+                        next[h.authorUsername] = { username: h.authorUsername, displayName: h.authorDisplayName };
+                      }
+                    }
+                    return next;
+                  });
+                  const lines = hits.slice(0, 10).map((h, i) => {
+                    const totalMin = (h.prepTimeMinutes || 0) + (h.cookTimeMinutes || 0);
+                    const meta = [
+                      h.cuisine,
+                      totalMin > 0 ? `${totalMin} min` : null,
+                      h.difficulty,
+                      h.authorIsFriend ? '[friend]' : h.authorIsExpert ? '[expert]' : null,
+                    ].filter(Boolean).join(' · ');
+                    const byline = h.authorUsername
+                      ? ` — by ${h.authorDisplayName || h.authorUsername} (@${h.authorUsername})`
+                      : '';
+                    return `${i + 1}. ${h.title}  (id: ${h.id})  ${meta}${byline}`;
+                  }).join('\n');
+                  content = `Community recipes matched (${hits.length}):\n${lines}\n\nRecommend any of these via recommend_recipes — the cards will render with the author's name. You can also mention authors by username; names auto-link.`;
+                }
+              } catch (err) {
+                content = `search_community_recipes failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
               }
             }
           } else if (tu.name === 'find_experts') {
@@ -1435,6 +1536,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     userContext,
     onLookupUser,
     onFindExperts,
+    onSearchCommunityRecipes,
     onGetCircleRatings,
     recipeById,
     currentPath,
@@ -1711,7 +1813,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             if (!r) {
                               return (
                                 <div key={id} className="lp-chat-card lp-chat-card-missing">
-                                  Recipe not found in your saved list.
+                                  Recipe not found.
                                 </div>
                               );
                             }
@@ -1723,6 +1825,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             const difficulty = r.difficulty
                               ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
                               : '';
+                            // Community recipes carry author metadata
+                            // — show "by @author" so the user knows it
+                            // isn't their own. The user's own recipes
+                            // come through as a Recipe and have no
+                            // authorUsername field.
+                            const author = 'authorUsername' in r ? r.authorUsername : undefined;
+                            const authorDisplay = 'authorDisplayName' in r ? r.authorDisplayName : undefined;
                             return (
                               <button
                                 key={id}
@@ -1746,6 +1855,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                                     {totalMin > 0 && difficulty && <span className="dot">·</span>}
                                     {difficulty && <span>{difficulty}</span>}
                                   </p>
+                                  {author && (
+                                    <p className="lp-chat-card-byline">
+                                      by {authorDisplay || `@${author}`}
+                                    </p>
+                                  )}
                                 </div>
                                 <ChevronRight />
                               </button>

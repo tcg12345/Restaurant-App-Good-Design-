@@ -15,9 +15,9 @@
 // page, focused reels, and inside other full-screen flows where a FAB
 // would clash (controlled by the visibleByRoute check below).
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LocationChat, type ActionResult, type AssistantUser, type AssistantCircleRating } from './LocationChat';
+import { LocationChat, type ActionResult, type AssistantUser, type AssistantCircleRating, type CommunityRecipeHit } from './LocationChat';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
@@ -30,7 +30,19 @@ import { useToast } from '../contexts/ToastContext';
 import { useAssistantContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { searchPlacesByTextPaged } from '../lib/places';
 import { geocodePlace } from './HomeLocationBar';
-import { searchUsersByUsername, getExpertProfiles } from '../lib/supabase-community';
+import {
+  searchUsersByUsername,
+  getExpertProfiles,
+  getProfilesByIds,
+  getFriends,
+  type UserProfile,
+} from '../lib/supabase-community';
+import {
+  getPublicRecipes,
+  getExpertRecipes,
+  getFriendRecipes,
+  type Recipe,
+} from '../lib/supabase-recipes';
 import type { ScoredPlace } from '../lib/recommendations';
 import type { ChatFilters, UserContext } from '../lib/location-chat-client';
 
@@ -317,6 +329,182 @@ export const AppAssistant: React.FC = () => {
     return out;
   }, [recipes.myRecipes]);
 
+  /* ── Community recipes cache + lazy loader ───────────────────────
+     The search_community_recipes tool needs access to public recipes
+     from friends, experts, and other users. We fetch on first call
+     (de-duped by the in-flight ref) and cache for the rest of the
+     session. Author profiles are looked up in parallel so cards can
+     show "by @username" without a second round-trip. */
+  const userId = auth.user?.id || null;
+  const communityCacheRef = useRef<{
+    loaded: boolean;
+    loading: Promise<void> | null;
+    publicRecipes: Recipe[];
+    friendRecipes: Recipe[];
+    expertRecipes: Recipe[];
+    friendIds: Set<string>;
+    expertIds: Set<string>;
+    authors: Record<string, UserProfile>;
+  }>({
+    loaded: false,
+    loading: null,
+    publicRecipes: [],
+    friendRecipes: [],
+    expertRecipes: [],
+    friendIds: new Set(),
+    expertIds: new Set(),
+    authors: {},
+  });
+
+  // Reset the cache when the user changes (sign out / different account).
+  useEffect(() => {
+    communityCacheRef.current = {
+      loaded: false,
+      loading: null,
+      publicRecipes: [],
+      friendRecipes: [],
+      expertRecipes: [],
+      friendIds: new Set(),
+      expertIds: new Set(),
+      authors: {},
+    };
+  }, [userId]);
+
+  const loadCommunityRecipes = useCallback(async (): Promise<void> => {
+    const cache = communityCacheRef.current;
+    if (cache.loaded) return;
+    if (cache.loading) return cache.loading;
+    const work = (async () => {
+      try {
+        // Fetch friend ids first so the friend-recipes query has a list.
+        const friends = userId ? await getFriends(userId).catch(() => []) : [];
+        const friendIds = new Set(friends.map((f) => f.friend_id));
+        // Parallelize the three recipe sources + the experts list.
+        const [publicRs, expertRs, friendRs, expertProfiles] = await Promise.all([
+          getPublicRecipes(40).catch(() => []),
+          getExpertRecipes(40).catch(() => []),
+          friendIds.size > 0 ? getFriendRecipes(Array.from(friendIds), 40).catch(() => []) : Promise.resolve([] as Recipe[]),
+          getExpertProfiles().catch(() => []),
+        ]);
+        const expertIds = new Set(expertProfiles.map((p) => p.user_id));
+        // Author profiles — batch over every unique user id surfaced.
+        const allUserIds = new Set<string>();
+        for (const r of publicRs) allUserIds.add(r.userId);
+        for (const r of expertRs) allUserIds.add(r.userId);
+        for (const r of friendRs) allUserIds.add(r.userId);
+        // Seed the author map with experts we already have profiles for.
+        const authors: Record<string, UserProfile> = {};
+        for (const p of expertProfiles) authors[p.user_id] = p;
+        const missing = Array.from(allUserIds).filter((id) => !authors[id]);
+        if (missing.length > 0) {
+          try {
+            const fetched = await getProfilesByIds(missing);
+            Object.assign(authors, fetched);
+          } catch { /* ignore — cards just won't have a byline */ }
+        }
+        communityCacheRef.current = {
+          loaded: true,
+          loading: null,
+          publicRecipes: publicRs,
+          friendRecipes: friendRs,
+          expertRecipes: expertRs,
+          friendIds,
+          expertIds,
+          authors,
+        };
+      } catch (err) {
+        console.error('[AppAssistant] loadCommunityRecipes failed:', err);
+        // Keep loading=null so future calls can retry.
+        communityCacheRef.current.loading = null;
+      }
+    })();
+    cache.loading = work;
+    return work;
+  }, [userId]);
+
+  const handleSearchCommunityRecipes = useCallback(async (
+    opts: { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' },
+  ): Promise<CommunityRecipeHit[]> => {
+    await loadCommunityRecipes();
+    const cache = communityCacheRef.current;
+    if (!cache.loaded) return [];
+
+    // Build the candidate pool based on the requested source. 'all'
+    // means: friends + experts + public, deduped by id.
+    const source = opts.source || 'all';
+    const ownId = userId || '';
+    const dedupe = new Map<string, Recipe>();
+    const addAll = (rs: Recipe[]) => {
+      for (const r of rs) {
+        if (!r?.id) continue;
+        // Don't surface the user's own recipes through community
+        // search — they're already in the RECIPES section. (And the
+        // bot is told to prefer their own pool when it matches.)
+        if (r.userId === ownId) continue;
+        if (!dedupe.has(r.id)) dedupe.set(r.id, r);
+      }
+    };
+    if (source === 'friends' || source === 'all') addAll(cache.friendRecipes);
+    if (source === 'experts' || source === 'all') addAll(cache.expertRecipes);
+    if (source === 'public' || source === 'all') addAll(cache.publicRecipes);
+
+    // Apply query + cuisine filters. Both are case-insensitive
+    // substring matches across title / cuisine / tags / description /
+    // ingredient names so a generic query like 'korean' or 'pasta'
+    // catches anything that mentions it anywhere.
+    const queryLower = (opts.query || '').trim().toLowerCase();
+    const cuisineLower = (opts.cuisine || '').trim().toLowerCase();
+    const matches: Recipe[] = [];
+    for (const r of dedupe.values()) {
+      if (cuisineLower) {
+        if (!(r.cuisine || '').toLowerCase().includes(cuisineLower)) continue;
+      }
+      if (queryLower) {
+        const hay = [
+          r.title,
+          r.cuisine,
+          r.description,
+          (r.tags || []).join(' '),
+          (r.ingredients || []).map((i) => i.name).join(' '),
+        ].join(' ').toLowerCase();
+        if (!hay.includes(queryLower)) continue;
+      }
+      matches.push(r);
+    }
+
+    // Sort: friends first (closer connection), then experts, then
+    // everyone else. Within each tier, newer updated_at wins.
+    matches.sort((a, b) => {
+      const aFriend = cache.friendIds.has(a.userId) ? 0 : 1;
+      const bFriend = cache.friendIds.has(b.userId) ? 0 : 1;
+      if (aFriend !== bFriend) return aFriend - bFriend;
+      const aExpert = cache.expertIds.has(a.userId) ? 0 : 1;
+      const bExpert = cache.expertIds.has(b.userId) ? 0 : 1;
+      if (aExpert !== bExpert) return aExpert - bExpert;
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+    });
+
+    return matches.slice(0, 10).map<CommunityRecipeHit>((r) => {
+      const author = cache.authors[r.userId];
+      return {
+        id: r.id,
+        userId: r.userId,
+        title: r.title,
+        cuisine: r.cuisine || undefined,
+        prepTimeMinutes: r.prepTimeMinutes ?? undefined,
+        cookTimeMinutes: r.cookTimeMinutes ?? undefined,
+        difficulty: r.difficulty || undefined,
+        photos: r.photos || [],
+        ingredientCount: r.ingredients?.length || 0,
+        stepCount: r.steps?.length || 0,
+        authorUsername: author?.username,
+        authorDisplayName: author?.display_name || author?.username,
+        authorIsExpert: cache.expertIds.has(r.userId),
+        authorIsFriend: cache.friendIds.has(r.userId),
+      };
+    });
+  }, [loadCommunityRecipes, userId]);
+
   /* ── visible / cityDisplay / etc. — page context wins; otherwise
        fall back to defaults derived from the user's home setting ── */
   const visible = pageContext?.visible || [];
@@ -490,6 +678,7 @@ export const AppAssistant: React.FC = () => {
       onSearchRestaurants={handleSearchRestaurants}
       onLookupUser={handleLookupUser}
       onFindExperts={handleFindExperts}
+      onSearchCommunityRecipes={handleSearchCommunityRecipes}
       onGetCircleRatings={handleGetCircleRatings}
       userContext={userContext}
       recipes={chatRecipesAll}

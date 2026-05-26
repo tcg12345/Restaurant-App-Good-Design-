@@ -2228,6 +2228,17 @@
   flex-shrink: 0;
   opacity: 0.7;
 }
+/* Community-recipe byline — shows the author when a recipe surfaced
+   via search_community_recipes isn't the user's own. */
+.lp-chat-card-byline {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  color: var(--muted-2);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .lp-chat-card > svg {
   width: 16px;
   height: 16px;
