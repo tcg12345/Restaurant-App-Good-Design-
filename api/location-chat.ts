@@ -126,16 +126,196 @@ const TOOL_GET_CIRCLE_RATINGS = {
 const TOOL_LOOKUP_USER = {
   name: 'lookup_user',
   description:
-    "Look up other users in the app by username or display name. Use when the user mentions another person (\"what does Camille think?\", \"find users named Jamie\") or when knowing a friend's / expert's taste would sharpen the recommendation. Returns up to 5 public profiles with handle, display name, bio, expert flag, home city, and a count of their public ratings. You may then refer to them by name in your reply.",
+    "Look up other users in the app by username or display name. Use when the user mentions another person (\"what does Camille think?\", \"find users named Jamie\") or when knowing a friend's / expert's taste would sharpen the recommendation. You can also call this with an empty query to browse general users — useful when the user asks \"who should I follow?\" or \"find me some interesting people\". Returns up to 8 public profiles with handle, display name, bio, expert flag, home city. You may then refer to them by name in your reply.",
   input_schema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'Username, display name, or partial name to match (case-insensitive substring).',
+        description: 'Username, display name, or partial name to match (case-insensitive substring). Pass an empty string to browse general users.',
       },
     },
     required: ['query'],
+  },
+};
+
+const TOOL_FIND_EXPERTS = {
+  name: 'find_experts',
+  description:
+    "Browse food experts on the app. Use when the user asks to find experts to follow, discover taste-makers, see who the top reviewers are, or wants experts in a particular cuisine or city. You can pass an optional cuisine filter and / or city filter, or leave both empty to surface a general list. Returns up to 8 expert profiles with handle, display name, bio, home city. Mention them by name in your reply — names auto-link to their profiles. Pair with the navigate tool ({ path: '/experts' }) when the user wants to see the full list.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      cuisine: {
+        type: 'string',
+        description: "Optional. Filter experts by cuisine focus (e.g. 'italian', 'japanese', 'pizza'). Matched against their bio.",
+      },
+      city: {
+        type: 'string',
+        description: "Optional. Filter experts to those whose home city contains this string (e.g. 'New York', 'Tokyo').",
+      },
+    },
+    required: [],
+  },
+};
+
+/* ── ACTION tools ────────────────────────────────────────────────
+   These execute work in the app on the user's behalf — opening
+   modals, navigating, toggling state. Every action tool maps to a
+   handler the frontend wires up via the AppAssistant component.
+
+   IMPORTANT for the model: action tools are NOT idempotent. Only
+   call them when the user has clearly asked for the action — don't
+   pre-emptively open modals or navigate when the user is just
+   asking a question. After an action runs, the frontend usually
+   closes the chat so the modal / new page is visible. */
+
+const TOOL_NAVIGATE = {
+  name: 'navigate',
+  description:
+    "Navigate the user to a different page in the app. Use whenever the user asks you to 'take me to', 'go to', 'open', 'show me' a page. Supported paths:\n- '/' — Home / Discover\n- '/circle' — friends + activity\n- '/pantry' — saved recipes\n- '/reels' — short videos feed\n- '/activity' — notifications / saved / likes\n- '/experts' — browse experts to follow\n- '/profile' — the user's own profile\n- '/messages' — DMs\n- '/search' — search\n- '/location' — explore restaurants by city\n- '/location/map' — map view\n- '/recipes-for-you' — recipe recommendations\n- '/restaurant/<id>' — a specific restaurant detail page\n- '/user/<username>' — another user's profile (resolve via lookup_user first)\n- '/recipe/<userId>/<recipeId>' — a specific recipe (prefer recommend_recipes for the user's own recipes)\nAlways include the leading slash. After navigating, the chat closes automatically.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: "The absolute path to navigate to, e.g. '/pantry' or '/user/jamie'.",
+      },
+      label: {
+        type: 'string',
+        description: "Optional human-friendly label for the destination (e.g. 'your Pantry', \"Jamie's profile\"). Used only in the tool result confirmation.",
+      },
+    },
+    required: ['path'],
+  },
+};
+
+const TOOL_OPEN_RATING_MODAL = {
+  name: 'open_rating_modal',
+  description:
+    "Open the rating modal for a specific restaurant so the user can score it (or re-score it). Use whenever the user says 'rate <restaurant>', 'log a visit to <restaurant>', 'I want to review <restaurant>', etc. The restaurant_id MUST be a Google place id from the user's RATED / WISHLIST / Available sections OR a previous search_restaurants result. If you don't know the id, call search_restaurants first to resolve the name. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      restaurant_id: {
+        type: 'string',
+        description: 'Google place id of the restaurant to rate.',
+      },
+    },
+    required: ['restaurant_id'],
+  },
+};
+
+const TOOL_OPEN_ADD_RESTAURANT_MODAL = {
+  name: 'open_add_restaurant_modal',
+  description:
+    "Open the unified Add Restaurant flow (the multi-step modal used by the '+' button to log a visit, mark it as a wishlist, save it to a list, etc.). Use this when the user wants to fully log a new restaurant entry, not just quickly rate one. The restaurant_id MUST be a real Google place id. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      restaurant_id: {
+        type: 'string',
+        description: 'Google place id of the restaurant.',
+      },
+      initial_page: {
+        type: 'string',
+        description: "Optional starting screen for the modal: 'rating', 'wishlist', 'lists'. Defaults to the modal's own default.",
+      },
+    },
+    required: ['restaurant_id'],
+  },
+};
+
+const TOOL_OPEN_ADD_TO_LIST_MODAL = {
+  name: 'open_add_to_list_modal',
+  description:
+    "Open the 'add to list' modal so the user can save a restaurant to one of their custom lists. Use when the user says 'add <restaurant> to my <list> list' or 'save <restaurant> to a list'. The restaurant_id MUST be a real Google place id. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      restaurant_id: {
+        type: 'string',
+        description: 'Google place id of the restaurant.',
+      },
+    },
+    required: ['restaurant_id'],
+  },
+};
+
+const TOOL_TOGGLE_WISHLIST = {
+  name: 'toggle_wishlist',
+  description:
+    "Add a restaurant to the user's wishlist (if not already on it) or remove it (if it is). Use when the user says 'add <restaurant> to my wishlist', 'wishlist <restaurant>', 'I want to try <restaurant>', or 'remove <restaurant> from my wishlist'. The restaurant_id MUST be a real Google place id from the user's data or a search result. Confirm what happened in your reply.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      restaurant_id: {
+        type: 'string',
+        description: 'Google place id of the restaurant.',
+      },
+    },
+    required: ['restaurant_id'],
+  },
+};
+
+const TOOL_OPEN_ADD_RECIPE_MODAL = {
+  name: 'open_add_recipe_modal',
+  description:
+    "Open the Add Recipe modal so the user can create a new cooking recipe (ingredients, steps, photos). Use when the user says 'add a recipe', 'create a recipe', 'log a new recipe'. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+const TOOL_OPEN_ADD_POST_MODAL = {
+  name: 'open_add_post_modal',
+  description:
+    "Open the Add Post modal so the user can create a new multi-media post (photos / videos with a caption + location). Use when the user says 'create a post', 'make a post', 'share something'. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+const TOOL_OPEN_ADD_REEL_MODAL = {
+  name: 'open_add_reel_modal',
+  description:
+    "Open the Add Reel modal so the user can create a short video reel. Use when the user says 'create a reel', 'make a reel', 'upload a video'. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['restaurant', 'recipe'],
+        description: "Optional. 'restaurant' attaches the reel to a restaurant; 'recipe' attaches it to one of the user's recipes. Omit to let the user choose.",
+      },
+    },
+    required: [],
+  },
+};
+
+const TOOL_OPEN_HOME_MEAL_MODAL = {
+  name: 'open_home_meal_modal',
+  description:
+    "Open the Log Home Meal modal so the user can record a meal they cooked at home. Use when the user says 'log a home meal', 'add a meal I cooked', 'record what I made for dinner'. The chat closes automatically when the modal opens.",
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+};
+
+const TOOL_OPEN_GUIDE_CREATOR = {
+  name: 'open_guide_creator',
+  description:
+    "Open the Guide Creator so the user can build a new restaurant or recipe guide (a curated themed collection). Use when the user says 'create a guide', 'make a new guide', 'start a guide about...'. The chat closes automatically when the sheet opens.",
+  input_schema: {
+    type: 'object',
+    properties: {},
+    required: [],
   },
 };
 
@@ -214,18 +394,39 @@ interface ChatRequest {
   filters?: ChatFilters;
   city?: string;
   userContext?: UserContext;
+  /** Where the user currently is in the app. Lets Claude tailor the
+   *  reply ("you're already on the Pantry page", "I'll take you back
+   *  to Explore"). Defaults to the explore page when omitted. */
+  currentPath?: string;
+  /** Human-readable label for the current page (e.g. "the Pantry",
+   *  "your Profile") — used in the system prompt directly. */
+  currentPageLabel?: string;
   model?: string;
 }
 
 function buildSystemPrompt(body: ChatRequest): string {
   const city = body.city || 'this area';
   const filters = body.filters || {};
+  const currentPath = body.currentPath || '/location';
+  const currentPageLabel = body.currentPageLabel || 'the explore page';
+  const onLocationPage = currentPath === '/location' || currentPath.startsWith('/location/');
   const lines: string[] = [];
   lines.push(
-    `You are a restaurant concierge. The user is currently browsing the explore page for ${city}, so that's your DEFAULT location: when they say "where should I eat?" or "what looks good?" without specifying a city, recommend things in ${city}.`,
+    `You are the in-app assistant for a restaurant + recipe social app. You can answer questions AND execute tasks for the user — opening modals, navigating between pages, toggling wishlist, looking up other users, recommending places.`,
   );
+  lines.push('');
+  lines.push(`The user is currently on: ${currentPageLabel} (route: ${currentPath}).`);
+  if (onLocationPage) {
+    lines.push(
+      `That page shows restaurants for ${city}, so that's your DEFAULT location: when they say "where should I eat?" or "what looks good?" without specifying a city, recommend things in ${city}.`,
+    );
+  } else {
+    lines.push(
+      `When the user asks for restaurant recommendations without specifying a city, default to ${city} (their home city / last explored city).`,
+    );
+  }
   lines.push(
-    `BUT the user can also ask about restaurants anywhere in the world — "best pizza in Naples", "where to eat in Tokyo", "is X still open in LA". Answer those normally; use web_search for current info (closures, recent openings, press) and answer from general knowledge for established places. The search_restaurants tool only works in ${city}, so don't call it for other cities.`,
+    `The user can ask about restaurants anywhere in the world — "best pizza in Naples", "where to eat in Tokyo", "is X still open in LA". Answer those normally; use web_search for current info (closures, recent openings, press) and answer from general knowledge for established places. The search_restaurants tool defaults to ${city} but accepts a city override.`,
   );
   lines.push('');
 
@@ -366,6 +567,17 @@ function buildSystemPrompt(body: ChatRequest): string {
   lines.push('Guidelines:');
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
   lines.push('- Be conversational, not robotic. Speak like a friendly local.');
+  lines.push('- After running an ACTION tool, your reply should briefly confirm what you did, not narrate the click-by-click.');
+  lines.push('');
+  lines.push('When to take ACTIONS vs answer in prose:');
+  lines.push(
+    "- If the user clearly asks for something to happen ('rate Carbone', 'take me to Jamie\\'s profile', 'add Per Se to my wishlist', 'open a new post', 'create a guide'), run the matching action tool. Don't ask for permission — just do it and confirm.",
+  );
+  lines.push(
+    "- If they just want a recommendation or info, answer normally without firing actions.",
+  );
+  lines.push('- For actions that need a restaurant id (open_rating_modal, toggle_wishlist, open_add_to_list_modal, open_add_restaurant_modal): resolve the id from the user\'s RATED / WISHLIST / Available sections, or call search_restaurants to look it up. NEVER invent an id.');
+  lines.push("- For navigating to another user's profile: call lookup_user first to get the @username, then call navigate({ path: '/user/<username>' }). If the user says \"find me an expert who…\" or \"who should I follow?\", use find_experts (optionally filtered by cuisine / city) and present a few — name-mentions auto-link.");
   lines.push('');
   lines.push('How to find the right places (tool playbook):');
   lines.push(
@@ -458,7 +670,26 @@ export default async function handler(req: Request): Promise<Response> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [TOOL_RECOMMEND, TOOL_RECOMMEND_RECIPES, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_GET_CIRCLE_RATINGS, TOOL_WEB_SEARCH],
+    tools: [
+      TOOL_RECOMMEND,
+      TOOL_RECOMMEND_RECIPES,
+      TOOL_SEARCH,
+      TOOL_LOOKUP_USER,
+      TOOL_FIND_EXPERTS,
+      TOOL_GET_CIRCLE_RATINGS,
+      // Action tools — execute work on the user's behalf.
+      TOOL_NAVIGATE,
+      TOOL_OPEN_RATING_MODAL,
+      TOOL_OPEN_ADD_RESTAURANT_MODAL,
+      TOOL_OPEN_ADD_TO_LIST_MODAL,
+      TOOL_TOGGLE_WISHLIST,
+      TOOL_OPEN_ADD_RECIPE_MODAL,
+      TOOL_OPEN_ADD_POST_MODAL,
+      TOOL_OPEN_ADD_REEL_MODAL,
+      TOOL_OPEN_HOME_MEAL_MODAL,
+      TOOL_OPEN_GUIDE_CREATOR,
+      TOOL_WEB_SEARCH,
+    ],
     messages: body.messages,
   };
 

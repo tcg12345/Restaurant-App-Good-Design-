@@ -63,6 +63,31 @@ function inferCuisineLabel(types: string[]): string {
   return '';
 }
 
+export interface AssistantUser {
+  username: string;
+  displayName?: string;
+  bio?: string;
+  isExpert?: boolean;
+  homeCity?: string;
+}
+
+export interface AssistantCircleRating {
+  username: string;
+  displayName?: string;
+  isExpert?: boolean;
+  isFriend?: boolean;
+  score?: number;
+  notes?: string;
+}
+
+/** Result envelope for any action tool. `ok` controls how the tool
+ *  result string reads to Claude; `detail` becomes the human-readable
+ *  message so the model can confirm it back to the user accurately. */
+export interface ActionResult {
+  ok: boolean;
+  detail?: string;
+}
+
 interface LocationChatProps {
   /** Filtered restaurant pool — what the user is currently looking at. */
   visible: ScoredPlace[];
@@ -102,24 +127,50 @@ interface LocationChatProps {
   /** Looks up app users by username / display name (case-insensitive
    *  substring). Returns up to 5 public profiles. Wired to Claude's
    *  lookup_user tool. */
-  onLookupUser: (query: string) => Promise<Array<{
-    username: string;
-    displayName?: string;
-    bio?: string;
-    isExpert?: boolean;
-    homeCity?: string;
-  }>>;
+  onLookupUser: (query: string) => Promise<AssistantUser[]>;
+  /** Browse experts. Optional filters narrow by cuisine focus (bio
+   *  match) or home city. Wired to Claude's find_experts tool. */
+  onFindExperts?: (opts: { cuisine?: string; city?: string }) => Promise<AssistantUser[]>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
-  onGetCircleRatings: (restaurantId: string) => Promise<Array<{
-    username: string;
-    displayName?: string;
-    isExpert?: boolean;
-    isFriend?: boolean;
-    score?: number;
-    notes?: string;
-  }>>;
+  onGetCircleRatings: (restaurantId: string) => Promise<AssistantUser[] | AssistantCircleRating[]>;
+
+  /* ── ACTION handlers — wire up new in-app capabilities. All are
+       optional so this component still works standalone (the bot
+       just gets back "action not available here" tool results
+       when an unwired tool is called). ───────────────────────── */
+  /** Current route — sent to Claude so it can tailor "you're on X"
+   *  replies. Defaults to /location when omitted. */
+  currentPath?: string;
+  /** Human label for the current route — sent to Claude. */
+  currentPageLabel?: string;
+  /** Navigate to an in-app path. The chat closes automatically. */
+  onNavigate?: (path: string) => ActionResult | Promise<ActionResult>;
+  /** Open the rating modal for a restaurant id (resolves name via
+   *  knownPlaces / placeById / restaurantMeta). */
+  onOpenRatingModal?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Open the unified "Add restaurant" multi-step modal. */
+  onOpenAddRestaurantModal?: (restaurantId: string, initialPage?: string) => ActionResult | Promise<ActionResult>;
+  /** Open the "Add to list" picker for a restaurant. */
+  onOpenAddToListModal?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Toggle wishlist membership for a restaurant. */
+  onToggleWishlist?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Open the Add Recipe flow. */
+  onOpenAddRecipeModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Add Post flow. */
+  onOpenAddPostModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Add Reel flow, optionally pre-selecting a kind. */
+  onOpenAddReelModal?: (kind?: 'restaurant' | 'recipe') => ActionResult | Promise<ActionResult>;
+  /** Open the Log Home Meal flow. */
+  onOpenHomeMealModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Guide Creator sheet. */
+  onOpenGuideCreator?: () => ActionResult | Promise<ActionResult>;
+  /** When true the FAB sits high enough to clear the global
+   *  BottomNav (phone-mode pages outside /location). Defaults to
+   *  false, which keeps the original low-and-tight placement that
+   *  works well on /location and on desktop. */
+  fabAboveBottomNav?: boolean;
 }
 
 interface UiMessage {
@@ -512,9 +563,23 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onSearchRestaurants,
   userContext,
   onLookupUser,
+  onFindExperts,
   onGetCircleRatings,
   recipes,
   knownPlaces,
+  currentPath,
+  currentPageLabel,
+  onNavigate,
+  onOpenRatingModal,
+  onOpenAddRestaurantModal,
+  onOpenAddToListModal,
+  onToggleWishlist,
+  onOpenAddRecipeModal,
+  onOpenAddPostModal,
+  onOpenAddReelModal,
+  onOpenHomeMealModal,
+  onOpenGuideCreator,
+  fabAboveBottomNav,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -883,6 +948,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             filters,
             city: cityDisplay,
             userContext,
+            currentPath,
+            currentPageLabel,
           },
           controller.signal,
         );
@@ -1098,6 +1165,224 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
               }
             }
+          } else if (tu.name === 'find_experts') {
+            const input = (tu.input || {}) as { cuisine?: string; city?: string };
+            const cuisine = (input.cuisine || '').trim() || undefined;
+            const city = (input.city || '').trim() || undefined;
+            if (!onFindExperts) {
+              content = 'find_experts is not wired up in this context.';
+            } else {
+              try {
+                const hits = await onFindExperts({ cuisine, city });
+                if (!hits || hits.length === 0) {
+                  const bits = [cuisine, city].filter(Boolean).join(' / ');
+                  content = bits
+                    ? `No experts matched ${bits}. Tell the user honestly nothing came back.`
+                    : 'No experts available right now.';
+                } else {
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
+                  const lines = hits.slice(0, 8).map((h, i) => {
+                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return `${i + 1}. ${bits}`;
+                  }).join('\n');
+                  content = `Found ${hits.length} expert(s):\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles. If the user wants the full list, suggest navigate({ path: '/experts' }).`;
+                }
+              } catch (err) {
+                content = `find_experts failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'navigate') {
+            const input = (tu.input || {}) as { path?: string; label?: string };
+            const path = (input.path || '').trim();
+            const label = (input.label || '').trim();
+            if (!path || !path.startsWith('/')) {
+              content = `navigate requires an absolute path beginning with '/'. Got: "${path}".`;
+            } else if (!onNavigate) {
+              content = 'navigate is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onNavigate(path));
+                if (res.ok) {
+                  // Close the chat shortly after a successful nav so
+                  // the destination page is visible. Defer one tick
+                  // so the agentic loop can still finish processing
+                  // any remaining tool calls in this turn cleanly.
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Navigated to ${label || path}. The chat will close so the user can see the destination.`;
+                } else {
+                  content = res.detail || `Navigation to ${path} failed.`;
+                }
+              } catch (err) {
+                content = `Navigation to ${path} failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_rating_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'open_rating_modal requires a restaurant_id.';
+            } else if (!onOpenRatingModal) {
+              content = 'Rating modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenRatingModal(rid));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the rating modal for the restaurant. ${res.detail || 'The user can now rate it.'}`;
+                } else {
+                  content = res.detail || `Could not open the rating modal for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_rating_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_restaurant_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string; initial_page?: string };
+            const rid = (input.restaurant_id || '').trim();
+            const initialPage = (input.initial_page || '').trim() || undefined;
+            if (!rid) {
+              content = 'open_add_restaurant_modal requires a restaurant_id.';
+            } else if (!onOpenAddRestaurantModal) {
+              content = 'Add Restaurant modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddRestaurantModal(rid, initialPage));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Restaurant flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || `Could not open the Add Restaurant flow for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_add_restaurant_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_to_list_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'open_add_to_list_modal requires a restaurant_id.';
+            } else if (!onOpenAddToListModal) {
+              content = 'Add to List modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddToListModal(rid));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add-to-List picker. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || `Could not open the Add-to-List picker for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_add_to_list_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'toggle_wishlist') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'toggle_wishlist requires a restaurant_id.';
+            } else if (!onToggleWishlist) {
+              content = 'Wishlist toggle is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onToggleWishlist(rid));
+                content = res.ok
+                  ? (res.detail || 'Wishlist updated.')
+                  : (res.detail || `Could not toggle wishlist for ${rid}.`);
+              } catch (err) {
+                content = `toggle_wishlist failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_recipe_modal') {
+            if (!onOpenAddRecipeModal) {
+              content = 'Add Recipe modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddRecipeModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Recipe flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Recipe flow.';
+                }
+              } catch (err) {
+                content = `open_add_recipe_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_post_modal') {
+            if (!onOpenAddPostModal) {
+              content = 'Add Post modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddPostModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Post flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Post flow.';
+                }
+              } catch (err) {
+                content = `open_add_post_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_reel_modal') {
+            const input = (tu.input || {}) as { kind?: 'restaurant' | 'recipe' };
+            if (!onOpenAddReelModal) {
+              content = 'Add Reel modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddReelModal(input.kind));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Reel flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Reel flow.';
+                }
+              } catch (err) {
+                content = `open_add_reel_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_home_meal_modal') {
+            if (!onOpenHomeMealModal) {
+              content = 'Home Meal modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenHomeMealModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Log Home Meal flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Log Home Meal flow.';
+                }
+              } catch (err) {
+                content = `open_home_meal_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_guide_creator') {
+            if (!onOpenGuideCreator) {
+              content = 'Guide Creator is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenGuideCreator());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Guide Creator. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Guide Creator.';
+                }
+              } catch (err) {
+                content = `open_guide_creator failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
           } else {
             content = `Unknown tool "${tu.name}".`;
           }
@@ -1139,7 +1424,32 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, onGetCircleRatings, recipeById]);
+  }, [
+    messages,
+    visible,
+    restaurantMeta,
+    origin,
+    filters,
+    cityDisplay,
+    onSearchRestaurants,
+    userContext,
+    onLookupUser,
+    onFindExperts,
+    onGetCircleRatings,
+    recipeById,
+    currentPath,
+    currentPageLabel,
+    onNavigate,
+    onOpenRatingModal,
+    onOpenAddRestaurantModal,
+    onOpenAddToListModal,
+    onToggleWishlist,
+    onOpenAddRecipeModal,
+    onOpenAddPostModal,
+    onOpenAddReelModal,
+    onOpenHomeMealModal,
+    onOpenGuideCreator,
+  ]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1175,7 +1485,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.button
             key="fab"
             type="button"
-            className="lp-chat-fab"
+            className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav')}
             onClick={() => setOpen(true)}
             initial={{ opacity: 0, scale: 0.85, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}

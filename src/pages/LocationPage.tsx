@@ -35,7 +35,7 @@ import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
@@ -89,7 +89,7 @@ import {
   geocodePlace,
   type HomeLocation,
 } from '../components/HomeLocationBar';
-import { LocationChat } from '../components/LocationChat';
+import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 
 /* ── Placeholder guides ──────────────────────────────────────────────────────
    Same visual language as the Home page's horizontal guide scroller. Titles
@@ -1864,11 +1864,13 @@ export const LocationPage: React.FC = () => {
   // Wired to Claude's lookup_user tool. Returns up to 5 public
   // profiles via the existing searchUsersByUsername helper.
   const handleLookupUser = useCallback(async (query: string) => {
+    // Empty queries are intentional — the assistant uses them to
+    // browse "any users" / "people I might follow". searchUsersByUsername
+    // returns the first 20 profiles when query is empty.
     const q = query.trim();
-    if (!q) return [];
     try {
       const profiles = await searchUsersByUsername(q, userId || '');
-      return profiles.slice(0, 5).map((p) => ({
+      return profiles.slice(0, 8).map((p) => ({
         username: p.username,
         displayName: p.display_name || p.username,
         bio: p.bio || undefined,
@@ -2954,7 +2956,11 @@ export const LocationPage: React.FC = () => {
         onDriveMinChange={setSelectedDriveMin}
       />
 
-      <LocationChat
+      {/* The AI assistant FAB lives in App.tsx (mounted globally).
+          We just publish our rich page state here so the global
+          assistant has the right filters / visible pool / city
+          context while the user is on /location. */}
+      <LocationPageAssistantPublisher
         visible={visible}
         restaurantMeta={restaurantMeta}
         cityDisplay={cityDisplay}
@@ -2964,8 +2970,6 @@ export const LocationPage: React.FC = () => {
             .map((t) => CUISINE_TYPES.find((c) => c.type === t)?.label || t)
             .filter(Boolean),
           price: selectedPrice > 0 ? selectedPrice : undefined,
-          // Neighborhood multi-select isn't wired up yet (feature reverted
-          // earlier); leave undefined so the model doesn't see a stale value.
           neighborhoods: undefined,
           radius: selectedRadius > 0 ? selectedRadius : undefined,
           sort: sortBy !== 'recommended' ? SORT_LABELS[sortBy] : undefined,
@@ -2974,12 +2978,60 @@ export const LocationPage: React.FC = () => {
         onSearchRestaurants={handleChatSearch}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
-        userContext={chatUserContext}
-        recipes={chatRecipesAll}
-        knownPlaces={chatKnownPlaces}
       />
     </div>
   );
+};
+
+/* ── Assistant publisher ─────────────────────────────────────────
+   Small helper component that bundles the LocationPage's per-page
+   state into the AssistantContext so the global AppAssistant has
+   everything it needs while the user is on this route. Split out
+   from the main LocationPage body so the useSetAssistantPageContext
+   hook (which is an effect under the hood) doesn't get tangled up
+   with the page's own rendering. */
+interface LocationPageAssistantPublisherProps {
+  visible: ScoredPlace[];
+  restaurantMeta: Record<string, RestaurantMeta>;
+  cityDisplay: string;
+  shortCityName: string;
+  filters: {
+    cuisines: string[];
+    price?: number;
+    neighborhoods?: string[];
+    radius?: number;
+    sort?: string;
+  };
+  origin: { lat: number; lng: number } | null;
+  onSearchRestaurants: (query: string, city?: string) => Promise<ScoredPlace[]>;
+  onLookupUser: (query: string) => Promise<Array<{ username: string; displayName?: string; bio?: string; isExpert?: boolean; homeCity?: string }>>;
+  onGetCircleRatings: (restaurantId: string) => Promise<Array<{ username: string; displayName?: string; isExpert?: boolean; isFriend?: boolean; score?: number; notes?: string }>>;
+}
+
+const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherProps> = (props) => {
+  const ctx = React.useMemo(() => ({
+    visible: props.visible,
+    restaurantMeta: props.restaurantMeta,
+    cityDisplay: props.cityDisplay,
+    shortCityName: props.shortCityName,
+    filters: props.filters,
+    origin: props.origin,
+    onSearchRestaurants: props.onSearchRestaurants,
+    onLookupUser: props.onLookupUser,
+    onGetCircleRatings: props.onGetCircleRatings,
+  }), [
+    props.visible,
+    props.restaurantMeta,
+    props.cityDisplay,
+    props.shortCityName,
+    props.filters,
+    props.origin,
+    props.onSearchRestaurants,
+    props.onLookupUser,
+    props.onGetCircleRatings,
+  ]);
+  useSetAssistantPageContext(ctx);
+  return null;
 };
 
 

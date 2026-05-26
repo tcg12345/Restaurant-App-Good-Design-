@@ -57,8 +57,10 @@ import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
 import { HomeLocationProvider } from './contexts/HomeLocationContext';
+import { AssistantProvider } from './contexts/AssistantContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
+import { AppAssistant } from './components/AppAssistant';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -270,6 +272,11 @@ const AppContent: React.FC = () => {
       <AddPostModal />
       <RecipeModal />
       <GuideCreatorMount />
+      {/* Global AI assistant — FAB + island, available on every
+          signed-in page that hasn't opted out (see AppAssistant for
+          the route exclusion list). Mounted alongside modals so its
+          z-index stacks correctly. */}
+      <AppAssistant />
     </>
   );
 
@@ -348,7 +355,9 @@ export default function App() {
                           <CirclePanelProvider>
                             <GuideCreatorProvider>
                               <HomeLocationProvider>
-                                <AppContent />
+                                <AssistantProvider>
+                                  <AppContent />
+                                </AssistantProvider>
                               </HomeLocationProvider>
                             </GuideCreatorProvider>
                           </CirclePanelProvider>
