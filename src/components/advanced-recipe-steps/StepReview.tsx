@@ -1,11 +1,19 @@
-// Step 6 — final preview before publish. Shows the recipe in the same
-// style as the detail page so the user knows exactly what'll go live.
-// The shell renders the Publish button in the footer; this step just
-// has to summarize the state and surface any validation gaps.
+// Step 6 — final preview before publish + two publish-time controls:
+//   1. Your private rating  — the author's personal score for the
+//      recipe. Surfaced on the author's profile but never on the
+//      standalone recipe page.
+//   2. Visibility toggle  — Public makes the recipe discoverable by
+//      friends / experts / the community search; Private keeps it
+//      visible only on the author's own pantry.
+//
+// The shell still owns the Publish button in the footer; this step
+// just collects the two extra inputs and surfaces validation gaps.
 
 import React from 'react';
+import { Globe, Lock } from 'lucide-react';
 import { flattenIngredientGroups } from '../../lib/ingredient-parsing';
-import type { AdvancedRecipeState } from '../AdvancedRecipeBuilder';
+import { cn } from '../../lib/utils';
+import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
 
 interface ValidationResult {
   ok: boolean;
@@ -14,7 +22,29 @@ interface ValidationResult {
 
 interface Props {
   state: AdvancedRecipeState;
+  dispatch: React.Dispatch<Action>;
   validation: ValidationResult;
+}
+
+// Quick label for the rating slider's helper line. Mirrors the basic
+// modal so users who've used both surfaces feel the same texture.
+function ratingLabel(score: number): string {
+  if (score === 0) return 'Slide to rate';
+  if (score >= 9) return 'Exceptional!';
+  if (score >= 8) return 'Excellent';
+  if (score >= 7) return 'Very good';
+  if (score >= 6) return 'Good';
+  if (score >= 5) return 'Average';
+  if (score >= 4) return 'Below average';
+  if (score >= 3) return 'Poor';
+  return 'Terrible';
+}
+function ratingColor(score: number): string {
+  if (score === 0) return 'var(--muted-2, #B8AFA4)';
+  if (score >= 8) return 'var(--green, #2E7D5C)';
+  if (score >= 6) return 'var(--gold, #E8A33C)';
+  if (score >= 4) return 'var(--accent-2, #C2543E)';
+  return 'var(--accent, #A8392A)';
 }
 
 function formatMin(m: number): string {
@@ -26,12 +56,13 @@ function formatMin(m: number): string {
   return `${h}h ${mm}m`;
 }
 
-export const StepReview: React.FC<Props> = ({ state, validation }) => {
+export const StepReview: React.FC<Props> = ({ state, dispatch, validation }) => {
   const totalMin = state.prepTime + state.cookTime + state.chillTime;
   const flatIngredients = flattenIngredientGroups(state.ingredientGroups).filter((i) => i.name.trim());
   const flatStepCount = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
 
   return (
+    <>
     <div className="arb-review">
       <div className="arb-review-eyebrow">
         {state.cuisine || 'Cuisine'} · {state.difficulty}
@@ -131,5 +162,75 @@ export const StepReview: React.FC<Props> = ({ state, validation }) => {
         </div>
       )}
     </div>
+
+    {/* ── Your private rating ──────────────────────────────────
+        Author's own score for the recipe. Saved on the meal so it
+        shows up on the author's profile listings, but RecipePage
+        deliberately doesn't surface it — that's the "private from
+        the public recipe view" behavior the spec calls for. */}
+    <div className="arb-publish-card">
+      <div className="arb-publish-card-head">
+        <span className="arb-publish-card-eyebrow">Your private rating</span>
+        <span className="arb-publish-card-hint">
+          For your eyes — not shown on the recipe page. Visible only on your own profile when other users browse your recipes.
+        </span>
+      </div>
+      <div className="arb-rating">
+        <div className="arb-rating-value" style={{ color: ratingColor(state.score) }}>
+          {state.score > 0 ? state.score.toFixed(1) : '—'}
+          <span className="arb-rating-denom"> / 10</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={10}
+          step={0.1}
+          value={state.score}
+          onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'score', value: parseFloat(e.target.value) })}
+          className="arb-rating-slider"
+          aria-label="Your private rating"
+        />
+        <div className="arb-rating-label">{ratingLabel(state.score)}</div>
+      </div>
+    </div>
+
+    {/* ── Visibility (public / private) ─────────────────────────
+        Drives HomeMeal.isPublic. Public recipes surface in friends'
+        / experts' / community feeds and the AI assistant's
+        community-recipes search; private ones live only on the
+        author's pantry + profile. */}
+    <div className="arb-publish-card">
+      <div className="arb-publish-card-head">
+        <span className="arb-publish-card-eyebrow">Visibility</span>
+        <span className="arb-publish-card-hint">
+          Public recipes show up on your friends' feeds and the community search. Private ones stay on your pantry.
+        </span>
+      </div>
+      <div className="arb-visibility-row">
+        <button
+          type="button"
+          className={cn('arb-visibility-card', !state.isPublic && 'is-active')}
+          onClick={() => dispatch({ type: 'SET_FIELD', field: 'isPublic', value: false })}
+        >
+          <Lock size={18} />
+          <div>
+            <div className="arb-visibility-title">Private</div>
+            <div className="arb-visibility-sub">Only you</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={cn('arb-visibility-card', state.isPublic && 'is-active')}
+          onClick={() => dispatch({ type: 'SET_FIELD', field: 'isPublic', value: true })}
+        >
+          <Globe size={18} />
+          <div>
+            <div className="arb-visibility-title">Public</div>
+            <div className="arb-visibility-sub">Friends + community</div>
+          </div>
+        </button>
+      </div>
+    </div>
+    </>
   );
 };

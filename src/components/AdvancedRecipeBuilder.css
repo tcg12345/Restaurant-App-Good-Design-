@@ -1130,6 +1130,147 @@
 }
 .arb-review-validation ul { margin-top: 6px; padding-left: 18px; }
 
+/* ── Publish-time controls (rating + visibility) ───────────────
+   Sit below the review preview on Step 6. Distinct visual treatment
+   from the preview itself so it reads as "your inputs / before you
+   publish" rather than "your recipe". */
+.arb-publish-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px 26px;
+  margin-top: 14px;
+}
+.arb-publish-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.arb-publish-card-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2, #4A423C);
+}
+.arb-publish-card-hint {
+  font-size: 13px;
+  color: var(--muted, #8C8278);
+  line-height: 1.45;
+}
+
+/* Rating — big numeric readout + accent slider + dynamic label. */
+.arb-rating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.arb-rating-value {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  transition: color 0.15s;
+}
+.arb-rating-denom {
+  font-size: 14px;
+  color: var(--muted-2, #B8AFA4);
+  font-weight: 500;
+  margin-left: 4px;
+  font-variant-numeric: normal;
+}
+.arb-rating-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(31, 26, 23, 0.1);
+  outline: none;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.arb-rating-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #A8392A);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(31, 26, 23, 0.18);
+  cursor: pointer;
+}
+.arb-rating-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #A8392A);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(31, 26, 23, 0.18);
+  cursor: pointer;
+}
+.arb-rating-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #8C8278);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Visibility — two-card segmented control. */
+.arb-visibility-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.advanced-recipe-builder.is-phone .arb-visibility-row {
+  grid-template-columns: 1fr;
+}
+.arb-visibility-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--cream-2, #E6DFCE);
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.arb-visibility-card:hover { background: var(--surface-2, #FBF7F0); }
+.arb-visibility-card.is-active {
+  border-color: var(--ink, #1C1816);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(31, 26, 23, 0.06);
+}
+.arb-visibility-card svg {
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+}
+.arb-visibility-card.is-active svg {
+  color: var(--accent, #A8392A);
+}
+.arb-visibility-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink, #1C1816);
+}
+.arb-visibility-sub {
+  font-size: 12.5px;
+  color: var(--muted, #8C8278);
+  margin-top: 2px;
+}
+
 /* ── Footer (sticky) ─────────────────────────────────────────── */
 
 .arb-foot {

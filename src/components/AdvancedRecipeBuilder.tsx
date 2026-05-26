@@ -49,6 +49,11 @@ export interface AdvancedRecipeState {
   equipment: string[];
   tags: string[];
   notes: RecipeNote[];
+  /** Author's personal score (0–10, 0.1 step). Surfaced on the
+   *  author's own profile but never on the standalone recipe page —
+   *  so it's "private from the public recipe view" while still
+   *  appearing in author-profile listings of their own recipes. */
+  score: number;
   isPublic: boolean;
 }
 
@@ -93,6 +98,7 @@ function emptyState(): AdvancedRecipeState {
     equipment: [],
     tags: [],
     notes: [],
+    score: 0,
     isPublic: false,
   };
 }
@@ -126,6 +132,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     equipment: meal.equipment || [],
     tags: meal.tags || [],
     notes: meal.notes || [],
+    score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
   };
 }
@@ -424,7 +431,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     const payload: Omit<HomeMeal, 'id' | 'createdAt'> = {
       name: state.name.trim(),
       date: existing?.date || today,
-      score: existing?.score ?? 0,
+      score: state.score,
       wouldMakeAgain: existing?.wouldMakeAgain ?? true,
       description: state.summary.trim(),
       photos: existing?.photos || [],
@@ -478,7 +485,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       case 2: return <StepIngredients state={state} dispatch={dispatch} />;
       case 3: return <StepMethod state={state} dispatch={dispatch} />;
       case 4: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
-      case 5: return <StepReview state={state} validation={validation} />;
+      case 5: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
       default: return null;
     }
   };
