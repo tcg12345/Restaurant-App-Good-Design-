@@ -744,7 +744,7 @@ export const AddHomeMealModal: React.FC = () => {
                   className="flex flex-col flex-1 min-h-0">
                   <div className="px-6 pt-safe-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
                     <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Meal' : 'Log Home Meal'}</h2>
+                      <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Recipe' : 'Add Recipe'}</h2>
                       {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
@@ -789,7 +789,7 @@ export const AddHomeMealModal: React.FC = () => {
                         type="text"
                         value={mealName}
                         onChange={(e) => setMealName(e.target.value)}
-                        placeholder="Meal name"
+                        placeholder="Recipe name"
                         autoFocus
                         className="w-full bg-transparent text-[22px] font-serif font-bold placeholder:font-serif placeholder:font-normal placeholder:text-on-surface/25 focus:outline-none"
                       />
@@ -934,12 +934,12 @@ export const AddHomeMealModal: React.FC = () => {
                         onClick={() => setConfirmDelete(true)}
                         className="w-full py-2 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors"
                       >
-                        Delete Meal
+                        Delete Recipe
                       </button>
                     )}
                     {existing && confirmDelete && (
                       <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
-                        <p className="text-[12px] text-red-600 font-medium">Delete this meal?</p>
+                        <p className="text-[12px] text-red-600 font-medium">Delete this recipe?</p>
                         <div className="flex gap-2">
                           <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-[11px] font-semibold text-on-surface/60 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
                           <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-3 py-1.5 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
@@ -955,7 +955,7 @@ export const AddHomeMealModal: React.FC = () => {
                       disabled={!mealName.trim()}
                       className="w-full py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
                     >
-                      {existing ? 'Update Meal' : 'Save Meal'}
+                      {existing ? 'Update Recipe' : 'Save Recipe'}
                     </button>
                   </div>
                 </motion.div>

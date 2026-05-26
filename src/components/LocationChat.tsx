@@ -1468,15 +1468,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             }
           } else if (tu.name === 'open_home_meal_modal') {
             if (!onOpenHomeMealModal) {
-              content = 'Home Meal modal is not wired up in this context.';
+              content = 'Add Recipe modal is not wired up in this context.';
             } else {
               try {
                 const res = await Promise.resolve(onOpenHomeMealModal());
                 if (res.ok) {
                   setTimeout(() => setOpen(false), 80);
-                  content = `Opened the Log Home Meal flow. ${res.detail || ''}`.trim();
+                  content = `Opened the Add Recipe flow. ${res.detail || ''}`.trim();
                 } else {
-                  content = res.detail || 'Could not open the Log Home Meal flow.';
+                  content = res.detail || 'Could not open the Add Recipe flow.';
                 }
               } catch (err) {
                 content = `open_home_meal_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;

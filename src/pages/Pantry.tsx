@@ -41,7 +41,7 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
   { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
   { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location', type: 'hotel-breakfast' },
-  { name: 'Home Cooking', emoji: '🍳', category: 'Functional & Daily', type: 'home-cooking' },
+  { name: 'Recipes', emoji: '🍳', category: 'Functional & Daily', type: 'home-cooking' },
   { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
   { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
   { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },

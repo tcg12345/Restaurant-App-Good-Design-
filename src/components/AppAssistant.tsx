@@ -729,15 +729,15 @@ export const AppAssistant: React.FC = () => {
     };
   }, [lists, pageContext]);
 
-  /** Recipe / home-cooked-meal flow. We route BOTH
-   *  open_add_recipe_modal and open_home_meal_modal to the Log Home
-   *  Meal modal — it's the canonical surface for adding a dish you
-   *  cooked at home (with ingredients, steps, photos, score). The
-   *  list-scoped AddRecipeModal (lists.openAddRecipeModal) is a
-   *  legacy variant we deliberately don't surface through the chat. */
+  /** Recipe flow. We route BOTH open_add_recipe_modal and
+   *  open_home_meal_modal to the same canonical Add Recipe surface
+   *  (internally AddHomeMealModal — the richer one with ingredients,
+   *  steps, photos, score). The list-scoped AddRecipeModal
+   *  (lists.openAddRecipeModal) is a legacy variant we deliberately
+   *  don't surface through the chat. */
   const handleOpenAddRecipeModal = useCallback((): ActionResult => {
     lists.openHomeMealModal();
-    return { ok: true, detail: 'Log Home Meal flow open.' };
+    return { ok: true, detail: 'Add Recipe flow open.' };
   }, [lists]);
 
   const handleOpenAddPostModal = useCallback((): ActionResult => {

@@ -286,7 +286,7 @@ const TOOL_TOGGLE_WISHLIST = {
 const TOOL_OPEN_ADD_RECIPE_MODAL = {
   name: 'open_add_recipe_modal',
   description:
-    "Open the Log Home Meal modal — the canonical surface for adding a dish the user cooked at home, with ingredients, steps, photos, and a score. Use when the user says 'add a recipe', 'create a recipe', 'log a recipe', 'add a home meal', 'log what I cooked', etc. The chat closes automatically when the modal opens.",
+    "Open the Add Recipe modal — the canonical surface for adding a dish the user cooked, with ingredients, steps, photos, and a score. Use when the user says 'add a recipe', 'create a recipe', 'log a recipe', 'log what I cooked', etc. (In this app, recipes and home-cooked meals are the same concept — always use this tool.) The chat closes automatically when the modal opens.",
   input_schema: {
     type: 'object',
     properties: {},
@@ -325,7 +325,7 @@ const TOOL_OPEN_ADD_REEL_MODAL = {
 const TOOL_OPEN_HOME_MEAL_MODAL = {
   name: 'open_home_meal_modal',
   description:
-    "Alias of open_add_recipe_modal — opens the Log Home Meal modal. Either tool is fine; both surface the same flow.",
+    "Alias of open_add_recipe_modal — opens the Add Recipe modal. Either tool is fine; both surface the same flow. (Recipes and home-cooked meals are one and the same in this app.)",
   input_schema: {
     type: 'object',
     properties: {},
@@ -526,10 +526,11 @@ function buildSystemPrompt(body: ChatRequest): string {
     }
     if (u.recipes && u.recipes.length > 0) {
       // RECIPES = the user's own saved cooking recipes (dishes with
-      // ingredients + steps). NEVER conflate with restaurants. The
-      // frontend already filters out stub entries (0 ingredients AND
-      // 0 steps), so every row below is a real recipe.
-      lines.push(`- RECIPES (the user's own saved COOKING recipes — dishes they cook at home, with ingredients and steps. NOT restaurants. ${u.recipes.length} total):`);
+      // ingredients + steps). In this app "recipe" and "home meal"
+      // are the same thing — both refer to a dish the user cooks.
+      // NEVER conflate with restaurants. The frontend already
+      // filters out stub entries, so every row below is real.
+      lines.push(`- RECIPES (the user's own saved cooking recipes — dishes they make at home, with ingredients and steps. NOT restaurants. ${u.recipes.length} total):`);
       for (const r of u.recipes) {
         const time = (r.prepTime || 0) + (r.cookTime || 0);
         const bits = [
