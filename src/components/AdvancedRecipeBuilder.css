@@ -493,12 +493,14 @@
   justify-content: center;
 }
 
-/* ── Time-card row (Step 2 prep/cook/rest) ───────────────────── */
+/* ── Time-card row (Step 2 prep + cook) ───────────────────────────
+   Each card holds the field label and a hours/minutes wheel pair.
+   Two cards side by side on desktop, stacked on phone. */
 
 .arb-time-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
   margin-top: 12px;
 }
 .advanced-recipe-builder.is-phone .arb-time-row {
@@ -506,10 +508,93 @@
 }
 .arb-time-card {
   background: #fff;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 16px;
+  padding: 18px 20px 14px;
 }
 .arb-time-card-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  text-align: center;
+}
+
+/* ── Inline wheel (hours + minutes carousels) ────────────────── */
+
+.arb-wheel-row-pair {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 10px;
+}
+.arb-wheel-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.arb-wheel-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--muted-2, #B8AFA4);
+  /* Sits centered on the wheel's selection pill row. The wheel is
+     200px tall; subtract a touch so the colon hugs the center. */
+  padding-bottom: 26px;
+  user-select: none;
+}
+
+.arb-wheel {
+  position: relative;
+  width: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  /* Friendlier touch scrolling on iOS Safari. */
+  -webkit-overflow-scrolling: touch;
+}
+.arb-wheel::-webkit-scrollbar { display: none; }
+
+.arb-wheel-pill {
+  pointer-events: none;
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 10px;
+  background: rgba(168, 57, 42, 0.08);
+}
+
+.arb-wheel-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--muted-2, #B8AFA4);
+  font-variant-numeric: tabular-nums;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  transition: color 0.15s, font-size 0.15s;
+}
+.arb-wheel-row.is-active {
+  color: var(--ink, #1C1816);
+  font-size: 30px;
+}
+.arb-wheel-unit {
+  margin-top: 8px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
   font-weight: 700;
@@ -517,52 +602,55 @@
   text-transform: uppercase;
   color: var(--muted, #8C8278);
 }
-.arb-time-card-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-top: 8px;
-}
-.arb-time-card-num {
-  font-family: var(--serif, Georgia, serif);
-  font-size: 30px;
-  font-weight: 600;
-  width: 56px;
-  text-align: left;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--ink, #1C1816);
-  padding: 0;
-}
-.arb-time-card-num:focus { color: var(--accent, #A8392A); }
-.arb-time-card-unit {
-  font-size: 13px;
-  color: var(--muted, #8C8278);
-}
 
-.arb-total-row {
-  margin-top: 14px;
-  padding: 14px 16px;
-  background: var(--accent-soft, #F3E0D7);
-  border-radius: 12px;
+/* ── Total time pill ─────────────────────────────────────────────
+   Editorial card. Label on the left (small mono + sub), big serif
+   value on the right, separated by a thin vertical divider. Has a
+   warm accent-soft fill so it stands apart from the white time
+   cards above. */
+
+.arb-total-pill {
+  margin-top: 18px;
+  padding: 16px 24px;
+  background: var(--accent-soft, #F4DCD2);
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--accent, #A8392A);
+  gap: 16px;
+}
+.arb-total-pill-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.arb-total-pill-label .eyebrow {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
+  color: var(--accent, #A8392A);
 }
-.arb-total-row .v {
+.arb-total-pill-label .sub {
+  font-size: 12px;
+  color: var(--accent, #A8392A);
+  opacity: 0.6;
+  font-style: italic;
+}
+.arb-total-pill-value {
   font-family: var(--serif, Georgia, serif);
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  text-transform: none;
+  letter-spacing: -0.015em;
+  color: var(--accent, #A8392A);
+  font-variant-numeric: tabular-nums;
+  /* Thin divider on the left edge. */
+  padding-left: 16px;
+  border-left: 1px solid rgba(168, 57, 42, 0.25);
 }
+.advanced-recipe-builder.is-phone .arb-total-pill-value { font-size: 22px; }
 
 .arb-stepper {
   display: flex;
