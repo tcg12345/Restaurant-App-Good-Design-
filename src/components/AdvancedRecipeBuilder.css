@@ -666,6 +666,89 @@
   border-color: var(--accent, #A8392A);
   background: #fff;
 }
+/* Amount input flags an unparseable value with a soft red wash so the
+   user notices without losing what they typed. */
+.arb-ingr-input.is-error {
+  border-color: rgba(220, 38, 38, 0.6);
+  background: rgba(220, 38, 38, 0.06);
+  color: rgb(185, 28, 28);
+}
+
+/* ── Unit combobox ───────────────────────────────────────────────
+   The unit cell behaves like a select: focus opens a dropdown of
+   every UNITS label; typing filters; click selects + closes. On
+   blur via backdrop-click we normalize whatever the user typed
+   ("tbls" → "tbsp"). Each row owns its own popup so multiple
+   ingredient rows can be edited independently. */
+.arb-ingr-unit-wrap {
+  position: relative;
+  min-width: 0;
+}
+.arb-ingr-unit-wrap .arb-ingr-unit {
+  padding-right: 26px;
+}
+.arb-ingr-unit-caret {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted, #8C8278);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.arb-ingr-unit-wrap.is-open .arb-ingr-unit-caret {
+  transform: translateY(-50%) rotate(180deg);
+  color: var(--accent, #A8392A);
+}
+.arb-ingr-unit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.arb-ingr-unit-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 31;
+  background: #fff;
+  border: 1px solid var(--border, rgba(31,26,23,0.08));
+  border-radius: 12px;
+  box-shadow: 0 12px 30px -12px rgba(31,26,23,0.18);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  min-width: 160px;
+}
+.arb-ingr-unit-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2, #4A423C);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.arb-ingr-unit-item:hover { background: rgba(31,26,23,0.05); }
+.arb-ingr-unit-item.is-active {
+  background: var(--accent-soft, #F4DCD2);
+  color: var(--accent, #A8392A);
+  font-weight: 600;
+}
+.arb-ingr-unit-none {
+  font-style: italic;
+  color: var(--muted-2, #B8AFA4);
+}
+.arb-ingr-unit-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted, #8C8278);
+  font-style: italic;
+}
+
 .arb-ingr-delete {
   width: 34px;
   height: 34px;

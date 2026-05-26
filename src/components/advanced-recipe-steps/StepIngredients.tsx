@@ -1,11 +1,32 @@
-// Step 3 — grouped ingredient sections with per-row inputs and an
-// optional bulk-paste mode that pipes through the shared parser in
-// src/lib/ingredient-parsing.ts.
+// Step 3 — grouped ingredient sections with smart per-row inputs.
+//
+// Each row gets the same intelligence as the Basic modal's ingredient
+// form:
+//   - Amount input live-parses on blur ("0.5" → "1/2", "1 1/2" stays,
+//     "1.5" → "1 1/2"). Invalid amounts get an error tint without
+//     overwriting what the user typed so they can fix it.
+//   - Unit input is a combobox: focus opens a dropdown of every UNIT
+//     label, typing filters it, click selects + closes. On blur with
+//     unrecognized text, we run normalizeUnit so "tbls" or "tablespoon"
+//     still snap to "tbsp".
+//   - Name input auto-parses a full pasted line ("1 1/2 cups flour")
+//     into the three columns when amount + unit are still empty.
+//
+// Bulk paste mode (the "Paste from a list" button) reuses the shared
+// parseIngredientLine helper so both paths produce identical output.
 
-import React, { useState } from 'react';
-import { Plus, Trash2, ClipboardPaste } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Plus, Trash2, ClipboardPaste, ChevronDown } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import type { RecipeIngredient } from '../../contexts/ListsContext';
-import { parseIngredientLine, displayAmount } from '../../lib/ingredient-parsing';
+import {
+  parseIngredientLine,
+  parseAmount,
+  toFraction,
+  displayAmount,
+  normalizeUnit,
+  UNITS,
+} from '../../lib/ingredient-parsing';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
 
 interface Props {
@@ -13,9 +34,6 @@ interface Props {
   dispatch: React.Dispatch<Action>;
 }
 
-/** Single ingredient row. Live-parses pasted text in the name field so
- *  "1 1/2 cups flour" auto-splits into amount/unit/name. The user can
- *  still type into any column directly. */
 interface RowProps {
   ingredient: RecipeIngredient;
   onChange: (next: RecipeIngredient) => void;
@@ -23,34 +41,146 @@ interface RowProps {
 }
 
 const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
+  const [amountError, setAmountError] = useState(false);
+  const [unitOpen, setUnitOpen] = useState(false);
+  const [unitSearch, setUnitSearch] = useState('');
+  const unitInputRef = useRef<HTMLInputElement>(null);
+
+  // Unit dropdown options — UNITS labels filtered by the typed search.
+  // The leading '' option lets the user clear the unit field by picking
+  // from the dropdown (mirrors the basic modal).
+  const filteredUnits = useMemo<string[]>(() => {
+    const q = unitSearch.trim().toLowerCase();
+    const labels = UNITS.map((u) => u.label);
+    if (!q) return ['', ...labels];
+    return ['', ...labels.filter((l) => l.toLowerCase().includes(q))];
+  }, [unitSearch]);
+
+  const handleAmountChange = (raw: string) => {
+    onChange({ ...ingredient, amount: raw });
+    if (amountError) setAmountError(false);
+  };
+
+  // On blur, validate + normalize the amount. Empty is fine; an
+  // unparseable value flags the field in red but keeps the typed
+  // text so the user can correct it.
+  const handleAmountBlur = () => {
+    const raw = ingredient.amount.trim();
+    if (!raw) {
+      setAmountError(false);
+      return;
+    }
+    const parsed = parseAmount(raw);
+    if (parsed === null) {
+      setAmountError(true);
+      return;
+    }
+    setAmountError(false);
+    const pretty = toFraction(parsed);
+    if (pretty && pretty !== raw) onChange({ ...ingredient, amount: pretty });
+  };
+
+  const handleUnitFocus = () => {
+    setUnitOpen(true);
+    setUnitSearch('');
+  };
+
+  const handleUnitTyping = (raw: string) => {
+    setUnitOpen(true);
+    setUnitSearch(raw);
+  };
+
+  const pickUnit = (label: string) => {
+    onChange({ ...ingredient, unit: label });
+    setUnitOpen(false);
+    setUnitSearch('');
+    // Defer blur so the next field gets focus instead of the unit input.
+    unitInputRef.current?.blur();
+  };
+
+  // When the dropdown closes via backdrop-click or escape, snap the
+  // typed search to a canonical UNITS label if it normalizes.
+  const closeUnitDropdown = () => {
+    if (unitSearch.trim()) {
+      const matched = normalizeUnit(unitSearch);
+      if (matched) onChange({ ...ingredient, unit: matched });
+    }
+    setUnitOpen(false);
+    setUnitSearch('');
+  };
+
+  // Name input auto-parses a full pasted line into three columns when
+  // amount + unit are still empty (matches the prior Advanced behavior).
   const handleNameChange = (raw: string) => {
-    // If the user pasted a full line and amount/unit are still empty,
-    // try parsing it so they don't have to manually split.
     if (!ingredient.amount && !ingredient.unit && /\s/.test(raw)) {
       const parsed = parseIngredientLine(raw);
       if (parsed && parsed.amount) {
-        onChange({ name: parsed.name, amount: displayAmount(parsed.amount), unit: parsed.unit });
+        onChange({
+          name: parsed.name,
+          amount: displayAmount(parsed.amount),
+          unit: parsed.unit,
+        });
         return;
       }
     }
     onChange({ ...ingredient, name: raw });
   };
+
   return (
     <div className="arb-ingr-row">
       <input
         type="text"
-        className="arb-ingr-input"
+        inputMode="decimal"
+        className={cn('arb-ingr-input', amountError && 'is-error')}
         value={ingredient.amount}
-        onChange={(e) => onChange({ ...ingredient, amount: e.target.value })}
+        onChange={(e) => handleAmountChange(e.target.value)}
+        onBlur={handleAmountBlur}
         placeholder="1½"
+        title={amountError ? 'Not a valid number' : undefined}
       />
-      <input
-        type="text"
-        className="arb-ingr-input"
-        value={ingredient.unit}
-        onChange={(e) => onChange({ ...ingredient, unit: e.target.value })}
-        placeholder="cups"
-      />
+      <div className={cn('arb-ingr-unit-wrap', unitOpen && 'is-open')}>
+        <input
+          ref={unitInputRef}
+          type="text"
+          className="arb-ingr-input arb-ingr-unit"
+          value={unitOpen ? unitSearch : ingredient.unit}
+          onFocus={handleUnitFocus}
+          onChange={(e) => handleUnitTyping(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.preventDefault(); closeUnitDropdown(); }
+            else if (e.key === 'Enter' && filteredUnits.length > 0) {
+              e.preventDefault();
+              // Pick the top match (skip the empty placeholder if there's a real one).
+              const target = filteredUnits.find((l) => l !== '') ?? '';
+              pickUnit(target);
+            }
+          }}
+          placeholder="cups"
+        />
+        <ChevronDown size={13} className="arb-ingr-unit-caret" />
+        {unitOpen && (
+          <>
+            <div className="arb-ingr-unit-backdrop" onClick={closeUnitDropdown} />
+            <div className="arb-ingr-unit-pop">
+              {filteredUnits.length === 0 ? (
+                <p className="arb-ingr-unit-empty">No matches</p>
+              ) : (
+                filteredUnits.map((label) => (
+                  <button
+                    key={label || '_none'}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickUnit(label)}
+                    className={cn('arb-ingr-unit-item', ingredient.unit === label && 'is-active')}
+                  >
+                    {label || <span className="arb-ingr-unit-none">(no unit)</span>}
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
       <input
         type="text"
         className="arb-ingr-input"
