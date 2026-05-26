@@ -569,6 +569,8 @@
 
 .gc-pick-row {
   display: flex;
+  width: 100%;
+  box-sizing: border-box;
   align-items: center;
   gap: 14px;
   padding: 14px 18px;
@@ -580,6 +582,24 @@
   text-align: left;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.18s, transform 0.18s;
   box-shadow: 0 1px 2px rgba(31,26,23,0.03);
+}
+.gc-pick-row-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--cream-2, #E6DFCE);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-2, #B8AFA4);
+}
+.gc-pick-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .gc-pick-row:hover {
   border-color: rgba(31,26,23,0.1);

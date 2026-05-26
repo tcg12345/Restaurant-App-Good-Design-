@@ -973,20 +973,24 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
 
   // ── Subpage: My recipes ───────────────────────────────────────
   if (seedMode === 'recipes-my') {
+    const ratedNames = new Set(
+      ratings.map((r) => r.name.trim().toLowerCase()).filter(Boolean),
+    );
+    const recipesOnly = myRecipes.filter((r) => !ratedNames.has(r.title.trim().toLowerCase()));
     const recipesQ = recipesFilter.trim().toLowerCase();
     const filteredRecipes = recipesQ
-      ? myRecipes.filter((r) =>
+      ? recipesOnly.filter((r) =>
           r.title.toLowerCase().includes(recipesQ)
           || (r.cuisine || '').toLowerCase().includes(recipesQ)
           || (r.tags || []).some((t) => t.toLowerCase().includes(recipesQ))
         )
-      : myRecipes;
+      : recipesOnly;
     return (
       <>
         <button type="button" className="gc-subpage-back" onClick={() => onPick(null)}>
           <ArrowLeft size={13} /> Back to sources
         </button>
-        {myRecipes.length === 0 ? (
+        {recipesOnly.length === 0 ? (
           <div className="gc-empty">You haven't created any recipes yet.</div>
         ) : (
           <>
@@ -1009,6 +1013,12 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
               <div>
                 {filteredRecipes.map((r) => {
                   const isAdded = addedRefIds.has(r.id);
+                  const totalMin = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
+                  const subBits = [
+                    r.cuisine,
+                    r.difficulty,
+                    totalMin > 0 ? `${totalMin} min` : null,
+                  ].filter(Boolean);
                   return (
                     <button
                       key={r.id}
@@ -1019,9 +1029,14 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                       }}
                       className={`gc-pick-row${isAdded ? ' is-added' : ''}`}
                     >
+                      <span className="gc-pick-row-thumb">
+                        {r.photos?.[0]
+                          ? <img src={r.photos[0]} alt="" referrerPolicy="no-referrer" />
+                          : <ChefHat size={20} />}
+                      </span>
                       <span className="gc-pick-row-text">
                         <span className="gc-pick-row-title">{r.title}</span>
-                        <span className="gc-pick-row-sub">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</span>
+                        <span className="gc-pick-row-sub">{subBits.join(' · ')}</span>
                       </span>
                       <span className="gc-pick-row-add">
                         {isAdded ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
