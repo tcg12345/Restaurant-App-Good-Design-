@@ -1,0 +1,165 @@
+/* ChipComboInput — tag / equipment autocomplete combobox.
+   Matches the attached spec: rust-bordered card containing rust-tinted
+   chips + a typing input, with a "Matching N" popup beneath that lists
+   filtered suggestions. Selected and hovered options render with a
+   warm accent-soft background; the active row (kbd / mouse) is the
+   primary accent tint. */
+
+.chip-combo {
+  position: relative;
+  width: 100%;
+}
+
+/* The input "frame" — visually a single bordered input even though
+   internally it's a flex container of chips + a trailing <input>. */
+.chip-combo-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  min-height: 50px;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.chip-combo.is-open .chip-combo-field,
+.chip-combo-field:focus-within {
+  border-color: var(--accent, #A8392A);
+  box-shadow: 0 0 0 3px rgba(168, 57, 42, 0.12);
+}
+
+/* Chips — rust-tinted pills with an X. Match the spec's #vegetarian
+   look: warm accent-soft fill, primary accent text, slightly hand-
+   built corner radius. */
+.chip-combo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  background: var(--accent-soft, #F4DCD2);
+  color: var(--accent, #A8392A);
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.chip-combo-chip-text {
+  /* Some equipment items are long ("12\" cast-iron or stainless skillet")
+     so the chip lets text breathe; truncation lives at the field level
+     via flex-wrap. */
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-combo-chip-remove {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(31, 26, 23, 0.08);
+  color: var(--muted, #8C8278);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.chip-combo-chip-remove:hover {
+  background: rgba(168, 57, 42, 0.2);
+  color: var(--accent, #A8392A);
+}
+
+.chip-combo-input {
+  flex: 1;
+  min-width: 140px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink, #1C1816);
+  padding: 4px 2px;
+}
+.chip-combo-input::placeholder {
+  color: var(--muted-2, #B8AFA4);
+}
+
+/* Suggestion popup — absolute, sits directly under the field. */
+.chip-combo-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid var(--border, rgba(31, 26, 23, 0.08));
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px -10px rgba(31, 26, 23, 0.18);
+}
+
+.chip-combo-pop-head {
+  padding: 9px 16px;
+  background: var(--surface-2, #F6F1E4);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  border-bottom: 1px solid var(--border, rgba(31, 26, 23, 0.08));
+}
+
+.chip-combo-pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.chip-combo-pop-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--ink-2, #4A423C);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.chip-combo-pop-item .lucide-plus {
+  opacity: 0;
+  color: var(--accent, #A8392A);
+  transition: opacity 0.1s;
+}
+.chip-combo-pop-item.is-active {
+  background: var(--accent-soft, #F4DCD2);
+  color: var(--accent, #A8392A);
+  font-weight: 600;
+}
+.chip-combo-pop-item.is-active .lucide-plus { opacity: 1; }
+
+.chip-combo-pop-item-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.chip-combo-pop-empty {
+  padding: 14px 16px;
+  font-size: 13.5px;
+  color: var(--muted, #8C8278);
+  font-style: italic;
+  line-height: 1.45;
+}

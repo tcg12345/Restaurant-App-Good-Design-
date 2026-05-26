@@ -1,0 +1,2000 @@
+/* Advanced Recipe Builder — scoped under .advanced-recipe-builder so
+   nothing leaks into the basic modal or the rest of the app. Class
+   prefix `arb-*` mirrors RecipePage's `rd-*` convention. Design tokens
+   (--cream / --paper / --ink / --accent / --serif) are inherited from
+   the :root block in LocationPage.css. */
+
+.advanced-recipe-builder {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--cream, #EDE7D9);
+  color: var(--ink, #1C1816);
+  font-family: var(--sans, 'Inter', system-ui, sans-serif);
+}
+
+/* ── Shell layout ─────────────────────────────────────────────── */
+
+.arb-shell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.advanced-recipe-builder.is-phone .arb-shell {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+}
+
+/* ── Left rail (desktop) ──────────────────────────────────────── */
+
+.arb-rail {
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px 20px;
+  background: var(--surface-2, #FBF7F0);
+  border-right: 1px solid var(--border, rgba(31,26,23,0.08));
+}
+
+.arb-rail-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent, #A8392A);
+}
+.arb-rail-title {
+  margin-top: 6px;
+  font-family: var(--serif, 'Source Serif 4', Georgia, serif);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ink, #1C1816);
+}
+.arb-rail-title em {
+  font-style: italic;
+  color: var(--accent, #A8392A);
+}
+
+.arb-rail-steps {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.arb-rail-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 8px 10px 0;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.arb-rail-step:hover { background: rgba(31,26,23,0.04); }
+.arb-rail-step.is-current { background: rgba(31,26,23,0.06); }
+.arb-rail-step.is-disabled { cursor: default; opacity: 0.55; }
+
+.arb-rail-step-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif, Georgia, serif);
+  font-weight: 600;
+  font-size: 13px;
+  background: #fff;
+  border: 1.5px solid var(--muted-2, #B8AFA4);
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+}
+.arb-rail-step.is-done .arb-rail-step-circle {
+  background: var(--green, #2E7D5C);
+  border-color: var(--green, #2E7D5C);
+  color: #fff;
+}
+.arb-rail-step.is-current .arb-rail-step-circle {
+  background: var(--ink, #1C1816);
+  border-color: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+}
+
+.arb-rail-step-text { min-width: 0; }
+.arb-rail-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #1C1816);
+  line-height: 1.2;
+}
+.arb-rail-step.is-disabled .arb-rail-step-title { color: var(--muted, #8C8278); }
+
+/* Vertical connector line behind the step circles. */
+.arb-rail-steps::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 28px;
+  bottom: 28px;
+  width: 1.5px;
+  background: var(--border-strong, rgba(31,26,23,0.14));
+  z-index: 0;
+}
+.arb-rail-step-circle { position: relative; z-index: 1; }
+
+.arb-rail-foot {
+  margin-top: auto;
+  padding-top: 16px;
+}
+.arb-rail-foot-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted, #8C8278);
+}
+.arb-rail-foot-status .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green, #2E7D5C);
+}
+.arb-rail-foot-bar {
+  margin-top: 10px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(31,26,23,0.08);
+  overflow: hidden;
+}
+.arb-rail-foot-bar-fill {
+  height: 100%;
+  background: var(--accent, #A8392A);
+  transition: width 0.3s ease;
+}
+
+/* ── Phone progress strip (replaces the rail on small screens) ── */
+
+.arb-phone-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--surface-2, #FBF7F0);
+  border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
+}
+.arb-phone-strip-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.arb-phone-strip-progress::-webkit-scrollbar { display: none; }
+.arb-phone-strip-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff;
+  border: 1.5px solid var(--muted-2, #B8AFA4);
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.arb-phone-strip-dot.is-done {
+  background: var(--green, #2E7D5C);
+  border-color: var(--green, #2E7D5C);
+  color: #fff;
+}
+.arb-phone-strip-dot.is-current {
+  background: var(--ink, #1C1816);
+  border-color: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+}
+.arb-phone-strip-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink, #1C1816);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+.arb-phone-strip-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31,26,23,0.06);
+  color: var(--ink, #1C1816);
+  flex-shrink: 0;
+}
+
+/* ── Right pane (or full sheet on phone) ──────────────────────── */
+
+.arb-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.arb-pane-head {
+  padding: 32px 40px 8px;
+  flex-shrink: 0;
+}
+.advanced-recipe-builder.is-phone .arb-pane-head { padding: 20px 18px 4px; }
+
+.arb-pane-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+}
+.arb-pane-eyebrow .strong { color: var(--ink, #1C1816); }
+.arb-pane-title {
+  margin-top: 8px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--ink, #1C1816);
+}
+.advanced-recipe-builder.is-phone .arb-pane-title { font-size: 30px; }
+.arb-pane-title-accent {
+  font-style: italic;
+  color: var(--accent, #A8392A);
+}
+.arb-pane-intro {
+  margin-top: 10px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--ink-2, #4A423C);
+  line-height: 1.45;
+  max-width: 560px;
+}
+.advanced-recipe-builder.is-phone .arb-pane-intro { font-size: 15px; }
+
+.arb-pane-close {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink, #1C1816);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.advanced-recipe-builder.is-phone .arb-pane-close { display: none; }
+
+.arb-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 40px 24px;
+  scroll-behavior: smooth;
+}
+.advanced-recipe-builder.is-phone .arb-pane-body { padding: 18px 18px 24px; }
+
+/* ── Form atoms ───────────────────────────────────────────────── */
+
+.arb-field { margin-bottom: 24px; }
+.arb-field:last-child { margin-bottom: 0; }
+.arb-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2, #4A423C);
+}
+.arb-label .req { color: var(--accent, #A8392A); }
+.arb-label .opt {
+  font-size: 10.5px;
+  color: var(--muted, #8C8278);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-left: 4px;
+}
+.arb-help {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted, #8C8278);
+}
+
+.arb-input,
+.arb-textarea,
+.arb-select {
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink, #1C1816);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.arb-input::placeholder,
+.arb-textarea::placeholder {
+  color: var(--muted-2, #B8AFA4);
+}
+.arb-input:focus,
+.arb-textarea:focus,
+.arb-select:focus {
+  border-color: var(--accent, #A8392A);
+  box-shadow: 0 0 0 3px rgba(168, 57, 42, 0.12);
+}
+.arb-input.is-title {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.arb-textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.5;
+}
+
+/* ── Chip row (Course, etc.) ─────────────────────────────────── */
+
+.arb-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.arb-chip {
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1.5px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2, #4A423C);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.arb-chip:hover { background: rgba(31,26,23,0.04); }
+.arb-chip.is-active {
+  background: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+}
+
+/* ── Difficulty cards ────────────────────────────────────────── */
+
+.arb-difficulty-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.advanced-recipe-builder.is-phone .arb-difficulty-row {
+  grid-template-columns: 1fr;
+}
+.arb-difficulty-card {
+  padding: 14px 16px;
+  background: #fff;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.arb-difficulty-card:hover { background: rgba(31,26,23,0.02); }
+.arb-difficulty-card.is-active {
+  border-color: var(--ink, #1C1816);
+  box-shadow: 0 0 0 3px rgba(31,26,23,0.06);
+}
+.arb-difficulty-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink, #1C1816);
+}
+.arb-difficulty-card-title .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.arb-difficulty-card[data-level='Easy'] .dot { background: var(--green, #2E7D5C); }
+.arb-difficulty-card[data-level='Medium'] .dot { background: var(--gold, #E8A33C); }
+.arb-difficulty-card[data-level='Hard'] .dot { background: var(--accent, #A8392A); }
+.arb-difficulty-card-sub {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted, #8C8278);
+}
+
+/* ── Image dropzone ──────────────────────────────────────────── */
+
+.arb-dropzone {
+  margin-top: 12px;
+  border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.18));
+  border-radius: 14px;
+  padding: 28px;
+  background: rgba(255,255,255,0.5);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.arb-dropzone:hover {
+  border-color: var(--accent, #A8392A);
+  background: rgba(255,255,255,0.75);
+}
+.arb-dropzone-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--accent-soft, #F3E0D7);
+  color: var(--accent, #A8392A);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.arb-dropzone-text {
+  font-size: 15px;
+  color: var(--ink, #1C1816);
+  font-weight: 600;
+}
+.arb-dropzone-text .accent {
+  color: var(--accent, #A8392A);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.arb-dropzone-sub {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted, #8C8278);
+}
+.arb-dropzone-preview {
+  width: 100%;
+  height: 180px;
+  border-radius: 14px;
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  margin-top: 12px;
+}
+.arb-dropzone-preview-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Time-card row (Step 2 prep + cook) ───────────────────────────
+   Each card holds the field label and a hours/minutes wheel pair.
+   Two cards side by side on desktop, stacked on phone. */
+
+.arb-time-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+.advanced-recipe-builder.is-phone .arb-time-row {
+  grid-template-columns: 1fr;
+}
+.arb-time-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px 20px 14px;
+}
+.arb-time-card-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  text-align: center;
+}
+
+/* ── Inline wheel (hours + minutes carousels) ────────────────── */
+
+.arb-wheel-row-pair {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 10px;
+}
+.arb-wheel-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.arb-wheel-sep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 30px;
+  font-weight: 600;
+  color: var(--muted-2, #B8AFA4);
+  /* Sits centered on the wheel's selection pill row. The wheel is
+     200px tall; subtract a touch so the colon hugs the center. */
+  padding-bottom: 26px;
+  user-select: none;
+}
+
+.arb-wheel {
+  position: relative;
+  width: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  /* Friendlier touch scrolling on iOS Safari. */
+  -webkit-overflow-scrolling: touch;
+}
+.arb-wheel::-webkit-scrollbar { display: none; }
+
+.arb-wheel-pill {
+  pointer-events: none;
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: 10px;
+  background: rgba(168, 57, 42, 0.08);
+}
+
+.arb-wheel-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--muted-2, #B8AFA4);
+  font-variant-numeric: tabular-nums;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  transition: color 0.15s, font-size 0.15s;
+}
+.arb-wheel-row.is-active {
+  color: var(--ink, #1C1816);
+  font-size: 30px;
+}
+.arb-wheel-unit {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+}
+
+/* ── Total time pill ─────────────────────────────────────────────
+   Editorial card. Label on the left (small mono + sub), big serif
+   value on the right, separated by a thin vertical divider. Has a
+   warm accent-soft fill so it stands apart from the white time
+   cards above. */
+
+.arb-total-pill {
+  margin-top: 18px;
+  padding: 16px 24px;
+  background: var(--accent-soft, #F4DCD2);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.arb-total-pill-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.arb-total-pill-label .eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent, #A8392A);
+}
+.arb-total-pill-label .sub {
+  font-size: 12px;
+  color: var(--accent, #A8392A);
+  opacity: 0.6;
+  font-style: italic;
+}
+.arb-total-pill-value {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--accent, #A8392A);
+  font-variant-numeric: tabular-nums;
+  /* Thin divider on the left edge. */
+  padding-left: 16px;
+  border-left: 1px solid rgba(168, 57, 42, 0.25);
+}
+.advanced-recipe-builder.is-phone .arb-total-pill-value { font-size: 22px; }
+
+.arb-stepper {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 10px 16px;
+  background: #fff;
+  border-radius: 14px;
+  width: fit-content;
+}
+.arb-stepper-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(31,26,23,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink, #1C1816);
+}
+.arb-stepper-btn:disabled { opacity: 0.35; cursor: default; }
+.arb-stepper-value {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 22px;
+  font-weight: 600;
+  width: 36px;
+  text-align: center;
+}
+.arb-stepper-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  margin-left: 6px;
+}
+
+/* ── Ingredient sections ─────────────────────────────────────── */
+
+.arb-section-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px 22px 16px;
+  margin-bottom: 14px;
+}
+.arb-section-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.arb-section-card-title {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 19px;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ink, #1C1816);
+  padding: 0;
+  width: 60%;
+  min-width: 0;
+}
+.arb-section-card-title:focus { color: var(--accent, #A8392A); }
+.arb-section-card-delete {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #8C8278);
+}
+.arb-section-card-delete:hover { color: var(--accent, #A8392A); background: rgba(168,57,42,0.08); }
+
+.arb-ingr-row {
+  display: grid;
+  grid-template-columns: 90px 90px 1fr 36px;
+  gap: 10px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.advanced-recipe-builder.is-phone .arb-ingr-row {
+  grid-template-columns: 70px 70px 1fr 32px;
+}
+.arb-ingr-input {
+  padding: 10px 12px;
+  background: var(--cream-2, #E6DFCE);
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink, #1C1816);
+  outline: none;
+  min-width: 0;
+  width: 100%;
+}
+.arb-ingr-input:focus {
+  border-color: var(--accent, #A8392A);
+  background: #fff;
+}
+/* Amount input flags an unparseable value with a soft red wash so the
+   user notices without losing what they typed. */
+.arb-ingr-input.is-error {
+  border-color: rgba(220, 38, 38, 0.6);
+  background: rgba(220, 38, 38, 0.06);
+  color: rgb(185, 28, 28);
+}
+
+/* ── Unit combobox ───────────────────────────────────────────────
+   The unit cell behaves like a select: focus opens a dropdown of
+   every UNITS label; typing filters; click selects + closes. On
+   blur via backdrop-click we normalize whatever the user typed
+   ("tbls" → "tbsp"). Each row owns its own popup so multiple
+   ingredient rows can be edited independently. */
+.arb-ingr-unit-wrap {
+  position: relative;
+  min-width: 0;
+}
+.arb-ingr-unit-wrap .arb-ingr-unit {
+  padding-right: 26px;
+}
+.arb-ingr-unit-caret {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted, #8C8278);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.arb-ingr-unit-wrap.is-open .arb-ingr-unit-caret {
+  transform: translateY(-50%) rotate(180deg);
+  color: var(--accent, #A8392A);
+}
+.arb-ingr-unit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.arb-ingr-unit-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 31;
+  background: #fff;
+  border: 1px solid var(--border, rgba(31,26,23,0.08));
+  border-radius: 12px;
+  box-shadow: 0 12px 30px -12px rgba(31,26,23,0.18);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  min-width: 160px;
+}
+.arb-ingr-unit-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2, #4A423C);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.arb-ingr-unit-item:hover { background: rgba(31,26,23,0.05); }
+.arb-ingr-unit-item.is-active {
+  background: var(--accent-soft, #F4DCD2);
+  color: var(--accent, #A8392A);
+  font-weight: 600;
+}
+.arb-ingr-unit-none {
+  font-style: italic;
+  color: var(--muted-2, #B8AFA4);
+}
+.arb-ingr-unit-empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted, #8C8278);
+  font-style: italic;
+}
+
+.arb-ingr-delete {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #8C8278);
+}
+.arb-ingr-delete:hover { color: var(--accent, #A8392A); background: rgba(168,57,42,0.08); }
+
+.arb-add-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.18));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted, #8C8278);
+  background: transparent;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.arb-add-row:hover {
+  border-color: var(--accent, #A8392A);
+  color: var(--accent, #A8392A);
+}
+
+.arb-add-section {
+  width: 100%;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.18));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted, #8C8278);
+  background: transparent;
+  cursor: pointer;
+}
+.arb-add-section:hover {
+  border-color: var(--accent, #A8392A);
+  color: var(--accent, #A8392A);
+}
+
+.arb-bulk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #A8392A);
+  background: var(--accent-soft, #F3E0D7);
+  cursor: pointer;
+}
+
+/* ── Method (Step 4) ─────────────────────────────────────────── */
+
+.arb-step-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 20px 22px;
+  margin-bottom: 14px;
+}
+.arb-step-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.arb-step-card-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.arb-step-card-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 17px;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ink, #1C1816);
+  padding: 0;
+}
+.arb-step-card-title::placeholder {
+  font-style: italic;
+  color: var(--muted-2, #B8AFA4);
+  font-weight: 500;
+}
+.arb-step-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.arb-step-card-action {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #8C8278);
+}
+.arb-step-card-action:hover { color: var(--accent, #A8392A); background: rgba(168,57,42,0.08); }
+.arb-step-card-action:disabled { opacity: 0.3; cursor: default; }
+
+.arb-step-card-body {
+  margin-top: 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--ink-2, #4A423C);
+  resize: vertical;
+  min-height: 72px;
+}
+.arb-step-card-body::placeholder { color: var(--muted-2, #B8AFA4); }
+
+.arb-step-card-chips {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.arb-step-time-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft, #F3E0D7);
+  color: var(--accent, #A8392A);
+  font-size: 12px;
+  font-weight: 600;
+}
+.arb-step-time-chip input {
+  width: 36px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+.arb-step-time-chip .x { cursor: pointer; opacity: 0.75; }
+.arb-step-add-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.18));
+  background: transparent;
+  color: var(--muted, #8C8278);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.arb-step-add-chip:hover { color: var(--accent, #A8392A); border-color: var(--accent, #A8392A); }
+
+.arb-step-tip {
+  margin-top: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px 12px 16px;
+  border-left: 3px solid var(--accent, #A8392A);
+  background: var(--accent-soft, #F3E0D7);
+  border-radius: 6px;
+}
+.arb-step-tip-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent, #A8392A);
+  margin-right: 4px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.arb-step-tip-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--ink-2, #4A423C);
+}
+.arb-step-tip-input::placeholder { color: rgba(168,57,42,0.55); }
+.arb-step-tip-remove {
+  color: var(--accent, #A8392A);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.arb-step-tip-remove:hover { opacity: 1; }
+
+.arb-add-step {
+  width: 100%;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.18));
+  background: transparent;
+  color: var(--muted, #8C8278);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.arb-add-step:hover { border-color: var(--accent, #A8392A); color: var(--accent, #A8392A); }
+
+/* ── Notes (Step 5) ──────────────────────────────────────────── */
+
+.arb-note-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+.arb-note-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.arb-note-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--accent-soft, #F3E0D7);
+  color: var(--accent, #A8392A);
+  cursor: pointer;
+}
+.arb-note-type[data-type='makeAhead'] {
+  background: var(--green-soft, #DCEEDE);
+  color: var(--green, #2E7D5C);
+}
+.arb-note-type[data-type='substitution'] {
+  background: #FAEFD3;
+  color: var(--gold, #E8A33C);
+}
+.arb-note-type[data-type='general'] {
+  background: rgba(31,26,23,0.06);
+  color: var(--ink-2, #4A423C);
+}
+.arb-note-delete {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #8C8278);
+}
+.arb-note-delete:hover { color: var(--accent, #A8392A); background: rgba(168,57,42,0.08); }
+.arb-note-body {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--ink-2, #4A423C);
+  resize: vertical;
+  min-height: 72px;
+}
+.arb-note-body::placeholder { color: var(--muted-2, #B8AFA4); }
+
+.arb-add-note-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── Review preview (Step 6) ─────────────────────────────────── */
+
+.arb-review {
+  background: #fff;
+  border-radius: 18px;
+  padding: 28px;
+}
+.arb-review-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+}
+.arb-review-title {
+  margin-top: 8px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink, #1C1816);
+}
+.arb-review-summary {
+  margin-top: 8px;
+  font-size: 15px;
+  font-style: italic;
+  color: var(--ink-2, #4A423C);
+  line-height: 1.5;
+}
+.arb-review-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border, rgba(31,26,23,0.08));
+}
+.arb-review-section h4 {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2, #4A423C);
+  margin-bottom: 10px;
+}
+.arb-review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 14px;
+  color: var(--ink-2, #4A423C);
+}
+.arb-review-stats .strong { color: var(--ink, #1C1816); font-weight: 600; }
+.arb-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2, #4A423C);
+}
+.arb-review-list li::before { content: '• '; color: var(--muted-2, #B8AFA4); }
+.arb-review-validation {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(168, 57, 42, 0.08);
+  color: var(--accent, #A8392A);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.arb-review-validation ul { margin-top: 6px; padding-left: 18px; }
+
+/* Inline gate message — appears under the step body when the Next
+   button is disabled because a required field isn't satisfied. Soft
+   rust card, smaller than the publish-time validation list. */
+.arb-step-gate {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-soft, #F4DCD2);
+  border-left: 3px solid var(--accent, #A8392A);
+  color: var(--accent, #A8392A);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* ── Publish-time controls (rating + visibility) ───────────────
+   Sit below the review preview on Step 6. Distinct visual treatment
+   from the preview itself so it reads as "your inputs / before you
+   publish" rather than "your recipe". */
+.arb-publish-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 22px 26px;
+  margin-top: 14px;
+}
+.arb-publish-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.arb-publish-card-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2, #4A423C);
+}
+.arb-publish-card-hint {
+  font-size: 13px;
+  color: var(--muted, #8C8278);
+  line-height: 1.45;
+}
+
+/* Rating — big numeric readout + accent slider + dynamic label. */
+.arb-rating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.arb-rating-value {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  transition: color 0.15s;
+}
+.arb-rating-denom {
+  font-size: 14px;
+  color: var(--muted-2, #B8AFA4);
+  font-weight: 500;
+  margin-left: 4px;
+  font-variant-numeric: normal;
+}
+.arb-rating-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(31, 26, 23, 0.1);
+  outline: none;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.arb-rating-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #A8392A);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(31, 26, 23, 0.18);
+  cursor: pointer;
+}
+.arb-rating-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent, #A8392A);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(31, 26, 23, 0.18);
+  cursor: pointer;
+}
+.arb-rating-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #8C8278);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Visibility — two-card segmented control. */
+.arb-visibility-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.advanced-recipe-builder.is-phone .arb-visibility-row {
+  grid-template-columns: 1fr;
+}
+.arb-visibility-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--cream-2, #E6DFCE);
+  border: 1.5px solid transparent;
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.arb-visibility-card:hover { background: var(--surface-2, #FBF7F0); }
+.arb-visibility-card.is-active {
+  border-color: var(--ink, #1C1816);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(31, 26, 23, 0.06);
+}
+.arb-visibility-card svg {
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+}
+.arb-visibility-card.is-active svg {
+  color: var(--accent, #A8392A);
+}
+.arb-visibility-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink, #1C1816);
+}
+.arb-visibility-sub {
+  font-size: 12.5px;
+  color: var(--muted, #8C8278);
+  margin-top: 2px;
+}
+
+/* ── Footer (sticky) ─────────────────────────────────────────── */
+
+.arb-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 40px;
+  border-top: 1px solid var(--border, rgba(31,26,23,0.08));
+  background: var(--cream, #EDE7D9);
+}
+.advanced-recipe-builder.is-phone .arb-foot {
+  padding: 14px 16px max(14px, env(safe-area-inset-bottom));
+}
+.arb-foot-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2, #4A423C);
+  cursor: pointer;
+}
+.arb-foot-back:disabled { opacity: 0.35; cursor: default; }
+.arb-foot-right { display: flex; gap: 10px; }
+.arb-foot-save {
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #1C1816);
+  cursor: pointer;
+}
+.arb-foot-next,
+.arb-foot-publish {
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.arb-foot-publish { background: var(--accent, #A8392A); }
+.arb-foot-publish:disabled,
+.arb-foot-next:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Resume-draft modal ──────────────────────────────────────── */
+
+.arb-draft-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(31,26,23,0.55);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.arb-draft-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 24px;
+  max-width: 360px;
+  width: 100%;
+}
+.arb-draft-card h3 {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink, #1C1816);
+}
+.arb-draft-card p {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--muted, #8C8278);
+  line-height: 1.5;
+}
+.arb-draft-actions {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.arb-draft-actions button {
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.arb-draft-actions .resume {
+  background: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+}
+.arb-draft-actions .discard {
+  background: rgba(31,26,23,0.06);
+  color: var(--ink-2, #4A423C);
+}
+
+/* ── Tab toggle (lives in AddHomeMealModal header) ────────────── */
+
+.arb-tab-toggle {
+  display: inline-flex;
+  padding: 4px;
+  background: rgba(31,26,23,0.06);
+  border-radius: 999px;
+  gap: 2px;
+}
+.arb-tab-toggle button {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted, #8C8278);
+  background: transparent;
+  cursor: pointer;
+}
+.arb-tab-toggle button.is-active {
+  background: #fff;
+  color: var(--ink, #1C1816);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Sticky header + floating footer dock
+   ════════════════════════════════════════════════════════════════
+   Active when `.advanced-recipe-builder.is-phone` is on. Replaces
+   the older `.arb-phone-strip` chrome and the desktop `.arb-foot`
+   trio with a richer mobile experience matching the mockup.
+   ──────────────────────────────────────────────────────────────── */
+
+.arb-m-header {
+  flex-shrink: 0;
+  background: var(--surface-2, #FBF7F0);
+  border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
+  padding: 14px 16px 0;
+}
+.arb-m-header-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+.arb-m-header-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink, #1C1816);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  flex-shrink: 0;
+}
+.arb-m-header-titleblock {
+  text-align: center;
+  min-width: 0;
+  padding: 0 4px;
+}
+.arb-m-header-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent, #A8392A);
+}
+.arb-m-header-title {
+  margin-top: 2px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--ink, #1C1816);
+}
+.arb-m-header-saveblock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.arb-m-saved-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2, #4A423C);
+}
+.arb-m-saved-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green, #2E7D5C);
+}
+.arb-m-save-link {
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #A8392A);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.arb-m-save-link:hover { opacity: 0.85; }
+
+.arb-m-header-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.arb-m-header-desc {
+  font-style: italic;
+  color: var(--muted, #8C8278);
+  font-size: 12.5px;
+}
+.arb-m-header-counter {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted, #8C8278);
+  font-size: 11.5px;
+}
+.arb-m-header-counter .strong {
+  color: var(--ink, #1C1816);
+}
+
+.arb-m-progress-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding-bottom: 10px;
+}
+.arb-m-progress-seg {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--cream-2, #E6DFCE);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.arb-m-progress-seg.is-done { background: var(--green, #2E7D5C); }
+.arb-m-progress-seg.is-current { background: var(--accent, #A8392A); }
+
+/* On phone the pane sits below the new header — drop its own internal
+   padding-top since the header already supplies vertical rhythm, and
+   add enough bottom padding so the floating footer doesn't cover the
+   last form field. */
+.advanced-recipe-builder.is-phone .arb-pane { position: relative; }
+.advanced-recipe-builder.is-phone .arb-pane-body {
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+/* Hide the legacy phone strip and the desktop sticky footer on phone. */
+.advanced-recipe-builder.is-phone .arb-phone-strip { display: none; }
+.advanced-recipe-builder.is-phone .arb-foot { display: none; }
+
+/* Floating footer dock — sits over the bottom of the pane with a
+   slight inset from screen edges. Back-arrow circle on the left,
+   big two-line pill on the right. */
+.arb-m-foot {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+  z-index: 5;
+}
+.arb-m-foot > * { pointer-events: auto; }
+.arb-m-foot-back {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink, #1C1816);
+  box-shadow: 0 4px 16px -4px rgba(31,26,23,0.18), 0 2px 4px rgba(31,26,23,0.06);
+  flex-shrink: 0;
+}
+.arb-m-foot-back:disabled {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: 0 1px 2px rgba(31,26,23,0.08);
+}
+
+.arb-m-foot-next,
+.arb-m-foot-publish {
+  flex: 1;
+  min-height: 56px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  background: var(--ink, #1C1816);
+  color: var(--cream, #EDE7D9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-shadow: 0 8px 22px -6px rgba(31,26,23,0.32), 0 2px 4px rgba(31,26,23,0.08);
+  cursor: pointer;
+}
+.arb-m-foot-publish {
+  background: var(--accent, #A8392A);
+}
+.arb-m-foot-next:disabled,
+.arb-m-foot-publish:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.arb-m-foot-next-eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+.arb-m-foot-next-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Cuisine bottom-sheet picker
+   ════════════════════════════════════════════════════════════════ */
+
+.arb-cuisine-sheet {
+  width: 100%;
+  max-height: 88vh;
+  background: var(--cream, #EDE7D9);
+  border-radius: 22px 22px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: none;
+}
+.arb-cuisine-drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 0 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.arb-cuisine-drag-pill {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(31,26,23,0.2);
+}
+.arb-cuisine-head {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  padding: 6px 16px 12px;
+  gap: 8px;
+}
+.arb-cuisine-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink, #1C1816);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.arb-cuisine-title {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink, #1C1816);
+  text-align: center;
+}
+.arb-cuisine-search-wrap {
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
+}
+.arb-cuisine-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.arb-cuisine-search svg { color: var(--muted, #8C8278); flex-shrink: 0; }
+.arb-cuisine-search input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink, #1C1816);
+  min-width: 0;
+}
+.arb-cuisine-search input::placeholder { color: var(--muted-2, #B8AFA4); }
+.arb-cuisine-search button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31,26,23,0.06);
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+}
+.arb-cuisine-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 max(16px, env(safe-area-inset-bottom));
+}
+.arb-cuisine-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 20px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 15.5px;
+  color: var(--ink, #1C1816);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(31,26,23,0.05);
+}
+.arb-cuisine-row:active { background: rgba(31,26,23,0.04); }
+.arb-cuisine-row.is-active {
+  color: var(--accent, #A8392A);
+  font-weight: 600;
+}
+.arb-cuisine-empty {
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--muted, #8C8278);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Cuisine tap target (used in StepBasics)
+   ════════════════════════════════════════════════════════════════ */
+
+.arb-cuisine-trigger {
+  width: 100%;
+  margin-top: 10px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink, #1C1816);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.arb-cuisine-trigger.is-empty { color: var(--muted-2, #B8AFA4); }
+.arb-cuisine-trigger:hover { border-color: rgba(31,26,23,0.08); }
+.arb-cuisine-trigger svg {
+  color: var(--muted, #8C8278);
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Dropzone vertical variant
+   ════════════════════════════════════════════════════════════════ */
+
+.arb-dropzone.is-mobile {
+  flex-direction: column;
+  text-align: center;
+  padding: 36px 24px;
+  gap: 14px;
+}
+.arb-dropzone.is-mobile .arb-dropzone-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+}
+.arb-dropzone.is-mobile .arb-dropzone-text {
+  font-size: 16px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Ingredient row override (white inputs + full-width add)
+   ════════════════════════════════════════════════════════════════ */
+
+.advanced-recipe-builder.is-phone .arb-ingr-input {
+  background: #fff;
+  border-color: rgba(31,26,23,0.06);
+}
+.advanced-recipe-builder.is-phone .arb-ingr-input:focus {
+  border-color: var(--accent, #A8392A);
+  background: #fff;
+}
+
+/* "+ Add ingredient" pill stretches across the section card on phone. */
+.advanced-recipe-builder.is-phone .arb-add-row {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  padding: 14px 16px;
+  margin-top: 6px;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE — Collapsed time card + reshuffled servings card
+   ════════════════════════════════════════════════════════════════ */
+
+.arb-time-card.is-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  border: 1.5px solid transparent;
+}
+.arb-time-card.is-collapsed:active {
+  border-color: var(--accent, #A8392A);
+}
+.arb-time-card.is-collapsed .arb-time-card-label {
+  text-align: left;
+}
+.arb-time-collapsed-value {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink, #1C1816);
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.arb-time-collapsed-value.is-empty {
+  color: var(--muted-2, #B8AFA4);
+}
+.arb-time-collapsed-unit {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  color: var(--muted, #8C8278);
+  margin-left: 2px;
+}
+
+.arb-stepper.is-mobile {
+  width: 100%;
+  padding: 18px 22px;
+  justify-content: space-between;
+  border-radius: 16px;
+}
+.arb-stepper.is-mobile .arb-stepper-num {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.arb-stepper.is-mobile .arb-stepper-num .arb-stepper-value {
+  font-size: 32px;
+  width: auto;
+  text-align: left;
+}
+.arb-stepper.is-mobile .arb-stepper-num .arb-stepper-label {
+  margin-left: 0;
+}
+.arb-stepper.is-mobile .arb-stepper-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.arb-stepper.is-mobile .arb-stepper-btn {
+  width: 44px;
+  height: 44px;
+}

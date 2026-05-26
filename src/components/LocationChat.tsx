@@ -63,6 +63,58 @@ function inferCuisineLabel(types: string[]): string {
   return '';
 }
 
+export interface AssistantUser {
+  username: string;
+  displayName?: string;
+  bio?: string;
+  isExpert?: boolean;
+  homeCity?: string;
+}
+
+/** Public recipe surfaced via search_community_recipes — augmented
+ *  with the author's display name + username so the card can show
+ *  "by @joesmith" and the bot can mention attribution in prose. */
+export interface CommunityRecipeHit {
+  /** Source-agnostic id. For home meals it's prefixed with
+   *  "hm:userId:mealId" so it can't collide with formal recipe
+   *  UUIDs; the navigate handler strips the prefix and routes to
+   *  /meal/:userId/:mealId. Formal recipe ids are passed through
+   *  unchanged and route to /recipe/:userId/:id. */
+  id: string;
+  userId: string;
+  title: string;
+  cuisine?: string;
+  prepTimeMinutes?: number | null;
+  cookTimeMinutes?: number | null;
+  difficulty?: string;
+  photos?: string[];
+  ingredientCount?: number;
+  stepCount?: number;
+  /** Where the recipe lives — drives the navigate URL pattern. */
+  source?: 'recipe' | 'home_meal';
+  authorUsername?: string;
+  authorDisplayName?: string;
+  authorIsExpert?: boolean;
+  authorIsFriend?: boolean;
+}
+
+export interface AssistantCircleRating {
+  username: string;
+  displayName?: string;
+  isExpert?: boolean;
+  isFriend?: boolean;
+  score?: number;
+  notes?: string;
+}
+
+/** Result envelope for any action tool. `ok` controls how the tool
+ *  result string reads to Claude; `detail` becomes the human-readable
+ *  message so the model can confirm it back to the user accurately. */
+export interface ActionResult {
+  ok: boolean;
+  detail?: string;
+}
+
 interface LocationChatProps {
   /** Filtered restaurant pool — what the user is currently looking at. */
   visible: ScoredPlace[];
@@ -102,24 +154,60 @@ interface LocationChatProps {
   /** Looks up app users by username / display name (case-insensitive
    *  substring). Returns up to 5 public profiles. Wired to Claude's
    *  lookup_user tool. */
-  onLookupUser: (query: string) => Promise<Array<{
-    username: string;
-    displayName?: string;
-    bio?: string;
-    isExpert?: boolean;
-    homeCity?: string;
-  }>>;
+  onLookupUser: (query: string) => Promise<AssistantUser[]>;
+  /** Browse experts. Optional filters narrow by cuisine focus (bio
+   *  match) or home city. Wired to Claude's find_experts tool. */
+  onFindExperts?: (opts: { cuisine?: string; city?: string }) => Promise<AssistantUser[]>;
+  /** Search public recipes from friends, experts, and other users
+   *  on the platform. Wired to Claude's search_community_recipes
+   *  tool. Returns hits with author metadata so cards can show
+   *  "by @username" and the bot can mention attribution. */
+  onSearchCommunityRecipes?: (opts: { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' }) => Promise<CommunityRecipeHit[]>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
-  onGetCircleRatings: (restaurantId: string) => Promise<Array<{
-    username: string;
-    displayName?: string;
-    isExpert?: boolean;
-    isFriend?: boolean;
-    score?: number;
-    notes?: string;
-  }>>;
+  onGetCircleRatings: (restaurantId: string) => Promise<AssistantUser[] | AssistantCircleRating[]>;
+
+  /* ── ACTION handlers — wire up new in-app capabilities. All are
+       optional so this component still works standalone (the bot
+       just gets back "action not available here" tool results
+       when an unwired tool is called). ───────────────────────── */
+  /** Current route — sent to Claude so it can tailor "you're on X"
+   *  replies. Defaults to /location when omitted. */
+  currentPath?: string;
+  /** Human label for the current route — sent to Claude. */
+  currentPageLabel?: string;
+  /** Navigate to an in-app path. The chat closes automatically. */
+  onNavigate?: (path: string) => ActionResult | Promise<ActionResult>;
+  /** Open the rating modal for a restaurant id (resolves name via
+   *  knownPlaces / placeById / restaurantMeta). */
+  onOpenRatingModal?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Open the unified "Add restaurant" multi-step modal. */
+  onOpenAddRestaurantModal?: (restaurantId: string, initialPage?: string) => ActionResult | Promise<ActionResult>;
+  /** Open the "Add to list" picker for a restaurant. */
+  onOpenAddToListModal?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Toggle wishlist membership for a restaurant. */
+  onToggleWishlist?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Open the Add Recipe flow. */
+  onOpenAddRecipeModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Add Post flow. */
+  onOpenAddPostModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Add Reel flow, optionally pre-selecting a kind. */
+  onOpenAddReelModal?: (kind?: 'restaurant' | 'recipe') => ActionResult | Promise<ActionResult>;
+  /** Open the Log Home Meal flow. */
+  onOpenHomeMealModal?: () => ActionResult | Promise<ActionResult>;
+  /** Open the Guide Creator sheet. */
+  onOpenGuideCreator?: () => ActionResult | Promise<ActionResult>;
+  /** When true the FAB sits high enough to clear the global
+   *  BottomNav (phone-mode pages outside /location). Defaults to
+   *  false, which keeps the original low-and-tight placement that
+   *  works well on /location and on desktop. */
+  fabAboveBottomNav?: boolean;
+  /** When true the FAB animates down + fades out (Twitter / Instagram
+   *  scroll-hide). AppAssistant flips this on mobile while the user
+   *  scrolls DOWN and flips it back off when they scroll UP. Always
+   *  false on desktop. */
+  fabHidden?: boolean;
 }
 
 interface UiMessage {
@@ -512,9 +600,25 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onSearchRestaurants,
   userContext,
   onLookupUser,
+  onFindExperts,
+  onSearchCommunityRecipes,
   onGetCircleRatings,
   recipes,
   knownPlaces,
+  currentPath,
+  currentPageLabel,
+  onNavigate,
+  onOpenRatingModal,
+  onOpenAddRestaurantModal,
+  onOpenAddToListModal,
+  onToggleWishlist,
+  onOpenAddRecipeModal,
+  onOpenAddPostModal,
+  onOpenAddReelModal,
+  onOpenHomeMealModal,
+  onOpenGuideCreator,
+  fabAboveBottomNav,
+  fabHidden,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -536,6 +640,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // friend / expert lists from userContext when scanning prose for
   // inline @username / display-name links.
   const [chatKnownUsers, setChatKnownUsers] = useState<Record<string, { username: string; displayName?: string }>>({});
+
+  // Chat-local cache for community recipes surfaced via
+  // search_community_recipes. Folded into recipeById so cards
+  // rendered by recommend_recipes resolve even when the id isn't
+  // one of the user's own saved recipes.
+  const [chatCommunityRecipes, setChatCommunityRecipes] = useState<Record<string, CommunityRecipeHit>>({});
 
   // ── Chat history ────────────────────────────────────────────────
   // `view` swaps between the live conversation and the saved-chats
@@ -741,11 +851,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return m;
   }, [visible, chatPlaces, knownPlaces]);
 
+  /** Recipe lookup for card rendering. The user's own recipes come
+   *  through `recipes` (typed Recipe[]); community recipes surfaced
+   *  by search_community_recipes are stored chat-local under the
+   *  CommunityRecipeHit shape (a flatter projection that includes
+   *  author info). The card render branches on which field set is
+   *  present, so we don't need to coerce them into the same type. */
   const recipeById = useMemo(() => {
-    const m = new Map<string, Recipe>();
+    const m = new Map<string, Recipe | CommunityRecipeHit>();
     for (const r of recipes) if (r?.id) m.set(r.id, r);
+    for (const id in chatCommunityRecipes) {
+      // Don't let community hits overwrite the user's own version
+      // of a recipe — the user's own card shouldn't carry "by @them".
+      if (!m.has(id)) m.set(id, chatCommunityRecipes[id]);
+    }
     return m;
-  }, [recipes]);
+  }, [recipes, chatCommunityRecipes]);
 
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
@@ -756,13 +877,24 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleNavigateRecipe = useCallback((id: string) => {
     setOpen(false);
-    // The canonical recipe page needs the owner id in the URL to
-    // disambiguate formal recipes from home meals. Pull it from the
-    // recipe map populated above; fall back to the legacy id-only URL
-    // if for some reason the recipe isn't loaded yet (RecipePage will
-    // still resolve formal recipes by id alone).
+    // Resolve from the union map (user's own Recipe[] OR
+    // CommunityRecipeHit[]). Three URL patterns:
+    //   - Home meal community hit  → /meal/<userId>/<mealId>
+    //   - Formal recipe with owner → /recipe/<userId>/<id>
+    //   - Unknown / fallback       → /recipe/<id>
     const recipe = recipeById.get(id);
-    const target = recipe?.userId ? `/recipe/${recipe.userId}/${id}` : `/recipe/${id}`;
+    let target = `/recipe/${id}`;
+    if (recipe && 'source' in recipe && recipe.source === 'home_meal') {
+      // Home-meal ids are prefixed "hm:<userId>:<mealId>" — strip
+      // the prefix to recover the real meal id; userId is on the
+      // hit object directly.
+      const realMealId = id.startsWith('hm:')
+        ? id.split(':').slice(2).join(':')
+        : id;
+      target = `/meal/${recipe.userId}/${realMealId}`;
+    } else if (recipe && 'userId' in recipe && recipe.userId) {
+      target = `/recipe/${recipe.userId}/${id}`;
+    }
     setTimeout(() => navigate(target), 60);
   }, [navigate, recipeById]);
 
@@ -883,6 +1015,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             filters,
             city: cityDisplay,
             userContext,
+            currentPath,
+            currentPageLabel,
           },
           controller.signal,
         );
@@ -988,14 +1122,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           } else if (tu.name === 'recommend_recipes') {
             const input = (tu.input || {}) as { recipe_ids?: string[] };
             const ids = Array.isArray(input.recipe_ids) ? input.recipe_ids : [];
-            // Filter out ids the user doesn't actually own so we can
-            // tell Claude what stuck vs what was a hallucination.
+            // Valid = either the user's own saved recipes OR community
+            // hits we've already cached from a previous
+            // search_community_recipes call this conversation.
             const valid = ids.filter((id) => recipeById.has(id));
             const invalid = ids.filter((id) => !recipeById.has(id));
             if (valid.length === 0 && invalid.length === 0) {
               content = 'No recipe ids provided.';
             } else if (valid.length === 0) {
-              content = `None of the recipe ids matched the user's saved recipes (${invalid.join(', ')}). Don't fabricate — only use ids from the RECIPES section of the system prompt.`;
+              content = `None of the recipe ids matched the user's saved RECIPES or any cached community-recipes hits (${invalid.join(', ')}). Don't fabricate — call search_community_recipes first to get real ids, or pick from the RECIPES section.`;
             } else if (invalid.length > 0) {
               content = `Rendered ${valid.length} recipe card(s) for the user. Skipped ${invalid.length} unknown id(s): ${invalid.join(', ')}.`;
             } else {
@@ -1098,6 +1233,277 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
               }
             }
+          } else if (tu.name === 'search_community_recipes') {
+            const input = (tu.input || {}) as { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' };
+            const query = (input.query || '').trim();
+            const cuisine = (input.cuisine || '').trim() || undefined;
+            const source = input.source || 'all';
+            if (!onSearchCommunityRecipes) {
+              content = 'search_community_recipes is not wired up in this context.';
+            } else {
+              try {
+                const hits = await onSearchCommunityRecipes({ query, cuisine, source });
+                if (!hits || hits.length === 0) {
+                  const bits = [query, cuisine, source !== 'all' ? source : null].filter(Boolean).join(' / ');
+                  content = bits
+                    ? `No community recipes matched "${bits}". Tell the user honestly nothing came back across friends / experts / public — DO NOT pivot to restaurants unless they ask.`
+                    : 'No community recipes available right now.';
+                } else {
+                  // Stash for the card-lookup map so any IDs Claude
+                  // recommends from this batch resolve.
+                  setChatCommunityRecipes((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) next[h.id] = h;
+                    return next;
+                  });
+                  // Stash authors as known users so any name mentions
+                  // in the bot's reply auto-link to their profiles.
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.authorUsername) {
+                        next[h.authorUsername] = { username: h.authorUsername, displayName: h.authorDisplayName };
+                      }
+                    }
+                    return next;
+                  });
+                  const lines = hits.slice(0, 10).map((h, i) => {
+                    const totalMin = (h.prepTimeMinutes || 0) + (h.cookTimeMinutes || 0);
+                    const meta = [
+                      h.cuisine,
+                      totalMin > 0 ? `${totalMin} min` : null,
+                      h.difficulty,
+                      h.authorIsFriend ? '[friend]' : h.authorIsExpert ? '[expert]' : null,
+                    ].filter(Boolean).join(' · ');
+                    const byline = h.authorUsername
+                      ? ` — by ${h.authorDisplayName || h.authorUsername} (@${h.authorUsername})`
+                      : '';
+                    return `${i + 1}. ${h.title}  (id: ${h.id})  ${meta}${byline}`;
+                  }).join('\n');
+                  content = `Community recipes matched (${hits.length}):\n${lines}\n\nRecommend any of these via recommend_recipes — the cards will render with the author's name. You can also mention authors by username; names auto-link.`;
+                }
+              } catch (err) {
+                content = `search_community_recipes failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'find_experts') {
+            const input = (tu.input || {}) as { cuisine?: string; city?: string };
+            const cuisine = (input.cuisine || '').trim() || undefined;
+            const city = (input.city || '').trim() || undefined;
+            if (!onFindExperts) {
+              content = 'find_experts is not wired up in this context.';
+            } else {
+              try {
+                const hits = await onFindExperts({ cuisine, city });
+                if (!hits || hits.length === 0) {
+                  const bits = [cuisine, city].filter(Boolean).join(' / ');
+                  content = bits
+                    ? `No experts matched ${bits}. Tell the user honestly nothing came back.`
+                    : 'No experts available right now.';
+                } else {
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
+                  const lines = hits.slice(0, 8).map((h, i) => {
+                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return `${i + 1}. ${bits}`;
+                  }).join('\n');
+                  content = `Found ${hits.length} expert(s):\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles. If the user wants the full list, suggest navigate({ path: '/experts' }).`;
+                }
+              } catch (err) {
+                content = `find_experts failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'navigate') {
+            const input = (tu.input || {}) as { path?: string; label?: string };
+            const path = (input.path || '').trim();
+            const label = (input.label || '').trim();
+            if (!path || !path.startsWith('/')) {
+              content = `navigate requires an absolute path beginning with '/'. Got: "${path}".`;
+            } else if (!onNavigate) {
+              content = 'navigate is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onNavigate(path));
+                if (res.ok) {
+                  // Close the chat shortly after a successful nav so
+                  // the destination page is visible. Defer one tick
+                  // so the agentic loop can still finish processing
+                  // any remaining tool calls in this turn cleanly.
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Navigated to ${label || path}. The chat will close so the user can see the destination.`;
+                } else {
+                  content = res.detail || `Navigation to ${path} failed.`;
+                }
+              } catch (err) {
+                content = `Navigation to ${path} failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_rating_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'open_rating_modal requires a restaurant_id.';
+            } else if (!onOpenRatingModal) {
+              content = 'Rating modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenRatingModal(rid));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the rating modal for the restaurant. ${res.detail || 'The user can now rate it.'}`;
+                } else {
+                  content = res.detail || `Could not open the rating modal for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_rating_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_restaurant_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string; initial_page?: string };
+            const rid = (input.restaurant_id || '').trim();
+            const initialPage = (input.initial_page || '').trim() || undefined;
+            if (!rid) {
+              content = 'open_add_restaurant_modal requires a restaurant_id.';
+            } else if (!onOpenAddRestaurantModal) {
+              content = 'Add Restaurant modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddRestaurantModal(rid, initialPage));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Restaurant flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || `Could not open the Add Restaurant flow for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_add_restaurant_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_to_list_modal') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'open_add_to_list_modal requires a restaurant_id.';
+            } else if (!onOpenAddToListModal) {
+              content = 'Add to List modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddToListModal(rid));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add-to-List picker. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || `Could not open the Add-to-List picker for ${rid}.`;
+                }
+              } catch (err) {
+                content = `open_add_to_list_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'toggle_wishlist') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'toggle_wishlist requires a restaurant_id.';
+            } else if (!onToggleWishlist) {
+              content = 'Wishlist toggle is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onToggleWishlist(rid));
+                content = res.ok
+                  ? (res.detail || 'Wishlist updated.')
+                  : (res.detail || `Could not toggle wishlist for ${rid}.`);
+              } catch (err) {
+                content = `toggle_wishlist failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_recipe_modal') {
+            if (!onOpenAddRecipeModal) {
+              content = 'Add Recipe modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddRecipeModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Recipe flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Recipe flow.';
+                }
+              } catch (err) {
+                content = `open_add_recipe_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_post_modal') {
+            if (!onOpenAddPostModal) {
+              content = 'Add Post modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddPostModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Post flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Post flow.';
+                }
+              } catch (err) {
+                content = `open_add_post_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_add_reel_modal') {
+            const input = (tu.input || {}) as { kind?: 'restaurant' | 'recipe' };
+            if (!onOpenAddReelModal) {
+              content = 'Add Reel modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenAddReelModal(input.kind));
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Reel flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Reel flow.';
+                }
+              } catch (err) {
+                content = `open_add_reel_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_home_meal_modal') {
+            if (!onOpenHomeMealModal) {
+              content = 'Add Recipe modal is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenHomeMealModal());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Add Recipe flow. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Add Recipe flow.';
+                }
+              } catch (err) {
+                content = `open_home_meal_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'open_guide_creator') {
+            if (!onOpenGuideCreator) {
+              content = 'Guide Creator is not wired up in this context.';
+            } else {
+              try {
+                const res = await Promise.resolve(onOpenGuideCreator());
+                if (res.ok) {
+                  setTimeout(() => setOpen(false), 80);
+                  content = `Opened the Guide Creator. ${res.detail || ''}`.trim();
+                } else {
+                  content = res.detail || 'Could not open the Guide Creator.';
+                }
+              } catch (err) {
+                content = `open_guide_creator failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
           } else {
             content = `Unknown tool "${tu.name}".`;
           }
@@ -1139,7 +1545,33 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, onGetCircleRatings, recipeById]);
+  }, [
+    messages,
+    visible,
+    restaurantMeta,
+    origin,
+    filters,
+    cityDisplay,
+    onSearchRestaurants,
+    userContext,
+    onLookupUser,
+    onFindExperts,
+    onSearchCommunityRecipes,
+    onGetCircleRatings,
+    recipeById,
+    currentPath,
+    currentPageLabel,
+    onNavigate,
+    onOpenRatingModal,
+    onOpenAddRestaurantModal,
+    onOpenAddToListModal,
+    onToggleWishlist,
+    onOpenAddRecipeModal,
+    onOpenAddPostModal,
+    onOpenAddReelModal,
+    onOpenHomeMealModal,
+    onOpenGuideCreator,
+  ]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1175,13 +1607,21 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.button
             key="fab"
             type="button"
-            className="lp-chat-fab"
+            className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav')}
             onClick={() => setOpen(true)}
             initial={{ opacity: 0, scale: 0.85, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
+            // Scroll-hide on mobile: while `fabHidden` is true the
+            // button slips down + fades out, but stays mounted so the
+            // pulse animation doesn't restart on every reveal. Click
+            // events are suppressed while it's invisible.
+            animate={fabHidden
+              ? { opacity: 0, scale: 0.8, y: 24 }
+              : { opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.85, y: 8 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            style={{ pointerEvents: fabHidden ? 'none' : 'auto' }}
             aria-label="Open assistant"
+            aria-hidden={fabHidden || undefined}
           >
             <span className="lp-chat-fab-pulse" aria-hidden="true" />
             <Sparkles />
@@ -1401,7 +1841,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             if (!r) {
                               return (
                                 <div key={id} className="lp-chat-card lp-chat-card-missing">
-                                  Recipe not found in your saved list.
+                                  Recipe not found.
                                 </div>
                               );
                             }
@@ -1413,6 +1853,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             const difficulty = r.difficulty
                               ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
                               : '';
+                            // Community recipes carry author metadata
+                            // — show "by @author" so the user knows it
+                            // isn't their own. The user's own recipes
+                            // come through as a Recipe and have no
+                            // authorUsername field.
+                            const author = 'authorUsername' in r ? r.authorUsername : undefined;
+                            const authorDisplay = 'authorDisplayName' in r ? r.authorDisplayName : undefined;
                             return (
                               <button
                                 key={id}
@@ -1436,6 +1883,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                                     {totalMin > 0 && difficulty && <span className="dot">·</span>}
                                     {difficulty && <span>{difficulty}</span>}
                                   </p>
+                                  {author && (
+                                    <p className="lp-chat-card-byline">
+                                      by {authorDisplay || `@${author}`}
+                                    </p>
+                                  )}
                                 </div>
                                 <ChevronRight />
                               </button>

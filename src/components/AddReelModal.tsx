@@ -1087,7 +1087,7 @@ const StepFeatured: React.FC<{
                 <ul className="mt-3 divide-y divide-on-surface/[0.06] rounded-2xl border border-on-surface/[0.06] bg-white max-h-[40vh] overflow-y-auto">
                   {recipePickList.length === 0 ? (
                     <li className="px-3 py-6 text-center text-[12.5px] text-on-surface/45">
-                      You don't have any home cooking recipes yet.
+                      You don't have any recipes yet.
                     </li>
                   ) : (
                     recipePickList.map((r) => (

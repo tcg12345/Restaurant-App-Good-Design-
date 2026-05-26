@@ -553,10 +553,10 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                         </div>
 
                         <p className="text-[11px] text-on-surface/45 leading-relaxed">
-                          Each row gets added to your <span className="italic">Home Cooking</span> list as
-                          a logged meal. Photos must be URLs (https) — to attach local image files, log
-                          the meal directly with the <span className="italic">+</span> button instead. A
-                          <span className="font-mono"> rating</span> becomes the meal's score.
+                          Each row gets added to your <span className="italic">Recipes</span> list as
+                          a saved recipe. Photos must be URLs (https) — to attach local image files,
+                          add the recipe directly with the <span className="italic">+</span> button instead. A
+                          <span className="font-mono"> rating</span> becomes the recipe's score.
                         </p>
                       </div>
                     )}

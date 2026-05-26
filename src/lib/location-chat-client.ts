@@ -62,6 +62,13 @@ export interface ChatRequest {
   filters: ChatFilters;
   city: string;
   userContext?: UserContext;
+  /** Absolute route the user is currently on. Lets Claude tailor
+   *  replies ("you're already on the Pantry page", "I'll take you back
+   *  to Explore"). */
+  currentPath?: string;
+  /** Human-readable label for the current page, e.g. "the Pantry",
+   *  "your Profile", "the Discover feed". */
+  currentPageLabel?: string;
   model?: string;
 }
 

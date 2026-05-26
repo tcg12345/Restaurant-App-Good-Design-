@@ -1009,6 +1009,58 @@ export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]
   } catch (err) { console.error('[Community] getUserPublicHomeMeals exception:', err); return []; }
 }
 
+/** Fetch public home meals across the entire platform — every user
+ *  who has saved at least one home meal. Used by the AI assistant's
+ *  search_community_recipes tool so it can surface recipes from
+ *  people the user doesn't follow yet. Scans up to `userScanLimit`
+ *  rows of user_app_data; results are deduped by meal id and capped
+ *  at `mealLimit`. Excludes the given userId (the asker's own meals
+ *  are already in their RECIPES section).
+ */
+export async function getAllPublicHomeMeals(
+  excludeUserId: string,
+  opts: { userScanLimit?: number; mealLimit?: number } = {},
+): Promise<FriendHomeMeal[]> {
+  if (!supabaseConfigured) return [];
+  const userScanLimit = opts.userScanLimit ?? 200;
+  const mealLimit = opts.mealLimit ?? 60;
+  try {
+    let q = supabase.from('user_app_data')
+      .select('user_id, home_meals, restaurant_meta')
+      .limit(userScanLimit);
+    if (excludeUserId) q = q.neq('user_id', excludeUserId);
+    let { data, error } = await q;
+    if (error) {
+      // Schema without the dedicated column — retry with the fallback shape.
+      let fb = supabase.from('user_app_data')
+        .select('user_id, restaurant_meta')
+        .limit(userScanLimit);
+      if (excludeUserId) fb = fb.neq('user_id', excludeUserId);
+      const fallback = await fb;
+      data = fallback.data as typeof data;
+      error = fallback.error;
+    }
+    if (error || !data) {
+      if (error) console.warn('[Community] getAllPublicHomeMeals error:', error.message);
+      return [];
+    }
+    const out: FriendHomeMeal[] = [];
+    for (const row of data) {
+      const meals = mergeHomeMealSources(row as Record<string, unknown>);
+      for (const meal of meals) {
+        if (meal.isPublic) {
+          out.push({ ...meal, userId: (row as { user_id: string }).user_id });
+        }
+      }
+    }
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    return out.slice(0, mealLimit);
+  } catch (err) {
+    console.error('[Community] getAllPublicHomeMeals exception:', err);
+    return [];
+  }
+}
+
 /** Community ratings that overlap the user's top tags, scoped to a city if provided. */
 export async function getTagSimilarRestaurants(
   myTags: string[],

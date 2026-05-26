@@ -179,6 +179,25 @@ type UnifiedRecipe = {
   date: string;
   updatedAt: string;
   sourceType?: 'user' | 'expert';
+  /* ── Advanced-builder fields (all optional). ────────────────── */
+  /** One-line summary shown under the title on the recipe page. */
+  summary?: string;
+  /** Meal courses, e.g. ['Dinner', 'Side']. Rendered as eyebrow chips. */
+  course?: string[];
+  /** Rest / chill minutes, separate from prep + cook. */
+  chillMinutes?: number;
+  /** Free-text yield label, e.g. "4 generous bowls". */
+  yieldDescription?: string;
+  /** Named ingredient sub-sections (Sauce / Dough / etc.). When present
+   *  and non-empty, RecipePage renders these instead of the flat list. */
+  ingredientGroups?: Array<{ name: string; ingredients: RecipeIngredient[] }>;
+  /** Tools / cookware the reader should have ready. */
+  equipment?: string[];
+  /** Per-step rich details (title, body, duration, tip). When present
+   *  and non-empty, RecipePage uses these instead of the flat strings. */
+  stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
+  /** Labeled callouts (Chef's Tip / Make Ahead / etc.). */
+  notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -221,6 +240,18 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     ...(m.coverPhoto ? [m.coverPhoto] : []),
     ...(m.photos || []).map((p) => p.url).filter(Boolean),
   ];
+  // FriendHomeMeal is HomeMeal + userId; the advanced fields are
+  // declared on HomeMeal so they're present in this type too.
+  const adv = m as FriendHomeMeal & {
+    summary?: string;
+    course?: string[];
+    chillTime?: number;
+    yieldDescription?: string;
+    ingredientGroups?: Array<{ name: string; ingredients: RecipeIngredient[] }>;
+    equipment?: string[];
+    stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
+    notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+  };
   return {
     source: 'homeMeal',
     id: m.id,
@@ -240,6 +271,14 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     servings: m.servings ?? 0,
     date: m.date || '',
     updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+    summary: adv.summary,
+    course: adv.course,
+    chillMinutes: adv.chillTime,
+    yieldDescription: adv.yieldDescription,
+    ingredientGroups: adv.ingredientGroups,
+    equipment: adv.equipment,
+    stepDetails: adv.stepDetails,
+    notes: adv.notes,
     raw: m,
   };
 }
@@ -581,7 +620,7 @@ export const RecipePage: React.FC = () => {
     return out;
   }, [reviews, myReview]);
 
-  const totalMinutes = (data?.prepMinutes || 0) + (data?.cookMinutes || 0);
+  const totalMinutes = (data?.prepMinutes || 0) + (data?.cookMinutes || 0) + (data?.chillMinutes || 0);
 
   // Servings scaling for the ingredient list. Base is the original recipe's
   // serves (≥ 1) so scaling never divides by zero on quirky data.
@@ -743,14 +782,24 @@ export const RecipePage: React.FC = () => {
             {data.cuisine && <span>{data.cuisine}</span>}
             {data.cuisine && data.difficulty && <span className="sep">·</span>}
             {data.difficulty && <span>{DIFFICULTY_LABEL[data.difficulty]}</span>}
+            {data.course && data.course.length > 0 && (
+              <>
+                <span className="sep">·</span>
+                {data.course.slice(0, 3).map((c) => (
+                  <span key={c} className="rd-eyebrow-chip">{c}</span>
+                ))}
+              </>
+            )}
             {data.sourceType === 'expert' && (
               <span className="badge"><Sparkles /> Editor's pick</span>
             )}
           </div>
           <h1 className="rd-hero-title">{data.title}</h1>
-          {data.intro[0] && (
+          {data.summary ? (
+            <p className="rd-hero-byline">{data.summary}</p>
+          ) : data.intro[0] ? (
             <p className="rd-hero-byline">{data.intro[0].length > 180 ? data.intro[0].slice(0, 177) + '…' : data.intro[0]}</p>
-          )}
+          ) : null}
           {(ratingsCount > 0 || data.updatedAt) && (
             <div className="rd-hero-meta-row">
               {ratingsCount > 0 && (
@@ -817,6 +866,14 @@ export const RecipePage: React.FC = () => {
               {data.cookMinutes > 0 ? <>{data.cookMinutes} <span className="unit">min</span></> : '—'}
             </div>
           </div>
+          {data.chillMinutes && data.chillMinutes > 0 && (
+            <div className="rd-stat">
+              <div className="rd-stat-label"><Clock /> Rest</div>
+              <div className="rd-stat-value">
+                {data.chillMinutes} <span className="unit">min</span>
+              </div>
+            </div>
+          )}
           <div className="rd-stat">
             <div className="rd-stat-label"><Clock /> Total</div>
             <div className="rd-stat-value">
@@ -826,6 +883,9 @@ export const RecipePage: React.FC = () => {
           <div className="rd-stat">
             <div className="rd-stat-label"><Users /> Serves</div>
             <div className="rd-stat-value">{data.servings > 0 ? data.servings : '—'}</div>
+            {data.yieldDescription && (
+              <div className="rd-stat-sub">{data.yieldDescription}</div>
+            )}
           </div>
           <div className="rd-stat">
             <div className="rd-stat-label"><Award /> Level</div>
@@ -872,11 +932,23 @@ export const RecipePage: React.FC = () => {
       {/* ── Body: ingredients sidebar + directions ────────────────── */}
       <div className="rd-body">
         <aside className="rd-ingredients">
+          {(() => {
+            // When the recipe was published via the Advanced builder it
+            // carries explicit ingredient groups (Sauce / Dough / etc.).
+            // Otherwise treat the flat list as a single anonymous group
+            // so the render below has a uniform shape. Total count is
+            // the sum across groups either way.
+            const renderGroups = (data.ingredientGroups && data.ingredientGroups.length > 0)
+              ? data.ingredientGroups
+              : [{ name: '', ingredients: data.ingredients }];
+            const totalItems = renderGroups.reduce((sum, g) => sum + g.ingredients.length, 0);
+            return (
+              <>
           <div className="rd-section-head">
             <h2 className="rd-section-title">Ingredients</h2>
-            <span className="rd-section-count">{data.ingredients.length} item{data.ingredients.length === 1 ? '' : 's'}</span>
+            <span className="rd-section-count">{totalItems} item{totalItems === 1 ? '' : 's'}</span>
           </div>
-          {data.ingredients.length === 0 ? (
+          {totalItems === 0 ? (
             <p style={{ marginTop: 16, fontSize: 14, color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--serif)' }}>
               No ingredients listed.
             </p>
@@ -893,30 +965,35 @@ export const RecipePage: React.FC = () => {
                   <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
                 </div>
               </div>
-              <div className="rd-ingr-group">
-                <div className="rd-ingr-list">
-                  {data.ingredients.map((ing, i) => {
-                    const key = `i-${i}`;
-                    const isChecked = checked.has(key);
-                    const qty = formatQty(ing.amount, scale);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={cn('rd-ingr-item', isChecked && 'checked')}
-                        onClick={() => toggleCheck(key)}
-                      >
-                        <span className="check"><Check /></span>
-                        <span className="rd-ingr-text text">
-                          {qty && <span className="qty">{qty}</span>}
-                          {ing.unit && <span className="unit">{ing.unit}</span>}
-                          <span className="name">{ing.name}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
+              {renderGroups.map((group, gi) => (
+                <div className="rd-ingr-group" key={gi}>
+                  {group.name && renderGroups.length > 1 && (
+                    <h3 className="rd-ingr-group-title">{group.name}</h3>
+                  )}
+                  <div className="rd-ingr-list">
+                    {group.ingredients.map((ing, ii) => {
+                      const key = `g-${gi}-i-${ii}`;
+                      const isChecked = checked.has(key);
+                      const qty = formatQty(ing.amount, scale);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className={cn('rd-ingr-item', isChecked && 'checked')}
+                          onClick={() => toggleCheck(key)}
+                        >
+                          <span className="check"><Check /></span>
+                          <span className="rd-ingr-text text">
+                            {qty && <span className="qty">{qty}</span>}
+                            {ing.unit && <span className="unit">{ing.unit}</span>}
+                            <span className="name">{ing.name}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ))}
               <div className="rd-ingr-actions">
                 <button type="button" className="rd-ingr-action" onClick={() => showToast('Coming soon')}>
                   <Plus /> Add to list
@@ -927,6 +1004,9 @@ export const RecipePage: React.FC = () => {
               </div>
             </>
           )}
+              </>
+            );
+          })()}
         </aside>
 
         <section className="rd-main-col">
@@ -943,46 +1023,107 @@ export const RecipePage: React.FC = () => {
             </button>
           </div>
 
-          {data.steps.length === 0 ? (
-            <p style={{ fontSize: 15, color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--serif)' }}>
-              No directions yet.
-            </p>
-          ) : (
-            <ol className="rd-steps">
-              {data.steps.map((step, i) => {
-                const split = splitStep(step);
-                const timer = extractStepMs(step);
-                const isDone = doneSteps.has(i);
-                return (
-                  <li key={i} className={cn('rd-step', isDone && 'done')}>
-                    <div className="rd-step-num-wrap">
-                      <div className="rd-step-num">{String(i + 1).padStart(2, '0')}</div>
-                      <button
-                        type="button"
-                        className="rd-step-check"
-                        onClick={() => toggleStep(i)}
-                        title={isDone ? 'Mark as not done' : 'Mark as done'}
-                        aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
-                      >
-                        <Check />
-                      </button>
-                    </div>
-                    <div className="rd-step-content">
-                      {split.title && <h3 className="rd-step-title">{split.title}</h3>}
-                      <p className="rd-step-body">{split.body || step}</p>
-                      {timer && (
-                        <div className="rd-step-meta">
-                          <StepTimerButton label={timer.label} durationMs={timer.ms} />
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+          {/* Equipment row — only renders for recipes that have it.
+              Sits between the Directions header and the first step,
+              same editorial card style as the cookbook reference. */}
+          {data.equipment && data.equipment.length > 0 && (
+            <div className="rd-equipment-card">
+              <span className="rd-equipment-card-label">Equipment</span>
+              <ul className="rd-equipment-card-list">
+                {data.equipment.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </div>
           )}
+
+          {(() => {
+            // Prefer rich stepDetails when present (Advanced builder).
+            // Otherwise derive the same shape from the flat string list
+            // so the rest of this branch can render uniformly.
+            const richSteps = (data.stepDetails && data.stepDetails.length > 0)
+              ? data.stepDetails
+              : data.steps.map((s) => {
+                  const split = splitStep(s);
+                  const timer = extractStepMs(s);
+                  return {
+                    title: split.title || undefined,
+                    body: split.body || s,
+                    durationMin: timer ? Math.round(timer.ms / 60000) : undefined,
+                    tip: undefined as string | undefined,
+                  };
+                });
+            if (richSteps.length === 0) {
+              return (
+                <p style={{ fontSize: 15, color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--serif)' }}>
+                  No directions yet.
+                </p>
+              );
+            }
+            return (
+              <ol className="rd-steps">
+                {richSteps.map((step, i) => {
+                  const isDone = doneSteps.has(i);
+                  return (
+                    <li key={i} className={cn('rd-step', isDone && 'done')}>
+                      <div className="rd-step-num-wrap">
+                        <div className="rd-step-num">{String(i + 1).padStart(2, '0')}</div>
+                        <button
+                          type="button"
+                          className="rd-step-check"
+                          onClick={() => toggleStep(i)}
+                          title={isDone ? 'Mark as not done' : 'Mark as done'}
+                          aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                        >
+                          <Check />
+                        </button>
+                      </div>
+                      <div className="rd-step-content">
+                        {step.title && <h3 className="rd-step-title">{step.title}</h3>}
+                        <p className="rd-step-body">{step.body}</p>
+                        {step.durationMin !== undefined && step.durationMin > 0 && (
+                          <div className="rd-step-meta">
+                            <StepTimerButton
+                              label={`${step.durationMin} min`}
+                              durationMs={step.durationMin * 60_000}
+                            />
+                          </div>
+                        )}
+                        {step.tip && (
+                          <div className="rd-step-tip">
+                            <span className="rd-step-tip-label">Tip</span>
+                            <span className="rd-step-tip-text">{step.tip}</span>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            );
+          })()}
         </section>
       </div>
+
+      {/* ── Notes from the kitchen (Advanced builder typed callouts) ── */}
+      {data.notes && data.notes.length > 0 && (
+        <section className="rd-notes">
+          <h2 className="rd-section-title">Notes from the kitchen</h2>
+          <div className="rd-notes-list">
+            {data.notes.map((n, i) => (
+              <div key={i} className="rd-note-card" data-type={n.type}>
+                <span className="rd-note-card-label">
+                  {n.type === 'tip' ? "Chef's tip"
+                    : n.type === 'makeAhead' ? 'Make ahead'
+                    : n.type === 'substitution' ? 'Substitution'
+                    : 'Note'}
+                </span>
+                <p className="rd-note-card-text">{n.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Author bio ────────────────────────────────────────────── */}
       {authorProfile && (
@@ -1734,6 +1875,18 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           Directions
           <span className="count">{data.steps.length} step{data.steps.length === 1 ? '' : 's'}</span>
         </h2>
+        {/* Equipment card — sits between the Directions title and the
+            first step on phone too, but stacked vertically to fit. */}
+        {data.equipment && data.equipment.length > 0 && (
+          <div className="rd-equipment-card">
+            <span className="rd-equipment-card-label">Equipment</span>
+            <ul className="rd-equipment-card-list">
+              {data.equipment.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {data.steps.length === 0 ? (
           <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
             No directions yet.

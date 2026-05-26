@@ -164,6 +164,29 @@ export interface HomeMealDish {
   recipeLink: string;      // optional URL
 }
 
+/** A named sub-group within an ingredient list — populated by the
+ *  Advanced builder when the recipe wants "Sauce" / "Dough" sections. */
+export interface RecipeIngredientGroup {
+  name: string;
+  ingredients: RecipeIngredient[];
+}
+
+/** Typed note rendered as a labeled callout on the recipe page.
+ *  Different types use different accent colors so readers can scan. */
+export interface RecipeNote {
+  type: 'tip' | 'makeAhead' | 'substitution' | 'general';
+  text: string;
+}
+
+/** Rich step shape with optional duration + tip. Advanced builder writes
+ *  these; basic flat `steps[]` is still kept in sync for legacy consumers. */
+export interface RecipeStepDetail {
+  title?: string;
+  body: string;
+  durationMin?: number;
+  tip?: string;
+}
+
 export interface HomeMeal {
   id: string;
   name: string;
@@ -184,6 +207,35 @@ export interface HomeMeal {
   cuisine?: string;
   ingredients?: RecipeIngredient[];
   steps?: string[];
+
+  /* ── Advanced recipe builder fields (all optional). ─────────────
+     Populated only when the user publishes via the Advanced tab.
+     RecipePage prefers these when present and falls back to the
+     legacy flat fields above so existing meals render unchanged. */
+  /** One-line summary shown under the title on the recipe page. */
+  summary?: string;
+  /** Meal courses, e.g. ['Dinner', 'Side']. Rendered as chips. */
+  course?: string[];
+  /** Rest / chill minutes, separate from prep + cook. */
+  chillTime?: number;
+  /** Free-text yield label, e.g. "4 generous bowls" or "12 cookies". */
+  yieldDescription?: string;
+  /** Grouped ingredient sections. When present and non-empty,
+   *  supersedes the flat `ingredients` array for rendering. The
+   *  Advanced publish path also dual-writes the flat list so older
+   *  consumers (SocialFeed, Discover) keep working. */
+  ingredientGroups?: RecipeIngredientGroup[];
+  /** Tools / cookware the reader should have ready. */
+  equipment?: string[];
+  /** Labeled callouts (Chef's Tip, Make Ahead, etc.). */
+  notes?: RecipeNote[];
+  /** Per-step rich details (title, body, duration, tip). When present
+   *  and non-empty, supersedes the flat `steps` array for rendering.
+   *  Advanced publish also dual-writes the flat list. */
+  stepDetails?: RecipeStepDetail[];
+  /** Which builder produced this meal. Used to force-route edits back
+   *  to the Advanced tab so rich fields can round-trip safely. */
+  builderVersion?: 'basic' | 'advanced';
 }
 
 interface ListsContextValue {

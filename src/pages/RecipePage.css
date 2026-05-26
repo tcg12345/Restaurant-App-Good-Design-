@@ -835,6 +835,194 @@
   color: var(--muted);
 }
 
+/* ============ ADVANCED-BUILDER ADDITIONS ============
+   Course chips, equipment card, grouped ingredient sub-headings,
+   per-step tip callouts, yield sub-label, typed notes. Each only
+   renders when its field is populated; old recipes are unaffected. */
+
+.recipe-detail-page .rd-eyebrow-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-right: 4px;
+}
+
+.recipe-detail-page .rd-stat-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  font-family: var(--serif);
+}
+
+/* Equipment row — sits inside the Directions column between the
+   "Cook mode" header and the first step. Single bordered card with a
+   small uppercase EQUIPMENT label on the left and a flex-wrapping
+   list of items, each leading with a rust-accent bullet. Matches the
+   editorial cookbook reference in the spec. */
+.recipe-detail-page .rd-equipment-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 18px 22px;
+  margin: 0 0 36px;
+  background: #ffffff;
+  border: 1px solid var(--ink, #1f1a17);
+  border-radius: 20px;
+  font-family: var(--sans);
+  line-height: 1.4;
+}
+.recipe-detail-page .rd-equipment-card-label {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  padding-top: 2px;
+  /* Roughly aligns the label to the first item's text baseline. */
+}
+.recipe-detail-page .rd-equipment-card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 26px;
+  row-gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  color: var(--ink, #1f1a17);
+}
+.recipe-detail-page .rd-equipment-card-list li {
+  position: relative;
+  padding-left: 14px;
+}
+.recipe-detail-page .rd-equipment-card-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--accent, #A8392A);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .recipe-detail-page .rd-equipment-card {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+    margin-bottom: 24px;
+  }
+  .recipe-detail-page .rd-equipment-card-label {
+    padding-top: 0;
+  }
+  .recipe-detail-page .rd-equipment-card-list {
+    column-gap: 18px;
+    font-size: 14.5px;
+  }
+}
+
+.recipe-detail-page .rd-ingr-group + .rd-ingr-group { margin-top: 22px; }
+.recipe-detail-page .rd-ingr-group-title {
+  margin: 0 0 10px;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-transform: none;
+}
+
+.recipe-detail-page .rd-step-tip {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px 8px 8px 4px;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--ink-2);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.recipe-detail-page .rd-step-tip-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-style: normal;
+  flex-shrink: 0;
+}
+.recipe-detail-page .rd-step-tip-text { color: var(--ink-2); }
+
+.recipe-detail-page .rd-notes {
+  max-width: 1320px;
+  margin: 48px auto 0;
+  padding: 0 32px;
+}
+.recipe-detail-page .rd-notes .rd-section-title { margin-bottom: 14px; }
+.recipe-detail-page .rd-notes-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+.recipe-detail-page .rd-note-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px 12px 12px 4px;
+  padding: 16px 18px;
+}
+.recipe-detail-page .rd-note-card[data-type='makeAhead'] { border-left-color: var(--green); }
+.recipe-detail-page .rd-note-card[data-type='substitution'] { border-left-color: var(--gold); }
+.recipe-detail-page .rd-note-card[data-type='general'] { border-left-color: var(--ink-3, var(--ink-2)); }
+.recipe-detail-page .rd-note-card-label {
+  display: inline-block;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.recipe-detail-page .rd-note-card[data-type='makeAhead'] .rd-note-card-label { color: var(--green); }
+.recipe-detail-page .rd-note-card[data-type='substitution'] .rd-note-card-label { color: var(--gold); }
+.recipe-detail-page .rd-note-card[data-type='general'] .rd-note-card-label { color: var(--ink-3, var(--ink-2)); }
+.recipe-detail-page .rd-note-card-text {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+@media (max-width: 768px) {
+  .recipe-detail-page .rd-equipment {
+    margin: 32px 16px 0;
+    padding: 18px 20px;
+  }
+  .recipe-detail-page .rd-notes {
+    padding: 0 16px;
+  }
+}
+
 /* ============ AUTHOR BIO ============ */
 .recipe-detail-page .rd-author-bio {
   max-width: 1320px;

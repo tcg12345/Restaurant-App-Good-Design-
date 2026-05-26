@@ -1,14 +1,15 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, type PanInfo } from 'motion/react';
-import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video, BookOpen } from 'lucide-react';
+import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video, BookOpen, ChefHat, UtensilsCrossed } from 'lucide-react';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
+import { useLists } from '../contexts/ListsContext';
 import { cn } from '../lib/utils';
 
-type Mode = 'post' | 'reel' | 'guide';
-const MODES: Mode[] = ['post', 'reel', 'guide'];
+type Mode = 'post' | 'reel' | 'guide' | 'recipe';
+const MODES: Mode[] = ['post', 'reel', 'guide', 'recipe'];
 
 interface ModeMeta {
   label: string;
@@ -60,12 +61,28 @@ const MODE_META: Record<Mode, ModeMeta> = {
     ),
     cta: 'Start Guide',
   },
+  recipe: {
+    label: 'Recipe',
+    title: 'Add a Recipe',
+    description: 'Save a dish you cook at home — ingredients, steps, and a hero photo. Publish privately or share with friends.',
+    icon: <ChefHat size={28} />,
+    preview: (
+      <div className="relative w-44 h-56 rounded-2xl overflow-hidden border border-on-surface/[0.08] bg-gradient-to-br from-amber-50 to-rose-100 flex flex-col justify-end p-3 text-stone-900/80">
+        <UtensilsCrossed size={26} className="absolute top-3 right-3 text-stone-900/30" />
+        <span className="text-[9px] font-bold uppercase tracking-[0.22em] mb-1 opacity-60">Italian · Easy</span>
+        <span className="font-serif font-bold text-[15px] leading-tight">Spaghetti alla Carbonara</span>
+        <span className="text-[10px] opacity-60 mt-1">6 ingredients · 25 min</span>
+      </div>
+    ),
+    cta: 'Start Recipe',
+  },
 };
 
 export const Create: React.FC = () => {
   const navigate = useNavigate();
   const { openAddPostModal } = usePosts();
   const { openAddReelModal } = useReels();
+  const { openHomeMealModal } = useLists();
 
   const [mode, setMode] = useState<Mode>('post');
   const { openGuideCreator } = useGuideCreator();
@@ -76,7 +93,8 @@ export const Create: React.FC = () => {
   const begin = () => {
     if (mode === 'post') openAddPostModal();
     else if (mode === 'reel') openAddReelModal();
-    else openGuideCreator();
+    else if (mode === 'guide') openGuideCreator();
+    else openHomeMealModal();
   };
 
   // Horizontal swipe on the content area changes mode — same gesture
@@ -88,7 +106,7 @@ export const Create: React.FC = () => {
 
   // Measure each tab so the underline indicator slides cleanly between
   // them regardless of label length / font metrics.
-  const tabRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ post: null, reel: null, guide: null });
+  const tabRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ post: null, reel: null, guide: null, recipe: null });
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [indicator, setIndicator] = useState<{ x: number; w: number }>({ x: 0, w: 0 });
   useLayoutEffect(() => {
