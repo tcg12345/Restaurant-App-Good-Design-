@@ -7,13 +7,14 @@
  *
  * Steps:
  *   1. type        — Restaurants vs Recipes
- *   2. seed        — pick a source (saved list / rated places / search /
+ *   2. cover       — Cover photo.
+ *   3. details     — Title, subtitle, intro, tags.
+ *   4. seed        — pick a source (saved list / rated places / search /
  *                    recipes-list / recipes-my). Each option opens a
  *                    sub-page (back-to-picker) to pick individual items.
- *   3. meta        — Cover, title, subtitle, intro, tags.
- *   4. entries     — Reorderable list of entries with inline detail edit.
- *   5. visibility  — Public / Private.
- *   6. review      — Mini-detail preview with click-to-edit jumps.
+ *   5. entries     — Reorderable list of entries with inline detail edit.
+ *   6. visibility  — Public / Private.
+ *   7. review      — Mini-detail preview with click-to-edit jumps.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,7 +31,7 @@ import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type 
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import './GuideCreatorSheet.css';
 
-type Step = 'type' | 'seed' | 'meta' | 'entries' | 'visibility' | 'review';
+type Step = 'type' | 'cover' | 'details' | 'seed' | 'entries' | 'visibility' | 'review';
 type SeedMode = 'list' | 'rated' | 'search' | 'recipes-list' | 'recipes-my';
 
 interface GuideCreatorSheetProps {
@@ -39,19 +40,21 @@ interface GuideCreatorSheetProps {
   initialGuide?: Guide | null;
 }
 
-const STEPS_ORDER: Step[] = ['type', 'seed', 'meta', 'entries', 'visibility', 'review'];
+const STEPS_ORDER: Step[] = ['type', 'cover', 'details', 'seed', 'entries', 'visibility', 'review'];
 const STEP_LABELS: Record<Step, string> = {
   type: 'Type',
+  cover: 'Cover photo',
+  details: 'Details',
   seed: 'Add entries',
-  meta: 'Cover & details',
   entries: 'Arrange entries',
   visibility: 'Visibility',
   review: 'Review & publish',
 };
 const NEXT_LABELS: Record<Exclude<Step, 'review'>, string> = {
-  type: 'Add entries',
-  seed: 'Cover & details',
-  meta: 'Arrange entries',
+  type: 'Cover photo',
+  cover: 'Details',
+  details: 'Add entries',
+  seed: 'Arrange entries',
   entries: 'Visibility',
   visibility: 'Review & publish',
 };
@@ -154,12 +157,14 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
 
   /* ── Per-step gate ────────────────────────────────────────────── */
   const gate: { ok: boolean; reason?: string } = (() => {
+    if (step === 'cover' && !coverPhoto) {
+      return { ok: false, reason: 'Pick a cover photo before moving on.' };
+    }
+    if (step === 'details' && !title.trim()) {
+      return { ok: false, reason: 'Give your guide a title before moving on.' };
+    }
     if (step === 'seed' && entries.length === 0) {
       return { ok: false, reason: 'Add at least one entry from a source before moving on.' };
-    }
-    if (step === 'meta') {
-      if (!title.trim()) return { ok: false, reason: 'Give your guide a title before moving on.' };
-      if (!coverPhoto) return { ok: false, reason: 'Pick a cover photo before moving on.' };
     }
     if (step === 'entries' && entries.length === 0) {
       return { ok: false, reason: 'Add at least one entry before moving on.' };
@@ -286,8 +291,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   };
 
   const onPublish = async () => {
-    if (!title.trim()) { showToast('Add a title first'); setStep('meta'); return; }
-    if (!coverPhoto) { showToast('Pick a cover photo'); setStep('meta'); return; }
+    if (!coverPhoto) { showToast('Pick a cover photo'); setStep('cover'); return; }
+    if (!title.trim()) { showToast('Add a title first'); setStep('details'); return; }
     if (entries.length === 0) { showToast('Add at least one entry'); setStep('entries'); return; }
     const saved = await persist(true);
     if (saved) {
@@ -307,6 +312,31 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     switch (step) {
       case 'type':
         return <StepType type={type} onChange={setType} />;
+      case 'cover':
+        return (
+          <StepCover
+            coverPhoto={coverPhoto}
+            entries={entries}
+            onPickCoverFromFile={() => coverInputRef.current?.click()}
+            onPickCoverFromEntry={(img) => setCoverPhoto(img)}
+            onClearCover={() => setCoverPhoto('')}
+          />
+        );
+      case 'details':
+        return (
+          <StepDetails
+            title={title}
+            subtitle={subtitle}
+            intro={intro}
+            tags={tags}
+            onTitle={setTitle}
+            onSubtitle={setSubtitle}
+            onIntro={setIntro}
+            onToggleTag={(t) => setTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
+            onAddTag={(t) => setTags((prev) => prev.includes(t) ? prev : [...prev, t])}
+            onRemoveTag={(t) => setTags((prev) => prev.filter((x) => x !== t))}
+          />
+        );
       case 'seed':
         return (
           <StepSeed
@@ -369,26 +399,6 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             addedRefIds={new Set(entries.map((e) => e.refId))}
           />
         );
-      case 'meta':
-        return (
-          <StepMeta
-            title={title}
-            subtitle={subtitle}
-            intro={intro}
-            tags={tags}
-            coverPhoto={coverPhoto}
-            entries={entries}
-            onTitle={setTitle}
-            onSubtitle={setSubtitle}
-            onIntro={setIntro}
-            onToggleTag={(t) => setTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
-            onAddTag={(t) => setTags((prev) => prev.includes(t) ? prev : [...prev, t])}
-            onRemoveTag={(t) => setTags((prev) => prev.filter((x) => x !== t))}
-            onPickCoverFromFile={() => coverInputRef.current?.click()}
-            onPickCoverFromEntry={(img) => setCoverPhoto(img)}
-            onClearCover={() => setCoverPhoto('')}
-          />
-        );
       case 'entries':
         return (
           <StepEntries
@@ -431,7 +441,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             includePhotos={includePhotos}
             visibility={visibility}
             onEditField={(target) => {
-              if (target === 'cover' || target === 'title' || target === 'intro' || target === 'tags') setStep('meta');
+              if (target === 'cover') setStep('cover');
+              else if (target === 'title' || target === 'intro' || target === 'tags') setStep('details');
               else if (target === 'entries') setStep('entries');
               else if (target === 'visibility') setStep('visibility');
             }}
@@ -1029,32 +1040,22 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
   return null;
 };
 
-/* ── Step: Meta (cover + title + intro + tags) ────────────────────── */
+/* ── Step: Cover photo ────────────────────────────────────────────── */
 
-interface StepMetaProps {
-  title: string;
-  subtitle: string;
-  intro: string;
-  tags: string[];
+interface StepCoverProps {
   coverPhoto: string;
   entries: GuideEntry[];
-  onTitle: (v: string) => void;
-  onSubtitle: (v: string) => void;
-  onIntro: (v: string) => void;
-  onToggleTag: (t: string) => void;
-  onAddTag: (t: string) => void;
-  onRemoveTag: (t: string) => void;
   onPickCoverFromFile: () => void;
   onPickCoverFromEntry: (img: string) => void;
   onClearCover: () => void;
 }
 
-const StepMeta: React.FC<StepMetaProps> = ({ title, subtitle, intro, tags, coverPhoto, entries, onTitle, onSubtitle, onIntro, onToggleTag, onAddTag, onRemoveTag, onPickCoverFromFile, onPickCoverFromEntry, onClearCover }) => {
-  const [tagDraft, setTagDraft] = useState('');
+const StepCover: React.FC<StepCoverProps> = ({ coverPhoto, entries, onPickCoverFromFile, onPickCoverFromEntry, onClearCover }) => {
   const entryThumbs = entries.filter((e) => !!e.image).slice(0, 8);
 
   return (
     <>
+      <p className="gc-pane-intro">Pick a cover photo — it sets the tone for the whole guide.</p>
       <div className="gc-field">
         <div className="gc-label">
           Cover photo <span className="req">required</span>
@@ -1095,7 +1096,33 @@ const StepMeta: React.FC<StepMetaProps> = ({ title, subtitle, intro, tags, cover
           </div>
         )}
       </div>
+    </>
+  );
+};
 
+/* ── Step: Details (title + subtitle + intro + tags) ──────────────── */
+
+interface StepDetailsProps {
+  title: string;
+  subtitle: string;
+  intro: string;
+  tags: string[];
+  onTitle: (v: string) => void;
+  onSubtitle: (v: string) => void;
+  onIntro: (v: string) => void;
+  onToggleTag: (t: string) => void;
+  onAddTag: (t: string) => void;
+  onRemoveTag: (t: string) => void;
+}
+
+const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, tags, onTitle, onSubtitle, onIntro, onToggleTag, onAddTag, onRemoveTag }) => {
+  const [tagDraft, setTagDraft] = useState('');
+  const tagDraftTrimmed = tagDraft.trim().toLowerCase();
+  const tagSuggestions = TAG_SUGGESTIONS.filter((t) => !tags.includes(t))
+    .filter((t) => tagDraftTrimmed === '' || t.toLowerCase().includes(tagDraftTrimmed));
+
+  return (
+    <>
       <div className="gc-field">
         <div className="gc-label">
           Title <span className="req">required</span>
@@ -1165,18 +1192,20 @@ const StepMeta: React.FC<StepMetaProps> = ({ title, subtitle, intro, tags, cover
             style={{ minWidth: 180 }}
           />
         </div>
-        <div className="gc-chip-row">
-          {TAG_SUGGESTIONS.filter((t) => !tags.includes(t)).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => onToggleTag(t)}
-              className="gc-chip"
-            >
-              + {t}
-            </button>
-          ))}
-        </div>
+        {tagSuggestions.length > 0 && (
+          <div className="gc-chip-row">
+            {tagSuggestions.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { onToggleTag(t); setTagDraft(''); }}
+                className="gc-chip"
+              >
+                + {t}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );
