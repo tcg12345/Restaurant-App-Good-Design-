@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -36,7 +36,7 @@ export const SIDEBAR_COLLAPSED_WIDTH = 72;
 export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { profile } = useAuth();
-  const { ratings } = useLists();
+  const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
   const { openAddReelModal } = useReels();
   const { openAddPostModal } = usePosts();
@@ -229,6 +229,21 @@ export const Sidebar: React.FC = () => {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-bold leading-tight">Guide</span>
                   <span className="block text-[12px] text-on-surface/50 leading-tight">Curated restaurants or recipes</span>
+                </span>
+              </button>
+              <div className="border-t border-on-surface/[0.06]" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openHomeMealModal(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  <ChefHat size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Recipe</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Cook from home — ingredients &amp; steps</span>
                 </span>
               </button>
             </motion.div>

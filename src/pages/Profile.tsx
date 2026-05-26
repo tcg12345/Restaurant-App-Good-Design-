@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1177,6 +1177,21 @@ export const Profile: React.FC = () => {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-bold leading-tight">Guide</span>
                     <span className="block text-[11px] text-on-surface/50 leading-tight">Curated restaurants or recipes</span>
+                  </span>
+                </button>
+                <div className="border-t border-on-surface/[0.06]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); listsCtx.openHomeMealModal(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <ChefHat size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Recipe</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Cook from home — ingredients &amp; steps</span>
                   </span>
                 </button>
               </motion.div>
