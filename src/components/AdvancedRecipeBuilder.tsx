@@ -65,24 +65,52 @@ export interface AdvancedRecipeState {
   isPublic: boolean;
 }
 
-const STEP_LABELS: Array<{ title: string }> = [
-  { title: 'The basics' },
-  { title: 'Timing & yield' },
-  { title: 'Ingredients' },
-  { title: 'Method' },
-  { title: 'Equipment & notes' },
-  { title: 'Review & publish' },
+/** Step rail / mobile-header label. The accent word renders italic +
+ *  rust ("The *basics*.") inside the big serif title. */
+const STEP_LABELS: Array<{ lead: string; accent: string }> = [
+  { lead: 'The', accent: 'basics' },
+  { lead: 'Timing &', accent: 'yield' },
+  { lead: 'The', accent: 'ingredients' },
+  { lead: 'The', accent: 'method' },
+  { lead: 'Equipment &', accent: 'notes' },
+  { lead: 'Review &', accent: 'publish' },
+];
+/** Short, plain title for places that don't render the accent word
+ *  (rail step list, mobile header eyebrow, footer "NEXT UP" label). */
+const STEP_TITLES = ['The basics', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
+const STEP_DESCRIPTIONS = [
+  'Name, cuisine, difficulty',
+  'Prep, cook, servings',
+  'Grouped or flat list',
+  'Steps in order',
+  'Tools & callouts',
+  'Preview & publish',
+];
+const STEP_INTROS = [
+  'Start with the essentials. You can change any of this later — readers care about clarity most.',
+  'Be realistic about how long this takes. Tell the truth and your reviews will thank you.',
+  'Group ingredients by stage when it makes sense (For the sauce, For the topping).',
+  'Walk a reader through what you actually do. One action per step, named clearly.',
+  'Tools you reach for, plus any tips, swaps, or make-ahead notes worth flagging.',
+  'Skim it the way a reader will. Tweak anything that looks off, then publish.',
 ];
 const NEXT_LABELS = ['Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
 
-/** Cuisine catalog — kept tight so the dropdown stays scannable.
- *  Matches the basic modal's loose "type whatever" semantics by
- *  allowing free-text fallback. */
+/** Cuisine catalog — ~90 entries, matches the "Search 90+ cuisines…"
+ *  placeholder in the mobile bottom-sheet picker. The basic modal still
+ *  accepts free text; this list is just the picker's options. */
 export const CUISINE_OPTIONS = [
-  'American', 'Italian', 'Mexican', 'Chinese', 'Japanese', 'Korean', 'Thai', 'Vietnamese',
-  'Indian', 'French', 'Spanish', 'Greek', 'Mediterranean', 'Middle Eastern', 'Caribbean',
-  'Latin American', 'BBQ', 'Soul Food', 'Cajun', 'Seafood', 'Vegetarian', 'Vegan',
-  'Breakfast', 'Bakery', 'Dessert', 'Fusion', 'Other',
+  'Afghan', 'African', 'American', 'Argentinian', 'Australian', 'Austrian', 'Bakery', 'Bangladeshi',
+  'Basque', 'BBQ', 'Belgian', 'Brazilian', 'Breakfast', 'British', 'Burmese', 'Cajun', 'Cambodian',
+  'Cantonese', 'Caribbean', 'Chinese', 'Colombian', 'Creole', 'Cuban', 'Dessert', 'Dutch', 'Egyptian',
+  'Ethiopian', 'Filipino', 'French', 'Fusion', 'Georgian', 'German', 'Greek', 'Hawaiian', 'Hungarian',
+  'Indian', 'Indonesian', 'Iranian', 'Irish', 'Israeli', 'Italian', 'Jamaican', 'Japanese', 'Jewish',
+  'Korean', 'Latin American', 'Lebanese', 'Malaysian', 'Mediterranean', 'Mexican', 'Middle Eastern',
+  'Moroccan', 'Nepalese', 'Nigerian', 'Nordic', 'Pakistani', 'Peruvian', 'Polish', 'Portuguese',
+  'Puerto Rican', 'Russian', 'Salvadoran', 'Scandinavian', 'Scottish', 'Seafood', 'Senegalese',
+  'Sicilian', 'Singaporean', 'Soul Food', 'Southern', 'Spanish', 'Sri Lankan', 'Sushi', 'Swedish',
+  'Swiss', 'Syrian', 'Taiwanese', 'Tex-Mex', 'Thai', 'Tibetan', 'Trinidadian', 'Tunisian', 'Turkish',
+  'Ukrainian', 'Uyghur', 'Vegan', 'Vegetarian', 'Venezuelan', 'Vietnamese', 'Welsh', 'Yemeni', 'Other',
 ];
 
 export const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Drinks', 'Appetizer', 'Side'];
@@ -611,6 +639,60 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         </button>
       )}
 
+      {/* Mobile sticky header — replaces the desktop rail. */}
+      {isPhone && (
+        <header className="arb-m-header">
+          <div className="arb-m-header-row">
+            <button
+              type="button"
+              className="arb-m-header-close"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+            <div className="arb-m-header-titleblock">
+              <div className="arb-m-header-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
+              <div className="arb-m-header-title">{STEP_TITLES[currentStep]}</div>
+            </div>
+            <div className="arb-m-header-saveblock">
+              <div className="arb-m-saved-pill">
+                <span className="dot" />
+                <span>{draftSavedAt ? 'Saved' : 'Unsaved'}</span>
+              </div>
+              <button
+                type="button"
+                className="arb-m-save-link"
+                onClick={handleSaveDraft}
+              >
+                Save to drafts
+              </button>
+            </div>
+          </div>
+          <div className="arb-m-header-sub">
+            <span className="arb-m-header-desc">{STEP_DESCRIPTIONS[currentStep]}</span>
+            <span className="arb-m-header-counter">
+              Step <span className="strong">{currentStep + 1}</span> / 6
+            </span>
+          </div>
+          <div className="arb-m-progress-row">
+            {STEP_TITLES.map((_, i) => {
+              const isDone = i < currentStep;
+              const isCurrent = i === currentStep;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className={`arb-m-progress-seg${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
+                  onClick={() => handleJumpTo(i)}
+                  aria-label={`Step ${i + 1}: ${STEP_TITLES[i]}`}
+                />
+              );
+            })}
+          </div>
+        </header>
+      )}
+
       <div className="arb-shell">
         {/* Desktop left rail. */}
         {!isPhone && (
@@ -619,7 +701,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             <div className="arb-rail-title">Let's build a <em>recipe</em>.</div>
             {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
             <ol className="arb-rail-steps">
-              {STEP_LABELS.map((s, i) => {
+              {STEP_TITLES.map((t, i) => {
                 const isDone = i < currentStep;
                 const isCurrent = i === currentStep;
                 return (
@@ -633,7 +715,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
                       {isDone ? <Check size={14} strokeWidth={3} /> : i + 1}
                     </span>
                     <span className="arb-rail-step-text">
-                      <span className="arb-rail-step-title">{s.title}</span>
+                      <span className="arb-rail-step-title">{t}</span>
                     </span>
                   </button>
                 );
@@ -652,40 +734,17 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           </nav>
         )}
 
-        {/* Phone progress strip + close button. */}
-        {isPhone && (
-          <div className="arb-phone-strip">
-            <div className="arb-phone-strip-progress">
-              {STEP_LABELS.map((s, i) => {
-                const isDone = i < currentStep;
-                const isCurrent = i === currentStep;
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`arb-phone-strip-dot${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
-                    onClick={() => handleJumpTo(i)}
-                    aria-label={`Step ${i + 1}: ${s.title}`}
-                  >
-                    {isDone ? <Check size={14} strokeWidth={3} /> : i + 1}
-                  </button>
-                );
-              })}
-              <span className="arb-phone-strip-label">{STEP_LABELS[currentStep].title}</span>
-            </div>
-            <button type="button" className="arb-phone-strip-close" onClick={onClose} aria-label="Close">
-              <X size={18} />
-            </button>
-          </div>
-        )}
-
         {/* Step pane. */}
         <div className="arb-pane">
           <div className="arb-pane-head">
             <div className="arb-pane-eyebrow">
               Step <span className="strong">{currentStep + 1}</span> of 6
             </div>
-            <h2 className="arb-pane-title">{STEP_LABELS[currentStep].title}</h2>
+            <h2 className="arb-pane-title">
+              {STEP_LABELS[currentStep].lead}{' '}
+              <span className="arb-pane-title-accent">{STEP_LABELS[currentStep].accent}</span>.
+            </h2>
+            <p className="arb-pane-intro">{STEP_INTROS[currentStep]}</p>
           </div>
           <div className="arb-pane-body">
             {renderStep()}
@@ -705,35 +764,77 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               </div>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Sticky footer. */}
-      <div className="arb-foot">
-        <button type="button" className="arb-foot-back" onClick={handleBack} disabled={currentStep === 0}>
-          <ArrowLeft size={16} /> Back
-        </button>
-        <div className="arb-foot-right">
-          <button type="button" className="arb-foot-save" onClick={handleSaveDraft}>
-            Save draft
-          </button>
-          {currentStep < 5 ? (
-            <button
-              type="button"
-              className="arb-foot-next"
-              onClick={handleNext}
-              disabled={!gate.ok}
-              title={gate.ok ? undefined : gate.reason}
-            >
-              Next: {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
-            </button>
-          ) : (
-            <button type="button" className="arb-foot-publish" onClick={handlePublish}>
-              {existing ? 'Save changes' : 'Publish recipe'}
-            </button>
+          {/* Mobile floating footer dock — replaces the desktop sticky footer. */}
+          {isPhone && (
+            <div className="arb-m-foot">
+              <button
+                type="button"
+                className="arb-m-foot-back"
+                onClick={handleBack}
+                disabled={currentStep === 0}
+                aria-label="Back"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              {currentStep < 5 ? (
+                <button
+                  type="button"
+                  className="arb-m-foot-next"
+                  onClick={handleNext}
+                  disabled={!gate.ok}
+                  title={gate.ok ? undefined : gate.reason}
+                >
+                  <span className="arb-m-foot-next-eyebrow">Next up</span>
+                  <span className="arb-m-foot-next-label">
+                    {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="arb-m-foot-publish"
+                  onClick={handlePublish}
+                >
+                  <span className="arb-m-foot-next-eyebrow">{existing ? 'Save' : 'Publish'}</span>
+                  <span className="arb-m-foot-next-label">
+                    {existing ? 'Publish changes' : 'Publish recipe'} <Check size={16} />
+                  </span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
+
+      {/* Desktop sticky footer. */}
+      {!isPhone && (
+        <div className="arb-foot">
+          <button type="button" className="arb-foot-back" onClick={handleBack} disabled={currentStep === 0}>
+            <ArrowLeft size={16} /> Back
+          </button>
+          <div className="arb-foot-right">
+            <button type="button" className="arb-foot-save" onClick={handleSaveDraft}>
+              Save draft
+            </button>
+            {currentStep < 5 ? (
+              <button
+                type="button"
+                className="arb-foot-next"
+                onClick={handleNext}
+                disabled={!gate.ok}
+                title={gate.ok ? undefined : gate.reason}
+              >
+                Next: {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
+              </button>
+            ) : (
+              <button type="button" className="arb-foot-publish" onClick={handlePublish}>
+                {existing ? 'Save changes' : 'Publish recipe'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

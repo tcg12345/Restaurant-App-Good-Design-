@@ -2,14 +2,16 @@
 // Captures: name (req), one-line summary (req), cuisine (req), course
 // chips, difficulty cards, hero image (req).
 
-import React, { useCallback, useRef } from 'react';
-import { Image as ImageIcon, X } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
+import { Image as ImageIcon, Camera, X, ChevronDown } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 import {
   CUISINE_OPTIONS,
   COURSE_OPTIONS,
   type AdvancedRecipeState,
   type Action,
 } from '../AdvancedRecipeBuilder';
+import { CuisinePickerSheet } from './CuisinePickerSheet';
 
 interface Props {
   state: AdvancedRecipeState;
@@ -24,6 +26,8 @@ const DIFFICULTY_CARDS: Array<{ level: 'Easy' | 'Medium' | 'Hard'; sub: string }
 
 export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const { phoneMode } = useSettings();
+  const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
 
   // Cover photo upload — reads first file, encodes to base64. Mirrors
   // the basic modal's cover-upload pattern (no resize since the cover
@@ -78,21 +82,38 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', gap: 16 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: phoneMode ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.4fr)',
+          gap: phoneMode ? 24 : 16,
+        }}
+      >
         <div className="arb-field" style={{ marginBottom: 0 }}>
           <label className="arb-label">
             Cuisine <span className="req">*</span>
           </label>
-          <select
-            className="arb-select"
-            value={state.cuisine}
-            onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'cuisine', value: e.target.value })}
-          >
-            <option value="">Select a cuisine…</option>
-            {CUISINE_OPTIONS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          {phoneMode ? (
+            <button
+              type="button"
+              className={`arb-cuisine-trigger${state.cuisine ? '' : ' is-empty'}`}
+              onClick={() => setCuisinePickerOpen(true)}
+            >
+              <span>{state.cuisine || 'Select a cuisine…'}</span>
+              <ChevronDown size={18} />
+            </button>
+          ) : (
+            <select
+              className="arb-select"
+              value={state.cuisine}
+              onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'cuisine', value: e.target.value })}
+            >
+              <option value="">Select a cuisine…</option>
+              {CUISINE_OPTIONS.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="arb-field" style={{ marginBottom: 0 }}>
@@ -116,6 +137,14 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
           </div>
         </div>
       </div>
+
+      <CuisinePickerSheet
+        isOpen={cuisinePickerOpen}
+        options={CUISINE_OPTIONS}
+        selected={state.cuisine}
+        onClose={() => setCuisinePickerOpen(false)}
+        onSelect={(c) => dispatch({ type: 'SET_FIELD', field: 'cuisine', value: c })}
+      />
 
       <div className="arb-field" style={{ marginTop: 24 }}>
         <label className="arb-label">
@@ -160,7 +189,7 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
           </div>
         ) : (
           <div
-            className="arb-dropzone"
+            className={`arb-dropzone${phoneMode ? ' is-mobile' : ''}`}
             onClick={() => fileRef.current?.click()}
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
@@ -168,13 +197,21 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
             tabIndex={0}
           >
             <div className="arb-dropzone-icon">
-              <ImageIcon size={22} />
+              {phoneMode ? <Camera size={26} /> : <ImageIcon size={22} />}
             </div>
             <div>
               <div className="arb-dropzone-text">
-                Drop a photo here or <span className="accent">browse</span>
+                {phoneMode ? (
+                  <>Tap to <span className="accent">add a photo</span></>
+                ) : (
+                  <>Drop a photo here or <span className="accent">browse</span></>
+                )}
               </div>
-              <div className="arb-dropzone-sub">A landscape shot of the final dish works best. JPG, PNG, or WebP up to 10MB.</div>
+              <div className="arb-dropzone-sub">
+                {phoneMode
+                  ? 'A landscape shot of the final dish works best'
+                  : 'A landscape shot of the final dish works best. JPG, PNG, or WebP up to 10MB.'}
+              </div>
             </div>
             <input
               ref={fileRef}

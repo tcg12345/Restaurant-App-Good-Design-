@@ -3,6 +3,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
+import { TimeWheelPicker } from '../WheelPicker';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
 
 interface Props {
@@ -165,9 +167,42 @@ function formatTotal(min: number): string {
   return `${h} hr ${m} min`;
 }
 
+/* Collapsed card — phone-only. Shows "Xh Ymin" right-aligned and
+   opens a TimeWheelPicker bottom sheet on tap. */
+const CollapsedTimeCard: React.FC<{
+  label: string;
+  totalMin: number;
+  onTap: () => void;
+}> = ({ label, totalMin, onTap }) => {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  const isEmpty = totalMin === 0;
+  return (
+    <button
+      type="button"
+      className="arb-time-card is-collapsed"
+      onClick={onTap}
+    >
+      <span className="arb-time-card-label">{label}</span>
+      <span className={`arb-time-collapsed-value${isEmpty ? ' is-empty' : ''}`}>
+        <span>
+          {h}
+          <span className="arb-time-collapsed-unit">h</span>
+        </span>
+        <span>
+          {m}
+          <span className="arb-time-collapsed-unit">min</span>
+        </span>
+      </span>
+    </button>
+  );
+};
+
 export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
+  const { phoneMode } = useSettings();
   // Rest/chill removed per spec — total = prep + cook only.
   const total = state.prepTime + state.cookTime;
+  const [openPicker, setOpenPicker] = useState<'prep' | 'cook' | null>(null);
 
   return (
     <>
@@ -175,18 +210,39 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
         <label className="arb-label">
           How long does it take? <span className="req">*</span>
         </label>
-        <p className="arb-help">Spin the wheels — be honest, readers cross-check against the steps below.</p>
+        <p className="arb-help">
+          {phoneMode
+            ? 'Tap a field to spin the wheel — be honest, readers cross-check against the steps below.'
+            : 'Spin the wheels — be honest, readers cross-check against the steps below.'}
+        </p>
         <div className="arb-time-row">
-          <TimeCard
-            label="Prep Time"
-            totalMin={state.prepTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
-          />
-          <TimeCard
-            label="Cook Time"
-            totalMin={state.cookTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
-          />
+          {phoneMode ? (
+            <>
+              <CollapsedTimeCard
+                label="Prep Time"
+                totalMin={state.prepTime}
+                onTap={() => setOpenPicker('prep')}
+              />
+              <CollapsedTimeCard
+                label="Cook Time"
+                totalMin={state.cookTime}
+                onTap={() => setOpenPicker('cook')}
+              />
+            </>
+          ) : (
+            <>
+              <TimeCard
+                label="Prep Time"
+                totalMin={state.prepTime}
+                onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
+              />
+              <TimeCard
+                label="Cook Time"
+                totalMin={state.cookTime}
+                onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
+              />
+            </>
+          )}
         </div>
 
         {/* Total time — editorial pill. Label on the left, big serif
@@ -198,6 +254,28 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
           </div>
           <div className="arb-total-pill-value">{formatTotal(total)}</div>
         </div>
+
+        {/* Mobile-only wheel sheets. */}
+        {phoneMode && (
+          <>
+            <TimeWheelPicker
+              isOpen={openPicker === 'prep'}
+              onClose={() => setOpenPicker(null)}
+              onConfirm={(h, m) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: h * 60 + m })}
+              initialHours={Math.floor(state.prepTime / 60)}
+              initialMinutes={state.prepTime % 60}
+              title="Prep time"
+            />
+            <TimeWheelPicker
+              isOpen={openPicker === 'cook'}
+              onClose={() => setOpenPicker(null)}
+              onConfirm={(h, m) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: h * 60 + m })}
+              initialHours={Math.floor(state.cookTime / 60)}
+              initialMinutes={state.cookTime % 60}
+              title="Cook time"
+            />
+          </>
+        )}
       </div>
 
       <div className="arb-field">
@@ -205,27 +283,58 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
           Servings <span className="req">*</span>
         </label>
         <p className="arb-help">How many people will this feed at one sitting?</p>
-        <div className="arb-stepper">
-          <button
-            type="button"
-            className="arb-stepper-btn"
-            onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.max(1, state.servings - 1) })}
-            disabled={state.servings <= 1}
-            aria-label="Decrease servings"
-          >
-            <Minus size={16} />
-          </button>
-          <span className="arb-stepper-value">{state.servings}</span>
-          <button
-            type="button"
-            className="arb-stepper-btn"
-            onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.min(99, state.servings + 1) })}
-            disabled={state.servings >= 99}
-            aria-label="Increase servings"
-          >
-            <Plus size={16} />
-          </button>
-          <span className="arb-stepper-label">Servings</span>
+        <div className={`arb-stepper${phoneMode ? ' is-mobile' : ''}`}>
+          {phoneMode ? (
+            <>
+              <span className="arb-stepper-num">
+                <span className="arb-stepper-value">{state.servings}</span>
+                <span className="arb-stepper-label">Servings</span>
+              </span>
+              <span className="arb-stepper-controls">
+                <button
+                  type="button"
+                  className="arb-stepper-btn"
+                  onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.max(1, state.servings - 1) })}
+                  disabled={state.servings <= 1}
+                  aria-label="Decrease servings"
+                >
+                  <Minus size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="arb-stepper-btn"
+                  onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.min(99, state.servings + 1) })}
+                  disabled={state.servings >= 99}
+                  aria-label="Increase servings"
+                >
+                  <Plus size={18} />
+                </button>
+              </span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="arb-stepper-btn"
+                onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.max(1, state.servings - 1) })}
+                disabled={state.servings <= 1}
+                aria-label="Decrease servings"
+              >
+                <Minus size={16} />
+              </button>
+              <span className="arb-stepper-value">{state.servings}</span>
+              <button
+                type="button"
+                className="arb-stepper-btn"
+                onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.min(99, state.servings + 1) })}
+                disabled={state.servings >= 99}
+                aria-label="Increase servings"
+              >
+                <Plus size={16} />
+              </button>
+              <span className="arb-stepper-label">Servings</span>
+            </>
+          )}
         </div>
       </div>
 
