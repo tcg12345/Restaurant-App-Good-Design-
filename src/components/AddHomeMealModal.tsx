@@ -9,6 +9,57 @@ import { useRecipes } from '../contexts/RecipesContext';
 import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
 import { ImportRecipesModal } from './ImportRecipesModal';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import {
+  UNITS,
+  displayUnit,
+  normalizeUnit,
+  parseAmount,
+  toFraction,
+  displayAmount,
+  parseIngredientLine,
+  type BulkResult,
+} from '../lib/ingredient-parsing';
+import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
+
+/* ── Tab-mode preference (sticky across sessions) ────────────── */
+const MODE_KEY = 'gourmad-recipe-builder-mode';
+const loadMode = (): 'basic' | 'advanced' => {
+  try { return localStorage.getItem(MODE_KEY) === 'advanced' ? 'advanced' : 'basic'; }
+  catch { return 'basic'; }
+};
+const saveMode = (m: 'basic' | 'advanced') => {
+  try { localStorage.setItem(MODE_KEY, m); } catch { /* quota — skip */ }
+};
+
+interface TabToggleProps {
+  mode: 'basic' | 'advanced';
+  onChange: (m: 'basic' | 'advanced') => void;
+  forceAdvanced?: boolean;
+}
+const TabToggle: React.FC<TabToggleProps> = ({ mode, onChange, forceAdvanced }) => (
+  <div className="arb-tab-toggle" role="tablist" aria-label="Recipe builder mode">
+    <button
+      type="button"
+      role="tab"
+      aria-selected={mode === 'basic'}
+      className={mode === 'basic' ? 'is-active' : ''}
+      onClick={() => onChange('basic')}
+      disabled={!!forceAdvanced}
+      title={forceAdvanced ? 'This recipe was built with Advanced — it has fields Basic can\'t round-trip.' : undefined}
+    >
+      Basic
+    </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={mode === 'advanced'}
+      className={mode === 'advanced' ? 'is-active' : ''}
+      onClick={() => onChange('advanced')}
+    >
+      Advanced
+    </button>
+  </div>
+);
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -52,228 +103,6 @@ const formatDuration = (totalMinutes: number): string | null => {
   return `${h}h ${m}m`;
 };
 
-// Per-line outcome of the bulk ingredient parser. Rendered with a green Check
-// (success) or red X (error) so the user can see exactly which lines made it.
-type BulkResult =
-  | { line: string; status: 'success'; ingredient: RecipeIngredient }
-  | { line: string; status: 'error'; message: string };
-
-// Unit definitions — the dropdown always shows the plural (canonical) form.
-// Aliases cover common user spellings including mistyped/long forms so the
-// bulk paste parser and single-add form can normalize whatever the user typed.
-type UnitDef = {
-  label: string;     // canonical plural form shown in dropdown
-  singular: string;  // singular form used when amount <= 1
-  aliases: string[]; // case-insensitive alias set for fuzzy matching
-};
-
-const UNITS: UnitDef[] = [
-  { label: 'cups', singular: 'cup', aliases: ['cup', 'cups', 'c'] },
-  { label: 'tbsp', singular: 'tbsp', aliases: ['tbsp', 'tbsps', 'tablespoon', 'tablespoons', 'tbl', 'tbls', 'tbs', 'T'] },
-  { label: 'tsp', singular: 'tsp', aliases: ['tsp', 'tsps', 'teaspoon', 'teaspoons', 't'] },
-  { label: 'oz', singular: 'oz', aliases: ['oz', 'ozs', 'ounce', 'ounces'] },
-  { label: 'fl oz', singular: 'fl oz', aliases: ['fl oz', 'fluid ounce', 'fluid ounces', 'floz'] },
-  { label: 'lbs', singular: 'lb', aliases: ['lb', 'lbs', 'pound', 'pounds'] },
-  { label: 'g', singular: 'g', aliases: ['g', 'gram', 'grams', 'gm'] },
-  { label: 'kg', singular: 'kg', aliases: ['kg', 'kilogram', 'kilograms', 'kilo', 'kilos'] },
-  { label: 'mg', singular: 'mg', aliases: ['mg', 'milligram', 'milligrams'] },
-  { label: 'ml', singular: 'ml', aliases: ['ml', 'milliliter', 'milliliters', 'millilitre', 'millilitres'] },
-  { label: 'L', singular: 'L', aliases: ['l', 'liter', 'liters', 'litre', 'litres'] },
-  { label: 'pinches', singular: 'pinch', aliases: ['pinch', 'pinches'] },
-  { label: 'dashes', singular: 'dash', aliases: ['dash', 'dashes'] },
-  { label: 'drops', singular: 'drop', aliases: ['drop', 'drops'] },
-  { label: 'handfuls', singular: 'handful', aliases: ['handful', 'handfuls'] },
-  { label: 'cloves', singular: 'clove', aliases: ['clove', 'cloves'] },
-  { label: 'slices', singular: 'slice', aliases: ['slice', 'slices'] },
-  { label: 'pieces', singular: 'piece', aliases: ['piece', 'pieces', 'pc', 'pcs'] },
-  { label: 'cans', singular: 'can', aliases: ['can', 'cans'] },
-  { label: 'jars', singular: 'jar', aliases: ['jar', 'jars'] },
-  { label: 'packages', singular: 'package', aliases: ['package', 'packages', 'pkg', 'pkgs', 'pack', 'packs'] },
-  { label: 'bunches', singular: 'bunch', aliases: ['bunch', 'bunches'] },
-  { label: 'sprigs', singular: 'sprig', aliases: ['sprig', 'sprigs'] },
-  { label: 'heads', singular: 'head', aliases: ['head', 'heads'] },
-  { label: 'stalks', singular: 'stalk', aliases: ['stalk', 'stalks'] },
-  { label: 'sticks', singular: 'stick', aliases: ['stick', 'sticks'] },
-  { label: 'quarts', singular: 'quart', aliases: ['quart', 'quarts', 'qt', 'qts'] },
-  { label: 'pints', singular: 'pint', aliases: ['pint', 'pints', 'pt', 'pts'] },
-  { label: 'gallons', singular: 'gallon', aliases: ['gallon', 'gallons', 'gal', 'gals'] },
-  { label: 'boxes', singular: 'box', aliases: ['box', 'boxes'] },
-  { label: 'bags', singular: 'bag', aliases: ['bag', 'bags'] },
-  { label: 'bottles', singular: 'bottle', aliases: ['bottle', 'bottles'] },
-  { label: 'inches', singular: 'inch', aliases: ['inch', 'inches', 'in'] },
-  { label: 'cm', singular: 'cm', aliases: ['cm', 'centimeter', 'centimeters'] },
-];
-
-// Returns singular form for amounts <= 1 (and > 0), otherwise the plural label.
-// Amount == null (no amount given) uses the plural label.
-const displayUnit = (label: string, amount: number | null): string => {
-  if (!label) return '';
-  const def = UNITS.find((u) => u.label === label);
-  if (!def) return label;
-  if (amount !== null && amount > 0 && amount <= 1) return def.singular;
-  return def.label;
-};
-
-// Classic iterative Levenshtein with O(min(m,n)) memory.
-const levenshtein = (a: string, b: string): number => {
-  if (a === b) return 0;
-  const m = a.length;
-  const n = b.length;
-  if (!m) return n;
-  if (!n) return m;
-  const prev = new Array<number>(n + 1);
-  const curr = new Array<number>(n + 1);
-  for (let j = 0; j <= n; j++) prev[j] = j;
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= n; j++) {
-      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
-      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
-    }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j];
-  }
-  return prev[n];
-};
-
-// Map any input (exact alias, mistype, singular/plural, long form) to a canonical
-// plural label. Returns '' if nothing reasonable matches. `strict` disables fuzzy
-// matching — used by the line parser to avoid turning ingredient words into units.
-const normalizeUnit = (input: string, strict = false): string => {
-  const cleaned = input.trim().toLowerCase().replace(/[.,;:]+$/, '');
-  if (!cleaned) return '';
-  for (const u of UNITS) {
-    if (u.aliases.some((a) => a.toLowerCase() === cleaned)) return u.label;
-  }
-  if (strict) return '';
-  // Fuzzy fallback: find closest alias, require a small distance relative to length.
-  let best: UnitDef | null = null;
-  let bestDist = Infinity;
-  for (const u of UNITS) {
-    for (const a of u.aliases) {
-      const d = levenshtein(cleaned, a.toLowerCase());
-      if (d < bestDist) { bestDist = d; best = u; }
-    }
-  }
-  if (!best) return '';
-  const threshold = cleaned.length <= 3 ? 1 : cleaned.length <= 5 ? 1 : 2;
-  if (bestDist <= threshold) return best.label;
-  return '';
-};
-
-// Parses "2", "1/2", "1 1/2", "0.5", "1-2" (range uses low end) into a number.
-// Returns null for anything it can't recognize.
-// Matches a decimal number in any of these forms: "1", "1.5", "0.5", ".5".
-// Used by both parseAmount and parseIngredientLine so they agree on what
-// counts as a number.
-const DECIMAL_PATTERN = '(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+|\\d+)';
-
-const parseAmount = (str: string): number | null => {
-  // Normalize comma decimal separators ("0,5" → "0.5") so European-style
-  // input works without a special case.
-  const trimmed = str.trim().replace(/,/g, '.');
-  if (!trimmed) return null;
-  const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-  if (mixedMatch) {
-    const whole = parseInt(mixedMatch[1], 10);
-    const num = parseInt(mixedMatch[2], 10);
-    const den = parseInt(mixedMatch[3], 10);
-    if (!den) return null;
-    return whole + num / den;
-  }
-  const fracMatch = trimmed.match(/^(\d+)\/(\d+)$/);
-  if (fracMatch) {
-    const num = parseInt(fracMatch[1], 10);
-    const den = parseInt(fracMatch[2], 10);
-    if (!den) return null;
-    return num / den;
-  }
-  if (new RegExp(`^${DECIMAL_PATTERN}$`).test(trimmed)) {
-    const n = parseFloat(trimmed);
-    return Number.isFinite(n) ? n : null;
-  }
-  const rangeMatch = trimmed.match(new RegExp(`^(${DECIMAL_PATTERN})\\s*-\\s*${DECIMAL_PATTERN}$`));
-  if (rangeMatch) {
-    const n = parseFloat(rangeMatch[1]);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
-};
-
-// Converts a decimal number to a display-friendly fraction like "1 1/2".
-// Uses common cooking fractions (eighths, thirds, quarters).
-const toFraction = (value: number): string => {
-  if (!Number.isFinite(value) || value < 0) return '';
-  if (value === 0) return '0';
-  const whole = Math.floor(value);
-  const frac = value - whole;
-  if (frac < 0.01) return String(whole);
-  const candidates: { value: number; str: string }[] = [
-    { value: 1 / 8, str: '1/8' },
-    { value: 1 / 6, str: '1/6' },
-    { value: 1 / 5, str: '1/5' },
-    { value: 1 / 4, str: '1/4' },
-    { value: 1 / 3, str: '1/3' },
-    { value: 3 / 8, str: '3/8' },
-    { value: 2 / 5, str: '2/5' },
-    { value: 1 / 2, str: '1/2' },
-    { value: 3 / 5, str: '3/5' },
-    { value: 5 / 8, str: '5/8' },
-    { value: 2 / 3, str: '2/3' },
-    { value: 3 / 4, str: '3/4' },
-    { value: 4 / 5, str: '4/5' },
-    { value: 5 / 6, str: '5/6' },
-    { value: 7 / 8, str: '7/8' },
-  ];
-  let best = candidates[0];
-  let bestDiff = Math.abs(frac - best.value);
-  for (const c of candidates) {
-    const diff = Math.abs(frac - c.value);
-    if (diff < bestDiff) { best = c; bestDiff = diff; }
-  }
-  // If rounding up to the next whole is closer than any fraction, just round up.
-  if (Math.abs(1 - frac) < bestDiff) return String(whole + 1);
-  if (whole === 0) return best.str;
-  return `${whole} ${best.str}`;
-};
-
-// Normalizes a stored amount string for display (e.g. "0.5" → "1/2").
-const displayAmount = (amount: string): string => {
-  if (!amount) return '';
-  const parsed = parseAmount(amount);
-  if (parsed === null) return amount;
-  return toFraction(parsed);
-};
-
-// Parses a single bulk-paste line into { amount, unit, name }.
-const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
-  // Strip bullets, collapse whitespace, and normalize comma decimals.
-  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ').replace(/(\d),(\d)/g, '$1.$2');
-  if (!line) return null;
-  // Leading amount can be a mixed fraction ("1 1/2"), a fraction ("1/2"),
-  // a decimal with or without a leading zero (".5", "0.5", "1.5"), a plain
-  // integer, or a range ("1-2"). The pattern matches any of these.
-  const amountMatch = line.match(
-    new RegExp(`^(\\d+\\s+\\d+/\\d+|\\d+/\\d+|${DECIMAL_PATTERN}(?:\\s*-\\s*${DECIMAL_PATTERN})?)\\s*(.*)$`),
-  );
-  if (!amountMatch) {
-    return { name: line, amount: '', unit: '' };
-  }
-  const amount = amountMatch[1].replace(/\s*-\s*/, '-');
-  const rest = amountMatch[2];
-  if (!rest) return { name: '', amount, unit: '' };
-  const words = rest.split(' ');
-  // Try a two-word unit first ("fl oz", "fluid ounces"), then one-word.
-  if (words.length >= 2) {
-    const twoWord = `${words[0]} ${words[1]}`;
-    const matched = normalizeUnit(twoWord);
-    if (matched) return { amount, unit: matched, name: words.slice(2).join(' ') };
-  }
-  const firstWord = words[0].replace(/[.,;:]$/, '');
-  const matched = normalizeUnit(firstWord);
-  if (matched) return { amount, unit: matched, name: words.slice(1).join(' ') };
-  return { amount, unit: '', name: rest };
-};
-
 type Page = 'main' | 'tags' | 'photos' | 'dishList' | 'dishes' | 'ingredients' | 'steps';
 
 export const AddHomeMealModal: React.FC = () => {
@@ -286,6 +115,28 @@ export const AddHomeMealModal: React.FC = () => {
   const { dragProps } = useBottomSheet(homeMealModalOpen, closeHomeMealModal);
 
   const existing = homeMealModalData;
+
+  // Basic vs Advanced tab. Recipes published via the Advanced builder
+  // carry `builderVersion: 'advanced'` so re-opening them forces the
+  // Advanced tab — Basic doesn't have the fields to round-trip rich
+  // data (groups, tips, equipment, notes). When editing a Basic meal,
+  // open Basic. Otherwise (new recipe), default to the user's last-used.
+  const forceAdvanced = !!(existing && existing.builderVersion === 'advanced');
+  const [mode, setMode] = useState<'basic' | 'advanced'>(() => {
+    if (forceAdvanced) return 'advanced';
+    if (existing) return 'basic';
+    return loadMode();
+  });
+  // Re-evaluate when the modal opens with a different `existing` meal.
+  useEffect(() => {
+    if (forceAdvanced) setMode('advanced');
+    else if (existing) setMode('basic');
+  }, [forceAdvanced, existing]);
+  const handleModeChange = (m: 'basic' | 'advanced') => {
+    if (forceAdvanced && m === 'basic') return;
+    setMode(m);
+    saveMode(m);
+  };
 
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(0);
@@ -726,14 +577,26 @@ export const AddHomeMealModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            {...dragProps}
+            {...(mode === 'advanced' ? {} : dragProps)}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
-                : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                : mode === 'advanced'
+                  // Advanced builder needs a wide canvas for the
+                  // left-rail layout. Cap at 1200px to match the mockup.
+                  ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                  : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
+            {mode === 'advanced' ? (
+              <AdvancedRecipeBuilder
+                existing={existing}
+                onClose={closeHomeMealModal}
+                tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} />}
+              />
+            ) : (
+              <>
             {photoInput}
             <input ref={dishPhotoInputRef} type="file" accept="image/*" onChange={handleDishPhotoUpload} className="hidden" />
             <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
@@ -742,24 +605,33 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-6 pt-safe-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
+                  {/* Basic / Advanced tab strip — sits above the title
+                      row so it's visible on phone without crowding. */}
+                  <div className="px-6 pt-safe-5 sm:pt-6 pb-2 flex items-center justify-between flex-shrink-0 gap-2">
+                    <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} />
+                    <button
+                      onClick={closeHomeMealModal}
+                      className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"
+                      aria-label="Close"
+                    >
+                      <X size={22} />
+                    </button>
+                  </div>
+                  <div className="px-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Recipe' : 'Add Recipe'}</h2>
                       {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {!existing && (
-                        <button
-                          type="button"
-                          onClick={() => setImportRecipesOpen(true)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-primary bg-primary/[0.08] hover:bg-primary/[0.14] transition-colors"
-                        >
-                          <FileUp size={13} />
-                          <span>Import Recipes</span>
-                        </button>
-                      )}
-                      <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={22} /></button>
-                    </div>
+                    {!existing && (
+                      <button
+                        type="button"
+                        onClick={() => setImportRecipesOpen(true)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-primary bg-primary/[0.08] hover:bg-primary/[0.14] transition-colors flex-shrink-0"
+                      >
+                        <FileUp size={13} />
+                        <span>Import Recipes</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-4 space-y-6">
@@ -1610,6 +1482,8 @@ export const AddHomeMealModal: React.FC = () => {
                 </SubPage>
               )}
             </AnimatePresence>
+              </>
+            )}
           </motion.div>
         </motion.div>
       )}
