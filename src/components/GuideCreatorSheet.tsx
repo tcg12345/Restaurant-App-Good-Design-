@@ -208,14 +208,18 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     };
   };
 
-  const addEntryFromPlace = (p: PlaceResult): GuideEntry => ({
-    id: newEntryId(),
-    refId: p.id,
-    name: p.name,
-    subtitle: [p.types?.[0]?.replace(/_/g, ' '), priceLevelToString(p.priceLevel)].filter(Boolean).join(' · '),
-    image: p.photoUrl || '',
-    score: undefined,
-  });
+  const addEntryFromPlace = (p: PlaceResult): GuideEntry => {
+    const existingRating = ratings.find((r) => r.restaurantId === p.id);
+    if (existingRating) return addEntryFromRating(existingRating);
+    return {
+      id: newEntryId(),
+      refId: p.id,
+      name: p.name,
+      subtitle: [p.types?.[0]?.replace(/_/g, ' '), priceLevelToString(p.priceLevel)].filter(Boolean).join(' · '),
+      image: p.photoUrl || '',
+      score: undefined,
+    };
+  };
 
   const addEntryFromListRecipe = (r: ListRecipe): GuideEntry => ({
     id: newEntryId(),
@@ -407,7 +411,18 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             includePhotos={includePhotos}
             onTogglePhotos={setIncludePhotos}
             expandedId={expandedEntryId}
-            onToggleExpand={(id) => setExpandedEntryId((prev) => prev === id ? null : id)}
+            onToggleExpand={(id) => {
+              const isOpening = expandedEntryId !== id;
+              setExpandedEntryId(isOpening ? id : null);
+              if (!isOpening) return;
+              const entry = entries.find((e) => e.id === id);
+              if (!entry || entry.notes?.trim() || !entry.refId) return;
+              const rating = ratings.find((r) => r.restaurantId === entry.refId);
+              const ratingNotes = rating?.notes?.trim();
+              if (ratingNotes) {
+                setEntries((prev) => prev.map((e) => e.id === id ? { ...e, notes: ratingNotes } : e));
+              }
+            }}
             onRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
             onPatch={(id, patch) => setEntries((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e))}
             onMove={(from, to) => setEntries((prev) => {
