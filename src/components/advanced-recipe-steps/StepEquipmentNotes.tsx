@@ -1,11 +1,16 @@
-// Step 5 — equipment (comma-separated), tags (comma-separated), and
-// typed notes (Chef's Tip / Make Ahead / Substitution / General). Each
-// note is its own labeled card with a removable textarea.
+// Step 5 — equipment, tags, and typed notes.
+//
+// Equipment + tags both use the shared ChipComboInput combobox so the
+// user can pick from long pre-seeded catalogues (see lib/recipe-vocab)
+// OR type custom values. Notes stay as labeled cards (Chef's Tip,
+// Make Ahead, etc.) — each is its own removable textarea.
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Trash2, Plus } from 'lucide-react';
 import type { RecipeNote } from '../../contexts/ListsContext';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
+import { ChipComboInput } from './ChipComboInput';
+import { DEFAULT_RECIPE_TAGS, DEFAULT_EQUIPMENT } from '../../lib/recipe-vocab';
 
 interface Props {
   state: AdvancedRecipeState;
@@ -24,22 +29,6 @@ function noteLabel(t: RecipeNote['type']): string {
 }
 
 export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
-  // Equipment + tags are stored as arrays but presented as one
-  // comma-separated input each — keeps the UI clean and matches the
-  // mockup. Local edit state buffers the raw string so commas can be
-  // typed mid-word without the array re-splitting on every keystroke.
-  const [equipDraft, setEquipDraft] = useState(state.equipment.join(', '));
-  const [tagsDraft, setTagsDraft] = useState(state.tags.join(', '));
-
-  const commitEquip = (raw: string) => {
-    const arr = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    dispatch({ type: 'SET_FIELD', field: 'equipment', value: arr });
-  };
-  const commitTags = (raw: string) => {
-    const arr = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    dispatch({ type: 'SET_FIELD', field: 'tags', value: arr });
-  };
-
   return (
     <>
       <div className="arb-field">
@@ -47,13 +36,12 @@ export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
           Equipment <span className="opt">Optional</span>
         </label>
         <p className="arb-help">Tools and cookware readers should have ready before they start.</p>
-        <input
-          type="text"
-          className="arb-input"
-          value={equipDraft}
-          onChange={(e) => setEquipDraft(e.target.value)}
-          onBlur={(e) => commitEquip(e.target.value)}
-          placeholder='12" cast-iron skillet, microplane, tongs…'
+        <ChipComboInput
+          value={state.equipment}
+          onChange={(next) => dispatch({ type: 'SET_FIELD', field: 'equipment', value: next })}
+          suggestions={DEFAULT_EQUIPMENT}
+          placeholder='Cast iron skillet, microplane, tongs…'
+          ariaLabel="Equipment"
         />
       </div>
 
@@ -62,13 +50,13 @@ export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
           Tags <span className="opt">Optional</span>
         </label>
         <p className="arb-help">Help people discover this — try the cuisine, dietary tags, season.</p>
-        <input
-          type="text"
-          className="arb-input"
-          value={tagsDraft}
-          onChange={(e) => setTagsDraft(e.target.value)}
-          onBlur={(e) => commitTags(e.target.value)}
-          placeholder="pasta, spring, dinner, quick…"
+        <ChipComboInput
+          value={state.tags}
+          onChange={(next) => dispatch({ type: 'SET_FIELD', field: 'tags', value: next })}
+          suggestions={DEFAULT_RECIPE_TAGS}
+          placeholder="pasta, spring, vegetarian…"
+          chipPrefix="#"
+          ariaLabel="Tags"
         />
       </div>
 
