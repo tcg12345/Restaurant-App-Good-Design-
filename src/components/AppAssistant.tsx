@@ -26,7 +26,6 @@ import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
-import { useToast } from '../contexts/ToastContext';
 import { useAssistantContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { searchPlacesByTextPaged } from '../lib/places';
 import { geocodePlace } from './HomeLocationBar';
@@ -246,7 +245,6 @@ export const AppAssistant: React.FC = () => {
   const guides = useGuideCreator();
   const homeLocation = useHomeLocation();
   const homeLoc = homeLocation?.location || null;
-  const toast = useToast();
   const { pageContext } = useAssistantContext();
 
   // Gate by route + auth — assistant lives only inside the signed-in app.
@@ -580,12 +578,19 @@ export const AppAssistant: React.FC = () => {
     return { ok: true };
   }, [navigate]);
 
+  /** Open the unified Add-Restaurant flow — the same multi-step
+   *  modal users get when tapping the "+" button on a restaurant
+   *  card. Used for both open_rating_modal and
+   *  open_add_restaurant_modal because the unified modal is the
+   *  canonical rate / log / wishlist surface; the standalone
+   *  RatingModal (lists.openRatingModal) is a legacy variant we
+   *  don't want the assistant to surface. */
   const handleOpenRatingModal = useCallback((restaurantId: string): ActionResult => {
     const meta = buildRestaurantMetaFromId(restaurantId, lists.restaurantMeta, lists.ratings, lists.wishlist, pageContext);
     if (!meta) {
       return { ok: false, detail: "I couldn't resolve that restaurant id. Try search_restaurants first to fetch a real Google place id." };
     }
-    lists.openRatingModal(meta);
+    lists.openAddRestaurantModal(meta);
     return { ok: true, detail: `Now rating ${meta.name}.` };
   }, [lists, pageContext]);
 
@@ -625,20 +630,16 @@ export const AppAssistant: React.FC = () => {
     };
   }, [lists, pageContext]);
 
+  /** Recipe / home-cooked-meal flow. We route BOTH
+   *  open_add_recipe_modal and open_home_meal_modal to the Log Home
+   *  Meal modal — it's the canonical surface for adding a dish you
+   *  cooked at home (with ingredients, steps, photos, score). The
+   *  list-scoped AddRecipeModal (lists.openAddRecipeModal) is a
+   *  legacy variant we deliberately don't surface through the chat. */
   const handleOpenAddRecipeModal = useCallback((): ActionResult => {
-    // The Add Recipe modal needs a target list id. Prefer the
-    // home-cooking preset; fall back to the first list with that type;
-    // if none exists, send the user to the Pantry recipes tab where
-    // they can create the list and then add a recipe.
-    const homeCooking = lists.lists.find((l) => l.type === 'home-cooking');
-    if (!homeCooking) {
-      navigate('/pantry?view=home-cooking');
-      toast.showToast('No recipe list yet — create one in the Pantry first.', { variant: 'success' });
-      return { ok: true, detail: 'No home-cooking list exists yet, so I sent the user to the Pantry to create one.' };
-    }
-    lists.openAddRecipeModal(homeCooking.id);
-    return { ok: true, detail: 'Add Recipe flow open.' };
-  }, [lists, navigate, toast]);
+    lists.openHomeMealModal();
+    return { ok: true, detail: 'Log Home Meal flow open.' };
+  }, [lists]);
 
   const handleOpenAddPostModal = useCallback((): ActionResult => {
     posts.openAddPostModal();

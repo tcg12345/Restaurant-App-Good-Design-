@@ -2,7 +2,28 @@
    All selectors are nested under .location-page-root so the tokens
    and resets don't leak into other routes. The class names mirror
    the supplied mock-up's CSS verbatim (gd-card, exp-card, r-list-item,
-   fb-chip, …) so the JSX → style mapping is auditable. */
+   fb-chip, …) so the JSX → style mapping is auditable.
+
+   The chat FAB + island (.lp-chat-*) also lives in this file but is
+   mounted GLOBALLY now (via AppAssistant), so the small subset of
+   tokens it consumes is hoisted to :root below so the chat doesn't
+   render with transparent backgrounds on non-/location pages. */
+:root {
+  --bg: #EDE7D9;
+  --bg-2: #E6DFCE;
+  --surface: #FFFFFF;
+  --surface-2: #FBF7F0;
+  --border: rgba(31, 26, 23, 0.08);
+  --border-strong: rgba(31, 26, 23, 0.14);
+  --ink: #1C1816;
+  --ink-2: #4A423C;
+  --muted: #8C8278;
+  --muted-2: #B8AFA4;
+  --accent: #A8392A;
+  --accent-soft: #F3E0D7;
+  --green: #2E7D5C;
+  --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
+}
 
 .location-page-root {
   --bg: #EDE7D9;
@@ -1858,8 +1879,13 @@
   max-width: min(900px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   z-index: 50;
-  background: var(--surface-2);
-  color: var(--ink);
+  /* Explicit hex fallback in case the token isn't loaded yet (the
+     chat is mounted globally so it can briefly render before
+     LocationPage.css' :root vars have been applied — without the
+     fallback the island would show as transparent on top of the
+     underlying page). */
+  background: var(--surface-2, #FBF7F0);
+  color: var(--ink, #1C1816);
   border-radius: 20px;
   display: flex;
   flex-direction: column;

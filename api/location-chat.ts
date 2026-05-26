@@ -218,13 +218,13 @@ const TOOL_NAVIGATE = {
 const TOOL_OPEN_RATING_MODAL = {
   name: 'open_rating_modal',
   description:
-    "Open the rating modal for a specific restaurant so the user can score it (or re-score it). Use whenever the user says 'rate <restaurant>', 'log a visit to <restaurant>', 'I want to review <restaurant>', etc. The restaurant_id MUST be a Google place id from the user's RATED / WISHLIST / Available sections OR a previous search_restaurants result. If you don't know the id, call search_restaurants first to resolve the name. The chat closes automatically when the modal opens.",
+    "Open the rating / add-restaurant flow for a specific restaurant — the same multi-step modal the user gets when tapping the '+' button on a restaurant card. Use whenever the user says 'rate <restaurant>', 'log a visit to <restaurant>', 'I want to review <restaurant>', 'add <restaurant>', etc. The restaurant_id MUST be a Google place id from the user's RATED / WISHLIST / Available sections OR a previous search_restaurants result. If you don't know the id, call search_restaurants first. The chat closes automatically when the modal opens.",
   input_schema: {
     type: 'object',
     properties: {
       restaurant_id: {
         type: 'string',
-        description: 'Google place id of the restaurant to rate.',
+        description: 'Google place id of the restaurant to rate / log.',
       },
     },
     required: ['restaurant_id'],
@@ -234,7 +234,7 @@ const TOOL_OPEN_RATING_MODAL = {
 const TOOL_OPEN_ADD_RESTAURANT_MODAL = {
   name: 'open_add_restaurant_modal',
   description:
-    "Open the unified Add Restaurant flow (the multi-step modal used by the '+' button to log a visit, mark it as a wishlist, save it to a list, etc.). Use this when the user wants to fully log a new restaurant entry, not just quickly rate one. The restaurant_id MUST be a real Google place id. The chat closes automatically when the modal opens.",
+    "Alias of open_rating_modal that lets you pick a specific starting screen of the flow (notes / new-visit). Prefer open_rating_modal unless you really need the initial_page parameter.",
   input_schema: {
     type: 'object',
     properties: {
@@ -244,7 +244,7 @@ const TOOL_OPEN_ADD_RESTAURANT_MODAL = {
       },
       initial_page: {
         type: 'string',
-        description: "Optional starting screen for the modal: 'rating', 'wishlist', 'lists'. Defaults to the modal's own default.",
+        description: "Optional starting screen for the modal (e.g. 'new-visit').",
       },
     },
     required: ['restaurant_id'],
@@ -286,7 +286,7 @@ const TOOL_TOGGLE_WISHLIST = {
 const TOOL_OPEN_ADD_RECIPE_MODAL = {
   name: 'open_add_recipe_modal',
   description:
-    "Open the Add Recipe modal so the user can create a new cooking recipe (ingredients, steps, photos). Use when the user says 'add a recipe', 'create a recipe', 'log a new recipe'. The chat closes automatically when the modal opens.",
+    "Open the Log Home Meal modal — the canonical surface for adding a dish the user cooked at home, with ingredients, steps, photos, and a score. Use when the user says 'add a recipe', 'create a recipe', 'log a recipe', 'add a home meal', 'log what I cooked', etc. The chat closes automatically when the modal opens.",
   input_schema: {
     type: 'object',
     properties: {},
@@ -325,7 +325,7 @@ const TOOL_OPEN_ADD_REEL_MODAL = {
 const TOOL_OPEN_HOME_MEAL_MODAL = {
   name: 'open_home_meal_modal',
   description:
-    "Open the Log Home Meal modal so the user can record a meal they cooked at home. Use when the user says 'log a home meal', 'add a meal I cooked', 'record what I made for dinner'. The chat closes automatically when the modal opens.",
+    "Alias of open_add_recipe_modal — opens the Log Home Meal modal. Either tool is fine; both surface the same flow.",
   input_schema: {
     type: 'object',
     properties: {},
