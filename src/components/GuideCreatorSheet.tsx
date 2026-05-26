@@ -191,9 +191,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const addEntryFromRating = (r: RestaurantRating): GuideEntry => {
     const meta = getRestaurantInfo(r.restaurantId);
     const subtitleStr = [r.cuisine, r.price].filter(Boolean).join(' · ');
-    const favoriteDishes = (r.photos || [])
+    const fromExplicit = (r.favoriteDishes || []).map((s) => s.trim()).filter(Boolean);
+    const fromPhotos = (r.photos || [])
       .filter((p) => p.isFavorite && p.caption?.trim())
       .map((p) => p.caption.trim());
+    const seen = new Set<string>();
+    const allDishes: string[] = [];
+    for (const d of [...fromExplicit, ...fromPhotos]) {
+      const key = d.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); allDishes.push(d); }
+    }
     return {
       id: newEntryId(),
       refId: r.restaurantId,
@@ -202,7 +209,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       image: r.photos?.[0]?.url || r.image || '',
       score: r.score,
       notes: r.notes?.trim() || undefined,
-      mustOrder: favoriteDishes.length > 0 ? favoriteDishes : undefined,
+      mustOrder: allDishes.length > 0 ? allDishes : undefined,
       neighborhood: meta?.neighborhood,
       hours: meta?.hours?.[0]?.split(': ')[1],
     };
@@ -416,11 +423,21 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               setExpandedEntryId(isOpening ? id : null);
               if (!isOpening) return;
               const entry = entries.find((e) => e.id === id);
-              if (!entry || entry.notes?.trim() || !entry.refId) return;
+              if (!entry || !entry.refId) return;
               const rating = ratings.find((r) => r.restaurantId === entry.refId);
-              const ratingNotes = rating?.notes?.trim();
-              if (ratingNotes) {
-                setEntries((prev) => prev.map((e) => e.id === id ? { ...e, notes: ratingNotes } : e));
+              if (!rating) return;
+              // Only auto-fill when the field has never been touched
+              // (undefined). An empty string / empty array means the user
+              // intentionally cleared it, and we should respect that.
+              const patch: Partial<GuideEntry> = {};
+              if (entry.notes === undefined && rating.notes?.trim()) {
+                patch.notes = rating.notes.trim();
+              }
+              if (entry.mustOrder === undefined && rating.favoriteDishes && rating.favoriteDishes.length > 0) {
+                patch.mustOrder = rating.favoriteDishes.map((s) => s.trim()).filter(Boolean);
+              }
+              if (Object.keys(patch).length > 0) {
+                setEntries((prev) => prev.map((e) => e.id === id ? { ...e, ...patch } : e));
               }
             }}
             onRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
@@ -1241,6 +1258,41 @@ const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, tags,
   );
 };
 
+/* ── Local-state comma-separated input ─────────────────────────────
+   The previous inline version split on every keystroke and dropped
+   empty pieces, so typing the separator (", ") got eaten before the
+   next dish could be typed. This keeps the raw text in local state
+   and only commits to the entry on blur. */
+
+const DishesInput: React.FC<{
+  value: string[];
+  placeholder?: string;
+  onCommit: (next: string[]) => void;
+}> = ({ value, placeholder, onCommit }) => {
+  const joinedExternal = (value || []).join(', ');
+  const [draft, setDraft] = useState(joinedExternal);
+  const lastSeen = useRef(joinedExternal);
+  useEffect(() => {
+    if (joinedExternal !== lastSeen.current) {
+      setDraft(joinedExternal);
+      lastSeen.current = joinedExternal;
+    }
+  }, [joinedExternal]);
+  return (
+    <input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const next = draft.split(',').map((s) => s.trim()).filter(Boolean);
+        lastSeen.current = next.join(', ');
+        onCommit(next);
+      }}
+      placeholder={placeholder}
+      className="gc-entry-detail-input"
+    />
+  );
+};
+
 /* ── Step: Entries (reorder + per-entry edit) ─────────────────────── */
 
 interface StepEntriesProps {
@@ -1371,12 +1423,11 @@ const StepEntries: React.FC<StepEntriesProps> = ({ type, entries, includePhotos,
                       />
                     </div>
                     <div className="gc-entry-detail-field">
-                      <div className="gc-entry-detail-label">{orderedLabel} <span className="hint">· comma separated</span></div>
-                      <input
-                        value={(orderedVals || []).join(', ')}
-                        onChange={(e) => onPatch(entry.id, { [orderedKey]: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) } as Partial<GuideEntry>)}
+                      <div className="gc-entry-detail-label">{orderedLabel} <span className="hint">· comma separated{type === 'restaurants' ? ' · pre-filled from your rating' : ''}</span></div>
+                      <DishesInput
+                        value={orderedVals || []}
                         placeholder={type === 'restaurants' ? 'Cold sesame noodles, Twice-cooked pork belly' : 'Saffron, Bomba rice'}
-                        className="gc-entry-detail-input"
+                        onCommit={(next) => onPatch(entry.id, { [orderedKey]: next } as Partial<GuideEntry>)}
                       />
                     </div>
                     {type === 'restaurants' && (

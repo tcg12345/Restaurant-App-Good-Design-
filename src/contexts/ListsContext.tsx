@@ -27,6 +27,7 @@ export interface RestaurantRating {
   wouldReturn: boolean;
   tags: string[];         // e.g. "Great cocktails", "Romantic", etc.
   photos: PhotoItem[];    // user-uploaded photos with captions
+  favoriteDishes?: string[]; // dishes worth ordering — flows into guide entries
   listIds: string[];      // which lists this rating belongs to
   friendIds: string[];    // user IDs of friends who joined
   createdAt: number;      // timestamp
