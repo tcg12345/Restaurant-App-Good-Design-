@@ -15,12 +15,14 @@
  * can't double-add the same spot.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, X, Check, ChefHat, BookOpen } from 'lucide-react';
+import { Plus, Search, X, Check, ChefHat, BookOpen, Loader2, MapPin } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLists } from '../../contexts/ListsContext';
 import { useRecipes } from '../../contexts/RecipesContext';
-import { entryFromRating, entryFromDbRecipe } from '../../lib/guide-entry-builders';
+import { useHomeLocation } from '../../contexts/HomeLocationContext';
+import { entryFromRating, entryFromDbRecipe, entryFromPlace } from '../../lib/guide-entry-builders';
+import { searchPlacesByText, type PlaceResult } from '../../lib/places';
 import type { GuideEntry, GuideType } from '../../lib/supabase-guides';
 
 interface AddEntryPickerProps {
@@ -35,8 +37,14 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
   const { user } = useAuth();
   const { ratings, getRestaurantInfo, homeMeals, restaurantMeta } = useLists();
   const { myRecipes } = useRecipes();
+  const homeLoc = useHomeLocation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // Places search — runs only for restaurant guides, debounced.
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
+  const placeReqIdRef = useRef(0);
+  const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -58,8 +66,42 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
   // Focus the search field whenever the popover opens.
   useEffect(() => {
     if (open) inputRef.current?.focus();
-    if (!open) setQuery('');
+    if (!open) {
+      setQuery('');
+      setPlaceResults([]);
+    }
   }, [open]);
+
+  // Debounced Google Places search — only for restaurant guides, only
+  // when the picker is open and the user has typed something. We anchor
+  // to the user's home location when set, otherwise fall back to NYC
+  // (matches the wizard's StepSeed default).
+  useEffect(() => {
+    if (!open || type !== 'restaurants') return;
+    if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
+    const q = query.trim();
+    if (!q) {
+      setPlaceResults([]);
+      setSearchingPlaces(false);
+      return;
+    }
+    setSearchingPlaces(true);
+    const reqId = ++placeReqIdRef.current;
+    const lat = homeLoc?.location?.lat ?? 40.7128;
+    const lng = homeLoc?.location?.lng ?? -74.0060;
+    placeDebounceRef.current = setTimeout(async () => {
+      try {
+        const found = await searchPlacesByText(q, lat, lng);
+        if (reqId !== placeReqIdRef.current) return;
+        setPlaceResults(found.slice(0, 10));
+      } catch {
+        if (reqId === placeReqIdRef.current) setPlaceResults([]);
+      } finally {
+        if (reqId === placeReqIdRef.current) setSearchingPlaces(false);
+      }
+    }, 260);
+    return () => { if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current); };
+  }, [open, type, query, homeLoc]);
 
   // Names from the user's ratings + cached restaurant meta — used to
   // filter restaurant-named rows out of the cloud recipes table.
@@ -123,7 +165,6 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
       .slice(0, 24);
   }, [type, myRecipes, restaurantNames, query]);
 
-  const isEmpty = type === 'restaurants' ? restaurantHits.length === 0 : recipeHits.length === 0;
 
   const handleAddRestaurant = (id: string) => {
     const r = ratings.find((rr) => rr.restaurantId === id);
@@ -132,6 +173,31 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
     onAdd(entryFromRating(r, meta));
     setOpen(false);
   };
+
+  const handleAddPlace = (place: PlaceResult) => {
+    // If the user has actually rated this place we still prefer the
+    // rich rating-derived entry (score, dishes, notes) over the bare
+    // Places snapshot.
+    const matching = ratings.find((r) => r.restaurantId === place.id);
+    if (matching) {
+      const meta = getRestaurantInfo(place.id);
+      onAdd(entryFromRating(matching, meta));
+    } else {
+      onAdd(entryFromPlace(place));
+    }
+    setOpen(false);
+  };
+
+  // Dedupe Places results against rated hits so we don't render the
+  // same restaurant in both sections.
+  const ratedIds = useMemo(
+    () => new Set(restaurantHits.map((r) => r.restaurantId)),
+    [restaurantHits],
+  );
+  const placeResultsDedup = useMemo(
+    () => placeResults.filter((p) => !ratedIds.has(p.id) && !existingRefIds.has(p.id)),
+    [placeResults, ratedIds, existingRefIds],
+  );
 
   const handleAddRecipe = (id: string) => {
     const r = myRecipes.find((rr) => rr.id === id);
@@ -142,12 +208,22 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
   };
 
   const placeholder = type === 'restaurants'
-    ? 'Search your rated restaurants…'
+    ? 'Search your rated places or the database…'
     : 'Search your recipes…';
+
+  // "Nothing at all to show" — used to render the empty-state row.
+  // For restaurants this is now `no rated hits AND no database hits AND
+  // not currently searching` so the empty hint doesn't flash while the
+  // debounced Places call is in flight.
+  const nothingToShow = type === 'restaurants'
+    ? (restaurantHits.length === 0 && placeResultsDedup.length === 0 && !searchingPlaces)
+    : recipeHits.length === 0;
   const emptyHint = type === 'restaurants'
-    ? (ratings.length === 0
-      ? "You haven't rated any restaurants yet."
-      : 'No matches in your rated places.')
+    ? (query.trim()
+      ? 'No matches in your rated places or the database.'
+      : (ratings.length === 0
+        ? "You haven't rated any restaurants yet — search above to add from the database."
+        : 'Type to search the database.'))
     : (myRecipes.length === 0
       ? "You haven't created any recipes yet."
       : 'No matches in your recipes.');
@@ -191,10 +267,13 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
               <div className="gle-picker-empty">Sign in to use the picker.</div>
             )}
 
-            {user?.id && isEmpty && (
+            {user?.id && nothingToShow && (
               <div className="gle-picker-empty">{emptyHint}</div>
             )}
 
+            {user?.id && type === 'restaurants' && restaurantHits.length > 0 && (
+              <div className="gle-picker-section">Your rated places</div>
+            )}
             {user?.id && type === 'restaurants' && restaurantHits.map((r) => {
               const added = existingRefIds.has(r.restaurantId);
               return (
@@ -214,6 +293,38 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
                   {typeof r.score === 'number' && r.score > 0 && (
                     <span className="gle-picker-item-score">{r.score.toFixed(1)}</span>
                   )}
+                  {added
+                    ? <Check size={14} className="gle-picker-item-check" />
+                    : <Plus size={14} className="gle-picker-item-plus" />}
+                </button>
+              );
+            })}
+
+            {user?.id && type === 'restaurants' && (searchingPlaces || placeResultsDedup.length > 0) && (
+              <div className="gle-picker-section">
+                From the database
+                {searchingPlaces && <Loader2 size={11} className="gle-picker-spinner" />}
+              </div>
+            )}
+            {user?.id && type === 'restaurants' && placeResultsDedup.map((p) => {
+              const added = existingRefIds.has(p.id);
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={cn('gle-picker-item', added && 'is-added')}
+                  onClick={() => !added && handleAddPlace(p)}
+                  disabled={added}
+                >
+                  <span className="gle-picker-item-ico">
+                    <MapPin size={14} />
+                  </span>
+                  <div className="gle-picker-item-text">
+                    <div className="gle-picker-item-name">{p.name}</div>
+                    <div className="gle-picker-item-sub">
+                      {[p.types?.[0]?.replace(/_/g, ' '), p.address].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
                   {added
                     ? <Check size={14} className="gle-picker-item-check" />
                     : <Plus size={14} className="gle-picker-item-plus" />}
@@ -253,11 +364,13 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
             })}
           </div>
 
-          {(type === 'restaurants' ? ratings.length : myRecipes.length) > 0 && (
+          {((type === 'restaurants' ? ratings.length + placeResultsDedup.length : myRecipes.length) > 0) && (
             <div className="gle-picker-foot">
               <span>
                 {type === 'restaurants'
-                  ? `${restaurantHits.length} of ${ratings.length} rated places`
+                  ? (placeResultsDedup.length > 0
+                    ? `${restaurantHits.length} rated · ${placeResultsDedup.length} from database`
+                    : `${restaurantHits.length} of ${ratings.length} rated places`)
                   : `${recipeHits.length} of ${myRecipes.length} recipes`}
               </span>
               <span className="gle-picker-foot-ico">

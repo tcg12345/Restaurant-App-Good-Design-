@@ -665,6 +665,25 @@
   overflow-y: auto;
   padding: 4px 0;
 }
+.gle-overlay .gle-picker-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.4);
+}
+.gle-overlay.is-dark .gle-picker-section { color: rgba(255,255,255,0.4); }
+.gle-overlay .gle-picker-spinner {
+  animation: gle-spin 0.9s linear infinite;
+  color: rgba(30,27,26,0.5);
+}
+@keyframes gle-spin {
+  to { transform: rotate(360deg); }
+}
 .gle-overlay .gle-picker-empty {
   padding: 32px 18px;
   text-align: center;

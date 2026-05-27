@@ -9,6 +9,7 @@ import type { RestaurantRating, RestaurantMeta } from '../contexts/ListsContext'
 import type { Recipe as DbRecipe } from '../contexts/RecipesContext';
 import type { Recipe as ListRecipe } from '../contexts/ListsContext';
 import type { GuideEntry } from './supabase-guides';
+import { priceLevelToString, type PlaceResult } from './places';
 
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -41,6 +42,26 @@ export function entryFromRating(
     mustOrder: allDishes.length > 0 ? allDishes : undefined,
     neighborhood: meta?.neighborhood,
     hours: meta?.hours?.[0]?.split(': ')[1],
+  };
+}
+
+/** Build a guide entry from a Google Places result. Used when the
+ *  picker can't find a matching rating in the user's data — the entry
+ *  carries no personal score and minimal denormalized fields, but is
+ *  good enough to render and link from the guide. */
+export function entryFromPlace(p: PlaceResult): GuideEntry {
+  const cuisine = p.types?.[0]?.replace(/_/g, ' ');
+  const price = priceLevelToString(p.priceLevel);
+  return {
+    id: newEntryId(),
+    refId: p.id,
+    name: p.name,
+    subtitle: [cuisine, price].filter(Boolean).join(' · '),
+    cuisine: cuisine || undefined,
+    price: price || undefined,
+    image: p.photoUrl || '',
+    score: undefined,
+    neighborhood: p.address || undefined,
   };
 }
 
