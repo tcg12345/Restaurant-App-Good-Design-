@@ -19,7 +19,7 @@
  * scope, so the public reader (which mounts `GuideRender.css` only)
  * never picks them up.
  */
-import React, { type CSSProperties, type ReactElement, useEffect, useRef, useState } from 'react';
+import React, { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { Camera, X, Plus, ChevronDown, Settings, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ElementStyle } from '../../lib/supabase-guides';
@@ -452,25 +452,3 @@ export const SectionChrome: React.FC<SectionChromeProps> = ({ label, onOpenSetti
   </div>
 );
 
-/* ────────────────────────────────────────────────────────────────
-   SectionHost — wraps a section so its hover chrome lands above it.
-   ──────────────────────────────────────────────────────────────── */
-
-export const SectionHost: React.FC<{
-  label: string;
-  onOpenSettings?: () => void;
-  hidden?: boolean;
-  onToggleVisibility?: () => void;
-  className?: string;
-  children: ReactElement;
-}> = ({ label, onOpenSettings, hidden, onToggleVisibility, className, children }) => (
-  <div className={cn('gle-section-host', className)}>
-    <SectionChrome
-      label={label}
-      onOpenSettings={onOpenSettings}
-      hidden={hidden}
-      onToggleVisibility={onToggleVisibility}
-    />
-    {children}
-  </div>
-);

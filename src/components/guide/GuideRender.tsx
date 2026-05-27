@@ -217,13 +217,35 @@ const defaultRenderText: RenderTextFn = ({ as, value, styleKey, className, baseS
   return React.createElement(as, { className, style, 'data-style-key': styleKey }, value);
 };
 
+/** Per-image style knobs that the editor can persist. Hero passes
+ *  these from `theme.hero*`; entry photos don't use them. */
+export interface ImageStyleProps {
+  fit?: 'cover' | 'contain';
+  posX?: number;
+  posY?: number;
+  brightness?: number;
+  saturate?: number;
+}
+
+export interface RenderImageProps {
+  src: string;
+  onChange?: (next: string) => void;
+  alt?: string;
+  className?: string;
+  style?: CSSProperties;
+  imgStyle?: ImageStyleProps;
+  onChangeImgStyle?: (next: ImageStyleProps) => void;
+  label?: string;
+  showAdvanced?: boolean;
+}
+
 export interface EditorAdapter {
   /** Override the rendering of editable text nodes. Default renders a
    *  plain element with the given tag (read-only). */
   renderText?: RenderTextFn;
   /** Used by the editor to inline-replace an image with an editable
    *  wrapper. Defaults to a plain <img>. */
-  renderImage?: (props: { src: string; alt?: string; className?: string; style?: CSSProperties }) => ReactNode;
+  renderImage?: (props: RenderImageProps) => ReactNode;
   /** When provided, the entry's number column shows reorder + delete
    *  affordances (editor mode). */
   entryMutators?: {
@@ -239,8 +261,9 @@ export interface EditorAdapter {
   renderPrice?: (props: { value: string; onChange?: (v: string) => void; readOnly: boolean }) => ReactNode;
 }
 
-const defaultImage: NonNullable<EditorAdapter['renderImage']> = ({ src, alt, className, style }) =>
-  <img src={src} alt={alt || ''} referrerPolicy="no-referrer" className={className} style={style} />;
+const defaultImage: NonNullable<EditorAdapter['renderImage']> = ({ src, alt, className, style }) => (
+  src ? <img src={src} alt={alt || ''} referrerPolicy="no-referrer" className={className} style={style} /> : null
+);
 
 const defaultChips: NonNullable<EditorAdapter['renderChips']> = ({ values, chipClass }) => (
   <ul className="gle-chip-list">
@@ -273,9 +296,11 @@ export const GuideHero: React.FC<{
   topChrome?: ReactNode;        // back arrow + owner controls
   ctaChrome?: ReactNode;        // Save / Share / View map buttons
   editor?: EditorAdapter;
-  /** Use raw element references for an editor's contentEditable; in
-   *  read-only mode this is unset and everything renders as text. */
-}> = ({ guide, theme, author, eyebrow, topChrome, ctaChrome, editor }) => {
+  /** Editor-only: change handler for the cover photo URL. */
+  onChangeCover?: (next: string) => void;
+  /** Editor-only: change handler for hero image style (fit / pos / etc). */
+  onChangeHeroImageStyle?: (next: ImageStyleProps) => void;
+}> = ({ guide, theme, author, eyebrow, topChrome, ctaChrome, editor, onChangeCover, onChangeHeroImageStyle }) => {
   const V = theme.visibility;
   const renderText = editor?.renderText || defaultRenderText;
   const renderImg = editor?.renderImage || defaultImage;
@@ -287,7 +312,9 @@ export const GuideHero: React.FC<{
   const spots = guide.entries.length;
   const avg = guide.avgScore;
 
-  const heroImageStyle: CSSProperties = {
+  // In editor mode the EditableImage applies the fit/posX/posY/filter
+  // itself via the imgStyle prop. In read-only the inline style does it.
+  const heroImageStyle: CSSProperties = editor?.renderImage ? {} : {
     objectFit: theme.heroImageFit,
     objectPosition: `${theme.heroImagePosX}% ${theme.heroImagePosY}%`,
     filter: `brightness(${theme.heroImageBrightness}%) saturate(${theme.heroImageSaturation}%)`,
@@ -299,8 +326,24 @@ export const GuideHero: React.FC<{
 
       {!minimal && (
         <div className="gle-hero-art">
-          {guide.coverPhoto
-            ? renderImg({ src: guide.coverPhoto, alt: '', className: 'gle-hero-img', style: heroImageStyle })
+          {guide.coverPhoto || onChangeCover
+            ? renderImg({
+                src: guide.coverPhoto,
+                onChange: onChangeCover,
+                alt: '',
+                className: 'gle-hero-img',
+                style: heroImageStyle,
+                label: 'Replace cover',
+                showAdvanced: true,
+                imgStyle: {
+                  fit: theme.heroImageFit,
+                  posX: theme.heroImagePosX,
+                  posY: theme.heroImagePosY,
+                  brightness: theme.heroImageBrightness,
+                  saturate: theme.heroImageSaturation,
+                },
+                onChangeImgStyle: onChangeHeroImageStyle,
+              })
             : <div className="gle-hero-fallback" />}
           <div
             className="gle-hero-scrim"
@@ -516,7 +559,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
     >
       {layout === 'sidebar' && (
         <aside className="gle-rank-col">
-          <div className="gle-rank">{numLabel(entry.rank ?? index + 1)}</div>
+          <div className="gle-rank">{numLabel(index + 1)}</div>
           <div className="gle-rank-of">of {total}</div>
           {editor?.entryMutators && (
             <EntryReorderTools
@@ -532,7 +575,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
         {layout === 'banner' && (
           <div className="gle-entry-banner">
             <div className="gle-banner-rank">
-              {numLabel(entry.rank ?? index + 1)}
+              {numLabel(index + 1)}
               <span>of {total}</span>
             </div>
             {editor?.entryMutators && (
@@ -542,7 +585,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
         )}
         {layout === 'minimal' && (
           <div className="gle-entry-minirank">
-            <span className="gle-mini-rank">{numLabel(entry.rank ?? index + 1)}</span>
+            <span className="gle-mini-rank">{numLabel(index + 1)}</span>
             <span className="gle-mini-rank-of">/ {total}</span>
             <span className="gle-mini-spacer" />
             {editor?.entryMutators && (
@@ -553,8 +596,15 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
 
         {theme.entryShowPhoto && (
           <div className="gle-entry-photo">
-            {entry.image
-              ? renderImg({ src: entry.image, alt: '', className: 'gle-entry-img' })
+            {entry.image || editor?.entryMutators
+              ? renderImg({
+                  src: entry.image,
+                  onChange: editor?.entryMutators ? ((v) => set('image', v)) : undefined,
+                  alt: '',
+                  className: 'gle-entry-img',
+                  label: 'Photo',
+                  showAdvanced: false,
+                })
               : <div className="gle-entry-img-empty">{isRestaurant ? <BookOpen size={28} /> : <ChefHat size={28} />}</div>}
             {V.entryScore && score != null && score > 0 && (
               <div className="gle-entry-photo-score">
@@ -788,7 +838,7 @@ export const GuideTOC: React.FC<{
             onClick={() => onJump?.(idx)}
             className={cn('gle-toc-item', idx === activeIdx && 'is-active')}
           >
-            <span className="gle-toc-num">{numLabel(entry.rank ?? idx + 1)}</span>
+            <span className="gle-toc-num">{numLabel(idx + 1)}</span>
             <span className="gle-toc-name">{entry.name || 'Unnamed'}</span>
             {typeof entry.score === 'number' && entry.score > 0 && (
               <span className={cn('gle-toc-score', scoreCls(entry.score))}>{entry.score.toFixed(1)}</span>

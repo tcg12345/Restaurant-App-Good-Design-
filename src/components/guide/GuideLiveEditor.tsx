@@ -16,12 +16,12 @@
  */
 import React, { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, Layers, Palette, Sliders, Type as TypeIcon, AlignLeft, AlignCenter, AlignRight, Italic, RotateCcw, X, Plus, PanelRight } from 'lucide-react';
+import { ArrowLeft, Check, Layers, Palette, Type as TypeIcon, AlignLeft, AlignCenter, AlignRight, Italic, RotateCcw, X, Plus, PanelRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
   GuideThemeScope, GuideHero, GuideIntro, GuideEntries, GuideAuthor, GuideEndCap, GuideTOC,
   ACCENT_SWATCHES, SURFACE_MAP, HEADING_FONT_MAP, BODY_FONT_MAP,
-  entryDomId, readEntryMeta,
+  entryDomId,
   type EditorAdapter, type RenderTextProps,
 } from './GuideRender';
 import {
@@ -175,8 +175,6 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
     });
   }, [setTheme]);
 
-  const renumber = (list: GuideEntry[]) => list.map((e, i) => ({ ...e, rank: i + 1 } as GuideEntry & { rank: number }));
-
   const updateEntry = useCallback((id: string, next: GuideEntry) => {
     setField('entries', data.entries.map((e) => e.id === id ? next : e));
   }, [data.entries, setField]);
@@ -187,11 +185,11 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
     const ni = idx + dir;
     if (ni < 0 || ni >= list.length) return;
     [list[idx], list[ni]] = [list[ni], list[idx]];
-    setField('entries', renumber(list));
+    setField('entries', list);
   }, [data.entries, setField]);
 
   const removeEntry = useCallback((id: string) => {
-    setField('entries', renumber(data.entries.filter((e) => e.id !== id)));
+    setField('entries', data.entries.filter((e) => e.id !== id));
   }, [data.entries, setField]);
 
   const addEntry = useCallback(() => {
@@ -289,33 +287,20 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
     />
   ), [data.entries, onElementFocus, selection?.key, setAuthorOverride, setField, theme.textStyles, updateEntry]);
 
-  const renderImage: NonNullable<EditorAdapter['renderImage']> = useCallback(({ src, alt, className, style }) => (
+  const renderImage: NonNullable<EditorAdapter['renderImage']> = useCallback((props) => (
     <EditableImage
-      src={src}
-      onChange={(v) => setField('coverPhoto', v)}
-      alt={alt}
-      className={className}
-      style={style}
-      label="Replace cover"
-      showAdvanced
-      imgStyle={{
-        fit: theme.heroImageFit,
-        posX: theme.heroImagePosX,
-        posY: theme.heroImagePosY,
-        brightness: theme.heroImageBrightness,
-        saturate: theme.heroImageSaturation,
-      }}
-      onStyleChange={(next) => setTheme((t) => ({
-        ...t,
-        heroImageFit: next.fit ?? t.heroImageFit,
-        heroImagePosX: next.posX ?? t.heroImagePosX,
-        heroImagePosY: next.posY ?? t.heroImagePosY,
-        heroImageBrightness: next.brightness ?? t.heroImageBrightness,
-        heroImageSaturation: next.saturate ?? t.heroImageSaturation,
-      }))}
-      imgClassName="gle-hero-img"
+      src={props.src}
+      onChange={(v) => props.onChange?.(v)}
+      alt={props.alt}
+      className={props.className}
+      style={props.style}
+      label={props.label || 'Replace photo'}
+      showAdvanced={!!props.showAdvanced}
+      imgStyle={props.imgStyle}
+      onStyleChange={props.onChangeImgStyle}
+      imgClassName={props.className}
     />
-  ), [setField, setTheme, theme.heroImageBrightness, theme.heroImageFit, theme.heroImagePosX, theme.heroImagePosY, theme.heroImageSaturation]);
+  ), []);
 
   const renderChips: NonNullable<EditorAdapter['renderChips']> = useCallback(({ values, onChange, placeholder, chipClass }) => (
     <EditableChips
@@ -418,6 +403,15 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
                 author={heroAuthor}
                 eyebrow={{ type: data.type === 'recipes' ? 'Recipes' : 'Restaurants', tag: 'Editing draft' }}
                 editor={editor}
+                onChangeCover={(v) => setField('coverPhoto', v)}
+                onChangeHeroImageStyle={(next) => setTheme((t) => ({
+                  ...t,
+                  heroImageFit: next.fit ?? t.heroImageFit,
+                  heroImagePosX: next.posX ?? t.heroImagePosX,
+                  heroImagePosY: next.posY ?? t.heroImagePosY,
+                  heroImageBrightness: next.brightness ?? t.heroImageBrightness,
+                  heroImageSaturation: next.saturate ?? t.heroImageSaturation,
+                }))}
               />
             </SectionHostEditor>
 
