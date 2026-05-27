@@ -1607,14 +1607,14 @@ const StepEntries: React.FC<StepEntriesProps> = ({ type, entries, includePhotos,
               <div className="gc-entry-row">
                 <span className="gc-entry-grip"><GripVertical size={16} /></span>
                 <span className="gc-entry-num">{(idx + 1).toString().padStart(2, '0')}</span>
-                <span className="gc-entry-img">
-                  {entry.image && <img src={entry.image} alt="" referrerPolicy="no-referrer" />}
-                </span>
                 <div className="gc-entry-text">
                   <div className="gc-entry-name">{entry.name}</div>
                   <div className="gc-entry-sub">{entry.subtitle}</div>
                 </div>
                 <div className="gc-entry-actions">
+                  {typeof entry.score === 'number' && entry.score > 0 && (
+                    <span className="gc-entry-score" title="Your rating">{entry.score.toFixed(1)}</span>
+                  )}
                   <button
                     type="button"
                     onClick={() => onToggleExpand(entry.id)}
