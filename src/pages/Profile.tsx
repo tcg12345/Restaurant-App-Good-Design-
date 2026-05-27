@@ -8,6 +8,8 @@ import {
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { getMyGuides, type Guide as PublishedGuide } from '../lib/supabase-guides';
+import { GuideCard as PublishedGuideCard } from '../components/GuideCard';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -604,7 +606,21 @@ export const Profile: React.FC = () => {
     if (!ok) alert("Couldn't delete that post. Try again.");
   };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
-  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
+  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated' | 'guides'>('top');
+  // Published guides authored by the signed-in user. Refreshed when the
+  // user id changes (e.g. on sign-in) so the tab is populated by the
+  // time it's visited.
+  const [publishedGuides, setPublishedGuides] = useState<PublishedGuide[]>([]);
+  useEffect(() => {
+    if (!user?.id) { setPublishedGuides([]); return; }
+    let cancelled = false;
+    (async () => {
+      const all = await getMyGuides(user.id);
+      if (cancelled) return;
+      setPublishedGuides(all.filter((g) => g.isPublished));
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
   const [editListsOpen, setEditListsOpen] = useState(false);
   const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
@@ -1202,11 +1218,12 @@ export const Profile: React.FC = () => {
 
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div className="border-t border-on-surface/[0.08]">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {([
             ['top', Star, 'TOP'],
             ['posts', LayoutGrid, 'POSTS'],
             ['reels', Film, 'REELS'],
+            ['guides', BookOpen, 'GUIDES'],
             ['rated', ListIcon, 'RATED'],
           ] as const).map(([key, Icon, label]) => {
             const isActive = activeTab === key;
@@ -1347,6 +1364,37 @@ export const Profile: React.FC = () => {
               onToggleVisibility={(id, next) => setReelVisibility(id, next)}
               hideHeader
             />
+          )
+        )}
+
+        {activeTab === 'guides' && (
+          publishedGuides.length === 0 ? (
+            <EmptyTabState
+              icon={<BookOpen size={32} className="text-on-surface/15" />}
+              title="No guides yet"
+              subtitle="Curate your favorite restaurants or recipes into a guide — they'll show up here once you publish."
+              ctaLabel="Create a guide"
+              onCta={() => navigate('/create')}
+            />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {publishedGuides.map((g) => (
+                <PublishedGuideCard
+                  key={g.id}
+                  size="md"
+                  className="w-full"
+                  guide={{
+                    id: g.id,
+                    title: g.title,
+                    authorName: displayName || username || undefined,
+                    coverPhoto: g.coverPhoto,
+                    entryCount: g.entries.length,
+                    type: g.type,
+                    avgScore: g.avgScore,
+                  }}
+                />
+              ))}
+            </div>
           )
         )}
 
