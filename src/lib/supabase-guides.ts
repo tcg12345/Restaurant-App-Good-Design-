@@ -12,6 +12,23 @@ import { supabase, supabaseConfigured } from './supabase';
 export type GuideType = 'restaurants' | 'recipes';
 export type GuideVisibility = 'private' | 'public';
 
+/** Free-form section a user can append to an entry from the Live
+ *  Editor. Each carries a custom header and a body string, plus the
+ *  format used to render the body on the published guide. Stored on
+ *  GuideEntry so it round-trips through `saveGuide` like everything
+ *  else. */
+export interface CustomSection {
+  /** Stable id within the entry — used as a React key and as part of
+   *  the per-element styleKey for the Element tab. */
+  id: string;
+  header: string;
+  body: string;
+  /** Render hint for the body. `paragraph` keeps the body as a single
+   *  block; `bullets` and `numbered` split it on newlines and render
+   *  each line as a list item. */
+  format: 'paragraph' | 'bullets' | 'numbered';
+}
+
 export interface GuideEntry {
   /** Stable id within the guide — used for keying and reordering. */
   id: string;
@@ -46,6 +63,10 @@ export interface GuideEntry {
    *  RecipePanel can resolve the home-meal record without an extra
    *  lookup. Restaurant entries don't need this. */
   authorId?: string;
+  /** User-defined sections appended to this entry in the Live Editor
+   *  — each with a custom header and body. Stored inline on the entry
+   *  so they ride the existing JSONB persistence. */
+  customSections?: CustomSection[];
 }
 
 /** Per-text-node style override stored under `theme.textStyles[key]`.

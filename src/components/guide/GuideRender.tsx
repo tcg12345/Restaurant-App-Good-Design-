@@ -20,7 +20,7 @@ import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import {
   getTheme, DEFAULT_THEME,
-  type Guide, type GuideEntry, type GuideTheme, type ElementStyle,
+  type Guide, type GuideEntry, type GuideTheme, type ElementStyle, type CustomSection,
 } from '../../lib/supabase-guides';
 import type { UserProfile } from '../../lib/supabase-community';
 
@@ -747,6 +747,47 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
           </div>
         )}
 
+        {/* Custom sections the user has appended to this entry via the
+            Live Editor. Each has a header and body; the format hint
+            decides whether the body renders as a paragraph or as a
+            bullet / numbered list (split on newlines). */}
+        {(entry.customSections || []).length > 0 && (
+          <div className="gle-entry-sections">
+            {entry.customSections!.map((section) => (
+              <CustomSectionView
+                key={section.id}
+                entry={entry}
+                section={section}
+                editor={editor}
+                theme={theme}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* "Add section" button — editor mode only. Drops a fresh
+            paragraph section onto the entry with default header. */}
+        {editor?.entryMutators && (
+          <button
+            type="button"
+            className="gle-entry-add-section"
+            onClick={() => {
+              const newSection: CustomSection = {
+                id: `cs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                header: 'New section',
+                body: '',
+                format: 'paragraph',
+              };
+              editor.entryMutators!.onUpdate(entry.id, {
+                ...entry,
+                customSections: [...(entry.customSections || []), newSection],
+              });
+            }}
+          >
+            <Plus size={13} /><span>Add section</span>
+          </button>
+        )}
+
         {V.entryCta && actions?.onView && (
           <button type="button" onClick={() => actions.onView!(entry)} className="gle-entry-cta">
             <span>{isRestaurant ? 'View restaurant' : 'View recipe'}</span>
@@ -755,6 +796,118 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
         )}
       </div>
     </article>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────────
+   Custom section rendering. Read-only mode renders the body in its
+   chosen format. Editor mode adds a header editable, body editable
+   (single multiline node), format toggle row, and a delete button.
+   ───────────────────────────────────────────────────────────────── */
+
+const CustomSectionView: React.FC<{
+  entry: GuideEntry;
+  section: CustomSection;
+  editor?: EditorAdapter;
+  theme: GuideTheme;
+}> = ({ entry, section, editor, theme }) => {
+  const renderText = editor?.renderText || defaultRenderText;
+  const ek = `entry.${entry.id}.cs.${section.id}`;
+  const isEditor = !!editor?.entryMutators;
+
+  // In editor mode the Editable primitive applies textStyles overrides
+  // itself. In read-only mode we pre-compute them and pass through as
+  // inline style so the published reader matches the editor preview.
+  const headerStyle = !isEditor ? computeTextStyle(theme.textStyles[`${ek}.h`]) : undefined;
+  const bodyStyle = !isEditor ? computeTextStyle(theme.textStyles[`${ek}.b`]) : undefined;
+
+  const patchSection = (patch: Partial<CustomSection>) => {
+    if (!editor?.entryMutators) return;
+    const next = (entry.customSections || []).map((s) =>
+      s.id === section.id ? { ...s, ...patch } : s
+    );
+    editor.entryMutators.onUpdate(entry.id, { ...entry, customSections: next });
+  };
+  const deleteSection = () => {
+    if (!editor?.entryMutators) return;
+    const next = (entry.customSections || []).filter((s) => s.id !== section.id);
+    editor.entryMutators.onUpdate(entry.id, { ...entry, customSections: next });
+  };
+
+  // Body lines for list formats — preserves blank lines as empty bullets
+  // when reading, which is rare but at least consistent.
+  const bodyLines = (section.body || '').split(/\r?\n/);
+  const isList = section.format === 'bullets' || section.format === 'numbered';
+
+  return (
+    <div className="gle-cs">
+      <div className="gle-cs-head">
+        {renderText({
+          as: 'div',
+          value: section.header,
+          styleKey: `${ek}.h`,
+          className: 'gle-cs-header',
+          placeholder: 'Section title',
+          baseStyle: headerStyle,
+        })}
+        {isEditor && (
+          <div className="gle-cs-tools">
+            <button
+              type="button"
+              className={cn('gle-cs-fmt', section.format === 'paragraph' && 'on')}
+              onClick={() => patchSection({ format: 'paragraph' })}
+              title="Paragraph"
+            >¶</button>
+            <button
+              type="button"
+              className={cn('gle-cs-fmt', section.format === 'bullets' && 'on')}
+              onClick={() => patchSection({ format: 'bullets' })}
+              title="Bullet list"
+            >•</button>
+            <button
+              type="button"
+              className={cn('gle-cs-fmt', section.format === 'numbered' && 'on')}
+              onClick={() => patchSection({ format: 'numbered' })}
+              title="Numbered list"
+            >1.</button>
+            <button
+              type="button"
+              className="gle-cs-delete"
+              onClick={deleteSection}
+              title="Delete section"
+            >×</button>
+          </div>
+        )}
+      </div>
+
+      {/* Body: editor mode is always a single multiline editable;
+          public reader splits on newlines for list formats. */}
+      {isEditor ? (
+        <>
+          {renderText({
+            as: 'div',
+            value: section.body,
+            styleKey: `${ek}.b`,
+            className: cn('gle-cs-body', isList && `is-${section.format}`),
+            placeholder: isList
+              ? 'Write one item per line — each line becomes a list item on the published guide.'
+              : 'What did you want to say in this section?',
+            multiline: true,
+            maxLength: 1200,
+          })}
+        </>
+      ) : section.format === 'bullets' ? (
+        <ul className="gle-cs-list" style={bodyStyle}>
+          {bodyLines.filter((l) => l.trim()).map((line, i) => <li key={i}>{line}</li>)}
+        </ul>
+      ) : section.format === 'numbered' ? (
+        <ol className="gle-cs-list" style={bodyStyle}>
+          {bodyLines.filter((l) => l.trim()).map((line, i) => <li key={i}>{line}</li>)}
+        </ol>
+      ) : (
+        <p className="gle-cs-body" style={bodyStyle}>{section.body}</p>
+      )}
+    </div>
   );
 };
 

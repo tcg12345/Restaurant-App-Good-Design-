@@ -644,6 +644,70 @@
 }
 .gle-scope .gle-entry-cta:active { transform: scale(0.98); }
 
+/* ── Custom sections ──────────────────────────────────────────── */
+.gle-scope .gle-entry-sections {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.gle-scope .gle-cs { display: flex; flex-direction: column; gap: 10px; }
+.gle-scope .gle-cs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gle-scope .gle-cs-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gle-ink-muted);
+  flex: 1;
+  min-width: 0;
+}
+.gle-scope .gle-cs-body {
+  font-size: calc(15px * var(--gle-scale));
+  line-height: 1.55;
+  color: var(--gle-ink);
+  margin: 0;
+}
+.gle-scope .gle-cs-body.is-bullets,
+.gle-scope .gle-cs-body.is-numbered {
+  white-space: pre-wrap;
+  padding-left: 4px;
+}
+.gle-scope .gle-cs-list {
+  margin: 0;
+  padding-left: 22px;
+  font-size: calc(15px * var(--gle-scale));
+  line-height: 1.55;
+  color: var(--gle-ink);
+}
+.gle-scope .gle-cs-list li { margin: 4px 0; }
+.gle-scope .gle-cs-list li::marker { color: var(--gle-accent); }
+.gle-scope .gle-entry-add-section {
+  margin-top: 20px;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1.5px dashed var(--gle-line);
+  background: transparent;
+  color: var(--gle-ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.gle-scope .gle-entry-add-section:hover {
+  border-color: var(--gle-accent);
+  color: var(--gle-accent);
+}
+
 /* ── TOC ─────────────────────────────────────────────────────── */
 .gle-scope .gle-toc {
   position: sticky;

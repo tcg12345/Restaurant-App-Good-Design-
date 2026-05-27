@@ -547,11 +547,38 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setLiveEditOpen(true);
   };
 
-  // Save from inside the editor — persists the current snapshot
-  // without flipping the publish flag.
-  const onLiveEditSave = async (): Promise<boolean> => {
-    const saved = await persist(initialGuide?.isPublished ?? false);
-    return !!saved;
+  // Save from inside the editor — persists the snapshot the editor
+  // sent (its absolutely-current data), not the wizard's potentially-
+  // stale state. We still apply the snapshot to wizard state so the
+  // wizard stays in sync (and so subsequent Publish reads it). The
+  // publish flag is preserved from the original guide so saving from
+  // live edit never inadvertently publishes or unpublishes.
+  const onLiveEditSave = async (latest: Guide): Promise<boolean> => {
+    if (!user?.id) { showToast('Sign in to save'); return false; }
+    applyEditorPatch(latest);
+    setBusy(true);
+    const saved = await saveGuide(user.id, {
+      ...(editingId ? { id: editingId } : {}),
+      type: latest.type,
+      title: (latest.title || '').trim(),
+      subtitle: (latest.subtitle || '').trim(),
+      intro: (latest.intro || '').trim(),
+      coverPhoto: latest.coverPhoto,
+      tags: latest.tags,
+      visibility: latest.visibility,
+      isPublished: initialGuide?.isPublished ?? false,
+      includePhotos: latest.includePhotos,
+      entries: latest.entries,
+      theme: latest.theme,
+    });
+    setBusy(false);
+    if (!saved) {
+      showToast("Couldn't save guide");
+      return false;
+    }
+    setEditingId(saved.id);
+    showToast('Saved');
+    return true;
   };
 
   /* ── Render ───────────────────────────────────────────────────── */

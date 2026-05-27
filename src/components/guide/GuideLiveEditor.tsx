@@ -42,7 +42,12 @@ interface GuideLiveEditorProps {
   authorProfile: UserProfile | null;
   onChange: (next: Guide) => void;
   onClose: () => void;
-  onSave: () => Promise<boolean>;
+  /** Called when the user clicks Save guide. Receives the editor's
+   *  latest data snapshot directly so the parent doesn't have to rely
+   *  on its own state being current at the moment of save — that
+   *  round-trip is async (onChange → setState → re-render) and can
+   *  drop edits if Save fires before the parent has re-rendered. */
+  onSave: (latest: Guide) => Promise<boolean>;
 }
 
 type InspectorTab = 'design' | 'layout' | 'element';
@@ -233,13 +238,16 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
 
   const handleSave = useCallback(async () => {
     setBusy(true);
-    const ok = await onSave();
+    // Pass the editor's current data directly. The parent should use
+    // this snapshot to persist (don't read from its own state, which
+    // may not yet reflect the in-flight onChange callbacks).
+    const ok = await onSave(data);
     setBusy(false);
     if (ok) {
       setSavedHint(true);
       window.setTimeout(() => setSavedHint(false), 1800);
     }
-  }, [onSave]);
+  }, [onSave, data]);
 
   /* ── Editor adapter — feeds every render-prop in GuideRender so the
         primitives wrap their text/images/chips in the editable
@@ -257,6 +265,20 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
         else if (k === 'author.name') setAuthorOverride('name', next);
         else if (k === 'author.bio') setAuthorOverride('bio', next);
         else {
+          // Custom-section keys: entry.{entryId}.cs.{sectionId}.h|b
+          const csMatch = /^entry\.([^.]+)\.cs\.([^.]+)\.(h|b)$/.exec(k);
+          if (csMatch) {
+            const [, entryId, sectionId, field] = csMatch;
+            const entry = data.entries.find((e) => e.id === entryId);
+            if (!entry) return;
+            const sections = (entry.customSections || []).map((s) =>
+              s.id === sectionId
+                ? { ...s, [field === 'h' ? 'header' : 'body']: next }
+                : s,
+            );
+            updateEntry(entryId, { ...entry, customSections: sections });
+            return;
+          }
           const m = /^entry\.([^.]+)\.(\w+)$/.exec(k);
           if (m) {
             const [, entryId, field] = m;
