@@ -833,16 +833,29 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   {busy ? <Loader2 size={14} className="animate-spin" /> : null}
                   Save draft
                 </button>
-                <button
-                  type="button"
-                  className="gc-foot-live-edit"
-                  onClick={onLaunchLiveEdit}
-                  disabled={busy}
-                  title="Open the Live editor — visual customizer"
-                >
-                  <Wand2 size={14} />
-                  Live edit
-                </button>
+                {(() => {
+                  // Live edit needs everything from steps 1-4: a type, a
+                  // cover photo, a title, and at least one entry. The
+                  // simplest gate is "user has moved past Add entries"
+                  // — the step gates already prevent advancing without
+                  // the required fields, so being on step 5+ implies
+                  // all of those are filled.
+                  const liveEditUnlocked = currentStepIdx >= STEPS_ORDER.indexOf('entries');
+                  return (
+                    <button
+                      type="button"
+                      className="gc-foot-live-edit"
+                      onClick={onLaunchLiveEdit}
+                      disabled={busy || !liveEditUnlocked}
+                      title={liveEditUnlocked
+                        ? 'Open the Live editor — visual customizer'
+                        : 'Finish steps 1-4 first — pick a type, cover, details, and add at least one entry.'}
+                    >
+                      <Wand2 size={14} />
+                      Live edit
+                    </button>
+                  );
+                })()}
                 {step !== 'review' ? (
                   <button
                     type="button"
