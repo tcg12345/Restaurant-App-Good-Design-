@@ -20,10 +20,11 @@ import { ArrowLeft, Check, Layers, Palette, Type as TypeIcon, AlignLeft, AlignCe
 import { cn } from '../../lib/utils';
 import {
   GuideThemeScope, GuideHero, GuideIntro, GuideEntries, GuideAuthor, GuideEndCap, GuideTOC,
-  ACCENT_SWATCHES, SURFACE_MAP, HEADING_FONT_MAP, BODY_FONT_MAP,
+  ACCENT_SWATCHES, HEADING_FONT_MAP, BODY_FONT_MAP,
   entryDomId,
   type EditorAdapter, type RenderTextProps,
 } from './GuideRender';
+import { useSettings } from '../../contexts/SettingsContext';
 import {
   Editable, EditableImage, EditableChips, EditableScore, SectionChrome,
 } from './Editable';
@@ -102,6 +103,8 @@ const TEXT_COLORS: { label: string; value: ElementStyle['color'] }[] = [
 export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
   open, data, authorProfile, onChange, onClose, onSave,
 }) => {
+  const settings = useSettings();
+  const isDark = !!settings?.darkMode;
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('design');
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -363,7 +366,7 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
   const V = theme.visibility;
 
   const overlay = (
-    <div className={cn('gle-overlay', `density-${theme.density}`, inspectorOpen && 'has-insp', SURFACE_MAP[theme.surface as keyof typeof SURFACE_MAP]?.dark && 'is-dark')}>
+    <div className={cn('gle-overlay', `density-${theme.density}`, inspectorOpen && 'has-insp', isDark && 'is-dark')}>
       {/* ── Top chrome ── */}
       <header className="gle-chrome">
         <div className="gle-chrome-row">
@@ -747,22 +750,9 @@ const DesignTab: React.FC<{
       </div>
     </InspectorGroup>
 
-    <InspectorGroup label="Surface">
-      <div className="gle-surf-grid">
-        {(Object.entries(SURFACE_MAP) as [keyof typeof SURFACE_MAP, typeof SURFACE_MAP[keyof typeof SURFACE_MAP]][])
-          .map(([key, info]) => (
-            <button
-              key={key}
-              type="button"
-              className={cn('gle-surf-card', theme.surface === key && 'on')}
-              onClick={() => set('surface', key)}
-            >
-              <span className="gle-surf-prev" style={{ background: info.bg, color: info.ink }}>Aa</span>
-              <span>{info.label}</span>
-            </button>
-          ))}
-      </div>
-    </InspectorGroup>
+    {/* Surface picker removed — the rendered guide always follows the
+        viewer's app dark / light mode setting now, never a per-guide
+        choice. See GuideThemeScope in GuideRender.tsx. */}
 
     <InspectorGroup label="Heading font">
       <div className="gle-font-list">

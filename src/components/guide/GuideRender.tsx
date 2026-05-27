@@ -22,6 +22,7 @@ import {
   getTheme, DEFAULT_THEME,
   type Guide, type GuideEntry, type GuideTheme, type ElementStyle, type CustomSection,
 } from '../../lib/supabase-guides';
+import { useSettings } from '../../contexts/SettingsContext';
 import type { UserProfile } from '../../lib/supabase-community';
 
 /* ─────────────────────────────────────────────────────────────────
@@ -122,8 +123,16 @@ export const GuideThemeScope: React.FC<{
   className?: string;
   children: ReactNode;
 }> = ({ theme: themeIn, className, children }) => {
-  const theme: GuideTheme = themeIn ?? DEFAULT_THEME;
-  const surface = SURFACE_MAP[theme.surface as keyof typeof SURFACE_MAP] || SURFACE_MAP.cream;
+  const settings = useSettings();
+  const baseTheme: GuideTheme = themeIn ?? DEFAULT_THEME;
+  // Surface always follows the app's light / dark mode, never the
+  // saved theme. The `surface` field is kept on GuideTheme for
+  // backwards compat with already-persisted guides, but it's ignored
+  // at render time so the same guide reads cleanly for both a
+  // light-mode and a dark-mode viewer.
+  const surfaceKey: GuideTheme['surface'] = settings?.darkMode ? 'slate' : 'cream';
+  const theme: GuideTheme = { ...baseTheme, surface: surfaceKey };
+  const surface = SURFACE_MAP[surfaceKey];
   const heading = HEADING_FONT_MAP[theme.headingFont as keyof typeof HEADING_FONT_MAP] || HEADING_FONT_MAP['noto-serif'];
   const body = BODY_FONT_MAP[theme.bodyFont as keyof typeof BODY_FONT_MAP] || BODY_FONT_MAP['manrope'];
 
