@@ -106,6 +106,16 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
     return myRecipes
       .filter((r) => !r.linkedRestaurantId)
       .filter((r) => !restaurantNames.has((r.title || '').trim().toLowerCase()))
+      // A real recipe has at least some content. Restaurant placeholders
+      // that ended up in the recipes table — title + cuisine + nothing
+      // else — fail this gate and don't appear in the picker.
+      .filter((r) => {
+        const hasIngredients = (r.ingredients?.length || 0) > 0;
+        const hasSteps = (r.steps?.length || 0) > 0;
+        const hasDescription = (r.description || '').trim().length > 0;
+        const hasTime = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0) > 0;
+        return hasIngredients || hasSteps || hasDescription || hasTime;
+      })
       .filter((r) => !q
         || r.title.toLowerCase().includes(q)
         || (r.cuisine || '').toLowerCase().includes(q)

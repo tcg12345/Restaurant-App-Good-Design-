@@ -1293,15 +1293,23 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
   if (seedMode === 'recipes-my') {
     // Restaurants leak into the cloud `recipes` table when the user
     // creates a restaurant-themed entry via a flow that bridges both
-    // tables (e.g. recreating a dish from a rated place). Three filters
+    // tables (e.g. recreating a dish from a rated place). Four filters
     // together keep them out:
     //   1. `linkedRestaurantId` set → explicitly a restaurant-linked row
     //   2. title matches a rated restaurant name (case-insensitive)
     //   3. title matches a cached restaurantMeta name
+    //   4. row has no actual recipe content (no ingredients / steps /
+    //      description / prep+cook time). Real recipes almost always
+    //      have at least one of these; pure placeholders don't.
     const recipesOnly = myRecipes.filter((r) => {
       if (r.linkedRestaurantId) return false;
       const lower = (r.title || '').trim().toLowerCase();
       if (restaurantNames.has(lower)) return false;
+      const hasIngredients = (r.ingredients?.length || 0) > 0;
+      const hasSteps = (r.steps?.length || 0) > 0;
+      const hasDescription = (r.description || '').trim().length > 0;
+      const hasTime = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0) > 0;
+      if (!hasIngredients && !hasSteps && !hasDescription && !hasTime) return false;
       return true;
     });
     const recipesQ = recipesFilter.trim().toLowerCase();
