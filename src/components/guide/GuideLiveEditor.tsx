@@ -279,6 +279,7 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
       maxLength={p.maxLength}
       baseStyle={p.baseStyle}
       selected={selection?.key === p.styleKey}
+      readOnly={p.readOnly}
       onFocus={onElementFocus}
     />
   ), [data.entries, onElementFocus, selection?.key, setAuthorOverride, setField, theme.textStyles, updateEntry]);

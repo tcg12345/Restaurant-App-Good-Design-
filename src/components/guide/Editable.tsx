@@ -47,6 +47,11 @@ export interface EditableProps {
   maxLength?: number;
   /** When true, the active orange dashed outline is drawn on this node. */
   selected?: boolean;
+  /** When true, the element shows its value as plain text — the user
+   *  can click to select it for styling (Element tab) but cannot edit
+   *  the text. Used for entry names, where the name comes from the
+   *  source rating/recipe and shouldn't be overwritten in the guide. */
+  readOnly?: boolean;
 }
 
 export const Editable: React.FC<EditableProps> = ({
@@ -56,6 +61,7 @@ export const Editable: React.FC<EditableProps> = ({
   styleKey, textStyles, onFocus,
   baseStyle, multiline = false, maxLength,
   selected = false,
+  readOnly = false,
 }) => {
   const ref = useRef<HTMLElement | null>(null);
   const editing = useRef(false);
@@ -65,14 +71,42 @@ export const Editable: React.FC<EditableProps> = ({
   // Keep the DOM text in sync with the external `value` prop EXCEPT
   // while the user is typing — overwriting textContent then would
   // snap the caret to the start of the node. The `editing` ref flips
-  // on focus and back off on blur.
+  // on focus and back off on blur. (For readOnly nodes there's no
+  // typing path, but we still let React render `value` as children.)
   useEffect(() => {
+    if (readOnly) return;
     const el = ref.current;
     if (!el || editing.current) return;
     if (el.textContent !== (value || '')) {
       el.textContent = value || '';
     }
   });
+
+  // ── Read-only branch: click to select for styling, no caret. ──
+  if (readOnly) {
+    return React.createElement(as, {
+      ref: (node: HTMLElement | null) => { ref.current = node; },
+      'data-style-key': styleKey,
+      'data-placeholder': placeholder,
+      className: cn(
+        'gle-editable is-readonly',
+        overrides && 'has-override',
+        selected && 'is-selected',
+        className,
+      ),
+      style: { ...baseStyle, ...computed },
+      tabIndex: 0,
+      onClick: (e: React.MouseEvent<HTMLElement>) => {
+        if (onFocus) onFocus(styleKey, e.currentTarget);
+      },
+      onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (onFocus) onFocus(styleKey, e.currentTarget);
+        }
+      },
+    } as React.HTMLAttributes<HTMLElement> & { ref: (n: HTMLElement | null) => void }, value || placeholder);
+  }
 
   const handleKey = (e: React.KeyboardEvent<HTMLElement>) => {
     if (!multiline && e.key === 'Enter') {

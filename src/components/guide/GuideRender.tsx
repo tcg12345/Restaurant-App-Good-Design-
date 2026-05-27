@@ -208,6 +208,9 @@ export interface RenderTextProps {
   multiline?: boolean;
   maxLength?: number;
   baseStyle?: CSSProperties;
+  /** When true, the rendered node is selectable for per-element
+   *  styling (Element tab) but cannot have its text edited. */
+  readOnly?: boolean;
 }
 
 export type RenderTextFn = (props: RenderTextProps) => ReactNode;
@@ -623,12 +626,17 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
                 <span className="gle-rule" />
               </div>
             )}
+            {/* Entry name is read-only: the value comes from the
+                source rating / recipe and renaming it inside the guide
+                would desync the two. Click still selects it for
+                per-element styling via the Inspector's Element tab. */}
             {renderText({
               as: 'h2',
               value: entry.name || '',
               styleKey: `${ek}.name`,
               className: 'gle-entry-name',
               placeholder: isRestaurant ? 'Restaurant name' : 'Recipe name',
+              readOnly: true,
             })}
             {/* Restaurant detail meta — read-only because these come from
                 the rating data; users edit them from the rating, not the
