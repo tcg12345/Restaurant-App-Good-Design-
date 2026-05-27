@@ -1344,6 +1344,25 @@
   gap: 8px;
 }
 .gc-foot-save:disabled { opacity: 0.45; cursor: default; }
+.gc-foot-live-edit {
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1.5px solid var(--accent, #A8392A);
+  color: var(--accent, #A8392A);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: background-color 0.15s, color 0.15s;
+}
+.gc-foot-live-edit:hover {
+  background: var(--accent, #A8392A);
+  color: #fff;
+}
+.gc-foot-live-edit:disabled { opacity: 0.45; cursor: default; }
 .gc-foot-next,
 .gc-foot-publish {
   padding: 12px 22px;

@@ -34,6 +34,11 @@ export interface GuideEntry {
   /** Restaurant entries only — surfaced under the title. */
   neighborhood?: string;
   hours?: string;
+  /** Restaurant entries only — separately editable in the Live Editor.
+   *  Originally derived into `subtitle`; we now keep both so the editor's
+   *  inspector can tweak them individually without re-parsing. */
+  cuisine?: string;
+  price?: string;            // '$' | '$$' | '$$$' | '$$$$'
   /** Recipe entries only. */
   totalTime?: number;
   difficulty?: string;
@@ -41,6 +46,159 @@ export interface GuideEntry {
    *  RecipePanel can resolve the home-meal record without an extra
    *  lookup. Restaurant entries don't need this. */
   authorId?: string;
+}
+
+/** Per-text-node style override stored under `theme.textStyles[key]`.
+ *  Every property is optional — an empty record means "use the defaults
+ *  baked into the rendering primitive". */
+export interface ElementStyle {
+  /** Font size as a percentage of the element's base size. 50–250. */
+  size?: number;
+  /** Numeric weight — matches `font-weight`. */
+  weight?: 300 | 400 | 500 | 700 | 800;
+  italic?: boolean;
+  /** `auto` defers to the element's default color; `accent` / `muted` /
+   *  `inverse` are theme-aware tokens; a `#rrggbb` is a custom value. */
+  color?: 'auto' | 'accent' | 'muted' | 'inverse' | string;
+  align?: 'left' | 'center' | 'right';
+  /** `auto` defers; `serif` / `sans` switch to the matching theme font. */
+  family?: 'auto' | 'serif' | 'sans';
+  /** em value. */
+  letterSpacing?: number;
+}
+
+/** Map of visibility flags for sections + sub-elements. Toggled from the
+ *  Live Editor's Layout tab; consumed by the rendering primitives. */
+export interface GuideVisibilityMap {
+  toc: boolean;
+  author: boolean;
+  endCap: boolean;
+  heroEyebrow: boolean;
+  heroAuthor: boolean;
+  heroStats: boolean;
+  heroActions: boolean;
+  introQuote: boolean;
+  introTags: boolean;
+  entryScore: boolean;
+  entryMeta: boolean;
+  entryHours: boolean;
+  entryActions: boolean;
+  entryMustOrder: boolean;
+  entryBestFor: boolean;
+  entryTip: boolean;
+  entryCta: boolean;
+}
+
+/** Per-guide author override fields. Each is optional — when absent, the
+ *  rendering primitives fall back to the linked user profile. */
+export interface GuideAuthorOverrides {
+  name?: string;
+  handle?: string;
+  avatar?: string;   // base64 or URL
+  bio?: string;
+}
+
+/** Visual customization persisted on a guide. Created and edited via the
+ *  Live Editor; consumed by both that editor and the public reader so
+ *  authors and viewers see the same styled output. Every field is
+ *  optional in storage — the rendering primitives backfill with
+ *  DEFAULT_THEME so partial themes round-trip cleanly. */
+export interface GuideTheme {
+  // Global design
+  accent: string;
+  surface: 'cream' | 'paper' | 'sand' | 'mist' | 'slate';
+  headingFont: 'noto-serif' | 'playfair' | 'fraunces' | 'dm-serif';
+  bodyFont: 'manrope' | 'inter' | 'ibm-plex';
+  density: 'compact' | 'comfortable' | 'spacious';
+  radius: 'sharp' | 'soft' | 'round';
+
+  // Hero
+  heroLayout: 'classic' | 'centered' | 'split' | 'minimal';
+  heroAlign: 'left' | 'center';
+  heroScrim: number;
+  heroImageFit: 'cover' | 'contain';
+  heroImagePosX: number;
+  heroImagePosY: number;
+  heroImageBrightness: number;
+  heroImageSaturation: number;
+
+  // Intro
+  introStyle: 'plain' | 'bordered' | 'accent';
+
+  // Entry layout
+  entryLayout: 'sidebar' | 'banner' | 'minimal';
+  entryShowPhoto: boolean;
+
+  visibility: GuideVisibilityMap;
+
+  /** Per-element typography overrides, keyed by a dotted path
+   *  ('title', 'intro', 'entry.{id}.name', etc.). */
+  textStyles: Record<string, ElementStyle>;
+
+  authorOverrides?: GuideAuthorOverrides;
+}
+
+/** Defaults applied by `getTheme()` for any field missing from the stored
+ *  theme. Mirrors the reference editor's `defaultTheme` so the editor and
+ *  reader agree on the baseline. */
+export const DEFAULT_THEME: GuideTheme = {
+  accent: '#9F3012',
+  surface: 'cream',
+  headingFont: 'noto-serif',
+  bodyFont: 'manrope',
+  density: 'comfortable',
+  radius: 'soft',
+
+  heroLayout: 'classic',
+  heroAlign: 'left',
+  heroScrim: 70,
+  heroImageFit: 'cover',
+  heroImagePosX: 50,
+  heroImagePosY: 50,
+  heroImageBrightness: 100,
+  heroImageSaturation: 105,
+
+  introStyle: 'plain',
+
+  entryLayout: 'sidebar',
+  entryShowPhoto: false,
+
+  visibility: {
+    toc: true,
+    author: true,
+    endCap: true,
+    heroEyebrow: true,
+    heroAuthor: true,
+    heroStats: true,
+    heroActions: true,
+    introQuote: true,
+    introTags: true,
+    entryScore: true,
+    entryMeta: true,
+    entryHours: true,
+    entryActions: true,
+    entryMustOrder: true,
+    entryBestFor: true,
+    entryTip: true,
+    entryCta: true,
+  },
+
+  textStyles: {},
+};
+
+/** Merge a stored theme with DEFAULT_THEME, preserving the partial
+ *  visibility and textStyles maps. Use this anywhere a render primitive
+ *  needs a fully-populated theme. */
+export function getTheme(guide: Pick<Guide, 'theme'> | null | undefined): GuideTheme {
+  const t = guide?.theme;
+  if (!t) return DEFAULT_THEME;
+  return {
+    ...DEFAULT_THEME,
+    ...t,
+    visibility: { ...DEFAULT_THEME.visibility, ...(t.visibility ?? {}) },
+    textStyles: { ...(t.textStyles ?? {}) },
+    authorOverrides: t.authorOverrides ? { ...t.authorOverrides } : undefined,
+  };
 }
 
 export interface Guide {
@@ -61,6 +219,9 @@ export interface Guide {
   entries: GuideEntry[];
   avgScore: number | null;
   readMinutes: number | null;
+  /** Live Editor customization. Absent when the user hasn't opened the
+   *  editor; `getTheme()` fills in the defaults during render. */
+  theme?: GuideTheme;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +245,8 @@ function rowToGuide(row: Record<string, unknown>): Guide {
     entries: ((row.entries as GuideEntry[]) || []),
     avgScore: (row.avg_score as number) ?? null,
     readMinutes: (row.read_minutes as number) ?? null,
+    // theme: undefined for rows pre-dating migration 028.
+    theme: (row.theme as GuideTheme | null) ?? undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -129,6 +292,7 @@ export async function saveGuide(
       entries: draft.entries,
       avg_score: avgScore,
       read_minutes: readMinutes,
+      theme: draft.theme ?? null,
       updated_at: new Date().toISOString(),
     };
     if (draft.id) payload.id = draft.id;
@@ -138,6 +302,19 @@ export async function saveGuide(
       .upsert(payload, { onConflict: 'id' })
       .select('*')
       .single();
+    // Retry without `theme` if the column hasn't been migrated yet
+    // (mirrors the include_photos fallback below). Keeps the feature
+    // usable until the user runs migration 028.
+    if (error && /\btheme\b/i.test(error.message || '')) {
+      const { theme: _dropTheme, ...legacy } = payload;
+      const retry = await supabase
+        .from('guides')
+        .upsert(legacy, { onConflict: 'id' })
+        .select('*')
+        .single();
+      data = retry.data as typeof data;
+      error = retry.error;
+    }
     // Retry without include_photos if the column hasn't been migrated
     // yet — keeps the feature usable until the user runs migration 027.
     if (error && /include_photos/i.test(error.message || '')) {

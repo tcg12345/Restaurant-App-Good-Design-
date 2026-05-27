@@ -19,7 +19,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { X, ArrowLeft, ArrowRight, Plus, Trash2, BookOpen, ChefHat, Check, GripVertical, ImagePlus, Loader2, Globe, Lock, Search, ListChecks, Star } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Plus, Trash2, BookOpen, ChefHat, Check, GripVertical, ImagePlus, Loader2, Globe, Lock, Search, ListChecks, Star, Wand2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type CustomList, type RestaurantRating, type Recipe as ListRecipe } from '../contexts/ListsContext';
@@ -27,9 +27,13 @@ import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext'
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide } from '../lib/supabase-guides';
+import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide, type GuideTheme } from '../lib/supabase-guides';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { GuideLiveEditor } from './guide/GuideLiveEditor';
+import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import './GuideCreatorSheet.css';
+import './guide/GuideRender.css';
+import './guide/GuideLiveEditor.css';
 
 type Step = 'type' | 'cover' | 'details' | 'seed' | 'entries' | 'visibility' | 'review';
 type SeedMode = 'list' | 'rated' | 'search' | 'recipes-list' | 'recipes-my';
@@ -237,6 +241,12 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [entries, setEntries] = useState<GuideEntry[]>([]);
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Live Editor state — `theme` carries everything the editor produces;
+   *  `liveEditOpen` toggles the overlay; `authorProfile` is looked up
+   *  lazily so the author panel has sensible defaults. */
+  const [theme, setTheme] = useState<GuideTheme | undefined>(undefined);
+  const [liveEditOpen, setLiveEditOpen] = useState(false);
+  const [authorProfile, setAuthorProfile] = useState<UserProfile | null>(null);
 
   const { dragProps } = useBottomSheet(open, onClose);
   const dragRef = useRef<number | null>(null);
@@ -254,6 +264,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setVisibility(initialGuide.visibility);
       setIncludePhotos(initialGuide.includePhotos);
       setEntries(initialGuide.entries);
+      setTheme(initialGuide.theme);
       setStep('review');
     } else {
       setEditingId(null);
@@ -264,6 +275,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setIntro('');
       setTags([]);
       setCoverPhoto('');
+      setTheme(undefined);
       setVisibility(accountIsPublic ? 'public' : 'private');
       setIncludePhotos(true);
       setEntries([]);
@@ -271,7 +283,20 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     }
     setExpandedEntryId(null);
     setBusy(false);
+    setLiveEditOpen(false);
   }, [open, initialGuide?.id]);
+
+  // Resolve the author profile once per signed-in user — used by the
+  // Live Editor's hero/author panel for sensible defaults.
+  useEffect(() => {
+    if (!open || !user?.id || authorProfile?.id === user.id) return;
+    let cancelled = false;
+    (async () => {
+      const profiles = await getProfilesByIds([user.id]);
+      if (!cancelled) setAuthorProfile(profiles[user.id] || null);
+    })();
+    return () => { cancelled = true; };
+  }, [open, user?.id, authorProfile?.id]);
 
   const currentStepIdx = STEPS_ORDER.indexOf(step);
   const totalSteps = STEPS_ORDER.length;
@@ -328,6 +353,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       refId: r.restaurantId,
       name: r.name,
       subtitle: subtitleStr,
+      cuisine: r.cuisine || undefined,
+      price: r.price || undefined,
       image: r.photos?.[0]?.url || r.image || '',
       score: r.score,
       notes: r.notes?.trim() || undefined,
@@ -408,6 +435,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       isPublished: publish,
       includePhotos,
       entries,
+      theme,
     });
     setBusy(false);
     if (!saved) {
@@ -433,6 +461,64 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       onClose();
       navigate(`/guides/${saved.id}`);
     }
+  };
+
+  /* ── Live Editor integration ──────────────────────────────────── */
+
+  // Assemble a Guide-shaped snapshot from the wizard's split state so
+  // the editor can consume it like a real guide. computed fields and
+  // timestamps are filled with safe placeholders.
+  const liveEditData: Guide = useMemo(() => ({
+    id: editingId || 'draft',
+    userId: user?.id || '',
+    type,
+    title: title.trim(),
+    subtitle: subtitle.trim(),
+    intro: intro.trim(),
+    coverPhoto,
+    tags,
+    visibility,
+    isPublished: initialGuide?.isPublished ?? false,
+    includePhotos,
+    entries,
+    avgScore: null,
+    readMinutes: null,
+    theme,
+    createdAt: initialGuide?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }), [editingId, user?.id, type, title, subtitle, intro, coverPhoto, tags, visibility,
+       includePhotos, entries, theme, initialGuide?.isPublished, initialGuide?.createdAt]);
+
+  // Distribute the editor's snapshot back into the wizard's split state.
+  const applyEditorPatch = (next: Guide) => {
+    setTitle(next.title);
+    setSubtitle(next.subtitle);
+    setIntro(next.intro);
+    setCoverPhoto(next.coverPhoto);
+    setTags(next.tags);
+    setEntries(next.entries);
+    setVisibility(next.visibility);
+    setIncludePhotos(next.includePhotos);
+    setTheme(next.theme);
+  };
+
+  // Open the Live Editor. If the guide has no id yet, save a draft
+  // first so we have one (the editor still works without an id, but
+  // an id makes the Save guide round-trip atomic).
+  const onLaunchLiveEdit = async () => {
+    if (!user?.id) { showToast('Sign in to use Live edit'); return; }
+    if (!editingId) {
+      const saved = await persist(false);
+      if (!saved) return;
+    }
+    setLiveEditOpen(true);
+  };
+
+  // Save from inside the editor — persists the current snapshot
+  // without flipping the publish flag.
+  const onLiveEditSave = async (): Promise<boolean> => {
+    const saved = await persist(initialGuide?.isPublished ?? false);
+    return !!saved;
   };
 
   /* ── Render ───────────────────────────────────────────────────── */
@@ -747,6 +833,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   {busy ? <Loader2 size={14} className="animate-spin" /> : null}
                   Save draft
                 </button>
+                <button
+                  type="button"
+                  className="gc-foot-live-edit"
+                  onClick={onLaunchLiveEdit}
+                  disabled={busy}
+                  title="Open the Live editor — visual customizer"
+                >
+                  <Wand2 size={14} />
+                  Live edit
+                </button>
                 {step !== 'review' ? (
                   <button
                     type="button"
@@ -781,6 +877,20 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           />
         </motion.div>
       </motion.div>
+
+      {/* Live Editor overlay — portals itself to document.body so it
+          escapes the wizard's stacking context. Render conditionally so
+          we don't pay the cost when it isn't open. */}
+      {liveEditOpen && (
+        <GuideLiveEditor
+          open={liveEditOpen}
+          data={liveEditData}
+          authorProfile={authorProfile}
+          onChange={applyEditorPatch}
+          onClose={() => setLiveEditOpen(false)}
+          onSave={onLiveEditSave}
+        />
+      )}
     </AnimatePresence>
   );
 };
