@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sparkles, RotateCcw } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
@@ -10,7 +10,7 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'favorite-dishes';
 
 export const RatingModal: React.FC = () => {
   const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings } = useLists();
@@ -26,6 +26,8 @@ export const RatingModal: React.FC = () => {
   const [priceIndex, setPriceIndex] = useState(-1);
   const [priceAmount, setPriceAmount] = useState('');
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [favoriteDishes, setFavoriteDishes] = useState<string[]>([]);
+  const [dishDraft, setDishDraft] = useState('');
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [friendSearch, setFriendSearch] = useState('');
@@ -62,6 +64,8 @@ export const RatingModal: React.FC = () => {
       setWouldReturn(ex?.wouldReturn ?? true);
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
+      setFavoriteDishes(ex?.favoriteDishes ?? []);
+      setDishDraft('');
       setSelectedListIds(ex?.listIds ?? []);
       setSelectedFriends([]);
       setPriceIndex(-1);
@@ -150,6 +154,7 @@ export const RatingModal: React.FC = () => {
       restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
       cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
       score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+      favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
       listIds: selectedListIds, createdAt: Date.now(),
     });
     closeRatingModal();
@@ -177,8 +182,17 @@ export const RatingModal: React.FC = () => {
   const hasPrice = priceIndex >= 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
+  const hasDishes = favoriteDishes.length > 0;
   const hasFriends = selectedFriends.length > 0;
   const hasDate = visitDate !== '';
+
+  const addDish = (raw: string) => {
+    const v = raw.trim();
+    if (!v) return;
+    setFavoriteDishes((prev) => prev.includes(v) ? prev : [...prev, v]);
+    setDishDraft('');
+  };
+  const removeDish = (idx: number) => setFavoriteDishes((prev) => prev.filter((_, i) => i !== idx));
   const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
 
   const filteredTags = useMemo(() => {
@@ -416,6 +430,7 @@ export const RatingModal: React.FC = () => {
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
                       <div>
                         <DetailRow icon={<StickyNote size={20} />} label="Notes" value={hasNotes ? notes : undefined} onClick={() => setPage('notes')} />
+                        <DetailRow icon={<ChefHat size={20} />} label="Favorite dishes" value={hasDishes ? `${favoriteDishes.length} added` : undefined} onClick={() => setPage('favorite-dishes')} />
                         <DetailRow icon={<DollarSign size={20} />} label="Price" value={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
                         <DetailRow icon={<CalendarDays size={20} />} label="Date" value={dateLabel} onClick={() => setPage('date')} />
                         <DetailRow icon={<Tag size={20} />} label="Tags" value={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
@@ -439,6 +454,69 @@ export const RatingModal: React.FC = () => {
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
                   <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
+                </SubPage>
+              )}
+
+              {page === 'favorite-dishes' && (
+                <SubPage key="favorite-dishes" onBack={() => { addDish(dishDraft); setPage('main'); }} title="Favorite Dishes">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-5" onTouchMove={(e) => e.stopPropagation()}>
+                    <p className="text-xs text-on-surface/45 mb-4 leading-relaxed">
+                      The dishes worth ordering here. These show up automatically when you add this restaurant to a guide.
+                    </p>
+                    <div className="relative mb-4">
+                      <ChefHat size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <input
+                        type="text"
+                        value={dishDraft}
+                        onChange={(e) => setDishDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); addDish(dishDraft); }
+                        }}
+                        placeholder="Add a dish (press Enter)…"
+                        autoFocus
+                        className="w-full bg-white border border-on-surface/10 rounded-full pl-10 pr-20 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
+                      />
+                      {dishDraft.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => addDish(dishDraft)}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1 rounded-full bg-primary text-white text-[11px] font-bold"
+                        >
+                          Add
+                        </button>
+                      )}
+                    </div>
+                    {favoriteDishes.length === 0 ? (
+                      <div className="px-5 py-12 flex flex-col items-center justify-center text-on-surface/30 text-center">
+                        <ChefHat size={28} className="mb-2" />
+                        <p className="text-sm font-semibold">No dishes added yet</p>
+                        <p className="text-xs mt-1 max-w-[220px]">Type a dish above and press Enter to add it to the list.</p>
+                      </div>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {favoriteDishes.map((dish, idx) => (
+                          <li key={`${dish}-${idx}`} className="flex items-center gap-3 bg-white rounded-2xl px-4 py-3 border border-on-surface/[0.06]">
+                            <span className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                              <ChefHat size={14} />
+                            </span>
+                            <span className="flex-1 text-[14px] font-semibold text-on-surface/85 truncate">{dish}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeDish(idx)}
+                              aria-label={`Remove ${dish}`}
+                              className="w-8 h-8 rounded-full text-on-surface/35 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <BottomBtn
+                    label={hasDishes || dishDraft.trim() ? `Done (${favoriteDishes.length + (dishDraft.trim() && !favoriteDishes.includes(dishDraft.trim()) ? 1 : 0)})` : 'Done'}
+                    onClick={() => { addDish(dishDraft); setPage('main'); }}
+                  />
                 </SubPage>
               )}
 

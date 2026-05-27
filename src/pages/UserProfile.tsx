@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart, Clock } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart, Clock, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -16,6 +16,8 @@ import {
   getUserWishlist, publishCommunityRating, getUserPublicHomeMeals, getExpertRecommendationCount,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
+import { getMyGuides, type Guide } from '../lib/supabase-guides';
+import { GuideCard } from '../components/GuideCard';
 import type { HomeMeal } from '../contexts/ListsContext';
 import { getMealCoverUrl, formatDuration } from '../lib/recipe-display';
 import mapboxgl from 'mapbox-gl';
@@ -68,7 +70,11 @@ export const UserProfile: React.FC = () => {
   // restaurants (rated places + wishlist) vs. recipes (their public
   // home meals). Defaults to restaurants since that's the primary
   // surface for most users.
-  const [viewTab, setViewTab] = useState<'restaurants' | 'recipes'>('restaurants');
+  const [viewTab, setViewTab] = useState<'restaurants' | 'recipes' | 'guides'>('restaurants');
+  // Published guides authored by this profile. We re-filter by
+  // isPublished defensively even though RLS / getMyGuides should
+  // already gate drafts behind the owner.
+  const [authoredGuides, setAuthoredGuides] = useState<Guide[]>([]);
 
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -169,6 +175,14 @@ export const UserProfile: React.FC = () => {
         const m = (meals || []) as HomeMeal[];
         setPublicHomeMeals(m);
         fSnapshot.publicHomeMeals = m;
+      }));
+
+      // Published guides this user has authored. RLS keeps drafts
+      // private to the author, but we filter by isPublished anyway so
+      // owners never see their unpublished drafts on the public route.
+      promises.push(getMyGuides(p.user_id).then((all) => {
+        if (cancelled) return;
+        setAuthoredGuides(all.filter((g) => g.isPublished));
       }));
 
       if (isAuthed) {
@@ -588,6 +602,7 @@ export const UserProfile: React.FC = () => {
               {([
                 { value: 'restaurants', label: 'Restaurants', count: userRatings.length },
                 { value: 'recipes', label: 'Recipes', count: publicHomeMeals.length },
+                { value: 'guides', label: 'Guides', count: authoredGuides.length },
               ] as const).map((opt) => {
                 const active = viewTab === opt.value;
                 return (
@@ -867,6 +882,39 @@ export const UserProfile: React.FC = () => {
                       );
                     })}
                   </ul>
+                )}
+              </>
+            )}
+
+            {viewTab === 'guides' && canView && (
+              <>
+                <p className="text-[10px] text-on-surface/35 font-bold uppercase tracking-widest mb-3">
+                  {authoredGuides.length} {authoredGuides.length === 1 ? 'guide' : 'guides'}
+                </p>
+                {authoredGuides.length === 0 ? (
+                  <div className="text-center py-16">
+                    <BookOpen size={32} className="mx-auto text-on-surface/15 mb-3" />
+                    <p className="text-sm font-medium text-on-surface/40">No published guides yet</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-20">
+                    {authoredGuides.map((g) => (
+                      <GuideCard
+                        key={g.id}
+                        size="md"
+                        className="w-full"
+                        guide={{
+                          id: g.id,
+                          title: g.title,
+                          authorName: profile?.display_name || profile?.username || undefined,
+                          coverPhoto: g.coverPhoto,
+                          entryCount: g.entries.length,
+                          type: g.type,
+                          avgScore: g.avgScore,
+                        }}
+                      />
+                    ))}
+                  </div>
                 )}
               </>
             )}
