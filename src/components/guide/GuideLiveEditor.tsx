@@ -16,7 +16,7 @@
  */
 import React, { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, Layers, Palette, Type as TypeIcon, AlignLeft, AlignCenter, AlignRight, Italic, RotateCcw, X, Plus, PanelRight } from 'lucide-react';
+import { ArrowLeft, Check, Layers, Palette, Type as TypeIcon, AlignLeft, AlignCenter, AlignRight, Italic, RotateCcw, X, PanelRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
   GuideThemeScope, GuideHero, GuideIntro, GuideEntries, GuideAuthor, GuideEndCap, GuideTOC,
@@ -25,8 +25,9 @@ import {
   type EditorAdapter, type RenderTextProps,
 } from './GuideRender';
 import {
-  Editable, EditableImage, EditableChips, EditableScore, EditablePrice, SectionChrome,
+  Editable, EditableImage, EditableChips, EditableScore, SectionChrome,
 } from './Editable';
+import { AddEntryPicker } from './AddEntryPicker';
 import {
   DEFAULT_THEME, getTheme,
   type Guide, type GuideEntry, type GuideTheme, type GuideVisibilityMap, type ElementStyle,
@@ -105,6 +106,13 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const theme = useMemo(() => getTheme(data), [data]);
+
+  // Refs of entries already in the guide, used by the AddEntryPicker
+  // to grey out items the user has already added.
+  const existingRefIds = useMemo(
+    () => new Set(data.entries.map((e) => e.refId)),
+    [data.entries],
+  );
 
   // Body scroll lock + Esc to close — same as the reference editor.
   useEffect(() => {
@@ -192,23 +200,11 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
     setField('entries', data.entries.filter((e) => e.id !== id));
   }, [data.entries, setField]);
 
-  const addEntry = useCallback(() => {
-    const next: GuideEntry = {
-      id: `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      refId: '',
-      name: '',
-      subtitle: '',
-      image: '',
-      score: undefined,
-      notes: '',
-      mustOrder: [],
-      bestFor: '',
-      insiderTip: '',
-      cuisine: '',
-      price: '$$',
-      neighborhood: '',
-      hours: '',
-    };
+  // Append a fully-built entry produced by the AddEntryPicker. The
+  // picker constructs the entry from a rating or recipe via the shared
+  // builders in lib/guide-entry-builders, so cuisine / price / etc. are
+  // already populated and the user can't fat-finger them here.
+  const addEntry = useCallback((next: GuideEntry) => {
     setField('entries', [...data.entries, next]);
     requestAnimationFrame(() => {
       const el = document.querySelector('.gle-entry:last-of-type');
@@ -315,16 +311,11 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
     <EditableScore value={value} onChange={(v) => onChange?.(v)} />
   ), []);
 
-  const renderPrice: NonNullable<EditorAdapter['renderPrice']> = useCallback(({ value, onChange }) => (
-    <EditablePrice value={value} onChange={(v) => onChange?.(v)} />
-  ), []);
-
   const editor: EditorAdapter = useMemo(() => ({
     renderText,
     renderImage,
     renderChips,
     renderScore,
-    renderPrice,
     entryMutators: {
       onMove: (id, dir) => moveEntry(id, dir),
       onDelete: removeEntry,
@@ -335,7 +326,7 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
         return ni >= 0 && ni < data.entries.length;
       },
     },
-  }), [renderText, renderImage, renderChips, renderScore, renderPrice, moveEntry, removeEntry, updateEntry, data.entries]);
+  }), [renderText, renderImage, renderChips, renderScore, moveEntry, removeEntry, updateEntry, data.entries]);
 
   /* ── Author for hero ── */
   const heroAuthor = useMemo(() => ({
@@ -349,7 +340,7 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
   const V = theme.visibility;
 
   const overlay = (
-    <div className={cn('gle-overlay', `density-${theme.density}`, inspectorOpen && 'has-insp', SURFACE_MAP[theme.surface]?.dark && 'is-dark')}>
+    <div className={cn('gle-overlay', `density-${theme.density}`, inspectorOpen && 'has-insp', SURFACE_MAP[theme.surface as keyof typeof SURFACE_MAP]?.dark && 'is-dark')}>
       {/* ── Top chrome ── */}
       <header className="gle-chrome">
         <div className="gle-chrome-row">
@@ -441,10 +432,11 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
                       theme={theme}
                       editor={editor}
                       trailing={
-                        <button type="button" className="gle-add-entry" onClick={addEntry}>
-                          <Plus size={14} />
-                          <span>Add another spot</span>
-                        </button>
+                        <AddEntryPicker
+                          type={data.type}
+                          existingRefIds={existingRefIds}
+                          onAdd={addEntry}
+                        />
                       }
                     />
                   </>
@@ -475,9 +467,12 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
                   onJump={jumpToEntry}
                   trailing={
                     <div className="gle-toc-cta">
-                      <button type="button" onClick={addEntry}>
-                        <Plus size={12} /><span>Add spot</span>
-                      </button>
+                      <AddEntryPicker
+                        type={data.type}
+                        existingRefIds={existingRefIds}
+                        onAdd={addEntry}
+                        variant="compact"
+                      />
                     </div>
                   }
                 />

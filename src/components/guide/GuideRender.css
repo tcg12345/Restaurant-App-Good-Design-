@@ -527,7 +527,6 @@
   text-transform: uppercase;
   color: var(--gle-ink-muted);
 }
-.gle-scope .gle-meta-slot:empty::after { content: attr(data-placeholder); opacity: 0.5; }
 .gle-scope .gle-meta-dot {
   width: 3px; height: 3px;
   border-radius: 999px;
@@ -536,7 +535,7 @@
 }
 .gle-scope .gle-loc { display: inline-flex; align-items: center; gap: 4px; color: var(--gle-accent); }
 .gle-scope .gle-loc-pin { color: var(--gle-accent); }
-.gle-scope .gle-price {
+.gle-scope .gle-meta-price {
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--gle-ink);

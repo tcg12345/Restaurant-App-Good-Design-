@@ -122,10 +122,10 @@ export const GuideThemeScope: React.FC<{
   className?: string;
   children: ReactNode;
 }> = ({ theme: themeIn, className, children }) => {
-  const theme = themeIn ?? DEFAULT_THEME;
-  const surface = SURFACE_MAP[theme.surface] || SURFACE_MAP.cream;
-  const heading = HEADING_FONT_MAP[theme.headingFont] || HEADING_FONT_MAP['noto-serif'];
-  const body = BODY_FONT_MAP[theme.bodyFont] || BODY_FONT_MAP['manrope'];
+  const theme: GuideTheme = themeIn ?? DEFAULT_THEME;
+  const surface = SURFACE_MAP[theme.surface as keyof typeof SURFACE_MAP] || SURFACE_MAP.cream;
+  const heading = HEADING_FONT_MAP[theme.headingFont as keyof typeof HEADING_FONT_MAP] || HEADING_FONT_MAP['noto-serif'];
+  const body = BODY_FONT_MAP[theme.bodyFont as keyof typeof BODY_FONT_MAP] || BODY_FONT_MAP['manrope'];
 
   const style: CSSProperties & Record<string, string> = {
     '--gle-accent': theme.accent,
@@ -542,7 +542,6 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
   const renderImg = editor?.renderImage || defaultImage;
   const renderChips = editor?.renderChips || defaultChips;
   const renderScore = editor?.renderScore || defaultScore;
-  const renderPrice = editor?.renderPrice || defaultPrice;
   const isRestaurant = guide.type === 'restaurants';
   const ek = `entry.${entry.id}`;
   const orderedFields = isRestaurant ? entry.mustOrder : entry.keyIngredients;
@@ -631,46 +630,32 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
               className: 'gle-entry-name',
               placeholder: isRestaurant ? 'Restaurant name' : 'Recipe name',
             })}
-            {V.entryMeta && (cuisine || price || entry.neighborhood) && (
+            {/* Restaurant detail meta — read-only because these come from
+                the rating data; users edit them from the rating, not the
+                guide. For recipes, only `cuisine` is shown. */}
+            {V.entryMeta && isRestaurant && (cuisine || price || entry.neighborhood) && (
               <div className="gle-entry-meta">
-                {(cuisine || editor?.entryMutators) && renderText({
-                  as: 'span',
-                  value: cuisine,
-                  styleKey: `${ek}.cuisine`,
-                  className: 'gle-meta-slot',
-                  placeholder: 'Cuisine',
-                })}
+                {cuisine && <span className="gle-meta-slot">{cuisine}</span>}
                 {cuisine && (price || entry.neighborhood) && <span className="gle-meta-dot" />}
-                {(price || editor?.entryMutators) && renderPrice({
-                  value: price,
-                  onChange: (v) => set('price', v),
-                  readOnly: !editor?.entryMutators,
-                })}
-                {(price || cuisine) && entry.neighborhood && <span className="gle-meta-dot" />}
-                {(entry.neighborhood || editor?.entryMutators) && (
+                {price && <span className="gle-meta-price">{price}</span>}
+                {price && entry.neighborhood && <span className="gle-meta-dot" />}
+                {entry.neighborhood && (
                   <span className="gle-loc">
                     <MapPin size={11} className="gle-loc-pin" />
-                    {renderText({
-                      as: 'span',
-                      value: entry.neighborhood || '',
-                      styleKey: `${ek}.neighborhood`,
-                      className: 'gle-meta-slot',
-                      placeholder: 'Neighborhood',
-                    })}
+                    <span>{entry.neighborhood}</span>
                   </span>
                 )}
               </div>
             )}
-            {V.entryHours && (entry.hours || editor?.entryMutators) && (
+            {V.entryMeta && !isRestaurant && cuisine && (
+              <div className="gle-entry-meta">
+                <span className="gle-meta-slot">{cuisine}</span>
+              </div>
+            )}
+            {V.entryHours && isRestaurant && entry.hours && (
               <div className="gle-entry-hours">
                 <Clock size={12} className="gle-hours-ico" />
-                {renderText({
-                  as: 'span',
-                  value: entry.hours || '',
-                  styleKey: `${ek}.hours`,
-                  className: 'gle-hours-slot',
-                  placeholder: 'Daily · 11a — 12a',
-                })}
+                <span>{entry.hours}</span>
               </div>
             )}
           </div>
