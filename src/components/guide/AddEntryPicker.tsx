@@ -33,7 +33,7 @@ interface AddEntryPickerProps {
 
 export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRefIds, onAdd, variant = 'block' }) => {
   const { user } = useAuth();
-  const { ratings, getRestaurantInfo } = useLists();
+  const { ratings, getRestaurantInfo, homeMeals, restaurantMeta } = useLists();
   const { myRecipes } = useRecipes();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -61,11 +61,33 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
     if (!open) setQuery('');
   }, [open]);
 
-  // Filter the rated restaurants whose title matches a rated place so
-  // restaurant-named recipes don't leak in (mirrors the wizard).
-  const ratedNames = useMemo(() => new Set(
-    ratings.map((r) => r.name.trim().toLowerCase()).filter(Boolean),
-  ), [ratings]);
+  // Names from the user's ratings + cached restaurant meta — used to
+  // filter restaurant-named rows out of the cloud recipes table.
+  // Cloud recipes that are explicitly linked to a restaurant
+  // (`linkedRestaurantId`) are filtered separately by id.
+  const restaurantNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of ratings) {
+      const k = (r.name || '').trim().toLowerCase();
+      if (k) s.add(k);
+    }
+    for (const meta of Object.values(restaurantMeta) as Array<{ name?: string }>) {
+      const k = (meta.name || '').trim().toLowerCase();
+      if (k) s.add(k);
+    }
+    return s;
+  }, [ratings, restaurantMeta]);
+
+  // Cloud recipes don't carry a score; if the user logged a matching
+  // home meal, surface its score (mirrors the wizard).
+  const homeMealScores = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const meal of homeMeals) {
+      const key = (meal.name || '').trim().toLowerCase();
+      if (key && typeof meal.score === 'number') m.set(key, meal.score);
+    }
+    return m;
+  }, [homeMeals]);
 
   const restaurantHits = useMemo(() => {
     if (type !== 'restaurants') return [];
@@ -82,13 +104,14 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
     if (type !== 'recipes') return [];
     const q = query.trim().toLowerCase();
     return myRecipes
-      .filter((r) => !ratedNames.has(r.title.trim().toLowerCase()))
+      .filter((r) => !r.linkedRestaurantId)
+      .filter((r) => !restaurantNames.has((r.title || '').trim().toLowerCase()))
       .filter((r) => !q
         || r.title.toLowerCase().includes(q)
         || (r.cuisine || '').toLowerCase().includes(q)
         || (r.tags || []).some((t) => t.toLowerCase().includes(q)))
       .slice(0, 24);
-  }, [type, myRecipes, ratedNames, query]);
+  }, [type, myRecipes, restaurantNames, query]);
 
   const isEmpty = type === 'restaurants' ? restaurantHits.length === 0 : recipeHits.length === 0;
 
@@ -103,7 +126,8 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
   const handleAddRecipe = (id: string) => {
     const r = myRecipes.find((rr) => rr.id === id);
     if (!r) return;
-    onAdd(entryFromDbRecipe(r));
+    const score = homeMealScores.get((r.title || '').trim().toLowerCase());
+    onAdd(entryFromDbRecipe(r, score));
     setOpen(false);
   };
 
@@ -190,6 +214,7 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
             {user?.id && type === 'recipes' && recipeHits.map((r) => {
               const added = existingRefIds.has(r.id);
               const total = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
+              const score = homeMealScores.get((r.title || '').trim().toLowerCase());
               return (
                 <button
                   key={r.id}
@@ -207,6 +232,9 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
                       {[r.cuisine, r.difficulty, total > 0 ? `${total} min` : null].filter(Boolean).join(' · ')}
                     </div>
                   </div>
+                  {typeof score === 'number' && score > 0 && (
+                    <span className="gle-picker-item-score">{score.toFixed(1)}</span>
+                  )}
                   {added
                     ? <Check size={14} className="gle-picker-item-check" />
                     : <Plus size={14} className="gle-picker-item-plus" />}

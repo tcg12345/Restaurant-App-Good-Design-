@@ -60,8 +60,11 @@ export function entryFromListRecipe(r: ListRecipe, authorId?: string): GuideEntr
   };
 }
 
-/** Build a guide entry from one of the user's recipes in the cloud table. */
-export function entryFromDbRecipe(r: DbRecipe): GuideEntry {
+/** Build a guide entry from one of the user's recipes in the cloud
+ *  table. Cloud recipes don't store a score; the caller can pass one
+ *  (e.g. looked up from a matching home meal by title) so the entry
+ *  carries the rating the user gave to the dish. */
+export function entryFromDbRecipe(r: DbRecipe, score?: number): GuideEntry {
   return {
     id: newEntryId(),
     refId: r.id,
@@ -69,7 +72,7 @@ export function entryFromDbRecipe(r: DbRecipe): GuideEntry {
     subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
     cuisine: r.cuisine || undefined,
     image: r.photos?.[0] || '',
-    score: undefined,
+    score: typeof score === 'number' && score > 0 ? score : undefined,
     totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
     difficulty: r.difficulty,
     authorId: r.userId,

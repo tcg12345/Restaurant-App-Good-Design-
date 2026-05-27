@@ -220,7 +220,7 @@ function compressImage(file: File): Promise<string> {
 export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onClose, initialGuide }) => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  const { lists, ratings, restaurantMeta, getRestaurantInfo } = useLists();
+  const { lists, ratings, restaurantMeta, getRestaurantInfo, homeMeals } = useLists();
   const { myRecipes } = useRecipes();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
@@ -389,13 +389,46 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     authorId: user?.id,
   });
 
+  // Recipes in the cloud `recipes` table don't carry a score directly,
+  // but the user may have logged a matching home meal (HomeMeal.score)
+  // — those scores are the ones they expect to see when adding a
+  // recipe to a guide. Look the score up by title (lowercase + trimmed
+  // is sufficient since recipe titles are user-authored and short).
+  const homeMealScores = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const meal of homeMeals) {
+      const key = (meal.name || '').trim().toLowerCase();
+      if (key && typeof meal.score === 'number') m.set(key, meal.score);
+    }
+    return m;
+  }, [homeMeals]);
+
+  // Names from the user's ratings + cached restaurant meta + wishlist.
+  // Cloud recipes whose title matches any of these are almost certainly
+  // restaurant rows that leaked into the recipes table (e.g. from the
+  // home-meal logger pre-fill), and we filter them out of the
+  // "your recipes" picker so the user only sees real recipes.
+  const restaurantNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of ratings) {
+      const k = (r.name || '').trim().toLowerCase();
+      if (k) s.add(k);
+    }
+    for (const meta of Object.values(restaurantMeta) as Array<{ name?: string }>) {
+      const k = (meta.name || '').trim().toLowerCase();
+      if (k) s.add(k);
+    }
+    return s;
+  }, [ratings, restaurantMeta]);
+
   const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry => ({
     id: newEntryId(),
     refId: r.id,
     name: r.title,
     subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
+    cuisine: r.cuisine || undefined,
     image: r.photos?.[0] || '',
-    score: undefined,
+    score: homeMealScores.get((r.title || '').trim().toLowerCase()),
     totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
     difficulty: r.difficulty,
     authorId: r.userId,
@@ -565,6 +598,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             lists={lists}
             ratings={ratings}
             myRecipes={myRecipes}
+            homeMealScores={homeMealScores}
+            restaurantNames={restaurantNames}
             onAddRestaurants={(rs) => {
               setEntries((prev) => {
                 const have = new Set(prev.map((e) => e.refId));
@@ -944,6 +979,12 @@ interface StepSeedProps {
   lists: CustomList[];
   ratings: RestaurantRating[];
   myRecipes: DbRecipe[];
+  /** Lowercase-trimmed recipe-title -> score from the user's home meals.
+   *  Cloud recipes don't store a score, but a matching HomeMeal does. */
+  homeMealScores: Map<string, number>;
+  /** Lowercase-trimmed names from `ratings` + cached `restaurantMeta`,
+   *  used to filter restaurant-named rows out of the recipes picker. */
+  restaurantNames: Set<string>;
   onAddRestaurants: (rs: RestaurantRating[]) => void;
   onAddRestaurantsFromList: (l: CustomList) => void;
   onAddPlaces: (ps: PlaceResult[]) => void;
@@ -953,7 +994,7 @@ interface StepSeedProps {
   addedRefIds: Set<string>;
 }
 
-const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, ratings, myRecipes, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, onRemoveByRefId, addedRefIds }) => {
+const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, ratings, myRecipes, homeMealScores, restaurantNames, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, onRemoveByRefId, addedRefIds }) => {
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -1250,10 +1291,19 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
 
   // ── Subpage: My recipes ───────────────────────────────────────
   if (seedMode === 'recipes-my') {
-    const ratedNames = new Set(
-      ratings.map((r) => r.name.trim().toLowerCase()).filter(Boolean),
-    );
-    const recipesOnly = myRecipes.filter((r) => !ratedNames.has(r.title.trim().toLowerCase()));
+    // Restaurants leak into the cloud `recipes` table when the user
+    // creates a restaurant-themed entry via a flow that bridges both
+    // tables (e.g. recreating a dish from a rated place). Three filters
+    // together keep them out:
+    //   1. `linkedRestaurantId` set → explicitly a restaurant-linked row
+    //   2. title matches a rated restaurant name (case-insensitive)
+    //   3. title matches a cached restaurantMeta name
+    const recipesOnly = myRecipes.filter((r) => {
+      if (r.linkedRestaurantId) return false;
+      const lower = (r.title || '').trim().toLowerCase();
+      if (restaurantNames.has(lower)) return false;
+      return true;
+    });
     const recipesQ = recipesFilter.trim().toLowerCase();
     const filteredRecipes = recipesQ
       ? recipesOnly.filter((r) =>
@@ -1296,6 +1346,7 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                     r.difficulty,
                     totalMin > 0 ? `${totalMin} min` : null,
                   ].filter(Boolean);
+                  const score = homeMealScores.get((r.title || '').trim().toLowerCase());
                   return (
                     <button
                       key={r.id}
@@ -1315,6 +1366,9 @@ const StepSeed: React.FC<StepSeedProps> = ({ type, seedMode, onPick, lists, rati
                         <span className="gc-pick-row-title">{r.title}</span>
                         <span className="gc-pick-row-sub">{subBits.join(' · ')}</span>
                       </span>
+                      {typeof score === 'number' && score > 0 && (
+                        <span className="gc-pick-row-score">{score.toFixed(1)}</span>
+                      )}
                       <span className="gc-pick-row-add">
                         {isAdded ? <Check size={15} strokeWidth={2.8} /> : <Plus size={15} strokeWidth={2.4} />}
                       </span>
