@@ -1430,7 +1430,7 @@ const DishesInput: React.FC<{
         onCommit(next);
       }}
       placeholder={placeholder}
-      className="gc-entry-detail-input"
+      className="gc-input"
     />
   );
 };
@@ -1454,6 +1454,107 @@ interface StepEntriesProps {
 const StepEntries: React.FC<StepEntriesProps> = ({ type, entries, includePhotos, onTogglePhotos, expandedId, onToggleExpand, onRemove, onPatch, onMove, onAddMore, dragRef }) => {
   const orderedKey = type === 'restaurants' ? 'mustOrder' : 'keyIngredients';
   const orderedLabel = type === 'restaurants' ? 'Favorite Dishes' : 'Key Ingredients';
+
+  // Whole-pane editor when an entry is selected. Clicking Edit on a row
+  // sets expandedId via the parent; the back link clears it and returns
+  // to the list. Auto-fill (notes / mustOrder from the matching rating)
+  // already runs in onToggleExpand, so by the time we render here the
+  // entry is pre-populated.
+  const editingEntry = expandedId ? entries.find((e) => e.id === expandedId) : null;
+  if (editingEntry) {
+    const idx = entries.findIndex((e) => e.id === editingEntry.id);
+    const orderedVals = type === 'restaurants' ? editingEntry.mustOrder : editingEntry.keyIngredients;
+    return (
+      <>
+        <button type="button" className="gc-subpage-back" onClick={() => onToggleExpand(editingEntry.id)}>
+          <ArrowLeft size={13} /> Back to entries
+        </button>
+
+        <div className="gc-entry-edit-head">
+          <span className="gc-entry-edit-num">{(idx + 1).toString().padStart(2, '0')}</span>
+          <span className="gc-entry-edit-img">
+            {editingEntry.image && <img src={editingEntry.image} alt="" referrerPolicy="no-referrer" />}
+          </span>
+          <div className="gc-entry-edit-text">
+            <div className="gc-entry-edit-name">{editingEntry.name}</div>
+            {editingEntry.subtitle && <div className="gc-entry-edit-sub">{editingEntry.subtitle}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={() => { onRemove(editingEntry.id); }}
+            aria-label="Remove entry"
+            className="gc-entry-edit-delete"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+
+        <div className="gc-field">
+          <div className="gc-label">Score <span className="opt">0–10 · optional</span></div>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="10"
+            value={typeof editingEntry.score === 'number' ? editingEntry.score : ''}
+            onChange={(e) => {
+              const v = e.target.value === '' ? undefined : Math.max(0, Math.min(10, parseFloat(e.target.value)));
+              onPatch(editingEntry.id, { score: typeof v === 'number' && Number.isFinite(v) ? v : undefined });
+            }}
+            placeholder="—"
+            className="gc-input"
+            style={{ maxWidth: 140 }}
+          />
+        </div>
+
+        <div className="gc-field">
+          <div className="gc-label">Notes <span className="opt">pre-filled from your rating</span></div>
+          <textarea
+            value={editingEntry.notes || ''}
+            onChange={(e) => onPatch(editingEntry.id, { notes: e.target.value })}
+            placeholder="What makes this special? Why are you sending people here?"
+            rows={5}
+            className="gc-textarea"
+          />
+        </div>
+
+        <div className="gc-field">
+          <div className="gc-label">
+            {orderedLabel}{' '}
+            <span className="opt">comma separated{type === 'restaurants' ? ' · pre-filled from your rating' : ''}</span>
+          </div>
+          <DishesInput
+            value={orderedVals || []}
+            placeholder={type === 'restaurants' ? 'Cold sesame noodles, Twice-cooked pork belly' : 'Saffron, Bomba rice'}
+            onCommit={(next) => onPatch(editingEntry.id, { [orderedKey]: next } as Partial<GuideEntry>)}
+          />
+        </div>
+
+        {type === 'restaurants' && (
+          <>
+            <div className="gc-field">
+              <div className="gc-label">Best for <span className="opt">optional</span></div>
+              <input
+                value={editingEntry.bestFor || ''}
+                onChange={(e) => onPatch(editingEntry.id, { bestFor: e.target.value })}
+                placeholder="A grown-up dinner. The room you bring your parents to."
+                className="gc-input"
+              />
+            </div>
+            <div className="gc-field">
+              <div className="gc-label">Insider tip <span className="opt">optional</span></div>
+              <input
+                value={editingEntry.insiderTip || ''}
+                onChange={(e) => onPatch(editingEntry.id, { insiderTip: e.target.value })}
+                placeholder="Sit upstairs by the window."
+                className="gc-input"
+              />
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -1489,116 +1590,50 @@ const StepEntries: React.FC<StepEntriesProps> = ({ type, entries, includePhotos,
         <div className="gc-empty">No entries yet — go back and add some from a source.</div>
       ) : (
         <div className="gc-entry-list">
-          {entries.map((entry, idx) => {
-            const isExpanded = expandedId === entry.id;
-            const orderedVals = type === 'restaurants' ? entry.mustOrder : entry.keyIngredients;
-            return (
-              <div
-                key={entry.id}
-                draggable
-                onDragStart={() => { dragRef.current = idx; }}
-                onDragOver={(e) => { e.preventDefault(); }}
-                onDrop={() => {
-                  const from = dragRef.current;
-                  if (from === null || from === idx) return;
-                  onMove(from, idx);
-                  dragRef.current = null;
-                }}
-                className={`gc-entry-card${isExpanded ? ' is-expanded' : ''}`}
-              >
-                <div className="gc-entry-row">
-                  <span className="gc-entry-grip"><GripVertical size={16} /></span>
-                  <span className="gc-entry-num">{(idx + 1).toString().padStart(2, '0')}</span>
-                  <span className="gc-entry-img">
-                    {entry.image && <img src={entry.image} alt="" referrerPolicy="no-referrer" />}
-                  </span>
-                  <div className="gc-entry-text">
-                    <div className="gc-entry-name">{entry.name}</div>
-                    <div className="gc-entry-sub">{entry.subtitle}</div>
-                  </div>
-                  <div className="gc-entry-actions">
-                    <button
-                      type="button"
-                      onClick={() => onToggleExpand(entry.id)}
-                      className={`gc-entry-edit-pill${isExpanded ? ' is-active' : ''}`}
-                    >
-                      {isExpanded ? 'Done' : 'Edit'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemove(entry.id)}
-                      aria-label="Remove"
-                      className="gc-entry-action"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+          {entries.map((entry, idx) => (
+            <div
+              key={entry.id}
+              draggable
+              onDragStart={() => { dragRef.current = idx; }}
+              onDragOver={(e) => { e.preventDefault(); }}
+              onDrop={() => {
+                const from = dragRef.current;
+                if (from === null || from === idx) return;
+                onMove(from, idx);
+                dragRef.current = null;
+              }}
+              className="gc-entry-card"
+            >
+              <div className="gc-entry-row">
+                <span className="gc-entry-grip"><GripVertical size={16} /></span>
+                <span className="gc-entry-num">{(idx + 1).toString().padStart(2, '0')}</span>
+                <span className="gc-entry-img">
+                  {entry.image && <img src={entry.image} alt="" referrerPolicy="no-referrer" />}
+                </span>
+                <div className="gc-entry-text">
+                  <div className="gc-entry-name">{entry.name}</div>
+                  <div className="gc-entry-sub">{entry.subtitle}</div>
                 </div>
-
-                {isExpanded && (
-                  <div className="gc-entry-detail">
-                    <div className="gc-entry-detail-field">
-                      <div className="gc-entry-detail-label">Score <span className="hint">· 0–10 · optional</span></div>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="10"
-                        value={typeof entry.score === 'number' ? entry.score : ''}
-                        onChange={(e) => {
-                          const v = e.target.value === '' ? undefined : Math.max(0, Math.min(10, parseFloat(e.target.value)));
-                          onPatch(entry.id, { score: typeof v === 'number' && Number.isFinite(v) ? v : undefined });
-                        }}
-                        placeholder="—"
-                        className="gc-entry-detail-input"
-                        style={{ width: 100 }}
-                      />
-                    </div>
-                    <div className="gc-entry-detail-field">
-                      <div className="gc-entry-detail-label">Notes <span className="hint">· pre-filled from your rating</span></div>
-                      <textarea
-                        value={entry.notes || ''}
-                        onChange={(e) => onPatch(entry.id, { notes: e.target.value })}
-                        placeholder="What makes this special? Why are you sending people here?"
-                        rows={3}
-                        className="gc-entry-detail-textarea"
-                      />
-                    </div>
-                    <div className="gc-entry-detail-field">
-                      <div className="gc-entry-detail-label">{orderedLabel} <span className="hint">· comma separated{type === 'restaurants' ? ' · pre-filled from your rating' : ''}</span></div>
-                      <DishesInput
-                        value={orderedVals || []}
-                        placeholder={type === 'restaurants' ? 'Cold sesame noodles, Twice-cooked pork belly' : 'Saffron, Bomba rice'}
-                        onCommit={(next) => onPatch(entry.id, { [orderedKey]: next } as Partial<GuideEntry>)}
-                      />
-                    </div>
-                    {type === 'restaurants' && (
-                      <>
-                        <div className="gc-entry-detail-field">
-                          <div className="gc-entry-detail-label">Best for</div>
-                          <input
-                            value={entry.bestFor || ''}
-                            onChange={(e) => onPatch(entry.id, { bestFor: e.target.value })}
-                            placeholder="A grown-up dinner. The room you bring your parents to."
-                            className="gc-entry-detail-input"
-                          />
-                        </div>
-                        <div className="gc-entry-detail-field">
-                          <div className="gc-entry-detail-label">Insider tip</div>
-                          <input
-                            value={entry.insiderTip || ''}
-                            onChange={(e) => onPatch(entry.id, { insiderTip: e.target.value })}
-                            placeholder="Sit upstairs by the window."
-                            className="gc-entry-detail-input"
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                <div className="gc-entry-actions">
+                  <button
+                    type="button"
+                    onClick={() => onToggleExpand(entry.id)}
+                    className="gc-entry-edit-pill"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(entry.id)}
+                    aria-label="Remove"
+                    className="gc-entry-action"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </>
