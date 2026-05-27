@@ -59,7 +59,129 @@ const NEXT_LABELS: Record<Exclude<Step, 'review'>, string> = {
   visibility: 'Review & publish',
 };
 
-const TAG_SUGGESTIONS = ['Date Night', 'Brunch', 'Quick', 'Cozy', 'Cocktails', 'Vegan', 'Family', 'Weeknight'];
+const TAG_SUGGESTIONS = [
+  // Occasions
+  'Date Night', 'First Date', 'Anniversary', 'Birthday', 'Special Occasion',
+  'Holiday', 'Christmas', 'Thanksgiving', "Valentine's Day", "New Year's Eve",
+  'Easter', "Mother's Day", "Father's Day", 'Brunch', 'Weekend', 'Weeknight',
+  'Lunch', 'Quick Lunch', 'Late Night', 'Pre-Theater', 'Post-Theater',
+  'Pre-Game', 'After Work', 'Happy Hour', 'Sunday Dinner', 'Game Day',
+  'Movie Night', 'Casual Hangout', 'Bachelor', 'Bachelorette', 'Baby Shower',
+  'Engagement', 'Wedding', 'Reunion', 'Going Away', 'Welcome Back',
+
+  // Vibe / ambiance
+  'Cozy', 'Romantic', 'Intimate', 'Quiet', 'Lively', 'Bustling', 'Energetic',
+  'Trendy', 'Hipster', 'Classic', 'Old-School', 'Modern', 'Industrial',
+  'Rustic', 'Chic', 'Elegant', 'Upscale', 'Casual', 'No-Frills', 'Divey',
+  'Speakeasy', 'Hole-in-the-Wall', 'Hidden Gem', 'Iconic', 'Institution',
+  'Buzzy', 'Up-and-Coming', 'Neighborhood Spot', 'Local Favorite',
+  'Tourist-Free', 'Off-the-Beaten-Path', 'Destination', 'Worth the Trip',
+  'Photogenic', 'Instagrammable', 'Beautiful', 'Stunning', 'Cool Decor',
+  'Mural', 'Open Kitchen', "Chef's Counter", 'Counter Dining',
+
+  // Seating / outdoor
+  'Outdoor Seating', 'Patio', 'Garden', 'Rooftop', 'Terrace', 'Beachfront',
+  'Waterfront', 'Skyline View', 'City View', 'Park View', 'Window Seat',
+  'Booth', 'Bar Seating', 'Communal Table', 'Private Dining', 'Large Tables',
+  'Sidewalk Seating', 'Heated Patio', 'Fireplace', 'Live Plants',
+  'Sunset View', 'Mountain View', 'Beach View',
+
+  // Cuisines
+  'American', 'New American', 'Southern', 'Soul Food', 'Cajun', 'Creole',
+  'Tex-Mex', 'Mexican', 'Oaxacan', 'Yucatecan', 'Peruvian', 'Brazilian',
+  'Argentinian', 'Colombian', 'Venezuelan', 'Cuban', 'Caribbean', 'Jamaican',
+  'Puerto Rican', 'Dominican', 'Italian', 'Northern Italian', 'Sicilian',
+  'Tuscan', 'Roman', 'French', 'Provençal', 'Alsatian', 'Spanish', 'Basque',
+  'Catalan', 'Portuguese', 'Greek', 'Turkish', 'Middle Eastern', 'Lebanese',
+  'Syrian', 'Israeli', 'Moroccan', 'Tunisian', 'Egyptian', 'Ethiopian',
+  'Eritrean', 'Persian', 'Afghan', 'Indian', 'North Indian', 'South Indian',
+  'Goan', 'Pakistani', 'Sri Lankan', 'Bangladeshi', 'Nepalese', 'Tibetan',
+  'Thai', 'Vietnamese', 'Cambodian', 'Laotian', 'Burmese', 'Malaysian',
+  'Singaporean', 'Indonesian', 'Filipino', 'Chinese', 'Cantonese',
+  'Szechuan', 'Hunan', 'Shanghainese', 'Taiwanese', 'Dim Sum', 'Japanese',
+  'Sushi', 'Omakase', 'Izakaya', 'Ramen', 'Soba', 'Udon', 'Yakitori',
+  'Tempura', 'Tonkatsu', 'Korean', 'Korean BBQ', 'Bibimbap', 'Russian',
+  'Ukrainian', 'Polish', 'Hungarian', 'German', 'Austrian', 'Belgian',
+  'Dutch', 'Scandinavian', 'Swedish', 'Danish', 'Norwegian', 'Icelandic',
+  'British', 'Irish', 'Mediterranean', 'Eastern European', 'Hawaiian',
+  'Pacific Rim', 'Fusion', 'Pan-Asian', 'Pan-Latin',
+
+  // Food type
+  'Pizza', 'Neapolitan', 'Detroit-Style', 'Sicilian Pizza', 'Wood-Fired',
+  'Coal-Fired', 'Pizza by the Slice', 'Burger', 'Smash Burger', 'Sandwich',
+  'Sub', 'Wrap', 'Banh Mi', 'Hot Dog', 'Salad', 'Bowl', 'Grain Bowl',
+  'Pasta', 'Handmade Pasta', 'Noodles', 'Dumplings', 'Bao', 'Tacos',
+  'Birria', 'Burrito', 'Quesadilla', 'Curry', 'Stir-Fry', 'Steak',
+  'Steakhouse', 'Chophouse', 'Seafood', 'Raw Bar', 'Oysters', 'Lobster',
+  'Crab', 'Shrimp', 'BBQ', 'Texas BBQ', 'Carolina BBQ', 'Brisket',
+  'Ribs', 'Wings', 'Fried Chicken', 'Roast Chicken', 'Fish & Chips',
+  'Bagels', 'Donuts', 'Pancakes', 'Waffles', 'French Toast', 'Eggs',
+  'Avocado Toast', 'Coffee', 'Espresso', 'Pour Over', 'Matcha', 'Tea',
+  'Boba', 'Smoothies', 'Juice', 'Ice Cream', 'Gelato', 'Sorbet', 'Pastries',
+  'Croissants', 'Cakes', 'Cupcakes', 'Cookies', 'Bread', 'Sourdough',
+  'Hot Pot', 'Shabu Shabu', 'Fondue', 'Charcuterie', 'Cheese Plate',
+
+  // Drinks
+  'Cocktails', 'Craft Cocktails', 'Classic Cocktails', 'Mocktails',
+  'Wine Bar', 'Natural Wine', 'Orange Wine', 'Champagne', 'Bubbles',
+  'Beer', 'Craft Beer', 'IPA', 'Lager', 'Pilsner', 'Sake', 'Whiskey',
+  'Bourbon', 'Scotch', 'Rye', 'Mezcal', 'Tequila', 'Gin', 'Vodka', 'Rum',
+  'Spritz', 'Negroni', 'Martini', 'Margarita', 'Manhattan', 'Old Fashioned',
+  'Hot Chocolate', 'Iced Coffee', 'Cold Brew', 'Latte', 'Cappuccino',
+  'Cortado', 'Flat White',
+
+  // Diet
+  'Vegan', 'Vegetarian', 'Plant-Based', 'Gluten-Free', 'Dairy-Free',
+  'Nut-Free', 'Egg-Free', 'Soy-Free', 'Kosher', 'Halal', 'Pescatarian',
+  'Flexitarian', 'Keto', 'Low-Carb', 'Paleo', 'Whole30', 'Mediterranean Diet',
+  'Low-Sodium', 'Sugar-Free', 'Allergy-Friendly', 'Macro-Friendly', 'High-Protein',
+
+  // Meal / format
+  'Breakfast', 'All-Day Breakfast', 'Dinner', 'Dessert', 'Snack',
+  'Appetizer', 'Tasting Menu', 'Prix Fixe', 'A La Carte', 'Buffet',
+  'Family Style', 'Small Plates', 'Tapas', 'Shared Plates', 'Set Menu',
+  'Wine Pairing',
+
+  // Features / amenities
+  'Dog-Friendly', 'Kid-Friendly', 'Family-Friendly', 'Stroller-Friendly',
+  'Wheelchair-Accessible', 'Takeout', 'Delivery', 'Reservations', 'Walk-Ins',
+  'BYOB', 'Corkage', 'Counter Service', 'Table Service', 'Self-Service',
+  'Quick Service', 'Fine Dining', 'Casual Dining', 'Food Truck', 'Pop-Up',
+  'Live Music', 'Live Jazz', 'DJ', 'Dancing', 'Karaoke', 'Trivia',
+  'Open Mic', 'Sports On TV', 'Big Screen', 'Free Wifi', 'Laptop-Friendly',
+  'Pet-Friendly Patio', 'Late-Night Kitchen', '24 Hours',
+
+  // Price / value
+  'Cheap Eats', 'Budget-Friendly', 'Affordable', 'Mid-Range', 'Pricey',
+  'Splurge', 'Worth It', 'Hidden Value', 'Lunch Specials',
+
+  // Quality / reputation
+  'Michelin', 'Michelin Star', 'Michelin Bib', 'James Beard',
+  'Award-Winning', 'Critically Acclaimed', "Critic's Pick", 'Legendary',
+  'Just Opened', 'New', 'Trending', 'Must-Try', 'Bucket List',
+  'Best in Class', 'Underrated', 'Overhyped',
+
+  // Service
+  'Friendly Service', 'Attentive Service', 'Knowledgeable Staff',
+  'Sommelier', 'Tableside Service', 'Personalized',
+
+  // Recipe / cooking
+  'Quick', 'Easy', 'Make-Ahead', 'Meal Prep', 'One-Pot', 'One-Pan',
+  'Sheet Pan', 'Dutch Oven', 'Slow Cooker', 'Instant Pot', 'Pressure Cooker',
+  'Air Fryer', 'Grill', 'Stovetop', 'Oven-Roasted', 'No-Cook', 'No-Bake',
+  'Microwave', 'Smoker', 'Sous Vide', '15-Min Meal', '30-Min Meal',
+  'Under An Hour', 'Beginner', 'Intermediate', 'Advanced', 'Project Recipe',
+  'Impressive', 'Crowd-Pleaser', 'Comfort Food', 'Healthy', 'Light',
+  'Hearty', 'Spicy', 'Sweet', 'Savory', 'Tangy', 'Smoky', 'Fresh',
+  'Bright', 'Bold', 'Mild', 'Kid-Approved', 'Picky-Eater Approved',
+  'Big Batch', 'Freezer-Friendly', 'Pantry Staples', 'Leftovers-Friendly',
+  'Bulk Cooking', 'Seasonal', 'Fall', 'Winter', 'Spring', 'Summer',
+  'Lunar New Year', 'Diwali', 'Ramadan', 'Hanukkah',
+];
+
+const DEFAULT_TAG_SUGGESTIONS = [
+  'Date Night', 'Brunch', 'Quick', 'Cozy', 'Cocktails', 'Vegan', 'Family', 'Weeknight',
+];
 
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -1165,8 +1287,28 @@ interface StepDetailsProps {
 const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, tags, onTitle, onSubtitle, onIntro, onToggleTag, onAddTag, onRemoveTag }) => {
   const [tagDraft, setTagDraft] = useState('');
   const tagDraftTrimmed = tagDraft.trim().toLowerCase();
-  const tagSuggestions = TAG_SUGGESTIONS.filter((t) => !tags.includes(t))
-    .filter((t) => tagDraftTrimmed === '' || t.toLowerCase().includes(tagDraftTrimmed));
+  const tagSuggestions = useMemo(() => {
+    const selected = new Set(tags);
+    // Empty input: show the curated short list so the page doesn't get
+    // overwhelmed by every possible tag.
+    if (tagDraftTrimmed === '') {
+      return DEFAULT_TAG_SUGGESTIONS.filter((t) => !selected.has(t));
+    }
+    // Typing: search the full library. Rank exact > starts-with > contains
+    // so the most relevant suggestion lands at the top, then cap to 30.
+    const ranked: Array<{ tag: string; score: number; idx: number }> = [];
+    TAG_SUGGESTIONS.forEach((t, idx) => {
+      if (selected.has(t)) return;
+      const lower = t.toLowerCase();
+      if (!lower.includes(tagDraftTrimmed)) return;
+      let score = 1;
+      if (lower === tagDraftTrimmed) score = 3;
+      else if (lower.startsWith(tagDraftTrimmed)) score = 2;
+      ranked.push({ tag: t, score, idx });
+    });
+    ranked.sort((a, b) => b.score - a.score || a.idx - b.idx);
+    return ranked.slice(0, 30).map((r) => r.tag);
+  }, [tags, tagDraftTrimmed]);
 
   return (
     <>
