@@ -11,10 +11,11 @@ import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
+import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { getMyGuides, deleteGuide, setGuideVisibility, type Guide as MyGuide } from '../lib/supabase-guides';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -570,7 +571,7 @@ export const Profile: React.FC = () => {
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
-  const { openGuideCreator } = useGuideCreator();
+  const { openGuideCreator, isOpen: guideCreatorOpen } = useGuideCreator();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
 
   // Reels and posts authored by the signed-in user. Both come from their
@@ -585,8 +586,36 @@ export const Profile: React.FC = () => {
   );
   const [confirmDeleteReelId, setConfirmDeleteReelId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
+  const [confirmDeleteGuideId, setConfirmDeleteGuideId] = useState<string | null>(null);
   const [deletingReel, setDeletingReel] = useState(false);
   const [deletingPost, setDeletingPost] = useState(false);
+  const [deletingGuide, setDeletingGuide] = useState(false);
+
+  // Guides owned by the signed-in user. Unlike reels/posts there's no
+  // global context loading these, so we fetch in-page on mount and after
+  // mutations. Includes drafts so the owner can see + finish them.
+  const [myGuides, setMyGuides] = useState<MyGuide[]>([]);
+  const refreshMyGuides = React.useCallback(async () => {
+    if (!user?.id) { setMyGuides([]); return; }
+    const list = await getMyGuides(user.id);
+    setMyGuides(list);
+  }, [user?.id]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) { setMyGuides([]); return; }
+      const list = await getMyGuides(user.id);
+      if (!cancelled) setMyGuides(list);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+  // Re-fetch the moment the guide creator closes — covers create / edit / save.
+  const prevGuideCreatorOpen = useRef(false);
+  useEffect(() => {
+    if (prevGuideCreatorOpen.current && !guideCreatorOpen) void refreshMyGuides();
+    prevGuideCreatorOpen.current = guideCreatorOpen;
+  }, [guideCreatorOpen, refreshMyGuides]);
+
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
     setDeletingReel(true);
@@ -603,8 +632,27 @@ export const Profile: React.FC = () => {
     setConfirmDeletePostId(null);
     if (!ok) alert("Couldn't delete that post. Try again.");
   };
+  const onConfirmDeleteGuide = async () => {
+    if (!confirmDeleteGuideId) return;
+    setDeletingGuide(true);
+    const ok = await deleteGuide(confirmDeleteGuideId);
+    setDeletingGuide(false);
+    setConfirmDeleteGuideId(null);
+    if (!ok) { alert("Couldn't delete that guide. Try again."); return; }
+    setMyGuides((prev) => prev.filter((g) => g.id !== confirmDeleteGuideId));
+  };
+  const onToggleGuideVisibility = async (guideId: string, nextIsPublic: boolean) => {
+    const next = nextIsPublic ? 'public' : 'private';
+    // Optimistic flip — revert if the write fails.
+    setMyGuides((prev) => prev.map((g) => g.id === guideId ? { ...g, visibility: next } : g));
+    const ok = await setGuideVisibility(guideId, next);
+    if (!ok) {
+      alert("Couldn't update that guide's visibility. Try again.");
+      void refreshMyGuides();
+    }
+  };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
-  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
+  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'guides' | 'rated'>('top');
   const [editListsOpen, setEditListsOpen] = useState(false);
   const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
@@ -1202,11 +1250,12 @@ export const Profile: React.FC = () => {
 
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div className="border-t border-on-surface/[0.08]">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {([
             ['top', Star, 'TOP'],
             ['posts', LayoutGrid, 'POSTS'],
             ['reels', Film, 'REELS'],
+            ['guides', BookOpen, 'GUIDES'],
             ['rated', ListIcon, 'RATED'],
           ] as const).map(([key, Icon, label]) => {
             const isActive = activeTab === key;
@@ -1350,6 +1399,27 @@ export const Profile: React.FC = () => {
           )
         )}
 
+        {activeTab === 'guides' && (
+          myGuides.length === 0 ? (
+            <EmptyTabState
+              icon={<BookOpen size={32} className="text-on-surface/15" />}
+              title="No guides yet"
+              subtitle="Curate a list of places or recipes worth sharing."
+              ctaLabel="Create a guide"
+              onCta={() => openGuideCreator()}
+            />
+          ) : (
+            <ProfileGuidesSection
+              guides={myGuides}
+              isOwn
+              onEdit={(guide) => openGuideCreator(guide)}
+              onDelete={(id) => setConfirmDeleteGuideId(id)}
+              onToggleVisibility={onToggleGuideVisibility}
+              hideHeader
+            />
+          )
+        )}
+
         {activeTab === 'rated' && (
           ratings.length === 0 ? (
             <EmptyTabState
@@ -1477,6 +1547,26 @@ export const Profile: React.FC = () => {
               <div className="flex gap-2 mt-5">
                 <button type="button" onClick={() => setConfirmDeletePostId(null)} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
                 <button type="button" onClick={onConfirmDeletePost} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingPost ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {confirmDeleteGuideId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingGuide) setConfirmDeleteGuideId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete guide?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the guide and all its entries. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeleteGuideId(null)} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeleteGuide} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingGuide ? 'Deleting…' : 'Delete'}</button>
               </div>
             </motion.div>
           </motion.div>

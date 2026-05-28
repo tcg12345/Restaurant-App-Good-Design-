@@ -177,6 +177,28 @@ export async function deleteGuide(guideId: string): Promise<boolean> {
   }
 }
 
+/** Flip a guide between 'public' and 'private' without rewriting its entries. */
+export async function setGuideVisibility(
+  guideId: string,
+  visibility: GuideVisibility,
+): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from('guides')
+      .update({ visibility, updated_at: new Date().toISOString() })
+      .eq('id', guideId);
+    if (error) {
+      console.error('[Supabase] setGuideVisibility error:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[Supabase] setGuideVisibility exception:', err);
+    return false;
+  }
+}
+
 /** Fetch a single guide by id. RLS enforces visibility. */
 export async function getGuideById(guideId: string): Promise<Guide | null> {
   if (!supabaseConfigured || !guideId) return null;
