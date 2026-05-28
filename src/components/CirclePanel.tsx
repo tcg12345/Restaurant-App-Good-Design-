@@ -444,15 +444,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               </p>
             )}
           </div>
-
-          {a.photo_url && (
-            <img
-              src={a.photo_url}
-              alt=""
-              referrerPolicy="no-referrer"
-              className="w-11 h-11 rounded-lg object-cover flex-shrink-0"
-            />
-          )}
         </Link>
       </li>
     );
