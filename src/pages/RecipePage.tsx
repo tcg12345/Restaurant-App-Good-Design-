@@ -43,6 +43,7 @@ import {
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
 import { cn } from '../lib/utils';
+import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import './RecipePage.css';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,7 +51,6 @@ const isUuidLike = (v: string): boolean => UUID_RE.test(v);
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
-const STORAGE_KEY_SAVED = 'gourmad-saved-recipes';
 const STORAGE_KEY_COOKED = 'gourmad-cooked-recipes';
 
 // Hash a string to a stable hue 0–360. Used for avatar gradients.
@@ -302,7 +302,7 @@ export const RecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
-  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal } = useLists();
+  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
   // ── Data ──
@@ -317,10 +317,6 @@ export const RecipePage: React.FC = () => {
   const [relatedAuthors, setRelatedAuthors] = useState<Record<string, UserProfile>>({});
 
   // ── User interactions ──
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY_SAVED); return new Set(raw ? JSON.parse(raw) : []); }
-    catch { return new Set(); }
-  });
   const [cookedIds, setCookedIds] = useState<Set<string>>(() => {
     try { const raw = localStorage.getItem(STORAGE_KEY_COOKED); return new Set(raw ? JSON.parse(raw) : []); }
     catch { return new Set(); }
@@ -332,8 +328,11 @@ export const RecipePage: React.FC = () => {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Save-to-list sheet. The heart reflects whether the recipe is in any
+  // home-cooking list; clicking it opens the sheet to manage membership.
+  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
 
-  const saved = data ? savedIds.has(data.id) : false;
+  const saved = data ? getListsForRecipe(data.id).length > 0 : false;
   const cooked = data ? cookedIds.has(data.id) : false;
 
   // ── Load the recipe ──
@@ -513,14 +512,51 @@ export const RecipePage: React.FC = () => {
   };
   const handleSave = useCallback(() => {
     if (!data) return;
-    setSavedIds((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(data.id)) { next.delete(data.id); showToast('Removed from saved'); }
-      else { next.add(data.id); showToast('Saved to your recipe box'); }
-      persistSet(next, STORAGE_KEY_SAVED);
-      return next;
-    });
-  }, [data, showToast]);
+    setSaveSheetOpen(true);
+  }, [data]);
+
+  // The recipe to hand to the save sheet. Prefer the canonical cookbook
+  // entry (full fidelity) when this is the user's own meal; otherwise
+  // synthesize a HomeMeal from the normalized page data so other users'
+  // recipes can still be saved into a list.
+  const saveMeal = useMemo<HomeMeal | null>(() => {
+    if (!data) return null;
+    const own = myHomeMeals.find((m) => m.id === data.id);
+    if (own) return own;
+    const difficulty = data.difficulty
+      ? (data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)) as 'Easy' | 'Medium' | 'Hard'
+      : undefined;
+    return {
+      id: data.id,
+      name: data.title,
+      date: data.date || new Date().toISOString().slice(0, 10),
+      score: 0,
+      wouldMakeAgain: false,
+      description: data.description,
+      photos: (data.photos || []).map((url) => ({ url, caption: '', isFavorite: false })),
+      tags: data.tags || [],
+      dishes: [],
+      isPublic: true,
+      createdAt: Date.now(),
+      coverPhoto: data.coverPhoto || undefined,
+      prepTime: data.prepMinutes || undefined,
+      cookTime: data.cookMinutes || undefined,
+      servings: data.servings || undefined,
+      difficulty,
+      cuisine: data.cuisine || undefined,
+      ingredients: data.ingredients || [],
+      steps: data.steps || [],
+      summary: data.summary,
+      course: data.course,
+      chillTime: data.chillMinutes,
+      yieldDescription: data.yieldDescription,
+      ingredientGroups: data.ingredientGroups,
+      equipment: data.equipment,
+      stepDetails: data.stepDetails,
+      notes: data.notes,
+      builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
+    };
+  }, [data, myHomeMeals]);
   const handleCooked = useCallback(() => {
     if (!data) return;
     setCookedIds((prev) => {
@@ -745,6 +781,7 @@ export const RecipePage: React.FC = () => {
           currentUserName={user?.email?.split('@')[0] || 'You'}
           navigate={navigate}
         />
+        <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
       </div>
     );
   }
@@ -1305,6 +1342,8 @@ export const RecipePage: React.FC = () => {
           <Check /> {toast}
         </div>
       )}
+
+      <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
     </div>
   );
 };
