@@ -799,7 +799,26 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // Elapsed seconds since the current streaming turn started. Drives
+  // the "Thinking… 5s" label so the user has visible feedback that
+  // the AI is still actively working during long recipe builds.
+  const [streamElapsed, setStreamElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Tick once per second while a turn is streaming. Reset on every
+  // start so a new turn always begins at 0.
+  useEffect(() => {
+    if (!streaming) {
+      setStreamElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    setStreamElapsed(0);
+    const interval = setInterval(() => {
+      setStreamElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streaming]);
 
   // Model preference. Persisted in localStorage so the choice survives
   // reloads. 'auto' lets the server's heuristic pick per turn.
@@ -2422,10 +2441,20 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   the existing scroll effect re-fires on `streaming`. */}
               {streaming && (
                 <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
-                  <div className="lp-chat-bubble">
+                  <div className="lp-chat-bubble lp-chat-thinking">
                     <span className="lp-chat-typing" aria-label="Assistant is responding">
                       <span /><span /><span />
                     </span>
+                    <span className="lp-chat-thinking-label">
+                      {streamElapsed >= 20
+                        ? 'Still working on it…'
+                        : streamElapsed >= 8
+                          ? 'Working on it…'
+                          : 'Thinking…'}
+                    </span>
+                    {streamElapsed >= 4 && (
+                      <span className="lp-chat-thinking-elapsed">{streamElapsed}s</span>
+                    )}
                   </div>
                 </div>
               )}
