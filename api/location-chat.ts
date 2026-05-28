@@ -27,8 +27,69 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
   ? process.env?.ANTHROPIC_API_KEY
   : undefined;
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+// Model IDs the chat can run on. The client selects one of these
+// (or 'auto') via the header model picker.
+const MODEL_SONNET = 'claude-sonnet-4-6';
+const MODEL_OPUS = 'claude-opus-4-7';
+const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
+
+/** Adaptive model selector for 'auto' mode.
+ *
+ *  Lightweight heuristic on the most recent user message + a few
+ *  conversation signals. Opus 4.7 is ~5x the cost of Sonnet 4.6, so
+ *  we only escalate when the request actually looks like it needs
+ *  multi-step reasoning. Cheap signals (length, keyword presence,
+ *  conversation depth) are good enough — the model still chooses
+ *  its own tool-use depth from there. */
+function pickAutoModel(messages: ChatRequest['messages']): string {
+  const last = [...messages].reverse().find((m) => m.role === 'user');
+  let userText = '';
+  if (last) {
+    if (typeof last.content === 'string') userText = last.content;
+    else if (Array.isArray(last.content)) {
+      for (const block of last.content) {
+        if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+          userText += (block as { text?: string }).text || '';
+        }
+      }
+    }
+  }
+  const text = userText.toLowerCase();
+
+  let score = 0;
+  if (text.length > 200) score += 1;
+  if ((text.match(/\?/g) || []).length >= 2) score += 1;
+  if ((text.match(/,/g) || []).length >= 3) score += 1;
+  if (messages.length >= 6) score += 1;
+
+  // Complex-task keywords — multi-criteria planning, comparison,
+  // group/occasion logistics. Hits add a single point combined so a
+  // string of synonyms doesn't over-count.
+  const complexHits = [
+    /\b(compare|comparison|vs\.?|versus|between)\b/,
+    /\b(plan|planning|itinerary|schedule|route)\b/,
+    /\b(alternatives?|options?|trade[- ]offs?)\b/,
+    /\b(for\s+(a\s+)?(group|party|crowd)|party of|group of)\b/,
+    /\b(anniversary|birthday|engagement|proposal|host(?:ing)?|dinner party)\b/,
+    /\b(weekend|two-?day|three-?day|long weekend)\b/,
+    /\b(walking distance|under \$?\d+|less than \$?\d+|within \d+)\b/,
+    /\b(?:both|and also|as well as)\b.*\b(?:and|plus|with)\b/,
+  ].some((re) => re.test(text));
+  if (complexHits) score += 1;
+
+  return score >= 2 ? MODEL_OPUS : MODEL_SONNET;
+}
+
+/** Resolve the model for this request. Accepts 'auto', a known model
+ *  ID, or undefined (treated as 'auto'). Falls back to the default
+ *  when the client passes something unrecognised. */
+function resolveModel(body: ChatRequest): string {
+  const requested = (body.model || 'auto').trim();
+  if (requested === MODEL_SONNET || requested === MODEL_OPUS) return requested;
+  if (requested === 'auto' || !requested) return pickAutoModel(body.messages);
+  return DEFAULT_MODEL;
+}
 
 // Tools Claude can use.
 //
@@ -695,7 +756,7 @@ export default async function handler(req: Request): Promise<Response> {
   const systemText = buildSystemPrompt(body);
 
   const anthropicBody = {
-    model: body.model || DEFAULT_MODEL,
+    model: resolveModel(body),
     max_tokens: 1024,
     stream: true,
     // System is shipped as a single text block with ephemeral cache_control

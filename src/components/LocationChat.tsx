@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   ChefHat,
+  Check,
+  ChevronDown,
   ChevronRight,
   Clock,
   Loader2,
@@ -22,6 +24,7 @@ import {
   Sparkles,
   Trash2,
   X,
+  Zap,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -114,6 +117,34 @@ export interface ActionResult {
   ok: boolean;
   detail?: string;
 }
+
+/* ── Model picker ────────────────────────────────────────────────
+   The chat can run on Sonnet 4.6, Opus 4.7, or 'auto' (server-side
+   heuristic chooses per turn). Stored as a literal string so it
+   round-trips through localStorage and over the wire untouched. */
+export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-7';
+const CHAT_MODEL_STORAGE_KEY = 'gourmad-chat-model';
+const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-7'];
+function loadModelPref(): ChatModelPref {
+  try {
+    const raw = localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
+    if (raw && (VALID_MODEL_PREFS as readonly string[]).includes(raw)) return raw as ChatModelPref;
+  } catch { /* private mode / quota — fall through */ }
+  return 'auto';
+}
+function saveModelPref(pref: ChatModelPref) {
+  try { localStorage.setItem(CHAT_MODEL_STORAGE_KEY, pref); } catch { /* best-effort */ }
+}
+const MODEL_LABELS: Record<ChatModelPref, string> = {
+  auto: 'Auto',
+  'claude-sonnet-4-6': 'Sonnet 4.6',
+  'claude-opus-4-7': 'Opus 4.7',
+};
+const MODEL_SUBLABELS: Record<ChatModelPref, string> = {
+  auto: 'Picks per turn',
+  'claude-sonnet-4-6': 'Fast, low cost',
+  'claude-opus-4-7': 'Deepest reasoning',
+};
 
 interface LocationChatProps {
   /** Filtered restaurant pool — what the user is currently looking at. */
@@ -629,6 +660,23 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Model preference. Persisted in localStorage so the choice survives
+  // reloads. 'auto' lets the server's heuristic pick per turn.
+  const [model, setModel] = useState<ChatModelPref>(() => loadModelPref());
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { saveModelPref(model); }, [model]);
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [modelMenuOpen]);
+
   // Chat-local cache for places returned by the search_restaurants
   // tool — they may fall outside the user's current filters (whole
   // point of the tool) so we need somewhere to render cards from
@@ -1017,6 +1065,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             userContext,
             currentPath,
             currentPageLabel,
+            model,
           },
           controller.signal,
         );
@@ -1694,7 +1743,43 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 ) : (
                   <>
                     <h3>Ask a local</h3>
-                    <p>Powered by Claude</p>
+                    <div className="lp-chat-head-model" ref={modelMenuRef}>
+                      <button
+                        type="button"
+                        className="lp-chat-model-pill"
+                        onClick={() => setModelMenuOpen((o) => !o)}
+                        aria-haspopup="listbox"
+                        aria-expanded={modelMenuOpen}
+                        title="Change model"
+                      >
+                        {model === 'auto' && <Zap size={10} strokeWidth={2.6} />}
+                        <span>{MODEL_LABELS[model]}</span>
+                        <ChevronDown size={11} strokeWidth={2.4} />
+                      </button>
+                      {modelMenuOpen && (
+                        <div className="lp-chat-model-menu" role="listbox">
+                          {(['auto', 'claude-sonnet-4-6', 'claude-opus-4-7'] as ChatModelPref[]).map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              role="option"
+                              aria-selected={model === opt}
+                              className={cn('lp-chat-model-opt', model === opt && 'is-selected')}
+                              onClick={() => { setModel(opt); setModelMenuOpen(false); }}
+                            >
+                              <div className="lp-chat-model-opt-text">
+                                <div className="lp-chat-model-opt-label">
+                                  {opt === 'auto' && <Zap size={11} strokeWidth={2.4} />}
+                                  <span>{MODEL_LABELS[opt]}</span>
+                                </div>
+                                <div className="lp-chat-model-opt-sub">{MODEL_SUBLABELS[opt]}</div>
+                              </div>
+                              {model === opt && <Check size={13} strokeWidth={2.4} />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

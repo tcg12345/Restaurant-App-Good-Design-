@@ -1962,6 +1962,77 @@
   color: var(--muted);
   letter-spacing: 0.02em;
 }
+
+/* Model picker — replaces the static subtitle. Pill sits where the
+   subtitle used to, dropdown anchors below it. */
+.lp-chat-head-model {
+  position: relative;
+  margin-top: 3px;
+  display: inline-flex;
+}
+.lp-chat-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 7px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(28, 24, 22, 0.05);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background .15s, color .15s;
+}
+.lp-chat-model-pill:hover {
+  background: rgba(28, 24, 22, 0.08);
+  color: var(--ink);
+}
+.lp-chat-model-pill svg { flex-shrink: 0; }
+.lp-chat-model-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 196px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px -12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.lp-chat-model-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 8px;
+  text-align: left;
+  transition: background .12s;
+}
+.lp-chat-model-opt:hover { background: rgba(28, 24, 22, 0.05); }
+.lp-chat-model-opt.is-selected { background: rgba(28, 24, 22, 0.04); }
+.lp-chat-model-opt-text { flex: 1; min-width: 0; }
+.lp-chat-model-opt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.lp-chat-model-opt-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 1px;
+  letter-spacing: 0.02em;
+}
+.lp-chat-model-opt > svg { color: var(--ink); flex-shrink: 0; }
 .lp-chat-head-close {
   width: 32px;
   height: 32px;
