@@ -8,10 +8,10 @@
  *   - 'page'     → renders inline as the body of the /circle route on
  *                  mobile, no animation, no close button.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Crown, Plus, Filter, MapPin, ChefHat } from 'lucide-react';
+import { Search, X, Crown, Plus, Filter, ArrowLeft, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -20,8 +20,10 @@ import {
   type FriendInfo, type UserProfile, type CommunityRating,
 } from '../lib/supabase-community';
 import { ScoreBadge } from './ScoreBadge';
+import { AddFriendSheet } from './AddFriendSheet';
 
 type Tab = 'all' | 'friends' | 'experts';
+type TimeBucket = 'today' | 'week' | 'earlier';
 
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -54,6 +56,14 @@ const timeAgoShort = (date: string): string => {
   if (months < 12) return `${months}mo`;
   return `${Math.floor(days / 365)}y`;
 };
+const bucketOf = (iso: string): TimeBucket => {
+  if (!iso) return 'earlier';
+  const diff = Date.now() - new Date(iso).getTime();
+  const days = diff / 86_400_000;
+  if (days < 1) return 'today';
+  if (days < 7) return 'week';
+  return 'earlier';
+};
 const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
 interface CirclePanelProps {
@@ -68,6 +78,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
 
   const [tab, setTab] = useState<Tab>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
 
   const [friends, setFriends] = useState<FriendInfo[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
@@ -75,14 +86,18 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [activityProfiles, setActivityProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
 
-  // Experts data
   const [experts, setExperts] = useState<UserProfile[]>([]);
   const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
   const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
   const [expertsLoading, setExpertsLoading] = useState(false);
 
-  // Load friends + activity once on mount.
+  // Activity filter popover state
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterTime, setFilterTime] = useState<'all' | 'today' | 'week'>('all');
+  const [filterFriendIds, setFilterFriendIds] = useState<Set<string>>(new Set());
+  const filterBtnRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
     let cancelled = false;
@@ -113,7 +128,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Load experts (lazily after friends so the first paint is fast).
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
@@ -142,6 +156,16 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return () => { cancelled = true; };
   }, [userId]);
 
+  // Close filter popover on outside click.
+  useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filterBtnRef.current && !filterBtnRef.current.contains(e.target as Node)) setFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [filterOpen]);
+
   const handleFollow = useCallback(async (expertId: string) => {
     if (!userId) return;
     const ok = await followPublicAccount(userId, expertId);
@@ -162,9 +186,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     setExpertFollowerCounts((prev) => ({ ...prev, [expertId]: Math.max(0, (prev[expertId] || 0) - 1) }));
   }, [userId]);
 
-  // Filter pipeline keyed on the search query — friends, experts, and
-  // activity all share the same query so the user can type once and see
-  // every matching surface narrow down.
   const q = searchQuery.trim().toLowerCase();
   const friendsFiltered = useMemo(() => {
     if (!q) return friends;
@@ -184,13 +205,42 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   }, [experts, q]);
 
   const activityFiltered = useMemo(() => {
-    if (!q) return activity;
-    return activity.filter((a) => {
-      const prof = activityProfiles[a.user_id];
-      const hay = `${a.restaurant_name} ${a.cuisine || ''} ${a.address || ''} ${prof?.display_name || ''} ${prof?.username || ''}`.toLowerCase();
-      return hay.includes(q);
+    let list = activity;
+    if (filterTime !== 'all') {
+      list = list.filter((a) => {
+        const b = bucketOf(a.created_at);
+        return filterTime === 'today' ? b === 'today' : (b === 'today' || b === 'week');
+      });
+    }
+    if (filterFriendIds.size > 0) {
+      list = list.filter((a) => filterFriendIds.has(a.user_id));
+    }
+    if (q) {
+      list = list.filter((a) => {
+        const prof = activityProfiles[a.user_id];
+        const hay = `${a.restaurant_name} ${a.cuisine || ''} ${a.address || ''} ${prof?.display_name || ''} ${prof?.username || ''}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return list;
+  }, [activity, activityProfiles, q, filterTime, filterFriendIds]);
+
+  const activityBuckets = useMemo(() => {
+    const today: CommunityRating[] = [];
+    const week: CommunityRating[] = [];
+    const earlier: CommunityRating[] = [];
+    activityFiltered.forEach((a) => {
+      const b = bucketOf(a.created_at);
+      if (b === 'today') today.push(a);
+      else if (b === 'week') week.push(a);
+      else earlier.push(a);
     });
-  }, [activity, activityProfiles, q]);
+    return { today, week, earlier };
+  }, [activityFiltered]);
+
+  const activeFilterCount =
+    (filterTime !== 'all' ? 1 : 0) +
+    (filterFriendIds.size > 0 ? 1 : 0);
 
   const allCount = friends.length + experts.length;
   const friendsCount = friends.length;
@@ -199,27 +249,26 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   // ── Section renderers ─────────────────────────────────────────────
   const renderFriendsAvatars = () => (
     <section>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3.5">
         <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
           My friends <span className="text-on-surface/30 ml-1">· {friendsCount}</span>
         </h4>
         <button
           type="button"
-          onClick={() => navigate('/circle/add')}
+          onClick={() => setAddOpen(true)}
           className="text-[12px] font-bold text-primary hover:text-primary/80 inline-flex items-center gap-1"
         >
           <Plus size={12} strokeWidth={2.6} />
           Invite
         </button>
       </div>
-      {friendsFiltered.length === 0 ? (
+      {friendsFiltered.length === 0 && q ? (
         <p className="text-[12.5px] text-on-surface/40">No friends match this search.</p>
       ) : (
         <div className="flex items-start gap-4 overflow-x-auto pb-1 no-scrollbar">
-          {/* Add tile */}
           <button
             type="button"
-            onClick={() => navigate('/circle/add')}
+            onClick={() => setAddOpen(true)}
             className="flex flex-col items-center gap-2 flex-shrink-0 group"
           >
             <div className="w-16 h-16 rounded-full border-2 border-dashed border-primary/40 group-hover:border-primary/70 flex items-center justify-center text-primary transition-colors">
@@ -231,23 +280,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             const p = friendProfiles[f.friend_id];
             const color = avatarColor(f.friend_id);
             const initial = initialOf(p?.display_name || p?.username || '');
-            // Mock "new activity" badge — counted from activity rows.
-            const newCount = activity.filter((a) => a.user_id === f.friend_id).length;
             return (
               <Link
                 key={f.friend_id}
                 to={`/user/${p?.username || ''}`}
+                onClick={() => onClose?.()}
                 className="flex flex-col items-center gap-2 flex-shrink-0 group"
               >
-                <div className="relative">
-                  <div className={cn('w-16 h-16 rounded-full flex items-center justify-center transition-transform group-hover:scale-[1.03]', color.bg)}>
-                    <span className={cn('text-[24px] font-serif font-bold', color.text)}>{initial}</span>
-                  </div>
-                  {newCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1 rounded-full bg-primary text-white text-[10.5px] font-bold flex items-center justify-center ring-2 ring-surface">
-                      {newCount > 9 ? '9+' : newCount}
-                    </span>
-                  )}
+                <div className={cn('w-16 h-16 rounded-full flex items-center justify-center transition-transform group-hover:scale-[1.03]', color.bg)}>
+                  <span className={cn('text-[24px] font-serif font-bold', color.text)}>{initial}</span>
                 </div>
                 <span className="text-[12.5px] font-medium text-on-surface truncate max-w-[72px]">
                   {p?.display_name || p?.username || 'User'}
@@ -300,7 +341,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             const following = followedIds.has(p.user_id);
             return (
               <li key={p.user_id} className="flex items-center gap-3">
-                <Link to={`/user/${p.username || ''}`} className="relative flex-shrink-0">
+                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="relative flex-shrink-0">
                   <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
                     <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
                   </div>
@@ -308,7 +349,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                     <Crown size={9} className="text-white" strokeWidth={2.4} />
                   </span>
                 </Link>
-                <Link to={`/user/${p.username || ''}`} className="flex-1 min-w-0 group">
+                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 group">
                   <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
                     {p.display_name || p.username || 'Expert'}
                   </p>
@@ -346,82 +387,205 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     </section>
   );
 
+  const renderActivityRow = (a: CommunityRating) => {
+    const prof = activityProfiles[a.user_id];
+    const name = prof?.display_name || prof?.username || 'User';
+    const username = prof?.username || '';
+    const color = avatarColor(a.user_id);
+    const initial = initialOf(name);
+    const city = a.address?.split(',')[0]?.trim();
+    const meta = [a.cuisine, a.price, city].filter(Boolean).join(' · ');
+
+    return (
+      <li key={a.id} className="relative">
+        <Link
+          to={`/restaurant/${a.restaurant_id}`}
+          onClick={() => onClose?.()}
+          className="flex items-start gap-3 py-2.5 group"
+        >
+          {/* Friend avatar — separate Link so tapping it goes to their profile
+              instead of the restaurant. */}
+          <span
+            role="link"
+            tabIndex={0}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); } }}
+            className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}
+          >
+            <span className={cn('text-[14px] font-serif font-bold', color.text)}>{initial}</span>
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-[13.5px] leading-snug text-on-surface/75">
+              <span
+                className="font-bold text-on-surface hover:text-primary"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); }}
+              >
+                {name}
+              </span>
+              <span className="font-normal"> rated </span>
+              <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">
+                {a.restaurant_name}
+              </span>
+              {Number(a.score) > 0 && (
+                <span className="font-bold text-on-surface"> — {Number(a.score).toFixed(1)}</span>
+              )}
+            </p>
+            {(meta || a.created_at) && (
+              <p className="text-[11.5px] text-on-surface/45 truncate mt-0.5">
+                {meta}
+                {meta && a.created_at && <span className="text-on-surface/25 mx-1.5">·</span>}
+                {a.created_at && <span>{timeAgoShort(a.created_at)}</span>}
+              </p>
+            )}
+            {a.notes && (
+              <p className="text-[12.5px] italic text-on-surface/55 truncate mt-1">
+                &ldquo;{a.notes}&rdquo;
+              </p>
+            )}
+          </div>
+
+          {a.photo_url && (
+            <img
+              src={a.photo_url}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="w-11 h-11 rounded-lg object-cover flex-shrink-0"
+            />
+          )}
+        </Link>
+      </li>
+    );
+  };
+
   const renderActivity = () => (
     <section>
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
           Activity <span className="text-on-surface/30 ml-1">· {activity.length}</span>
         </h4>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 text-[12px] font-bold text-primary hover:text-primary/80"
-        >
-          <Filter size={12} />
-          Filter
-        </button>
+        <div className="relative" ref={filterBtnRef}>
+          <button
+            type="button"
+            onClick={() => setFilterOpen((o) => !o)}
+            className={cn(
+              'inline-flex items-center gap-1 text-[12px] font-bold transition-colors',
+              activeFilterCount > 0 || filterOpen ? 'text-primary' : 'text-on-surface/55 hover:text-on-surface',
+            )}
+          >
+            <Filter size={12} />
+            Filter
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-primary text-white text-[10px] font-bold grid place-items-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {filterOpen && (
+            <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-[260px] p-4 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-[0_18px_48px_-12px_rgba(0,0,0,0.28)]">
+              <div className="mb-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface/45 mb-2">When</p>
+                <div className="flex gap-1.5">
+                  {([
+                    ['all', 'All'],
+                    ['today', 'Today'],
+                    ['week', 'This week'],
+                  ] as const).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setFilterTime(k)}
+                      className={cn(
+                        'flex-1 h-8 rounded-full text-[12px] font-semibold transition-colors',
+                        filterTime === k
+                          ? 'bg-on-surface text-surface'
+                          : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08]',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {friends.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface/45 mb-2">From</p>
+                  <div className="flex flex-wrap gap-1.5 max-h-[160px] overflow-y-auto">
+                    {friends.map((f) => {
+                      const p = friendProfiles[f.friend_id];
+                      const name = p?.display_name || p?.username || 'Friend';
+                      const active = filterFriendIds.has(f.friend_id);
+                      return (
+                        <button
+                          key={f.friend_id}
+                          type="button"
+                          onClick={() => {
+                            setFilterFriendIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(f.friend_id)) next.delete(f.friend_id);
+                              else next.add(f.friend_id);
+                              return next;
+                            });
+                          }}
+                          className={cn(
+                            'inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium border transition-colors',
+                            active
+                              ? 'bg-on-surface text-surface border-on-surface'
+                              : 'bg-transparent text-on-surface/65 border-on-surface/15 hover:border-on-surface/35',
+                          )}
+                        >
+                          {active && <Check size={11} />}
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setFilterTime('all'); setFilterFriendIds(new Set()); }}
+                  className="mt-3 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {activityFiltered.length === 0 ? (
-        <p className="text-[12.5px] text-on-surface/40">No friend activity yet.</p>
+        <p className="text-[12.5px] text-on-surface/40 py-2">
+          {q || activeFilterCount > 0 ? 'No activity matches.' : 'No friend activity yet.'}
+        </p>
       ) : (
-        <ul className="space-y-5">
-          {activityFiltered.map((a) => {
-            const prof = activityProfiles[a.user_id];
-            const name = prof?.display_name || prof?.username || 'User';
-            const username = prof?.username || '';
-            const color = avatarColor(a.user_id);
-            const initial = initialOf(name);
-            const verb = 'rated';
-            return (
-              <li key={a.id}>
-                {/* Header: who + when */}
-                <div className="flex items-center gap-2.5 mb-2.5">
-                  <Link to={`/user/${username}`} className="flex-shrink-0">
-                    <div className={cn('w-9 h-9 rounded-full flex items-center justify-center', color.bg)}>
-                      <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initial}</span>
-                    </div>
-                  </Link>
-                  <p className="text-[13px] text-on-surface/70 leading-tight">
-                    <Link to={`/user/${username}`} className="font-bold text-on-surface hover:text-primary">{name}</Link>
-                    <span className="font-normal text-on-surface/55"> {verb}</span>
-                    <span className="text-on-surface/30 mx-1.5">·</span>
-                    <span className="text-on-surface/45">{timeAgoShort(a.created_at)}</span>
-                  </p>
-                </div>
-
-                {/* Restaurant card */}
-                <Link
-                  to={`/restaurant/${a.restaurant_id}`}
-                  onClick={() => onClose?.()}
-                  className="flex items-center gap-3 group"
-                >
-                  <div className="w-[68px] h-[68px] rounded-2xl bg-gradient-to-br from-stone-300 to-stone-500 flex-shrink-0 overflow-hidden">
-                    {a.photo_url && (
-                      <img src={a.photo_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-serif text-[15px] font-bold text-on-surface leading-tight line-clamp-1 group-hover:text-primary transition-colors">
-                      {a.restaurant_name}
-                    </p>
-                    {(a.cuisine || a.price || a.address) && (
-                      <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
-                        {[a.cuisine, a.price, a.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
-                  </div>
-                  <ScoreBadge rating={Number(a.score)} size="sm" />
-                </Link>
-
-                {/* Optional notes — italic with a soft left rule */}
-                {a.notes && (
-                  <p className="mt-2.5 ml-[80px] text-[13px] italic text-on-surface/65 leading-relaxed line-clamp-2 border-l-2 border-on-surface/10 pl-3">
-                    &ldquo;{a.notes}&rdquo;
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          {activityBuckets.today.length > 0 && (
+            <>
+              <BucketLabel>Today</BucketLabel>
+              <ul className="divide-y divide-on-surface/[0.05] mb-2">
+                {activityBuckets.today.map(renderActivityRow)}
+              </ul>
+            </>
+          )}
+          {activityBuckets.week.length > 0 && (
+            <>
+              <BucketLabel>This week</BucketLabel>
+              <ul className="divide-y divide-on-surface/[0.05] mb-2">
+                {activityBuckets.week.map(renderActivityRow)}
+              </ul>
+            </>
+          )}
+          {activityBuckets.earlier.length > 0 && (
+            <>
+              <BucketLabel>Earlier</BucketLabel>
+              <ul className="divide-y divide-on-surface/[0.05]">
+                {activityBuckets.earlier.map(renderActivityRow)}
+              </ul>
+            </>
+          )}
+        </>
       )}
     </section>
   );
@@ -430,12 +594,19 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const body = (
     <>
       {/* Header */}
-      <div className="px-6 pt-safe-5 pb-2 flex-shrink-0">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="font-serif text-[28px] font-bold leading-tight text-on-surface">Friends</h2>
-            <p className="text-[13px] text-on-surface/45 mt-1">Your circle&apos;s latest, in one place.</p>
-          </div>
+      <div className="px-6 pt-safe-4 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          {variant === 'page' && (
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-9 h-9 -ml-2 rounded-full hover:bg-on-surface/[0.06] flex items-center justify-center text-on-surface/70 flex-shrink-0"
+              aria-label="Back"
+            >
+              <ArrowLeft size={19} />
+            </button>
+          )}
+          <h2 className="flex-1 font-serif text-[22px] font-bold leading-tight text-on-surface truncate">Friends</h2>
           {variant === 'overlay' && (
             <button
               type="button"
@@ -457,7 +628,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search friends, places, lists…"
+            placeholder="Search friends, places, activity…"
             className="w-full h-11 pl-10 pr-9 rounded-2xl bg-on-surface/[0.05] text-[14px] placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-on-surface/[0.08]"
           />
           {searchQuery && (
@@ -488,7 +659,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                 type="button"
                 onClick={() => setTab(t.value)}
                 className={cn(
-                  'relative pt-3 pb-3.5 inline-flex items-baseline gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] transition-colors',
+                  'relative pt-2.5 pb-3 inline-flex items-baseline gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] transition-colors',
                   active ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/75',
                 )}
               >
@@ -508,21 +679,23 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
         {loading ? (
           <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
         ) : tab === 'all' ? (
-          <div className="space-y-8">
+          <div className="space-y-7">
             {renderFriendsAvatars()}
             {renderExpertsList(true)}
             {renderActivity()}
           </div>
         ) : tab === 'friends' ? (
-          <div className="space-y-8">
+          <div className="space-y-7">
             {renderFriendsAvatars()}
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-7">
             {renderExpertsList(false)}
           </div>
         )}
       </div>
+
+      <AddFriendSheet open={addOpen} onClose={() => setAddOpen(false)} />
     </>
   );
 
@@ -535,9 +708,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     );
   }
 
-  // Overlay variant — slide-out from the left edge of the viewport,
-  // covering the desktop sidebar. The backdrop in App.tsx handles
-  // outside-click dismissal (sidebar area + main content).
   return (
     <motion.aside
       initial={{ x: -40, opacity: 0 }}
@@ -552,3 +722,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     </motion.aside>
   );
 };
+
+const BucketLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h5 className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mt-2 mb-1 first:mt-0">
+    {children}
+  </h5>
+);
