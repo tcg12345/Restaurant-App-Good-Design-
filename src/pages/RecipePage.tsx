@@ -44,6 +44,8 @@ import {
 } from '../lib/supabase-home-meal-reviews';
 import { cn } from '../lib/utils';
 import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
+import { ShareDialog } from '../components/ShareDialog';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -331,6 +333,8 @@ export const RecipePage: React.FC = () => {
   // Save-to-list sheet. The heart reflects whether the recipe is in any
   // home-cooking list; clicking it opens the sheet to manage membership.
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
+  // Share sheet — friend/group multi-select + an OS share-via fallback.
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
   const saved = data ? getListsForRecipe(data.id).length > 0 : false;
   const cooked = data ? cookedIds.has(data.id) : false;
@@ -569,14 +573,38 @@ export const RecipePage: React.FC = () => {
   }, [data, showToast]);
   const handleShare = useCallback(() => {
     if (!data) return;
-    const url = `${window.location.origin}/recipe/${data.ownerId}/${data.id}`;
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      navigator.share({ title: data.title, url }).catch(() => { /* user cancel */ });
-    } else {
-      navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
-      showToast('Link copied to clipboard');
-    }
-  }, [data, showToast]);
+    setShareSheetOpen(true);
+  }, [data]);
+
+  // Payload + URL for the share sheet. The dialog renders a recipe
+  // preview chip, lets the user pick friends / groups (auto-creates a
+  // 1:1 chat when needed), and falls back to the OS share sheet (or
+  // clipboard) via its "Share via…" button.
+  const sharePayload = useMemo<{ recipe: SharedRecipe; url: string } | null>(() => {
+    if (!data) return null;
+    const authorName = authorProfile?.display_name || authorProfile?.username || 'A home cook';
+    const totalTime = (data.prepMinutes ?? 0) + (data.cookMinutes ?? 0);
+    const recipe: SharedRecipe = {
+      mealId: data.id,
+      authorId: data.ownerId,
+      authorName,
+      name: data.title,
+      image: data.coverPhoto || '',
+      description: data.summary || data.description || undefined,
+      tags: data.tags && data.tags.length > 0 ? data.tags : undefined,
+      totalTime: totalTime > 0 ? totalTime : undefined,
+      difficulty: data.difficulty || undefined,
+      ingredientCount: data.ingredients?.length || undefined,
+      stepCount: (data.stepDetails?.length ?? data.steps?.length) || undefined,
+    };
+    // home-meal recipes live at /meal/<userId>/<mealId>; formal recipes
+    // are at /recipe/<userId>/<id>. Match how RecipePage routes itself.
+    const path = data.source === 'homeMeal'
+      ? `/meal/${data.ownerId}/${data.id}`
+      : `/recipe/${data.ownerId}/${data.id}`;
+    const url = typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+    return { recipe, url };
+  }, [data, authorProfile]);
   const handlePrint = useCallback(() => window.print(), []);
   const handleEdit = useCallback(() => {
     if (!data) return;
@@ -782,6 +810,12 @@ export const RecipePage: React.FC = () => {
           navigate={navigate}
         />
         <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
+        <ShareDialog
+          open={shareSheetOpen}
+          onClose={() => setShareSheetOpen(false)}
+          payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
+          externalShareUrl={sharePayload?.url}
+        />
       </div>
     );
   }
@@ -1344,6 +1378,12 @@ export const RecipePage: React.FC = () => {
       )}
 
       <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
+      <ShareDialog
+        open={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
+        externalShareUrl={sharePayload?.url}
+      />
     </div>
   );
 };
