@@ -18,6 +18,7 @@
  * editorial tokens don't leak into other routes.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Award, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
@@ -816,6 +817,7 @@ export const RecipePage: React.FC = () => {
           payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
           externalShareUrl={sharePayload?.url}
         />
+        <RecipePrintView data={data} authorName={authorName} />
       </div>
     );
   }
@@ -1384,6 +1386,7 @@ export const RecipePage: React.FC = () => {
         payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
         externalShareUrl={sharePayload?.url}
       />
+      <RecipePrintView data={data} authorName={authorName} />
     </div>
   );
 };
@@ -1435,6 +1438,198 @@ const StepTimerButton: React.FC<{ label: string; durationMs: number }> = ({ labe
       <span className="play">
         {running ? display : (remaining > 0 && remaining < durationMs ? `${display} · paused` : 'Start')}
       </span>
+    </button>
+  );
+};
+
+// Clean, paper-friendly version of the recipe rendered into a portal on
+// document.body. Hidden on screen; `@media print` hides the app (#root)
+// and shows only this, so printing produces just the recipe — title,
+// meta, ingredients, steps, notes — with none of the app chrome.
+const RecipePrintView: React.FC<{ data: UnifiedRecipe; authorName: string }> = ({ data, authorName }) => {
+  const totalTime = (data.prepMinutes || 0) + (data.cookMinutes || 0) + (data.chillMinutes || 0);
+  const groups = data.ingredientGroups && data.ingredientGroups.length > 0
+    ? data.ingredientGroups
+    : [{ name: '', ingredients: data.ingredients || [] }];
+  const steps: Array<{ title?: string; body: string; durationMin?: number }> =
+    data.stepDetails && data.stepDetails.length > 0
+      ? data.stepDetails
+      : (data.steps || []).map((body) => ({ body }));
+  const difficulty = data.difficulty
+    ? data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)
+    : '';
+
+  const meta: Array<{ label: string; value: string }> = [];
+  if (data.cuisine) meta.push({ label: 'Cuisine', value: data.cuisine });
+  if (difficulty) meta.push({ label: 'Difficulty', value: difficulty });
+  if (data.prepMinutes) meta.push({ label: 'Prep', value: formatMinutes(data.prepMinutes) });
+  if (data.cookMinutes) meta.push({ label: 'Cook', value: formatMinutes(data.cookMinutes) });
+  if (data.chillMinutes) meta.push({ label: 'Rest', value: formatMinutes(data.chillMinutes) });
+  if (totalTime > 0) meta.push({ label: 'Total', value: formatMinutes(totalTime) });
+  if (data.servings) meta.push({ label: 'Servings', value: String(data.servings) });
+  if (data.yieldDescription) meta.push({ label: 'Yield', value: data.yieldDescription });
+
+  return createPortal(
+    <div className="rd-print-portal" aria-hidden="true">
+      <article className="rd-print">
+        <header className="rd-print-head">
+          <h1>{data.title}</h1>
+          {(data.summary || data.description) && (
+            <p className="rd-print-summary">{data.summary || data.description}</p>
+          )}
+          {authorName && <p className="rd-print-byline">Recipe by {authorName}</p>}
+        </header>
+
+        {meta.length > 0 && (
+          <ul className="rd-print-meta">
+            {meta.map((m) => (
+              <li key={m.label}><span className="k">{m.label}</span><span className="v">{m.value}</span></li>
+            ))}
+          </ul>
+        )}
+
+        <section className="rd-print-section rd-print-ingredients">
+          <h2>Ingredients</h2>
+          {groups.map((g, gi) => (
+            <div key={gi} className="rd-print-group">
+              {g.name && <h3>{g.name}</h3>}
+              <ul>
+                {g.ingredients.map((ing, ii) => (
+                  <li key={ii}>
+                    {[ing.amount, ing.unit].filter(Boolean).join(' ')} {ing.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+
+        {steps.length > 0 && (
+          <section className="rd-print-section rd-print-steps">
+            <h2>Method</h2>
+            <ol>
+              {steps.map((s, i) => (
+                <li key={i}>
+                  {s.title && <span className="rd-print-step-title">{s.title}. </span>}
+                  {s.body}
+                  {typeof s.durationMin === 'number' && s.durationMin > 0 && (
+                    <span className="rd-print-step-time"> ({s.durationMin} min)</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        {data.notes && data.notes.length > 0 && (
+          <section className="rd-print-section rd-print-notes">
+            <h2>Notes</h2>
+            <ul>
+              {data.notes.map((n, i) => <li key={i}>{n.text}</li>)}
+            </ul>
+          </section>
+        )}
+
+        {data.equipment && data.equipment.length > 0 && (
+          <section className="rd-print-section rd-print-equipment">
+            <h2>Equipment</h2>
+            <p>{data.equipment.join(' · ')}</p>
+          </section>
+        )}
+      </article>
+    </div>,
+    document.body,
+  );
+};
+
+// Best-effort "timer finished" chime: a short triple beep via Web Audio.
+// Wrapped in try/catch since autoplay policies / missing AudioContext can
+// throw; the visual "Done" state + vibration are the real signal.
+function playTimerChime() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const beep = (start: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + 0.32);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + 0.34);
+    };
+    beep(0); beep(0.45); beep(0.9);
+    window.setTimeout(() => { ctx.close().catch(() => {}); }, 1600);
+  } catch { /* no audio — visual + haptic still fire */ }
+}
+
+// Live countdown for a Cook Mode step. Tap to start; tap again to
+// pause / resume. When it hits zero it flashes a "Done" state, vibrates
+// (mobile), and plays a short chime. Reset by tapping once done.
+// Rendered with a per-step `key` so navigating steps starts it fresh.
+const CookModeTimer: React.FC<{ durationMs: number; label: string }> = ({ durationMs, label }) => {
+  const [remaining, setRemaining] = useState(durationMs);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!running) {
+      if (intervalRef.current) window.clearInterval(intervalRef.current);
+      return;
+    }
+    intervalRef.current = window.setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1000) {
+          if (intervalRef.current) window.clearInterval(intervalRef.current);
+          setRunning(false);
+          setDone(true);
+          try { navigator.vibrate?.([200, 100, 200]); } catch { /* unsupported */ }
+          playTimerChime();
+          return 0;
+        }
+        return r - 1000;
+      });
+    }, 1000);
+    return () => { if (intervalRef.current) window.clearInterval(intervalRef.current); };
+  }, [running]);
+
+  const display = useMemo(() => {
+    const total = Math.ceil(remaining / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }, [remaining]);
+
+  const started = running || remaining < durationMs || done;
+
+  const handleClick = () => {
+    if (done) { setDone(false); setRemaining(durationMs); setRunning(false); return; }
+    setRunning((r) => !r);
+  };
+
+  const hint = done ? 'Tap to reset'
+    : running ? 'Tap to pause'
+    : remaining < durationMs ? 'Tap to resume'
+    : 'Tap to start timer';
+
+  return (
+    <button
+      type="button"
+      className={cn('rd-cm-timer', running && 'is-running', done && 'is-done')}
+      onClick={handleClick}
+      aria-label={`${label} timer — ${hint}`}
+    >
+      <span className="rd-cm-timer-icon">{done ? <Check /> : <Clock />}</span>
+      <span className="rd-cm-timer-time">{done ? 'Done' : (started ? display : label)}</span>
+      <span className="rd-cm-timer-hint">{hint}</span>
     </button>
   );
 };
@@ -1492,9 +1687,8 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
         <div>
           <div className="rd-cookmode-step-num">{String(step + 1).padStart(2, '0')}</div>
           {timer && (
-            <div className="rd-cookmode-step-meta" style={{ marginTop: 16 }}>
-              <Clock size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: '-2px' }} />
-              {timer.label}
+            <div style={{ marginTop: 20 }}>
+              <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />
             </div>
           )}
         </div>
@@ -2321,11 +2515,16 @@ const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> =
       </div>
       <div className="rdm-cm-body">
         <div className="rdm-cm-stepmeta">
-          Step {step + 1} of {total}{timer ? ` · ${timer.label}` : ''}
+          Step {step + 1} of {total}
         </div>
         <div className="rdm-cm-num">{String(step + 1).padStart(2, '0')}</div>
         {split.title && <h2 className="rdm-cm-step-title">{split.title}</h2>}
         <p className="rdm-cm-step-body">{split.body || current}</p>
+        {timer && (
+          <div style={{ marginTop: 18 }}>
+            <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />
+          </div>
+        )}
       </div>
       <div className="rdm-cm-controls">
         <button

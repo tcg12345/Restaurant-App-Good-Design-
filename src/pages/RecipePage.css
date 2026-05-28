@@ -1471,6 +1471,71 @@
   margin-top: 24px;
   font-size: 13px;
 }
+
+/* ── Cook Mode live timer ──────────────────────────────────────────
+   Tappable countdown shown on steps that mention a duration. Dark
+   surface to sit on the Cook Mode backdrop; turns accent while
+   running and green when it finishes. */
+.rd-cm-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.rd-cm-timer:hover { background: rgba(255, 255, 255, 0.1); }
+.rd-cm-timer:active { transform: scale(0.98); }
+.rd-cm-timer .rd-cm-timer-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+}
+.rd-cm-timer .rd-cm-timer-icon svg { width: 22px; height: 22px; }
+.rd-cm-timer .rd-cm-timer-time {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.rd-cm-timer .rd-cm-timer-hint {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+.rd-cm-timer.is-running {
+  background: rgba(168, 57, 42, 0.22);
+  border-color: rgba(214, 122, 90, 0.55);
+}
+.rd-cm-timer.is-running .rd-cm-timer-icon svg,
+.rd-cm-timer.is-running .rd-cm-timer-time { color: #E8A98F; }
+.rd-cm-timer.is-running .rd-cm-timer-hint { color: rgba(232, 169, 143, 0.7); }
+.rd-cm-timer.is-done {
+  background: rgba(46, 125, 92, 0.25);
+  border-color: rgba(82, 183, 136, 0.6);
+  animation: rd-cm-timer-flash 0.6s ease-in-out 3;
+}
+.rd-cm-timer.is-done .rd-cm-timer-icon svg,
+.rd-cm-timer.is-done .rd-cm-timer-time { color: #7BDCAB; }
+.rd-cm-timer.is-done .rd-cm-timer-hint { color: rgba(123, 220, 171, 0.75); }
+@keyframes rd-cm-timer-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(82, 183, 136, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(82, 183, 136, 0.25); }
+}
+@media (max-width: 640px) {
+  .rd-cm-timer { padding: 12px 18px; gap: 10px; }
+  .rd-cm-timer .rd-cm-timer-time { font-size: 24px; }
+}
 .recipe-detail-page .rd-cookmode-step-title {
   font-family: var(--serif);
   font-size: 56px;
@@ -2721,4 +2786,83 @@
 @keyframes rdm-toast-in {
   from { opacity: 0; transform: translate(-50%, 10px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PRINT — clean, paper-only recipe
+   ════════════════════════════════════════════════════════════════
+   The RecipePrintView component portals .rd-print-portal onto
+   document.body. On screen it's hidden; when printing we hide the
+   whole app (#root) and reveal only this block, so the printout is
+   just the recipe — title, meta, ingredients, method, notes. */
+.rd-print-portal { display: none; }
+
+@media print {
+  #root { display: none !important; }
+  .rd-print-portal { display: block !important; }
+
+  .rd-print {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #000;
+    background: #fff;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0;
+    line-height: 1.5;
+  }
+  .rd-print-head { border-bottom: 2px solid #000; padding-bottom: 12px; margin-bottom: 16px; }
+  .rd-print-head h1 {
+    font-size: 30px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .rd-print-summary { font-size: 14px; font-style: italic; color: #333; margin: 0 0 6px; }
+  .rd-print-byline { font-size: 12px; color: #555; margin: 0; }
+
+  .rd-print-meta {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    padding: 0;
+    margin: 0 0 20px;
+  }
+  .rd-print-meta li { display: flex; flex-direction: column; }
+  .rd-print-meta .k {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #777;
+  }
+  .rd-print-meta .v { font-size: 14px; font-weight: 600; }
+
+  .rd-print-section { margin-bottom: 20px; break-inside: avoid; }
+  .rd-print-section h2 {
+    font-size: 13px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid #bbb;
+    padding-bottom: 4px;
+    margin: 0 0 10px;
+  }
+  .rd-print-group { margin-bottom: 10px; }
+  .rd-print-group h3 { font-size: 14px; font-weight: 700; margin: 0 0 4px; }
+  .rd-print-ingredients ul { margin: 0; padding-left: 20px; }
+  .rd-print-ingredients li { font-size: 14px; margin-bottom: 3px; }
+
+  .rd-print-steps ol { margin: 0; padding-left: 22px; }
+  .rd-print-steps li { font-size: 14px; margin-bottom: 10px; padding-left: 4px; break-inside: avoid; }
+  .rd-print-step-title { font-weight: 700; }
+  .rd-print-step-time { color: #555; font-style: italic; }
+
+  .rd-print-notes ul { margin: 0; padding-left: 20px; }
+  .rd-print-notes li { font-size: 13px; margin-bottom: 5px; font-style: italic; color: #333; }
+  .rd-print-equipment p { font-size: 14px; margin: 0; }
+
+  @page { margin: 1.6cm; }
 }
