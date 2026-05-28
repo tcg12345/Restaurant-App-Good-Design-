@@ -17,6 +17,7 @@ import {
   getUserWishlist, publishCommunityRating, getUserPublicHomeMeals, getExpertRecommendationCount,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
+import { getMyGuides, type Guide } from '../lib/supabase-guides';
 import type { HomeMeal } from '../contexts/ListsContext';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
@@ -26,6 +27,7 @@ import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
 import { ProfilePostCard } from '../components/profile/ProfilePostCard';
 import { ProfileReelCard } from '../components/profile/ProfileReelCard';
+import { ProfileGuideCard } from '../components/profile/ProfileGuideCard';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -34,6 +36,7 @@ const profileCache: Record<string, {
   lists: { id: string; name: string; emoji: string; restaurantIds: string[] }[];
   wishlistItems: { restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[];
   publicHomeMeals: HomeMeal[];
+  guides: Guide[];
   ts: number;
 }> = {};
 
@@ -62,6 +65,7 @@ export const UserProfile: React.FC = () => {
   const [publicHomeMeals, setPublicHomeMeals] = useState<HomeMeal[]>([]);
   const [userLists, setUserLists] = useState<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]>([]);
   const [userWishlistItems, setUserWishlistItems] = useState<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]>([]);
+  const [publicGuides, setPublicGuides] = useState<Guide[]>([]);
 
   const [expertRecCount, setExpertRecCount] = useState(0);
 
@@ -103,6 +107,7 @@ export const UserProfile: React.FC = () => {
       setUserLists(cached.lists);
       setUserWishlistItems(cached.wishlistItems || []);
       setPublicHomeMeals(cached.publicHomeMeals || []);
+      setPublicGuides(cached.guides || []);
       setLoading(false);
       return;
     }
@@ -120,7 +125,7 @@ export const UserProfile: React.FC = () => {
       const fSnapshot: Partial<typeof profileCache[string]> = {
         profile: p,
         ratings: [], photos: [], lists: [], wishlistItems: [],
-        publicHomeMeals: [], followers: 0, following: 0,
+        publicHomeMeals: [], guides: [], followers: 0, following: 0,
         canView: !isAuthed && !!p.is_public, isFollowing: false,
       };
       const promises: Promise<void>[] = [];
@@ -160,6 +165,14 @@ export const UserProfile: React.FC = () => {
         const m = (meals || []) as HomeMeal[];
         setPublicHomeMeals(m);
         fSnapshot.publicHomeMeals = m;
+      }));
+
+      promises.push(getMyGuides(p.user_id).then((guides) => {
+        if (cancelled) return;
+        // Public profile surface — strip drafts and followers-only guides.
+        const g = (guides || []).filter((x) => x.isPublished && x.visibility === 'public');
+        setPublicGuides(g);
+        fSnapshot.guides = g;
       }));
 
       if (isAuthed) {
@@ -207,6 +220,7 @@ export const UserProfile: React.FC = () => {
           lists: fSnapshot.lists ?? [],
           wishlistItems: fSnapshot.wishlistItems ?? [],
           publicHomeMeals: fSnapshot.publicHomeMeals ?? [],
+          guides: fSnapshot.guides ?? [],
           ts: Date.now(),
         };
       });
@@ -429,7 +443,7 @@ export const UserProfile: React.FC = () => {
     { key: 'recipes',     label: 'Recipes',     count: publicHomeMeals.length },
     { key: 'posts',       label: 'Posts',       count: profilePosts.length },
     { key: 'reels',       label: 'Reels',       count: profileReels.length },
-    { key: 'guides',      label: 'Guides',      count: 0 },
+    { key: 'guides',      label: 'Guides',      count: publicGuides.length },
   ];
 
   return (
@@ -827,12 +841,28 @@ export const UserProfile: React.FC = () => {
             )}
 
             {viewTab === 'guides' && (
-              <div className="text-center py-20">
-                <div className="font-serif text-[20px] text-[var(--color-ink-2)] mb-1">Guides coming soon</div>
-                <div className="text-[13.5px] text-[var(--color-ink-3)]">
-                  {profile.display_name} hasn't published any public guides yet.
+              <>
+                <div className="px-1 pt-2 pb-4">
+                  <span className="text-[11.5px] font-bold tracking-[0.12em] uppercase text-[var(--color-ink-3)]">
+                    <strong className="text-[var(--color-ink-2)] font-bold">{publicGuides.length}</strong>{' '}
+                    {publicGuides.length === 1 ? 'guide' : 'guides'}
+                  </span>
                 </div>
-              </div>
+                {publicGuides.length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="font-serif text-[20px] text-[var(--color-ink-2)] mb-1">No guides yet</div>
+                    <div className="text-[13.5px] text-[var(--color-ink-3)]">
+                      {profile.display_name} hasn't published any public guides yet.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+                    {publicGuides.map((g) => (
+                      <ProfileGuideCard key={g.id} guide={g} />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (
