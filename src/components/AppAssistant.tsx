@@ -825,8 +825,8 @@ export const AppAssistant: React.FC = () => {
     return { ok: true };
   }, [reels]);
 
-  const handleOpenHomeMealModal = useCallback((): ActionResult => {
-    lists.openHomeMealModal();
+  const handleOpenHomeMealModal = useCallback((meal?: HomeMeal): ActionResult => {
+    lists.openHomeMealModal(meal);
     return { ok: true };
   }, [lists]);
 
@@ -875,6 +875,8 @@ export const AppAssistant: React.FC = () => {
       onOpenAddReelModal={handleOpenAddReelModal}
       onOpenHomeMealModal={handleOpenHomeMealModal}
       onOpenGuideCreator={handleOpenGuideCreator}
+      homeMeals={lists.homeMeals}
+      onPublishHomeMeal={lists.createHomeMeal}
     />
   );
 };

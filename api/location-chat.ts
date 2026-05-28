@@ -81,10 +81,60 @@ function pickAutoModel(messages: ChatRequest['messages']): string {
   return score >= 2 ? MODEL_OPUS : MODEL_SONNET;
 }
 
+/** True when the latest user message reads like a request to author a
+ *  recipe — "build me a recipe", "create a banana bread recipe", "recipe
+ *  for X", "best <food> recipe", etc. Also catches the second turn of an
+ *  AI clarification loop: prior assistant message ended in '?' and the
+ *  user is now answering (so the recipe build is still in flight). */
+function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
+  if (!messages.length) return false;
+
+  const extractText = (msg: ChatRequest['messages'][number]): string => {
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      let acc = '';
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+          acc += (block as { text?: string }).text || '';
+        }
+      }
+      return acc;
+    }
+    return '';
+  };
+
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const lastUserText = lastUser ? extractText(lastUser).toLowerCase() : '';
+
+  const directHit = [
+    /\b(create|build|make|generate|write|draft)\b[^.?!]{0,80}\brecipe\b/,
+    /\brecipe\s+for\b/,
+    /\bbest\b[^.?!]{0,40}\brecipe\b/,
+    /\b(give|send|share)\b[^.?!]{0,30}\b(me\s+)?(a|the)\s+recipe\b/,
+  ].some((re) => re.test(lastUserText));
+  if (directHit) return true;
+
+  // Mid-clarification continuation: the assistant just asked a recipe-
+  // related question and the user is replying. Only check the LAST
+  // assistant turn so we don't escalate forever.
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  if (lastAssistant) {
+    const txt = extractText(lastAssistant).toLowerCase();
+    if (/\brecipe\b/.test(txt) && /\?/.test(txt)) return true;
+  }
+  return false;
+}
+
 /** Resolve the model for this request. Accepts 'auto', a known model
  *  ID, or undefined (treated as 'auto'). Falls back to the default
- *  when the client passes something unrecognised. */
+ *  when the client passes something unrecognised.
+ *
+ *  Recipe-building turns ALWAYS run on Opus 4.7 regardless of the
+ *  client's pick — the structured JSON output is sensitive to quality
+ *  and the user explicitly opted in to this trade-off. The override is
+ *  silent and per-turn; the picker is unchanged. */
 function resolveModel(body: ChatRequest): string {
+  if (looksLikeRecipeBuild(body.messages)) return MODEL_OPUS;
   const requested = (body.model || 'auto').trim();
   if (requested === MODEL_SONNET || requested === MODEL_OPUS) return requested;
   if (requested === 'auto' || !requested) return pickAutoModel(body.messages);
@@ -391,6 +441,89 @@ const TOOL_OPEN_HOME_MEAL_MODAL = {
     type: 'object',
     properties: {},
     required: [],
+  },
+};
+
+/** AI-authored recipe. The tool result renders a draft card in the
+ *  chat — NOT in the user's account. The user has to tap Publish in
+ *  the preview sheet to commit the recipe to their cookbook.
+ *
+ *  Every field is required-or-optional as listed. Fill them THOUGHTFULLY:
+ *  the user expects a real, testable recipe, not a stub. Group ingredients
+ *  by stage when the recipe has phases ("For the batter" / "For the
+ *  streusel"). Use real measurements with mass for baking when accuracy
+ *  matters. Include 1–3 useful notes (a chef's tip, a substitution, a
+ *  make-ahead suggestion). */
+const TOOL_BUILD_RECIPE = {
+  name: 'build_recipe',
+  description:
+    "Author a complete recipe and render it as a draft card in the chat for the user to review. Use this when the user asks you to create / build / make / generate / write / draft a recipe. The card shows a preview; tapping it opens a full read-only sheet with Publish and Edit actions. Do NOT paste the recipe text in your reply — the card IS the deliverable. After calling this tool, reply with ONE short sentence pointing the user at the card (e.g. 'Drafted a brown-butter banana bread — open the card to review.').",
+  input_schema: {
+    type: 'object',
+    required: ['name', 'summary', 'cuisine', 'course', 'difficulty', 'prepTime', 'cookTime', 'servings', 'ingredientGroups', 'steps'],
+    properties: {
+      name: { type: 'string', description: 'Recipe title.' },
+      summary: { type: 'string', description: 'One-line description shown under the title.' },
+      cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
+      course: { type: 'array', items: { type: 'string' }, description: 'Pick items from COURSE_OPTIONS.' },
+      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+      prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
+      cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
+      chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
+      servings: { type: 'integer', minimum: 1 },
+      yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
+      ingredientGroups: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          required: ['name', 'ingredients'],
+          properties: {
+            name: { type: 'string', description: 'Section name, e.g. "Ingredients", "For the batter".' },
+            ingredients: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string' },
+                  amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
+                  unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
+                },
+              },
+            },
+          },
+        },
+      },
+      steps: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          required: ['body'],
+          properties: {
+            title: { type: 'string', description: 'Optional short imperative, e.g. "Brown the butter".' },
+            body: { type: 'string', description: 'One action per step, named clearly.' },
+            durationMin: { type: 'integer', minimum: 0 },
+            tip: { type: 'string', description: 'Optional inline tip for this step.' },
+          },
+        },
+      },
+      equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Free-text tags.' },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['type', 'text'],
+          properties: {
+            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
+            text: { type: 'string' },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -713,6 +846,31 @@ function buildSystemPrompt(body: ChatRequest): string {
     "8. Active filters may be hiding good answers; you can call it out (\"your Japanese filter is hiding wing spots — I searched broader\") but don't ask the user to clear filters first, just help.",
   );
 
+  // ── Recipe-building protocol ──
+  lines.push("");
+  lines.push("RECIPE BUILDING:");
+  lines.push(
+    "When the user asks you to create, build, make, generate, write, or draft a recipe (\"build me a recipe for X\", \"make a vegan banana bread\", \"best warm soup recipe\"), your job is to author a complete, REAL recipe and render it as a draft card in the chat using the `build_recipe` tool. Rules:",
+  );
+  lines.push(
+    "  R1. If the prompt is vague on details that matter (servings, dietary needs, prep budget, style preferences, equipment, occasion), ask focused follow-up questions IN CHAT before calling the tool. Open-ended back-and-forth is fine — keep clarifying until you have enough to write something genuinely good. Don't ask trivia questions (e.g. don't ask about salt brand).",
+  );
+  lines.push(
+    "  R2. When you call `build_recipe`, fill EVERY relevant field with care: accurate measurements, sensible step ordering, realistic timing, grouped ingredients when the recipe has stages (\"For the batter\", \"For the streusel\"), 1–3 useful notes (a chef's tip, a substitution, a make-ahead). The recipe must be testable — a reader should be able to follow it and get a good result.",
+  );
+  lines.push(
+    "  R3. Constrain `cuisine` to this catalog when sensible: Afghan, African, American, Argentinian, Australian, Austrian, Bakery, Bangladeshi, Basque, BBQ, Belgian, Brazilian, Breakfast, British, Burmese, Cajun, Cambodian, Cantonese, Caribbean, Chinese, Colombian, Creole, Cuban, Dessert, Dutch, Egyptian, Ethiopian, Filipino, French, Fusion, Georgian, German, Greek, Hawaiian, Hungarian, Indian, Indonesian, Iranian, Irish, Israeli, Italian, Jamaican, Japanese, Jewish, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nepalese, Nigerian, Nordic, Pakistani, Peruvian, Polish, Portuguese, Puerto Rican, Russian, Salvadoran, Scandinavian, Scottish, Seafood, Senegalese, Sicilian, Singaporean, Soul Food, Southern, Spanish, Sri Lankan, Sushi, Swedish, Swiss, Syrian, Taiwanese, Tex-Mex, Thai, Tibetan, Trinidadian, Tunisian, Turkish, Ukrainian, Uyghur, Vegan, Vegetarian, Venezuelan, Vietnamese, Welsh, Yemeni. (Pick the closest match; if none fit, use the most specific descriptor.)",
+  );
+  lines.push(
+    "  R4. Constrain each `course` item to this catalog: Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side.",
+  );
+  lines.push(
+    "  R5. After calling the tool, reply with ONE short sentence pointing the user at the card (\"Drafted a brown-butter banana bread — open the card to review.\"). DO NOT paste the recipe text back into chat. The card IS the deliverable; the user will publish or edit it from there. The recipe is NOT saved to their account until they publish.",
+  );
+  lines.push(
+    "  R6. Only call `build_recipe` ONCE per turn. If the user later asks for a tweak (\"make it spicier\", \"swap the walnuts for pecans\"), call `build_recipe` AGAIN with the revised draft — this renders a new card.",
+  );
+
   return lines.join('\n');
 }
 
@@ -787,6 +945,7 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_OPEN_ADD_POST_MODAL,
       TOOL_OPEN_ADD_REEL_MODAL,
       TOOL_OPEN_HOME_MEAL_MODAL,
+      TOOL_BUILD_RECIPE,
       TOOL_OPEN_GUIDE_CREATOR,
       TOOL_WEB_SEARCH,
     ],
