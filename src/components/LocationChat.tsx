@@ -282,8 +282,9 @@ type UiBlock =
   | { type: 'tool_result'; toolUseId: string; content: string };
 
 /** Shape the `build_recipe` tool emits — mirrors AdvancedRecipeState
- *  field-for-field. We normalize this into a HomeMeal before storing
- *  it on the chat block. */
+ *  field-for-field, plus a flat `ingredients` shortcut for simple
+ *  single-stage recipes. We normalize this into a HomeMeal before
+ *  storing it on the chat block. */
 interface BuildRecipeInput {
   name?: string;
   summary?: string;
@@ -295,6 +296,8 @@ interface BuildRecipeInput {
   chillTime?: number;
   servings?: number;
   yieldDescription?: string;
+  /** Flat list — model may emit either this or ingredientGroups. */
+  ingredients?: RecipeIngredient[];
   ingredientGroups?: RecipeIngredientGroup[];
   steps?: RecipeStepDetail[];
   equipment?: string[];
@@ -307,24 +310,36 @@ interface BuildRecipeInput {
  *  the rich → flat representations so any consumer that reads the flat
  *  `ingredients` / `steps` arrays still renders.
  *
- *  Validates that the AI gave us something usable (name + at least one
- *  ingredient + at least one step). Returns `null` when invalid so the
- *  caller can fail the tool_result with a useful message. */
+ *  Permissive: accepts ingredients as either a flat array or a grouped
+ *  array (or both — groups win). The only hard requirement is a
+ *  non-empty name. Empty ingredient / step lists are fine — the card
+ *  still renders and the user can refine via Edit or by asking the AI
+ *  to revise. Returns `null` only when there's literally nothing to
+ *  show. */
 function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | null {
   const name = (input.name || '').trim();
   if (!name) return null;
-  const groups: RecipeIngredientGroup[] = Array.isArray(input.ingredientGroups)
-    ? input.ingredientGroups
-        .filter((g) => g && Array.isArray(g.ingredients))
-        .map((g) => ({
-          name: g.name || 'Ingredients',
-          ingredients: g.ingredients
-            .filter((i) => i && (i.name || '').trim())
-            .map((i) => ({ name: i.name.trim(), amount: i.amount || '', unit: i.unit || '' })),
-        }))
-        .filter((g) => g.ingredients.length > 0)
-    : [];
-  if (groups.length === 0) return null;
+
+  // Ingredients: prefer explicit groups; otherwise wrap a flat list
+  // into a single "Ingredients" group.
+  let groups: RecipeIngredientGroup[] = [];
+  if (Array.isArray(input.ingredientGroups) && input.ingredientGroups.length > 0) {
+    groups = input.ingredientGroups
+      .filter((g) => g && Array.isArray(g.ingredients))
+      .map((g) => ({
+        name: g.name || 'Ingredients',
+        ingredients: g.ingredients
+          .filter((i) => i && (i.name || '').trim())
+          .map((i) => ({ name: i.name.trim(), amount: i.amount || '', unit: i.unit || '' })),
+      }))
+      .filter((g) => g.ingredients.length > 0);
+  }
+  if (groups.length === 0 && Array.isArray(input.ingredients) && input.ingredients.length > 0) {
+    const flat = input.ingredients
+      .filter((i) => i && (i.name || '').trim())
+      .map((i) => ({ name: i.name.trim(), amount: i.amount || '', unit: i.unit || '' }));
+    if (flat.length > 0) groups = [{ name: 'Ingredients', ingredients: flat }];
+  }
   const flatIngredients: RecipeIngredient[] = groups.flatMap((g) => g.ingredients);
 
   const stepDetails: RecipeStepDetail[] = Array.isArray(input.steps)
@@ -337,7 +352,6 @@ function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | null {
           tip: s.tip?.trim() || undefined,
         }))
     : [];
-  if (stepDetails.length === 0) return null;
   const flatSteps = stepDetails.map((s) => s.body);
 
   const summary = (input.summary || '').trim();
@@ -1398,8 +1412,10 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               // card so the user sees the result the moment the model
               // commits — no spinner waiting for the dispatch phase.
               const input = (ev.input || {}) as BuildRecipeInput;
+              console.log('[build_recipe] tool_use event input:', input);
               const draft = buildRecipeInputToHomeMeal(input);
               if (draft) {
+                console.log(`[build_recipe] card pushed: "${draft.name}"`);
                 assistantBlocks.push({
                   type: 'recipe_draft',
                   toolUseId: ev.id,
@@ -1413,6 +1429,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   return next;
                 });
               } else {
+                console.warn('[build_recipe] tool_use rejected — no usable name in input');
                 // Invalid payload — fall through so the dispatch phase
                 // emits a tool_result describing what's missing. Still
                 // record the tool_use so the protocol stays valid.
@@ -1831,11 +1848,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             }
           } else if (tu.name === 'build_recipe') {
             const input = (tu.input || {}) as BuildRecipeInput;
+            console.log('[build_recipe] dispatch input:', input);
             const draft = buildRecipeInputToHomeMeal(input);
             if (!draft) {
-              content = 'build_recipe failed: the recipe needs a non-empty name, at least one ingredient (with a name), and at least one step. Re-call build_recipe with the missing fields filled in.';
+              content = 'build_recipe failed: the recipe needs a `name` at minimum. Re-call build_recipe with a name and as much detail as you have (ingredients, steps, timing).';
             } else {
-              content = `Recipe draft "${draft.name}" rendered as an in-chat card. The user can tap it to preview, then Publish to add it to their cookbook or Edit to fine-tune in the Advanced builder. Reply with ONE short sentence pointing the user at the card — do NOT paste the recipe text.`;
+              const ingredientCount = draft.ingredients?.length || 0;
+              const stepCount = (draft.stepDetails?.length || draft.steps?.length || 0);
+              console.log(`[build_recipe] rendered "${draft.name}" — ${ingredientCount} ingredients, ${stepCount} steps`);
+              content = `Recipe draft "${draft.name}" rendered as an in-chat card (${ingredientCount} ingredients, ${stepCount} steps). The user can tap it to preview, then Publish to add it to their cookbook or Edit to fine-tune in the Advanced builder. Reply with ONE short sentence pointing the user at the card — do NOT paste the recipe text.`;
             }
           } else if (tu.name === 'open_home_meal_modal') {
             if (!onOpenHomeMealModal) {

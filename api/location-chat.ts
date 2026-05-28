@@ -397,7 +397,7 @@ const TOOL_TOGGLE_WISHLIST = {
 const TOOL_OPEN_ADD_RECIPE_MODAL = {
   name: 'open_add_recipe_modal',
   description:
-    "Open the Add Recipe modal — the canonical surface for adding a dish the user cooked, with ingredients, steps, photos, and a score. Use when the user says 'add a recipe', 'create a recipe', 'log a recipe', 'log what I cooked', etc. (In this app, recipes and home-cooked meals are the same concept — always use this tool.) The chat closes automatically when the modal opens.",
+    "Open the empty Add Recipe modal so the user can MANUALLY type in a recipe they cooked themselves. Use ONLY when the user wants to enter THEIR OWN recipe (e.g. 'log the pasta I made tonight', 'I want to add a recipe', 'open the recipe form', 'let me type in a recipe'). DO NOT use this when the user asks YOU to author / build / create / make / generate / write / draft a recipe — for that use `build_recipe` instead. The chat closes automatically when the modal opens.",
   input_schema: {
     type: 'object',
     properties: {},
@@ -436,7 +436,7 @@ const TOOL_OPEN_ADD_REEL_MODAL = {
 const TOOL_OPEN_HOME_MEAL_MODAL = {
   name: 'open_home_meal_modal',
   description:
-    "Alias of open_add_recipe_modal — opens the Add Recipe modal. Either tool is fine; both surface the same flow. (Recipes and home-cooked meals are one and the same in this app.)",
+    "Alias of open_add_recipe_modal — opens the EMPTY Add Recipe modal for MANUAL entry. Same disambiguation: use ONLY when the user wants to type in their own recipe; use `build_recipe` when the user wants YOU to author one.",
   input_schema: {
     type: 'object',
     properties: {},
@@ -448,48 +448,63 @@ const TOOL_OPEN_HOME_MEAL_MODAL = {
  *  chat — NOT in the user's account. The user has to tap Publish in
  *  the preview sheet to commit the recipe to their cookbook.
  *
- *  Every field is required-or-optional as listed. Fill them THOUGHTFULLY:
- *  the user expects a real, testable recipe, not a stub. Group ingredients
- *  by stage when the recipe has phases ("For the batter" / "For the
- *  streusel"). Use real measurements with mass for baking when accuracy
- *  matters. Include 1–3 useful notes (a chef's tip, a substitution, a
- *  make-ahead suggestion). */
+ *  Schema is intentionally permissive: only `name` is required, and
+ *  ingredients / steps can be supplied either as a flat list (simple
+ *  recipes) or as grouped objects (multi-stage recipes). The model
+ *  should still fill EVERY relevant field with care — measurements,
+ *  step ordering, realistic timing, 1–3 useful notes. */
 const TOOL_BUILD_RECIPE = {
   name: 'build_recipe',
   description:
     "Author a complete recipe and render it as a draft card in the chat for the user to review. Use this when the user asks you to create / build / make / generate / write / draft a recipe. The card shows a preview; tapping it opens a full read-only sheet with Publish and Edit actions. Do NOT paste the recipe text in your reply — the card IS the deliverable. After calling this tool, reply with ONE short sentence pointing the user at the card (e.g. 'Drafted a brown-butter banana bread — open the card to review.').",
   input_schema: {
     type: 'object',
-    required: ['name', 'summary', 'cuisine', 'course', 'difficulty', 'prepTime', 'cookTime', 'servings', 'ingredientGroups', 'steps'],
+    required: ['name'],
     properties: {
       name: { type: 'string', description: 'Recipe title.' },
       summary: { type: 'string', description: 'One-line description shown under the title.' },
       cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
-      course: { type: 'array', items: { type: 'string' }, description: 'Pick items from COURSE_OPTIONS.' },
+      course: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Pick items from COURSE_OPTIONS. E.g. ["Dessert"] or ["Lunch", "Dinner"].',
+      },
       difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
       prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
       cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
       chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
       servings: { type: 'integer', minimum: 1 },
       yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
+      ingredients: {
+        type: 'array',
+        description: 'Flat list of ingredients. Use this for simple recipes; for multi-stage recipes prefer ingredientGroups instead. Either field is fine.',
+        items: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
+            unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
+          },
+        },
+      },
       ingredientGroups: {
         type: 'array',
-        minItems: 1,
+        description: 'Grouped ingredients for multi-stage recipes ("For the batter", "For the streusel"). Use either this OR ingredients — not both.',
         items: {
           type: 'object',
           required: ['name', 'ingredients'],
           properties: {
-            name: { type: 'string', description: 'Section name, e.g. "Ingredients", "For the batter".' },
+            name: { type: 'string', description: 'Section name.' },
             ingredients: {
               type: 'array',
-              minItems: 1,
               items: {
                 type: 'object',
                 required: ['name'],
                 properties: {
                   name: { type: 'string' },
-                  amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
-                  unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
+                  amount: { type: 'string' },
+                  unit: { type: 'string' },
                 },
               },
             },
@@ -498,7 +513,7 @@ const TOOL_BUILD_RECIPE = {
       },
       steps: {
         type: 'array',
-        minItems: 1,
+        description: 'Ordered cooking steps. Each step is an object with a `body` (the action) and optional title / durationMin / tip.',
         items: {
           type: 'object',
           required: ['body'],
@@ -848,27 +863,21 @@ function buildSystemPrompt(body: ChatRequest): string {
 
   // ── Recipe-building protocol ──
   lines.push("");
-  lines.push("RECIPE BUILDING:");
+  lines.push("RECIPE BUILDING — when the user asks YOU to author / build / create / make / generate / write / draft a recipe (\"make me a banana bread recipe\", \"best soup recipe\", \"build a vegan pasta recipe\"):");
   lines.push(
-    "When the user asks you to create, build, make, generate, write, or draft a recipe (\"build me a recipe for X\", \"make a vegan banana bread\", \"best warm soup recipe\"), your job is to author a complete, REAL recipe and render it as a draft card in the chat using the `build_recipe` tool. Rules:",
+    "  R0. CRITICAL — use the `build_recipe` tool. Do NOT use `open_add_recipe_modal` or `open_home_meal_modal` for this — those are for MANUAL entry only (the user typing in their own recipe). When the user wants YOU to write the recipe, `build_recipe` is the ONLY correct tool. Calling the manual modal in this case is a bug.",
   );
   lines.push(
-    "  R1. If the prompt is vague on details that matter (servings, dietary needs, prep budget, style preferences, equipment, occasion), ask focused follow-up questions IN CHAT before calling the tool. Open-ended back-and-forth is fine — keep clarifying until you have enough to write something genuinely good. Don't ask trivia questions (e.g. don't ask about salt brand).",
+    "  R1. ASK AT MOST ONE clarifying question, ONLY if the request is too vague to write anything good (e.g. user just says \"make me a recipe\" with no dish). Once you have a dish in mind, COMMIT — call the `build_recipe` tool. Do NOT keep asking follow-ups. The user can refine after seeing the draft (\"make it spicier\", \"swap walnuts for pecans\") and you can re-call `build_recipe` with the revision.",
   );
   lines.push(
-    "  R2. When you call `build_recipe`, fill EVERY relevant field with care: accurate measurements, sensible step ordering, realistic timing, grouped ingredients when the recipe has stages (\"For the batter\", \"For the streusel\"), 1–3 useful notes (a chef's tip, a substitution, a make-ahead). The recipe must be testable — a reader should be able to follow it and get a good result.",
+    "  R2. When you call `build_recipe`, only `name` is required, but FILL EVERY relevant field: a one-line `summary`, `cuisine`, `course`, `difficulty`, `prepTime`, `cookTime`, `servings`, ingredients (use the flat `ingredients` array for single-stage recipes; use `ingredientGroups` only for recipes with distinct stages like \"For the batter\" / \"For the streusel\"), `steps` with real actions, optional `equipment`, optional `notes` (1–3 useful tips). Realistic measurements and timing.",
   );
   lines.push(
-    "  R3. Constrain `cuisine` to this catalog when sensible: Afghan, African, American, Argentinian, Australian, Austrian, Bakery, Bangladeshi, Basque, BBQ, Belgian, Brazilian, Breakfast, British, Burmese, Cajun, Cambodian, Cantonese, Caribbean, Chinese, Colombian, Creole, Cuban, Dessert, Dutch, Egyptian, Ethiopian, Filipino, French, Fusion, Georgian, German, Greek, Hawaiian, Hungarian, Indian, Indonesian, Iranian, Irish, Israeli, Italian, Jamaican, Japanese, Jewish, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nepalese, Nigerian, Nordic, Pakistani, Peruvian, Polish, Portuguese, Puerto Rican, Russian, Salvadoran, Scandinavian, Scottish, Seafood, Senegalese, Sicilian, Singaporean, Soul Food, Southern, Spanish, Sri Lankan, Sushi, Swedish, Swiss, Syrian, Taiwanese, Tex-Mex, Thai, Tibetan, Trinidadian, Tunisian, Turkish, Ukrainian, Uyghur, Vegan, Vegetarian, Venezuelan, Vietnamese, Welsh, Yemeni. (Pick the closest match; if none fit, use the most specific descriptor.)",
+    "  R3. `cuisine` examples: Italian, French, American, Japanese, Mexican, Thai, Indian, Mediterranean, etc. `course` examples: Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side. Pick the closest match.",
   );
   lines.push(
-    "  R4. Constrain each `course` item to this catalog: Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side.",
-  );
-  lines.push(
-    "  R5. After calling the tool, reply with ONE short sentence pointing the user at the card (\"Drafted a brown-butter banana bread — open the card to review.\"). DO NOT paste the recipe text back into chat. The card IS the deliverable; the user will publish or edit it from there. The recipe is NOT saved to their account until they publish.",
-  );
-  lines.push(
-    "  R6. Only call `build_recipe` ONCE per turn. If the user later asks for a tweak (\"make it spicier\", \"swap the walnuts for pecans\"), call `build_recipe` AGAIN with the revised draft — this renders a new card.",
+    "  R4. AFTER calling the tool, reply with ONE short sentence pointing the user at the card (e.g. \"Drafted a brown-butter banana bread — open the card to review.\"). DO NOT paste the recipe text back. The card IS the deliverable; the user publishes or edits it from there.",
   );
 
   return lines.join('\n');
