@@ -922,9 +922,17 @@ export default async function handler(req: Request): Promise<Response> {
 
   const systemText = buildSystemPrompt(body);
 
+  // Recipe-build turns produce a single large tool_use JSON (full
+  // recipe with ingredients + steps + notes). 1024 tokens truncates
+  // mid-stream — the tool input never finishes, the client sees an
+  // empty / malformed JSON, and from the user's perspective the chat
+  // just goes silent. Everything else fits easily in 1024.
+  const recipeBuild = looksLikeRecipeBuild(body.messages);
+  const maxTokens = recipeBuild ? 6000 : 1024;
+
   const anthropicBody = {
     model: resolveModel(body),
-    max_tokens: 1024,
+    max_tokens: maxTokens,
     stream: true,
     // System is shipped as a single text block with ephemeral cache_control
     // so consecutive turns against the same filter snapshot hit Anthropic's

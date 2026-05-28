@@ -1473,6 +1473,27 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           return;
         }
         if (!modelCalledTools) {
+          // No tools, no visible content — almost always max_tokens
+          // truncation mid-output. Surface a friendly message so the
+          // user isn't staring at an empty chat.
+          const hasAnyVisible = assistantBlocks.some(
+            (b) =>
+              (b.type === 'text' && b.text.trim().length > 0)
+              || b.type === 'cards'
+              || b.type === 'recipe_cards'
+              || b.type === 'recipe_draft',
+          );
+          if (!hasAnyVisible) {
+            assistantBlocks.push({
+              type: 'text',
+              text: "Sorry — I ran out of room before I could finish that. Try asking again, or be a bit more specific.",
+            });
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
+              return next;
+            });
+          }
           // Final answer — exit the agentic loop.
           return;
         }
