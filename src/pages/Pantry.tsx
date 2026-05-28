@@ -2533,6 +2533,11 @@ const ListDetailView: React.FC<{
                         <span className="text-[10px] text-on-surface/35">{recipe.tags[0]}{recipe.tags.length > 1 ? ` +${recipe.tags.length - 1}` : ''}</span>
                       )}
                     </div>
+                    {(recipe.sourceAuthorUsername || recipe.sourceAuthorName) && (
+                      <p className="text-[10.5px] text-on-surface/40 italic mt-1 truncate">
+                        by {recipe.sourceAuthorUsername ? `@${recipe.sourceAuthorUsername}` : recipe.sourceAuthorName}
+                      </p>
+                    )}
                   </div>
                   <ScoreBadge rating={recipe.score} size="sm" />
                 </button>
@@ -5763,6 +5768,11 @@ const RecipeRow: React.FC<{
               {ingredientText}{ingredientOverflow ? '…' : ''}
             </p>
           )}
+          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
+            <p className="text-[11px] text-on-surface/45 mt-1 italic truncate">
+              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+            </p>
+          )}
         </div>
       </button>
 
@@ -5875,6 +5885,11 @@ const RecipeGridCard: React.FC<{
             {(meal.cuisine || totalTime > 0) && meal.difficulty && <span className="text-on-surface/25">·</span>}
             {meal.difficulty && <span>{meal.difficulty}</span>}
           </div>
+          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
+            <p className="mt-1 text-[11px] text-on-surface/45 italic normal-case tracking-normal truncate">
+              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+            </p>
+          )}
         </div>
       </button>
       {/* Hover actions: Edit (top-left) and Delete (top-left, just under

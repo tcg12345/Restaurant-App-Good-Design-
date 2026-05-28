@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, BookmarkPlus } from 'lucide-react';
+import { X, Plus, Check, BookmarkPlus, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
@@ -13,6 +13,11 @@ interface SaveRecipeToListSheetProps {
   onClose: () => void;
   /** The recipe to save. Null while the sheet is closed. */
   meal: HomeMeal | null;
+  /** When true, show an "All Recipes" target that saves the recipe into
+   *  the cookbook pool directly. Set when saving ANOTHER user's recipe;
+   *  omitted for the user's own recipes (which are implicitly already
+   *  in their cookbook). */
+  allowCookbook?: boolean;
 }
 
 /** Bottom-sheet / centered modal that lets the user save a recipe into
@@ -20,8 +25,8 @@ interface SaveRecipeToListSheetProps {
  *  UX: a toggle row per list plus an inline "create new list" affordance.
  *  Membership is keyed by recipe id, so the checkmarks reflect the live
  *  state and toggling is idempotent. */
-export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ open, onClose, meal }) => {
-  const { lists, addRecipeToList, removeRecipeFromList, createList } = useLists();
+export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ open, onClose, meal, allowCookbook }) => {
+  const { lists, homeMeals, addRecipeToList, removeRecipeFromList, createList, addRecipeToCookbook, removeRecipeFromCookbook } = useLists();
   const { showToast } = useToast();
   const { dragProps } = useBottomSheet(open, onClose);
 
@@ -31,6 +36,7 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
 
   // Only home-cooking lists can hold recipes.
   const recipeLists = lists.filter((l) => l.type === 'home-cooking');
+  const inCookbook = meal ? homeMeals.some((m) => m.id === meal.id) : false;
 
   const handleToggle = (listId: string, isIn: boolean) => {
     if (!meal) return;
@@ -40,6 +46,17 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
     } else {
       addRecipeToList(listId, meal);
       showToast('Saved to list');
+    }
+  };
+
+  const handleToggleCookbook = () => {
+    if (!meal) return;
+    if (inCookbook) {
+      removeRecipeFromCookbook(meal.id);
+      showToast('Removed from All Recipes');
+    } else {
+      addRecipeToCookbook(meal);
+      showToast('Saved to All Recipes');
     }
   };
 
@@ -94,6 +111,32 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
             </div>
 
             <div className="px-5 py-4 space-y-2">
+              {/* All Recipes — saves another user's recipe straight into
+                  the cookbook pool. Only offered when allowCookbook is
+                  set (i.e. this isn't already the user's own recipe). */}
+              {allowCookbook && (
+                <button
+                  onClick={handleToggleCookbook}
+                  className={cn(
+                    'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                    inCookbook ? 'bg-primary/5 border-primary/20' : 'bg-white border-on-surface/8 hover:border-on-surface/15',
+                  )}
+                >
+                  <span className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                    <BookOpen size={17} />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">All Recipes</p>
+                    <p className="text-[11px] text-on-surface/40">Your full cookbook</p>
+                  </div>
+                  <div className={cn(
+                    'w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all',
+                    inCookbook ? 'bg-primary border-primary text-white' : 'border-on-surface/15',
+                  )}>
+                    {inCookbook && <Check size={14} strokeWidth={3} />}
+                  </div>
+                </button>
+              )}
               {recipeLists.map((list) => {
                 const isIn = (list.recipes || []).some((r) => r.id === meal.id);
                 const count = list.recipes?.length ?? 0;

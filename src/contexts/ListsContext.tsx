@@ -86,6 +86,12 @@ export interface Recipe {
   score: number;            // 0–10 rating
   isPrivate: boolean;
   createdAt: number;
+  /** When this recipe was saved from another user's recipe, who
+   *  originally authored it. Drives the "by @author" byline on cards.
+   *  Unset for the user's own recipes. */
+  sourceAuthorId?: string;
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
 }
 
 export interface CustomList {
@@ -237,6 +243,12 @@ export interface HomeMeal {
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
+  /** When this meal was saved from another user's recipe, who
+   *  originally authored it. Drives the "by @author" byline shown on
+   *  cookbook / list / profile cards. Unset for the user's own meals. */
+  sourceAuthorId?: string;
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
 }
 
 interface ListsContextValue {
@@ -323,6 +335,10 @@ interface ListsContextValue {
   addRecipeToList: (listId: string, meal: HomeMeal) => void;
   removeRecipeFromList: (listId: string, recipeId: string) => void;
   getListsForRecipe: (recipeId: string) => CustomList[];
+  /** Save / un-save a recipe to the "All Recipes" cookbook pool
+   *  (no sub-list). Used by the recipe detail page's Save sheet. */
+  addRecipeToCookbook: (meal: HomeMeal) => void;
+  removeRecipeFromCookbook: (recipeId: string) => void;
 
   // Add recipe modal
   addRecipeModalOpen: boolean;
@@ -578,6 +594,9 @@ function recipeToHomeMeal(r: Recipe): HomeMeal {
     cuisine: r.cuisine,
     ingredients: r.ingredients,
     steps: r.steps,
+    sourceAuthorId: r.sourceAuthorId,
+    sourceAuthorName: r.sourceAuthorName,
+    sourceAuthorUsername: r.sourceAuthorUsername,
   };
 }
 
@@ -605,6 +624,9 @@ function homeMealToRecipe(m: HomeMeal): Recipe {
     score: m.score ?? 0,
     isPrivate: !m.isPublic,
     createdAt: m.createdAt || Date.now(),
+    sourceAuthorId: m.sourceAuthorId,
+    sourceAuthorName: m.sourceAuthorName,
+    sourceAuthorUsername: m.sourceAuthorUsername,
   };
 }
 
@@ -1197,6 +1219,32 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const getListsForRecipe = useCallback((recipeId: string): CustomList[] => {
     return lists.filter((l) => (l.recipes || []).some((r) => r.id === recipeId));
   }, [lists]);
+
+  // Save a recipe straight into the "All Recipes" cookbook pool without
+  // attaching it to a sub-list. Preserves the meal's existing id (so
+  // membership checks + later sub-list saves dedupe cleanly) and carries
+  // its source-author attribution. No-op if already present.
+  const addRecipeToCookbook = useCallback((meal: HomeMeal) => {
+    setHomeMeals((prev) => {
+      if (prev.some((m) => m.id === meal.id)) return prev;
+      const next = [...prev, { ...meal, createdAt: meal.createdAt || Date.now() }];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  // Remove a recipe from the cookbook pool. Used to un-save a recipe that
+  // was saved from another user from the "All Recipes" target.
+  const removeRecipeFromCookbook = useCallback((recipeId: string) => {
+    setHomeMeals((prev) => {
+      if (!prev.some((m) => m.id === recipeId)) return prev;
+      const next = prev.filter((m) => m.id !== recipeId);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
 
   // Generate a meal id that's unique even when createHomeMeal is called many
   // times in the same tick (e.g. a bulk import). Date.now() alone collides
@@ -1868,6 +1916,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
       addRecipeToList, removeRecipeFromList, getListsForRecipe,
+      addRecipeToCookbook, removeRecipeFromCookbook,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,

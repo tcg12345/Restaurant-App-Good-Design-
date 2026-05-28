@@ -55,6 +55,12 @@ export const ProfileRecipeRow: React.FC<Props> = ({ meal, idx, userId }) => {
             </p>
           )}
 
+          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
+            <p className="text-[12px] italic text-[var(--color-ink-3)] mt-1">
+              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+            </p>
+          )}
+
           {meal.description && (
             <p className="font-serif italic text-[13.5px] leading-snug text-[var(--color-ink-2)] mt-2 pl-3 border-l-2 border-primary/30 max-w-3xl">
               {meal.description}

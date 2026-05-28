@@ -531,6 +531,10 @@ export const RecipePage: React.FC = () => {
     const difficulty = data.difficulty
       ? (data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)) as 'Easy' | 'Medium' | 'Hard'
       : undefined;
+    // Saving from someone else's recipe — stamp the original author so
+    // cards can show "by @author" wherever this saved copy appears.
+    const isAnotherUsers = !!currentUserId && data.ownerId !== currentUserId;
+    const sourceName = authorProfile?.display_name || authorProfile?.username || undefined;
     return {
       id: data.id,
       name: data.title,
@@ -560,8 +564,13 @@ export const RecipePage: React.FC = () => {
       stepDetails: data.stepDetails,
       notes: data.notes,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
+      ...(isAnotherUsers ? {
+        sourceAuthorId: data.ownerId,
+        sourceAuthorName: sourceName,
+        sourceAuthorUsername: authorProfile?.username || undefined,
+      } : {}),
     };
-  }, [data, myHomeMeals]);
+  }, [data, myHomeMeals, currentUserId, authorProfile]);
   const handleCooked = useCallback(() => {
     if (!data) return;
     setCookedIds((prev) => {
@@ -810,7 +819,7 @@ export const RecipePage: React.FC = () => {
           currentUserName={user?.email?.split('@')[0] || 'You'}
           navigate={navigate}
         />
-        <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
+        <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
         <ShareDialog
           open={shareSheetOpen}
           onClose={() => setShareSheetOpen(false)}
@@ -1379,7 +1388,7 @@ export const RecipePage: React.FC = () => {
         </div>
       )}
 
-      <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} />
+      <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
       <ShareDialog
         open={shareSheetOpen}
         onClose={() => setShareSheetOpen(false)}
