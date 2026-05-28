@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   formatLocationLabel,
@@ -48,7 +50,7 @@ import {
 } from '../lib/location-chat-client';
 import { RecipeDraftCard } from './chat/RecipeDraftCard';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
-import { buildRecipeInputToHomeMeal, type BuildRecipeInput } from '../lib/recipe-from-ai';
+import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
   const out: Record<string, string> = {};
@@ -685,6 +687,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { user: authUser } = useAuth();
+  const { showToast } = useToast();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -1137,7 +1141,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     const saved = onPublishHomeMeal(payload);
     patchDraftBlock(openDraftToolUseId, (b) => ({ ...b, publishedMealId: saved.id }));
     setOpenDraftToolUseId(null);
-  }, [openDraftToolUseId, onPublishHomeMeal, patchDraftBlock]);
+    showToast('Recipe published', { variant: 'success' });
+    // Close the chat panel and land on the saved recipe page. Small
+    // delay so the close + sheet exit animations have time to play
+    // before the route changes — matches the AddHomeMealModal flow.
+    setOpen(false);
+    const ownerId = authUser?.id;
+    if (ownerId && saved?.id) {
+      setTimeout(() => navigate(`/recipe/${ownerId}/${saved.id}`), 80);
+    }
+  }, [openDraftToolUseId, onPublishHomeMeal, patchDraftBlock, showToast, authUser?.id, navigate]);
 
   const handleEditDraft = useCallback((draft: HomeMeal) => {
     if (!openDraftToolUseId || !onOpenHomeMealModal) return;
@@ -1802,6 +1815,44 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               const stepCount = (draft.stepDetails?.length || draft.steps?.length || 0);
               console.log(`[build_recipe] rendered "${draft.name}" — ${ingredientCount} ingredients, ${stepCount} steps`);
               content = `Recipe draft "${draft.name}" rendered as an in-chat card (${ingredientCount} ingredients, ${stepCount} steps). The user can tap it to preview, then Publish to add it to their cookbook or Edit to fine-tune in the Advanced builder. Reply with ONE short sentence pointing the user at the card — do NOT paste the recipe text.`;
+            }
+          } else if (tu.name === 'edit_recipe_draft') {
+            const input = (tu.input || {}) as BuildRecipeInput;
+            const changed = changedFieldsInEdit(input);
+            console.log('[edit_recipe_draft] dispatch input:', input, 'changed:', changed);
+            if (changed.length === 0) {
+              content = 'edit_recipe_draft failed: no fields supplied. Include at least one field to change.';
+            } else {
+              // Find AND patch the most recent unpublished recipe_draft
+              // in a single setMessages callback so we read live state
+              // (the streaming convo may have queued other updates).
+              let patchedName: string | null = null;
+              let foundDraft = false;
+              setMessages((prev) => {
+                for (let mi = prev.length - 1; mi >= 0; mi--) {
+                  const msg = prev[mi];
+                  for (let bi = msg.blocks.length - 1; bi >= 0; bi--) {
+                    const b = msg.blocks[bi];
+                    if (b.type === 'recipe_draft' && b.publishedMealId === null) {
+                      foundDraft = true;
+                      const merged = mergeRecipeEdit(b.draft, input);
+                      patchedName = merged.name;
+                      const newBlocks = [...msg.blocks];
+                      newBlocks[bi] = { ...b, draft: merged };
+                      const next = [...prev];
+                      next[mi] = { ...msg, blocks: newBlocks };
+                      console.log(`[edit_recipe_draft] patched "${merged.name}" — fields:`, changed.join(', '));
+                      return next;
+                    }
+                  }
+                }
+                return prev;
+              });
+              if (!foundDraft) {
+                content = 'edit_recipe_draft failed: no editable draft in this conversation. Call build_recipe first to create a recipe, then edit it.';
+              } else {
+                content = `Updated draft "${patchedName}" — replaced fields: ${changed.join(', ')}. The card refreshed in chat. Reply with ONE short sentence about what changed (no full recipe text).`;
+              }
             }
           } else if (tu.name === 'open_home_meal_modal') {
             if (!onOpenHomeMealModal) {

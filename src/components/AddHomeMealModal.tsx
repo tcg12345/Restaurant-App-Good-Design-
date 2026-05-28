@@ -194,8 +194,15 @@ export const AddHomeMealModal: React.FC = () => {
     setAiDraft(null);
     closeHomeMealModal();
     showToast('Recipe published', { variant: 'success' });
-    if (userId && created?.id) {
-      setTimeout(() => navigate(`/recipe/${userId}/${created.id}`), 80);
+    // Route to the saved recipe. Prefer the canonical
+    // /recipe/<userId>/<id> when we have an id; fall back to the
+    // userId-less alias so the user still lands on the page even if
+    // the auth context is briefly out of sync.
+    if (created?.id) {
+      const target = userId
+        ? `/recipe/${userId}/${created.id}`
+        : `/recipe/${created.id}`;
+      setTimeout(() => navigate(target), 80);
     }
   };
 

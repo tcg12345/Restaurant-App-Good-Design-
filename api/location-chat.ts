@@ -122,6 +122,23 @@ function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
     const txt = extractText(lastAssistant).toLowerCase();
     if (/\brecipe\b/.test(txt) && /\?/.test(txt)) return true;
   }
+
+  // Follow-up tweak to an existing draft. If the conversation already
+  // contains a build_recipe or edit_recipe_draft tool_use, the user's
+  // next short message is likely a refinement ("less salt", "swap to
+  // pecans", "make it spicier"). Keep Opus + 6000-token budget so the
+  // edit_recipe_draft call has room for a full revised ingredient or
+  // step list.
+  const hasPriorDraft = messages.some((m) => {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return false;
+    return m.content.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const b = block as { type?: string; name?: string };
+      return b.type === 'tool_use' && (b.name === 'build_recipe' || b.name === 'edit_recipe_draft');
+    });
+  });
+  if (hasPriorDraft) return true;
+
   return false;
 }
 
@@ -542,6 +559,99 @@ const TOOL_BUILD_RECIPE = {
   },
 };
 
+/** Edit the most recent AI-built recipe draft IN PLACE. Use this for
+ *  any tweak to a recipe you've already drafted (spicier, swap an
+ *  ingredient, shorter prep, fix a measurement, add a note). The
+ *  existing draft card refreshes — no second card appears. Emit ONLY
+ *  the fields that change. For array fields (ingredients, steps,
+ *  notes, equipment, tags, course) emit the FULL revised list. Do NOT
+ *  use this to start a completely different dish — call `build_recipe`
+ *  for that. */
+const TOOL_EDIT_RECIPE_DRAFT = {
+  name: 'edit_recipe_draft',
+  description:
+    "Edit the most recent unpublished AI-built recipe draft IN PLACE. Use this for ANY refinement of a recipe you already drafted in this conversation — spicier, swap an ingredient, shorter timing, fix a measurement, add a note. Emit ONLY the fields you're changing; omitted fields are left alone. For ingredients/steps/notes/equipment/tags/course you must emit the FULL revised list (not just the delta items). After calling this tool, reply with ONE short sentence about what changed (e.g. \"Bumped the chili and added a tip about heat — refresh the card.\"). Do NOT use this when the user asks for a completely different dish — call `build_recipe` for that instead.",
+  input_schema: {
+    type: 'object',
+    required: [],
+    properties: {
+      name: { type: 'string', description: 'Replace the recipe title.' },
+      summary: { type: 'string' },
+      cuisine: { type: 'string' },
+      course: { type: 'array', items: { type: 'string' } },
+      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+      prepTime: { type: 'integer', minimum: 0 },
+      cookTime: { type: 'integer', minimum: 0 },
+      chillTime: { type: 'integer', minimum: 0 },
+      servings: { type: 'integer', minimum: 1 },
+      yieldDescription: { type: 'string' },
+      ingredients: {
+        type: 'array',
+        description: 'Flat list. Use either this OR ingredientGroups. Emit the FULL revised list — replaces the existing ingredients entirely.',
+        items: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            amount: { type: 'string' },
+            unit: { type: 'string' },
+          },
+        },
+      },
+      ingredientGroups: {
+        type: 'array',
+        description: 'Grouped list. Use either this OR ingredients. Emit the FULL revised list of groups.',
+        items: {
+          type: 'object',
+          required: ['name', 'ingredients'],
+          properties: {
+            name: { type: 'string' },
+            ingredients: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string' },
+                  amount: { type: 'string' },
+                  unit: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+      steps: {
+        type: 'array',
+        description: 'Full revised ordered step list — replaces the existing steps entirely.',
+        items: {
+          type: 'object',
+          required: ['body'],
+          properties: {
+            title: { type: 'string' },
+            body: { type: 'string' },
+            durationMin: { type: 'integer', minimum: 0 },
+            tip: { type: 'string' },
+          },
+        },
+      },
+      equipment: { type: 'array', items: { type: 'string' } },
+      tags: { type: 'array', items: { type: 'string' } },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['type', 'text'],
+          properties: {
+            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
+            text: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
 const TOOL_OPEN_GUIDE_CREATOR = {
   name: 'open_guide_creator',
   description:
@@ -868,7 +978,7 @@ function buildSystemPrompt(body: ChatRequest): string {
     "  R0. CRITICAL — use the `build_recipe` tool. Do NOT use `open_add_recipe_modal` or `open_home_meal_modal` for this — those are for MANUAL entry only (the user typing in their own recipe). When the user wants YOU to write the recipe, `build_recipe` is the ONLY correct tool. Calling the manual modal in this case is a bug.",
   );
   lines.push(
-    "  R1. ASK AT MOST ONE clarifying question, ONLY if the request is too vague to write anything good (e.g. user just says \"make me a recipe\" with no dish). Once you have a dish in mind, COMMIT — call the `build_recipe` tool. Do NOT keep asking follow-ups. The user can refine after seeing the draft (\"make it spicier\", \"swap walnuts for pecans\") and you can re-call `build_recipe` with the revision.",
+    "  R1. ASK AT MOST ONE clarifying question, ONLY if the request is too vague to write anything good (e.g. user just says \"make me a recipe\" with no dish). Once you have a dish in mind, COMMIT — call the `build_recipe` tool. Do NOT keep asking follow-ups.",
   );
   lines.push(
     "  R2. When you call `build_recipe`, only `name` is required, but FILL EVERY relevant field: a one-line `summary`, `cuisine`, `course`, `difficulty`, `prepTime`, `cookTime`, `servings`, ingredients (use the flat `ingredients` array for single-stage recipes; use `ingredientGroups` only for recipes with distinct stages like \"For the batter\" / \"For the streusel\"), `steps` with real actions, optional `equipment`, optional `notes` (1–3 useful tips). Realistic measurements and timing.",
@@ -878,6 +988,12 @@ function buildSystemPrompt(body: ChatRequest): string {
   );
   lines.push(
     "  R4. AFTER calling the tool, reply with ONE short sentence pointing the user at the card (e.g. \"Drafted a brown-butter banana bread — open the card to review.\"). DO NOT paste the recipe text back. The card IS the deliverable; the user publishes or edits it from there.",
+  );
+  lines.push(
+    "  R5. REFINEMENTS to a draft you already created in this conversation (\"make it spicier\", \"swap walnuts for pecans\", \"shorter prep\", \"less salt\", \"add a make-ahead note\", \"fix the flour measurement\") → call `edit_recipe_draft` with ONLY the fields that change. The existing card in chat refreshes in place — do NOT re-call `build_recipe` for tweaks, or the user will end up with a duplicate orphan card. For array fields you're editing (ingredients, steps, notes, equipment, tags, course), emit the FULL revised list — you're replacing the existing list, not appending to it. After the call, reply with ONE short sentence describing what changed (\"Swapped the walnuts for pecans and bumped the salt — refresh the card.\").",
+  );
+  lines.push(
+    "  R6. NEW DISH entirely (\"now do me a savory carbonara\", \"forget the bread, make me a Thai curry\") → call `build_recipe`, which spawns a brand-new draft card. Rule of thumb: same dish being adjusted → `edit_recipe_draft`. Different dish → `build_recipe`.",
   );
 
   return lines.join('\n');
@@ -963,6 +1079,7 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_OPEN_ADD_REEL_MODAL,
       TOOL_OPEN_HOME_MEAL_MODAL,
       TOOL_BUILD_RECIPE,
+      TOOL_EDIT_RECIPE_DRAFT,
       TOOL_OPEN_GUIDE_CREATOR,
       TOOL_WEB_SEARCH,
     ],
