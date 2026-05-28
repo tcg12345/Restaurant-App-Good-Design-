@@ -1,14 +1,16 @@
 // AI Recipe Generator — Vercel Edge Function.
 //
 // Single-shot, structured recipe authoring for the Add Recipe modal's
-// "Create with AI" flow. Unlike /api/location-chat (a streaming, multi-
-// turn, multi-tool chat), this endpoint takes one free-text prompt and
-// returns one fully-formed recipe object — no streaming, no chat
-// history, no follow-up questions. It forces the `build_recipe` tool so
-// the model's only possible output is a clean recipe JSON.
+// "Create with AI" flow. Takes one free-text prompt and forces the
+// `build_recipe` tool so the model's only possible output is a clean
+// recipe JSON. The Anthropic response is STREAMED (SSE proxied
+// byte-for-byte to the client) — a full Opus recipe can take 30s+, and
+// a non-streaming call would block past the gateway's time-to-first-
+// byte limit and 504. The client assembles the tool input from the
+// streamed input_json_delta events.
 //
 // Request:  { prompt: string }
-// Response: { recipe: BuildRecipeInput }
+// Response: Anthropic SSE stream (success) or { error } JSON (failure)
 //
 // The Anthropic API key lives here as a Vercel environment variable
 // (`ANTHROPIC_API_KEY`) and never reaches the browser bundle.
@@ -168,6 +170,12 @@ export default async function handler(req: Request): Promise<Response> {
   const anthropicBody = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
+    // Stream the response. A full ~6000-token Opus recipe can take
+    // 30s+ to finish; a non-streaming call would block until then and
+    // trip the platform's time-to-first-byte limit (gateway 504).
+    // Streaming sends bytes immediately, so we just proxy Anthropic's
+    // SSE straight through and let the client assemble the tool input.
+    stream: true,
     system: SYSTEM_PROMPT,
     tools: [TOOL_BUILD_RECIPE],
     // Force the tool so the only possible output is a recipe object.
@@ -190,40 +198,22 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonError(502, `Upstream fetch failed: ${(err as Error).message}`);
   }
 
-  if (!anthropicRes.ok) {
+  if (!anthropicRes.ok || !anthropicRes.body) {
     let errText = `Upstream HTTP ${anthropicRes.status}`;
     try {
       const j: any = await anthropicRes.json();
       errText = j?.error?.message || j?.error || errText;
     } catch { /* ignore */ }
-    return jsonError(502, errText);
+    return jsonError(anthropicRes.status, String(errText).slice(0, 500));
   }
 
-  let payload: any;
-  try {
-    payload = await anthropicRes.json();
-  } catch {
-    return jsonError(502, 'Could not parse the recipe response.');
-  }
-
-  // Pull the build_recipe tool_use block out of the content array.
-  const blocks: any[] = Array.isArray(payload?.content) ? payload.content : [];
-  const toolUse = blocks.find((b) => b?.type === 'tool_use' && b?.name === 'build_recipe');
-  const recipe = toolUse?.input;
-
-  if (!recipe || typeof recipe !== 'object' || !(recipe.name || '').toString().trim()) {
-    // Most common cause is max_tokens truncation on a very large recipe.
-    const truncated = payload?.stop_reason === 'max_tokens';
-    return jsonError(
-      502,
-      truncated
-        ? 'The recipe was too long to finish. Try a slightly simpler request.'
-        : "I couldn't generate that recipe. Try rephrasing your request.",
-    );
-  }
-
-  return new Response(JSON.stringify({ recipe }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
+  // Proxy the Anthropic SSE stream byte-for-byte. The client assembles
+  // the build_recipe tool_use input from the input_json_delta events.
+  return new Response(anthropicRes.body, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
   });
 }
