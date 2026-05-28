@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Award, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Edit3, Flame, Heart, Loader2, MessageCircle, Play, Plus, Printer,
+  Edit3, Flame, Heart, Loader2, MessageCircle, Pause, Play, Plus, Printer,
   Share2, Sparkles, Star, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1618,7 +1618,11 @@ const CookModeTimer: React.FC<{ durationMs: number; label: string }> = ({ durati
   const hint = done ? 'Tap to reset'
     : running ? 'Tap to pause'
     : remaining < durationMs ? 'Tap to resume'
-    : 'Tap to start timer';
+    : 'Tap to start';
+
+  // Pick the state-appropriate icon for the circular button affordance:
+  // play before running, pause while running, check on completion.
+  const StateIcon = done ? Check : running ? Pause : Play;
 
   return (
     <button
@@ -1627,9 +1631,15 @@ const CookModeTimer: React.FC<{ durationMs: number; label: string }> = ({ durati
       onClick={handleClick}
       aria-label={`${label} timer — ${hint}`}
     >
-      <span className="rd-cm-timer-icon">{done ? <Check /> : <Clock />}</span>
-      <span className="rd-cm-timer-time">{done ? 'Done' : (started ? display : label)}</span>
-      <span className="rd-cm-timer-hint">{hint}</span>
+      <span className="rd-cm-timer-icon" aria-hidden="true">
+        <StateIcon fill={running ? 'none' : 'currentColor'} />
+      </span>
+      <span className="rd-cm-timer-text">
+        <span className="rd-cm-timer-time">
+          {done ? 'Done' : (started ? display : label)}
+        </span>
+        <span className="rd-cm-timer-hint">{hint}</span>
+      </span>
     </button>
   );
 };
