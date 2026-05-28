@@ -5630,7 +5630,7 @@ const HomeCookingTab: React.FC<{
           ))}
         </div>
       ) : (
-        <ul className="divide-y divide-on-surface/[0.06]">
+        <ul className="space-y-2.5">
           {filteredMeals.map((meal) => (
             <RecipeRow
               key={meal.id}
@@ -5668,6 +5668,12 @@ const HomeCookingTab: React.FC<{
    List view drops the cover image — just title + meta + score on a
    single line. The cover photo is already the headline element of the
    grid view, so the list view stays compact and text-first. */
+/* ── Recipe list row ──
+   Editorial card matching the rest of the program: cover thumbnail
+   on the left, title + chip-style meta + ingredient preview in the
+   middle, score badge on the right. Hover lifts the surface and
+   reveals Edit / Delete actions; both share the same focus-within
+   target so keyboard users get them too. */
 const RecipeRow: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
@@ -5676,70 +5682,117 @@ const RecipeRow: React.FC<{
 }> = ({ meal, onClick, onEdit, onDelete }) => {
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
   const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+  const ingredientText = ingredientPreview.map((i) => i.name).filter(Boolean).join(', ');
+  const ingredientOverflow = (meal.ingredients?.length ?? 0) > ingredientPreview.length;
+  const coverPhoto = getMealCoverUrl(meal);
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <li className="relative group/row">
       <button
         onClick={onClick}
-        className="w-full text-left py-4 active:scale-[0.99] transition-transform"
+        className="w-full text-left flex items-center gap-4 p-3 sm:p-3.5 rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/15 hover:shadow-[0_6px_18px_-10px_rgba(0,0,0,0.18)] active:scale-[0.995] transition-all"
       >
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-          <div className="flex-shrink-0 mr-16">
-            {meal.score > 0 ? (
-              <ScoreBadge rating={meal.score} size="sm" />
-            ) : (
-              <span className="text-on-surface/25 text-lg font-serif font-bold leading-none pt-0.5">—</span>
-            )}
+        {/* Cover thumbnail. Mirrors the grid card's chef-hat placeholder
+            on bg-emerald-50 so a cookbook without photos still feels
+            warm and intentional instead of empty. */}
+        <div className="w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] rounded-xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 ring-1 ring-on-surface/[0.05]">
+          {coverPhoto ? (
+            <img
+              src={coverPhoto}
+              alt={meal.name}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+              <ChefHat size={26} className="text-emerald-300" strokeWidth={1.6} />
+            </div>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-3">
+            <h3 className="font-serif font-bold text-[15.5px] leading-snug line-clamp-2 flex-1 text-on-surface">
+              {meal.name}
+            </h3>
+            <div className="flex-shrink-0 -mt-0.5">
+              {meal.score > 0 ? (
+                <ScoreBadge rating={meal.score} size="sm" />
+              ) : (
+                <span className="text-on-surface/20 text-lg font-serif font-bold leading-none">—</span>
+              )}
+            </div>
           </div>
+
+          {/* Meta chips — soft pills, not uppercase prose, so the row
+              reads as a polished card instead of plain text. */}
+          {(meal.cuisine || totalTime > 0 || meal.difficulty || meal.dishes.length > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {meal.cuisine && (
+                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  {meal.cuisine}
+                </span>
+              )}
+              {totalTime > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  <Clock size={10} className="opacity-70" />
+                  {formatDuration(totalTime)}
+                </span>
+              )}
+              {meal.difficulty && (
+                <span className={cn(
+                  'inline-flex items-center text-[10.5px] font-semibold px-2 py-0.5 rounded-full',
+                  meal.difficulty === 'Easy' && 'bg-emerald-50 text-emerald-700',
+                  meal.difficulty === 'Medium' && 'bg-amber-50 text-amber-700',
+                  meal.difficulty === 'Hard' && 'bg-rose-50 text-rose-700',
+                )}>
+                  {meal.difficulty}
+                </span>
+              )}
+              {meal.dishes.length > 0 && totalTime === 0 && !meal.difficulty && (
+                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
+                </span>
+              )}
+            </div>
+          )}
+
+          {ingredientText && (
+            <p className="text-[12.5px] text-on-surface/55 mt-1.5 leading-snug line-clamp-1 sm:line-clamp-2 pr-1">
+              {ingredientText}{ingredientOverflow ? '…' : ''}
+            </p>
+          )}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
-          {meal.cuisine && <><span>{meal.cuisine}</span></>}
-          {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
-          {totalTime > 0 ? (
-            <>
-              <Clock size={11} />
-              <span>{formatDuration(totalTime)}</span>
-              {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
-            </>
-          ) : meal.difficulty ? (
-            <span>{meal.difficulty}</span>
-          ) : meal.dishes.length > 0 ? (
-            <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
-          ) : null}
-        </div>
-        {ingredientPreview.length > 0 && (
-          <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
-            {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-            {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-          </p>
-        )}
       </button>
-      {/* Hover actions — Delete on the far right of the row, Edit just
-          to the left of it. Both fade in together on hover. */}
-      <div className="absolute top-4 right-0 flex items-center gap-0.5 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+
+      {/* Hover actions — sit on the surface of the card without
+          covering the score badge. Always visible on touch (no
+          hover), fade in on hover for pointer users. */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
           aria-label={`Edit ${meal.name}`}
-          className="p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors flex items-center justify-center"
         >
-          <Edit3 size={15} />
+          <Edit3 size={13} />
         </button>
         {onDelete && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
             aria-label={`Delete ${meal.name}`}
-            className="p-1.5 rounded-full text-on-surface/35 hover:text-red-600 hover:bg-red-50 transition-colors"
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors flex items-center justify-center"
           >
-            <Trash2 size={15} />
+            <Trash2 size={13} />
           </button>
         )}
       </div>
+
       {confirmDelete && onDelete && (
         <div
-          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-3 px-4 py-3"
+          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-3 px-4 py-3 border border-on-surface/10 shadow-sm"
           onClick={(e) => e.stopPropagation()}
         >
           <p className="text-sm text-on-surface/80 font-medium text-center">
