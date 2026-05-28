@@ -457,20 +457,51 @@ function saveToStorage(key: string, value: unknown) {
   }
 }
 
+/** Built-in "Want to Cook" recipe list — the recipe equivalent of the
+ *  restaurant Wishlist. Auto-injected for every user, cannot be deleted
+ *  or renamed. */
+export const DEFAULT_WANT_TO_COOK_ID = 'default-want-to-cook';
+export const DEFAULT_WANT_TO_COOK_NAME = 'Want to Cook';
+export const DEFAULT_WANT_TO_COOK_EMOJI = '📌';
+
+const buildDefaultWantToCookList = (): CustomList => ({
+  id: DEFAULT_WANT_TO_COOK_ID,
+  name: DEFAULT_WANT_TO_COOK_NAME,
+  emoji: DEFAULT_WANT_TO_COOK_EMOJI,
+  type: 'home-cooking',
+  restaurantIds: [],
+  wishlistIds: [],
+  recipes: [],
+  // 0 so it sorts before everything in chronological orderings.
+  createdAt: 0,
+});
+
 const DEFAULT_LISTS: CustomList[] = [
+  buildDefaultWantToCookList(),
   { id: 'date-nights', name: 'Date Nights', emoji: '🕯️', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 4000 },
   { id: 'hidden-gems', name: 'Hidden Gems', emoji: '💎', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 3000 },
   { id: 'best-cocktails', name: 'Best Cocktails', emoji: '🍸', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 2000 },
   { id: 'quick-bites', name: 'Quick Bites', emoji: '⚡', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 1000 },
 ];
 
-// Migration: add wishlistIds to lists that don't have it
+/** Guarantee the built-in "Want to Cook" recipe list exists in the array.
+ *  Idempotent — if it's already there, returns the input unchanged so
+ *  React reference equality is preserved. */
+function ensureDefaultRecipeList(lists: CustomList[]): CustomList[] {
+  if (!Array.isArray(lists)) return [buildDefaultWantToCookList()];
+  if (lists.some((l) => l.id === DEFAULT_WANT_TO_COOK_ID)) return lists;
+  return [buildDefaultWantToCookList(), ...lists];
+}
+
+// Migration: add wishlistIds to lists that don't have it, and ensure the
+// built-in Want to Cook list is present.
 function migrateLists(lists: CustomList[]): CustomList[] {
   if (!Array.isArray(lists)) return DEFAULT_LISTS;
-  return lists.map((l) => ({
+  const migrated = lists.map((l) => ({
     ...l,
     wishlistIds: l.wishlistIds ?? [],
   }));
+  return ensureDefaultRecipeList(migrated);
 }
 
 // Strips stale Google Places photo URLs cached on RestaurantMeta entries
@@ -795,7 +826,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const listsChanged = reconciledLists.some((l, i) => l !== cloudLists[i]);
 
         setRatings(cloudRatings);
-        setLists(listsChanged ? reconciledLists : cloudLists);
+        setLists(ensureDefaultRecipeList(listsChanged ? reconciledLists : cloudLists));
         setWishlist(cloudWishlist);
         setRestaurantMeta(migrateMeta(cloudMeta));
         setTrips(cloudTrips as Trip[]);
@@ -1495,6 +1526,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const deleteList = useCallback((id: string) => {
+    // Built-in Want to Cook list is permanent — silently no-op.
+    if (id === DEFAULT_WANT_TO_COOK_ID) return;
     setLists((prev) => {
       const next = prev.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEY_LISTS, next);
@@ -1504,6 +1537,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const renameList = useCallback((id: string, name: string, emoji: string) => {
+    if (id === DEFAULT_WANT_TO_COOK_ID) return;
     setLists((prev) => {
       const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);

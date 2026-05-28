@@ -9,7 +9,7 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
-import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
@@ -148,7 +148,9 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Cooking for Two', emoji: '💑', category: 'Occasion & Holiday', type: 'home-cooking' },
   { name: 'Birthdays & Celebrations', emoji: '🎉', category: 'Occasion & Holiday', type: 'home-cooking' },
 
-  { name: 'Want to Cook', emoji: '📌', category: 'Inspiration & Wishlist', type: 'home-cooking' },
+  // "Want to Cook" is the built-in default recipe list (see
+  // DEFAULT_WANT_TO_COOK_ID in ListsContext) — every user has it,
+  // so it's intentionally not offered as a preset to avoid duplicates.
   { name: 'Tried & Loved', emoji: '❤️', category: 'Inspiration & Wishlist', type: 'home-cooking' },
   { name: 'Family Favorites', emoji: '👨‍👩‍👧', category: 'Inspiration & Wishlist', type: 'home-cooking' },
   { name: 'Restaurant Copycats', emoji: '🧑‍🍳', category: 'Inspiration & Wishlist', type: 'home-cooking' },
@@ -1757,6 +1759,7 @@ const ListDetailView: React.FC<{
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
   const isWishlistView = list.id === '__wishlist__';
+  const isDefaultWantToCook = list.id === DEFAULT_WANT_TO_COOK_ID;
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
@@ -2195,7 +2198,7 @@ const ListDetailView: React.FC<{
             </span>
           </button>
           <ListMoreMenu
-            items={isWishlistView ? [] : [{
+            items={isWishlistView || isDefaultWantToCook ? [] : [{
               label: 'Delete list',
               icon: <Trash2 size={14} />,
               destructive: true,
@@ -6955,10 +6958,13 @@ export const Pantry: React.FC = () => {
     () => lists.filter((l) => l.type !== 'home-cooking'),
     [lists],
   );
-  const recipeListsForSwitcher = useMemo(
-    () => lists.filter((l) => l.type === 'home-cooking'),
-    [lists],
-  );
+  const recipeListsForSwitcher = useMemo(() => {
+    // Pin the built-in "Want to Cook" list to the top.
+    const all = lists.filter((l) => l.type === 'home-cooking');
+    const def = all.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID);
+    const rest = all.filter((l) => l.id !== DEFAULT_WANT_TO_COOK_ID);
+    return def ? [def, ...rest] : rest;
+  }, [lists]);
 
   // Helpers to drive the switcher's destinations through the existing
   // showHomeCooking / showTrips / selectedList state machine. Each one
