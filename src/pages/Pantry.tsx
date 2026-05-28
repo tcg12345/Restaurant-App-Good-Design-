@@ -5625,6 +5625,7 @@ const HomeCookingTab: React.FC<{
               meal={meal}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
+              onDelete={() => onDeleteMeal(meal.id)}
             />
           ))}
         </div>
@@ -5636,6 +5637,7 @@ const HomeCookingTab: React.FC<{
               meal={meal}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
+              onDelete={() => onDeleteMeal(meal.id)}
             />
           ))}
         </ul>
@@ -5670,9 +5672,11 @@ const RecipeRow: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
   onEdit: () => void;
-}> = ({ meal, onClick, onEdit }) => {
+  onDelete?: () => void;
+}> = ({ meal, onClick, onEdit, onDelete }) => {
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
   const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <li className="relative group/row">
       <button
@@ -5681,7 +5685,7 @@ const RecipeRow: React.FC<{
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-          <div className="flex-shrink-0 mr-7">
+          <div className="flex-shrink-0 mr-16">
             {meal.score > 0 ? (
               <ScoreBadge rating={meal.score} size="sm" />
             ) : (
@@ -5711,14 +5715,52 @@ const RecipeRow: React.FC<{
           </p>
         )}
       </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        aria-label={`Edit ${meal.name}`}
-        className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
-      >
-        <Edit3 size={15} />
-      </button>
+      {/* Hover actions — Delete on the far right of the row, Edit just
+          to the left of it. Both fade in together on hover. */}
+      <div className="absolute top-4 right-0 flex items-center gap-0.5 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          aria-label={`Edit ${meal.name}`}
+          className="p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+        >
+          <Edit3 size={15} />
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            aria-label={`Delete ${meal.name}`}
+            className="p-1.5 rounded-full text-on-surface/35 hover:text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+      {confirmDelete && onDelete && (
+        <div
+          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-3 px-4 py-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm text-on-surface/80 font-medium text-center">
+            Delete <span className="font-serif font-bold">{meal.name}</span>?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </li>
   );
 };
@@ -5731,9 +5773,11 @@ const RecipeGridCard: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
   onEdit: () => void;
-}> = ({ meal, onClick, onEdit }) => {
+  onDelete?: () => void;
+}> = ({ meal, onClick, onEdit, onDelete }) => {
   const coverPhoto = getMealCoverUrl(meal);
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="group relative">
       <button
@@ -5780,14 +5824,53 @@ const RecipeGridCard: React.FC<{
           </div>
         </div>
       </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        aria-label={`Edit ${meal.name}`}
-        className="absolute top-2 left-2 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-all opacity-0 group-hover:opacity-100"
-      >
-        <Edit3 size={13} className="mx-auto" />
-      </button>
+      {/* Hover actions: Edit (top-left) and Delete (top-left, just under
+          edit). Stacked vertically so they don't crowd the score chip
+          on the right. */}
+      <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          aria-label={`Edit ${meal.name}`}
+          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors"
+        >
+          <Edit3 size={13} className="mx-auto" />
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            aria-label={`Delete ${meal.name}`}
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors"
+          >
+            <Trash2 size={13} className="mx-auto" />
+          </button>
+        )}
+      </div>
+      {confirmDelete && onDelete && (
+        <div
+          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm text-on-surface/80 font-medium text-center leading-snug">
+            Delete this recipe?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
