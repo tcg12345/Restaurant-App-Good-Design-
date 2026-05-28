@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
   getPublicHomeMealById,
@@ -302,7 +302,7 @@ export const RecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
-  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals } = useLists();
+  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
   // ── Data ──
@@ -544,9 +544,17 @@ export const RecipePage: React.FC = () => {
   const handlePrint = useCallback(() => window.print(), []);
   const handleEdit = useCallback(() => {
     if (!data) return;
-    if (data.source === 'recipe') openRecipeModal(data.raw as Recipe);
-    else navigate('/pantry?view=home-cooking');
-  }, [data, openRecipeModal, navigate]);
+    if (data.source === 'recipe') {
+      openRecipeModal(data.raw as Recipe);
+      return;
+    }
+    // Home meal / Advanced-builder recipe. Open the Add Recipe modal
+    // pre-filled with the meal so the user can edit in place. Prefer
+    // the canonical store copy (myHomeMeals) over the adapted view
+    // data — it carries the full HomeMeal shape the modal expects.
+    const meal = myHomeMeals.find((m) => m.id === data.id) ?? (data.raw as HomeMeal);
+    openHomeMealModal(meal);
+  }, [data, openRecipeModal, openHomeMealModal, myHomeMeals]);
 
   const submitReview = useCallback(async (
     rating: number,
