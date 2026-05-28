@@ -1515,6 +1515,20 @@
   color: var(--ink, #1C1816);
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
+/* AI segment — a touch of accent + a sparkle icon so it reads as the
+   special "let the AI draft it" option without shouting. */
+.arb-tab-toggle button.arb-tab-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent, #A8392A);
+}
+.arb-tab-toggle button.arb-tab-ai svg {
+  opacity: 0.9;
+}
+.arb-tab-toggle button.arb-tab-ai.is-active {
+  color: var(--accent, #A8392A);
+}
 
 /* ════════════════════════════════════════════════════════════════
    MOBILE — Sticky header + floating footer dock

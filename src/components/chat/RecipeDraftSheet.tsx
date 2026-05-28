@@ -16,6 +16,13 @@ interface RecipeDraftSheetProps {
   onDelete: () => void;
   /** Set / clear the cover photo on the draft. Pass null to remove. */
   onCoverPhotoChange: (dataUrl: string | null) => void;
+  /** Tailwind z-index class for the overlay. Defaults to `z-[70]` (the
+   *  chat context). The Add Recipe modal passes a higher value so the
+   *  sheet sits above the modal (`z-[100]`) and its picker sheets. */
+  zClass?: string;
+  /** Override the primary action label. Defaults to "Publish to my
+   *  cookbook". The modal uses a shorter "Publish recipe". */
+  publishLabel?: string;
 }
 
 /** Downsize an image to fit within 800px and re-encode as JPEG@0.6 —
@@ -64,6 +71,8 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   onEdit,
   onDelete,
   onCoverPhotoChange,
+  zClass = 'z-[70]',
+  publishLabel = 'Publish to my cookbook',
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
@@ -108,7 +117,8 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
           exit={{ opacity: 0 }}
           transition={{ duration: phoneMode ? 0.18 : 0.16 }}
           className={cn(
-            'fixed inset-0 z-[70]',
+            'fixed inset-0',
+            zClass,
             phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
             !phoneMode && 'flex items-start justify-center pt-[8vh] px-4',
           )}
@@ -469,7 +479,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                         Published
                       </>
                     ) : (
-                      'Publish to my cookbook'
+                      publishLabel
                     )}
                   </button>
                 </div>

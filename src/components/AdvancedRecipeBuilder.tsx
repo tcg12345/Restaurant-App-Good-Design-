@@ -378,18 +378,31 @@ export interface AdvancedRecipeBuilderProps {
   existing: HomeMeal | null;
   onClose: () => void;
   tabSlot?: React.ReactNode; // Basic/Advanced toggle injected by parent
+  /** Pre-fill the builder with this recipe but treat it as a NEW recipe
+   *  (saves via createHomeMeal, never updateHomeMeal). Used by the
+   *  "Create with AI" flow to hand off a generated draft for review.
+   *  Ignored when `existing` is set. */
+  seed?: HomeMeal | null;
+  /** Step index (0–5) to open on. Defaults to 0. The AI flow passes 5
+   *  (Review) so the user lands on a skim of the finished recipe. */
+  initialStep?: number;
 }
 
-export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot }) => {
+export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, initialStep }) => {
   const navigate = useNavigate();
   const auth = useAuth();
   const { phoneMode } = useSettings();
   const lists = useLists();
   const userId = auth.user?.id || null;
 
-  const initial = useMemo(() => (existing ? fromHomeMeal(existing) : emptyState()), [existing]);
+  const initial = useMemo(
+    () => (existing ? fromHomeMeal(existing) : seed ? fromHomeMeal(seed) : emptyState()),
+    [existing, seed],
+  );
   const [state, dispatch] = useReducer(reducer, initial);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(() =>
+    typeof initialStep === 'number' ? Math.max(0, Math.min(5, initialStep)) : 0,
+  );
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [showResume, setShowResume] = useState(false);
   const [resumeSlot, setResumeSlot] = useState<ResumeSlot | null>(null);
@@ -407,12 +420,13 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
 
   // On mount: prefer a pending Activity-resume draft over the
   // single-slot autoresume. Otherwise fall back to the "Resume your
-  // draft?" prompt as before. Skip both when editing — that path is
-  // already prefilled from the existing meal.
+  // draft?" prompt as before. Skip both when editing (already prefilled
+  // from the existing meal) OR when seeded by the AI flow (the seed IS
+  // the content — we must not clobber it with a stale autoresume).
   useEffect(() => {
     if (initialHydratedRef.current) return;
     initialHydratedRef.current = true;
-    if (existing) return;
+    if (existing || seed) return;
     const pendingId = consumePendingResumeDraftId();
     if (pendingId) {
       const draft = getDraft(userId, pendingId);
@@ -429,7 +443,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       setResumeSlot(slot);
       setShowResume(true);
     }
-  }, [existing, key, userId]);
+  }, [existing, seed, key, userId]);
 
   // Autosave: debounce 400ms after any state change. Any keystroke
   // flips hasUserInputRef so we don't write a draft for a no-op
