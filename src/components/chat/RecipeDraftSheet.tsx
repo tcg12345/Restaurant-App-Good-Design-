@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2 } from 'lucide-react';
+import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useBottomSheet } from '../../lib/useBottomSheet';
@@ -14,6 +14,40 @@ interface RecipeDraftSheetProps {
   onPublish: (draft: HomeMeal) => void;
   onEdit: (draft: HomeMeal) => void;
   onDelete: () => void;
+  /** Set / clear the cover photo on the draft. Pass null to remove. */
+  onCoverPhotoChange: (dataUrl: string | null) => void;
+}
+
+/** Downsize an image to fit within 800px and re-encode as JPEG@0.6 —
+ *  matches the AddHomeMealModal compression pipeline so cover photos
+ *  attached here aren't dramatically larger than cover photos attached
+ *  from the canonical flow. */
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 800;
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          if (width > height) { height = (height / width) * maxSize; width = maxSize; }
+          else { width = (width / height) * maxSize; height = maxSize; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('canvas 2d unavailable')); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = () => reject(new Error('image decode failed'));
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
 }
 
 /** Full read-only preview of an AI-built recipe draft. Footer carries
@@ -29,15 +63,41 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   onPublish,
   onEdit,
   onDelete,
+  onCoverPhotoChange,
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset the delete-confirm any time the sheet opens with a new draft.
   React.useEffect(() => {
-    if (open) setConfirmingDelete(false);
+    if (open) {
+      setConfirmingDelete(false);
+      setUploadingCover(false);
+    }
   }, [open, draft?.id]);
+
+  const handleCoverPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+    setUploadingCover(true);
+    try {
+      const compressed = await compressImage(file);
+      onCoverPhotoChange(compressed);
+    } catch {
+      // Compression failed (huge file, decode error). Leave the cover
+      // untouched; user can retry. No noisy alert — the placeholder
+      // still says "Add cover photo".
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  const cover = draft?.coverPhoto || '';
+  const canEditCover = !publishedMealId;
 
   return (
     <AnimatePresence>
@@ -114,6 +174,77 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 pb-4">
+              {/* Cover photo — full-bleed hero. Acts as either the
+                  rendered cover (with a "Change" overlay) or as the
+                  "Add cover photo" call-to-action when no cover is
+                  attached. Hidden once published since the source-of-
+                  truth then lives on the saved meal, not the draft. */}
+              {canEditCover ? (
+                <div className="mb-5">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleCoverPick}
+                  />
+                  {cover ? (
+                    <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9]">
+                      <img
+                        src={cover}
+                        alt={draft.name}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-2 right-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingCover}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-sm text-white text-[12px] font-semibold hover:bg-black/70 transition-colors disabled:opacity-60"
+                        >
+                          <Camera size={13} />
+                          {uploadingCover ? 'Uploading…' : 'Change'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onCoverPhotoChange(null)}
+                          disabled={uploadingCover}
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm text-white hover:bg-black/70 transition-colors disabled:opacity-60"
+                          aria-label="Remove cover photo"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingCover}
+                      className="w-full rounded-2xl border-2 border-dashed border-on-surface/15 bg-on-surface/[0.03] hover:bg-on-surface/[0.06] hover:border-on-surface/25 transition-colors py-7 flex flex-col items-center justify-center gap-2 text-on-surface/55 disabled:opacity-60"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-on-surface/[0.06] flex items-center justify-center">
+                        <ImagePlus size={18} />
+                      </div>
+                      <div className="text-[13px] font-semibold text-on-surface/75">
+                        {uploadingCover ? 'Uploading photo…' : 'Add cover photo'}
+                      </div>
+                      <div className="text-[11px] text-on-surface/45">
+                        Optional · saved with the recipe
+                      </div>
+                    </button>
+                  )}
+                </div>
+              ) : cover ? (
+                <div className="mb-5 w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9] relative">
+                  <img
+                    src={cover}
+                    alt={draft.name}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                </div>
+              ) : null}
+
               <h2 className="font-serif text-[26px] font-bold text-on-surface leading-tight">
                 {draft.name}
               </h2>

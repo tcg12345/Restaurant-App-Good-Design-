@@ -1256,6 +1256,20 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     void Promise.resolve(onOpenHomeMealModal(draft));
   }, [openDraftToolUseId, onOpenHomeMealModal]);
 
+  const handleCoverPhotoChange = useCallback((dataUrl: string | null) => {
+    if (!openDraftToolUseId) return;
+    patchDraftBlock(openDraftToolUseId, (b) => ({
+      ...b,
+      draft: {
+        ...b.draft,
+        coverPhoto: dataUrl || undefined,
+        photos: dataUrl
+          ? Array.from(new Set([dataUrl, ...(b.draft.photos || [])]))
+          : (b.draft.photos || []).filter((p) => p !== b.draft.coverPhoto),
+      },
+    }));
+  }, [openDraftToolUseId, patchDraftBlock]);
+
   const handleDeleteDraft = useCallback(() => {
     if (!openDraftToolUseId) return;
     const id = openDraftToolUseId;
@@ -2519,6 +2533,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         onPublish={handlePublishDraft}
         onEdit={handleEditDraft}
         onDelete={handleDeleteDraft}
+        onCoverPhotoChange={handleCoverPhotoChange}
       />
     </>
   );
