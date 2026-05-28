@@ -169,7 +169,6 @@ export const UserProfile: React.FC = () => {
 
       promises.push(getMyGuides(p.user_id).then((guides) => {
         if (cancelled) return;
-        // Public profile surface — strip drafts and followers-only guides.
         const g = (guides || []).filter((x) => x.isPublished && x.visibility === 'public');
         setPublicGuides(g);
         fSnapshot.guides = g;
@@ -863,6 +862,14 @@ export const UserProfile: React.FC = () => {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Floating map button */}
+            {userRatings.length > 0 && (
+              <button onClick={() => setShowMapPage(true)}
+                className="fixed bottom-6 right-6 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform z-30">
+                <MapIcon size={22} />
+              </button>
             )}
           </>
         ) : (

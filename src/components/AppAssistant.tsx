@@ -60,10 +60,14 @@ const HIDE_ON_PATHS = new Set<string>([
   '/profile-setup',
 ]);
 
-function shouldHideAssistant(pathname: string): boolean {
+function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
   if (HIDE_ON_PATHS.has(pathname)) return true;
   // Focused single-reel viewer; the page itself is full-screen video.
   if (pathname.startsWith('/r/')) return true;
+  // On mobile, hide on the Reels feed too — the page is full-screen
+  // video and the FAB clashes with the page's own chrome. Desktop
+  // keeps it because the reels lane is much narrower than the screen.
+  if (isPhone && pathname === '/reels') return true;
   return false;
 }
 
@@ -323,7 +327,7 @@ export const AppAssistant: React.FC = () => {
   const { pageContext } = useAssistantContext();
 
   // Gate by route + auth — assistant lives only inside the signed-in app.
-  const hidden = !auth.isSignedIn || !auth.profileComplete || shouldHideAssistant(location.pathname);
+  const hidden = !auth.isSignedIn || !auth.profileComplete || shouldHideAssistant(location.pathname, settings.phoneMode);
 
   /* ── Build the user context for the system prompt ───────────── */
   const userContext = useMemo<UserContext | undefined>(() => {

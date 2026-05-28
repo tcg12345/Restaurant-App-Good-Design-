@@ -1615,10 +1615,10 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             // pulse animation doesn't restart on every reveal. Click
             // events are suppressed while it's invisible.
             animate={fabHidden
-              ? { opacity: 0, scale: 0.8, y: 24 }
+              ? { opacity: 0, scale: 0.75, y: 32 }
               : { opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.85, y: 8 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             style={{ pointerEvents: fabHidden ? 'none' : 'auto' }}
             aria-label="Open assistant"
             aria-hidden={fabHidden || undefined}

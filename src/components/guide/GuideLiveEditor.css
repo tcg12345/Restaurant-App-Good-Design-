@@ -1,0 +1,1233 @@
+/* Live Editor chrome — full-screen overlay scoped under `.gle-overlay`.
+   Importing this file also pulls in GuideRender.css transitively via
+   the component, but we keep them separated so the public reader only
+   loads what it needs. */
+
+.gle-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #FBF7F2;
+  color: #1e1b1a;
+  font-family: 'Manrope', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.gle-overlay.is-dark { background: #1c1a18; color: #f4ede4; }
+
+/* ── Top chrome ─────────────────────────────────────────────── */
+
+.gle-overlay .gle-chrome {
+  flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid rgba(30,27,26,0.08);
+  z-index: 10;
+}
+.gle-overlay.is-dark .gle-chrome { background: #232120; border-bottom-color: rgba(255,255,255,0.08); }
+
+.gle-overlay .gle-chrome-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+}
+.gle-overlay .gle-chrome-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.gle-overlay .gle-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.gle-overlay .gle-back:hover { background: rgba(30,27,26,0.05); }
+.gle-overlay .gle-chrome-divider {
+  width: 1px; height: 18px;
+  background: rgba(30,27,26,0.12);
+}
+.gle-overlay.is-dark .gle-chrome-divider { background: rgba(255,255,255,0.12); }
+.gle-overlay .gle-chrome-eyebrow {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #9F3012;
+}
+.gle-overlay .gle-chrome-title {
+  font-family: 'Noto Serif', serif;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+}
+
+.gle-overlay .gle-chrome-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gle-overlay .gle-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 8px;
+  border-radius: 999px;
+  background: #e6f4ec;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.18s, transform 0.18s;
+  pointer-events: none;
+}
+.gle-overlay .gle-saved.is-shown { opacity: 1; transform: translateY(0); }
+.gle-overlay .gle-saved-dot {
+  width: 16px; height: 16px;
+  border-radius: 999px;
+  background: #047857;
+  color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
+.gle-overlay .gle-icon-toggle {
+  width: 34px; height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gle-overlay .gle-icon-toggle.on { background: rgba(30,27,26,0.08); }
+.gle-overlay .gle-icon-toggle:hover { background: rgba(30,27,26,0.05); }
+
+.gle-overlay .gle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.gle-overlay .gle-btn-ghost {
+  background: transparent;
+  color: inherit;
+  border-color: rgba(30,27,26,0.10);
+}
+.gle-overlay .gle-btn-ghost:hover { background: rgba(30,27,26,0.05); }
+.gle-overlay .gle-btn-primary {
+  background: #9F3012;
+  color: #fff;
+}
+.gle-overlay .gle-btn-primary:hover { background: #8a290f; }
+.gle-overlay .gle-btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Mini bar ───────────────────────────────────────────────── */
+
+.gle-overlay .gle-mini-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-top: 1px solid rgba(30,27,26,0.06);
+  background: #fff;
+}
+.gle-overlay.is-dark .gle-mini-bar { background: #232120; border-top-color: rgba(255,255,255,0.06); }
+.gle-overlay .gle-mb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.gle-overlay .gle-mb-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.5);
+}
+.gle-overlay.is-dark .gle-mb-label { color: rgba(255,255,255,0.5); }
+.gle-overlay .gle-mb-sep {
+  width: 1px; height: 16px;
+  background: rgba(30,27,26,0.10);
+}
+.gle-overlay .gle-mb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.gle-overlay .gle-mb-link:hover { background: rgba(30,27,26,0.05); }
+
+.gle-overlay .gle-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gle-overlay .gle-swatches.inline { flex-wrap: nowrap; }
+.gle-overlay .gle-swatch {
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  outline: 1px solid rgba(30,27,26,0.10);
+  outline-offset: -1px;
+}
+.gle-overlay .gle-swatch.on { border-color: #1e1b1a; outline-offset: 2px; }
+.gle-overlay .gle-swatch-custom {
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.06);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  color: rgba(30,27,26,0.5);
+  cursor: pointer;
+  position: relative;
+}
+.gle-overlay .gle-swatch-custom input {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+}
+
+/* ── Body split ─────────────────────────────────────────────── */
+
+.gle-overlay .gle-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.gle-overlay .gle-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.gle-overlay .gle-preview {
+  min-height: 100%;
+}
+
+/* Section host hover toolbar */
+.gle-overlay .gle-section-host {
+  position: relative;
+}
+.gle-overlay .gle-section-chrome {
+  position: absolute;
+  top: 12px; left: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.85);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.gle-overlay .gle-section-host:hover > .gle-section-chrome,
+.gle-overlay .gle-section-host:focus-within > .gle-section-chrome {
+  opacity: 1;
+  pointer-events: auto;
+}
+.gle-overlay .gle-section-tag { padding-right: 4px; }
+.gle-overlay .gle-sc-btn {
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gle-overlay .gle-sc-btn:hover { background: rgba(255,255,255,0.25); }
+
+/* Editable wrappers — focus outline + placeholder support */
+.gle-overlay .gle-editable {
+  outline: none;
+  border-radius: 4px;
+  transition: box-shadow 0.12s, background-color 0.12s;
+  position: relative;
+}
+.gle-overlay .gle-editable[contenteditable="true"]:hover {
+  box-shadow: 0 0 0 2px rgba(159,48,18,0.16);
+}
+.gle-overlay .gle-editable:focus,
+.gle-overlay .gle-editable.is-selected {
+  box-shadow: 0 0 0 2px #9F3012;
+  outline: 2px dashed #9F3012;
+  outline-offset: 2px;
+}
+.gle-overlay .gle-editable[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(30,27,26,0.35);
+  pointer-events: none;
+}
+/* Read-only editable — selectable for styling, not for typing. */
+.gle-overlay .gle-editable.is-readonly {
+  cursor: pointer;
+}
+.gle-overlay .gle-editable.is-readonly:hover {
+  box-shadow: 0 0 0 2px rgba(159,48,18,0.16);
+}
+
+/* Editable image */
+.gle-overlay .gle-img-wrap {
+  position: relative;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+.gle-overlay .gle-img-wrap img {
+  width: 100%; height: 100%;
+  display: block;
+}
+.gle-overlay .gle-img-empty {
+  width: 100%; height: 100%;
+  background: rgba(30,27,26,0.05);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px;
+  color: rgba(30,27,26,0.45);
+  font-size: 12px;
+}
+.gle-overlay .gle-img-edit {
+  position: absolute;
+  bottom: 12px; right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.gle-overlay .gle-img-wrap:hover .gle-img-edit { opacity: 1; }
+.gle-overlay .gle-img-pop {
+  position: absolute;
+  bottom: 56px; right: 12px;
+  z-index: 30;
+  width: 280px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid rgba(30,27,26,0.10);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+  color: #1e1b1a;
+}
+.gle-overlay .gle-pop-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.5);
+  margin-bottom: 6px;
+}
+.gle-overlay .gle-pop-row { display: flex; gap: 6px; }
+.gle-overlay .gle-pop-divider {
+  height: 1px;
+  background: rgba(30,27,26,0.08);
+  margin: 12px 0;
+}
+.gle-overlay .gle-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+.gle-overlay .gle-pop-slider { margin-top: 8px; }
+.gle-overlay .gle-pop-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.gle-overlay .gle-pop-slider-val { font-weight: 700; }
+.gle-overlay .gle-pop-slider input[type=range] { width: 100%; }
+
+.gle-overlay .gle-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(30,27,26,0.12);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  background: #fff;
+  color: #1e1b1a;
+}
+.gle-overlay .gle-mini {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.08);
+  border: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1e1b1a;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gle-overlay .gle-mini.primary { background: #9F3012; color: #fff; }
+.gle-overlay .gle-mini.ghost { background: transparent; border: 1px solid rgba(30,27,26,0.10); }
+
+/* Editable chips */
+.gle-overlay .gle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.gle-overlay .gle-chip,
+.gle-overlay .gle-must-chip,
+.gle-overlay .gle-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gle-overlay .gle-chip-x {
+  width: 14px; height: 14px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.10);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  cursor: pointer;
+  color: rgba(30,27,26,0.65);
+}
+.gle-overlay .gle-chip-x:hover { background: rgba(30,27,26,0.20); }
+.gle-overlay .gle-chip.is-input {
+  background: rgba(30,27,26,0.04);
+  padding-right: 6px;
+}
+.gle-overlay .gle-chip-inp {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: 12.5px;
+  width: 100px;
+  color: inherit;
+}
+.gle-overlay .gle-chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed rgba(30,27,26,0.20);
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(30,27,26,0.65);
+  cursor: pointer;
+}
+.gle-overlay .gle-chip-add:hover {
+  border-color: #9F3012;
+  color: #9F3012;
+}
+
+/* Editable score */
+.gle-overlay .gle-score-wrap {
+  position: relative;
+  display: inline-block;
+}
+.gle-overlay .gle-score-trigger {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 4px;
+  color: inherit;
+}
+.gle-overlay .gle-score-trigger:hover { background: rgba(30,27,26,0.06); }
+.gle-overlay .gle-score-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid rgba(30,27,26,0.10);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.14);
+  padding: 12px;
+  width: 240px;
+}
+.gle-overlay .gle-score-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gle-overlay .gle-score-pop-row input { flex: 1; }
+.gle-overlay .gle-score-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  min-width: 32px;
+  text-align: right;
+}
+.gle-overlay .gle-score-val.high { color: #047857; }
+.gle-overlay .gle-score-val.mid { color: #b45309; }
+.gle-overlay .gle-score-val.low { color: #b91c1c; }
+
+/* Editable price */
+.gle-overlay .gle-price-wrap { position: relative; display: inline-block; }
+.gle-overlay .gle-price-trigger {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.gle-overlay .gle-price-trigger:hover { background: rgba(30,27,26,0.06); }
+.gle-overlay .gle-price-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid rgba(30,27,26,0.10);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.14);
+  padding: 4px;
+  display: flex;
+  gap: 2px;
+}
+.gle-overlay .gle-price-opt {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-weight: 700;
+  color: rgba(30,27,26,0.65);
+  font-size: 13px;
+}
+.gle-overlay .gle-price-opt.on { background: #9F3012; color: #fff; }
+
+/* Custom section editor controls — sit beside the section header on
+   hover so they don't clutter the preview. */
+.gle-overlay .gle-cs-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.gle-overlay .gle-cs:hover .gle-cs-tools,
+.gle-overlay .gle-cs:focus-within .gle-cs-tools { opacity: 1; }
+.gle-overlay .gle-cs-fmt {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: rgba(30,27,26,0.65);
+  font-family: 'Noto Serif', serif;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gle-overlay.is-dark .gle-cs-fmt { border-color: rgba(255,255,255,0.10); color: rgba(255,255,255,0.65); }
+.gle-overlay .gle-cs-fmt:hover { background: rgba(30,27,26,0.06); }
+.gle-overlay .gle-cs-fmt.on {
+  background: #1e1b1a;
+  border-color: #1e1b1a;
+  color: #fff;
+}
+.gle-overlay .gle-cs-delete {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: rgba(30,27,26,0.55);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gle-overlay .gle-cs-delete:hover {
+  border-color: rgb(220,38,38);
+  color: rgb(220,38,38);
+  background: rgba(239,68,68,0.06);
+}
+
+/* Add another spot */
+.gle-overlay .gle-add-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 18px;
+  margin-top: 32px;
+  border-radius: 999px;
+  border: 2px dashed rgba(30,27,26,0.18);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(30,27,26,0.65);
+  cursor: pointer;
+}
+.gle-overlay .gle-add-entry:hover {
+  border-color: #9F3012;
+  color: #9F3012;
+}
+
+/* AddEntryPicker popover ─ minimalist dropdown anchored under the
+   "+ Add another spot" trigger. The "compact" variant is used by the
+   TOC trailing CTA where the trigger is a small text button. */
+.gle-overlay .gle-picker-wrap {
+  position: relative;
+  display: inline-block;
+}
+.gle-overlay .gle-picker-wrap.is-compact { display: block; }
+.gle-overlay .gle-picker-trigger-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(30,27,26,0.06);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gle-overlay .gle-picker-trigger-compact:hover { background: rgba(30,27,26,0.12); }
+.gle-overlay .gle-picker-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 460px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgba(30,27,26,0.10);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+  overflow: hidden;
+  color: #1e1b1a;
+}
+.gle-overlay.is-dark .gle-picker-pop {
+  background: #232120;
+  border-color: rgba(255,255,255,0.10);
+  color: #f4ede4;
+}
+.gle-overlay .gle-picker-wrap.is-compact .gle-picker-pop {
+  left: auto;
+  right: 0;
+}
+.gle-overlay .gle-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(30,27,26,0.08);
+  flex-shrink: 0;
+}
+.gle-overlay.is-dark .gle-picker-search { border-bottom-color: rgba(255,255,255,0.08); }
+.gle-overlay .gle-picker-search-ico {
+  color: rgba(30,27,26,0.4);
+  flex-shrink: 0;
+}
+.gle-overlay.is-dark .gle-picker-search-ico { color: rgba(255,255,255,0.4); }
+.gle-overlay .gle-picker-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+}
+.gle-overlay .gle-picker-input::placeholder { color: rgba(30,27,26,0.4); }
+.gle-overlay.is-dark .gle-picker-input::placeholder { color: rgba(255,255,255,0.4); }
+.gle-overlay .gle-picker-clear {
+  width: 20px; height: 20px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(30,27,26,0.08);
+  color: rgba(30,27,26,0.55);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gle-overlay .gle-picker-clear:hover { background: rgba(30,27,26,0.16); }
+.gle-overlay .gle-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.gle-overlay .gle-picker-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 14px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.4);
+}
+.gle-overlay.is-dark .gle-picker-section { color: rgba(255,255,255,0.4); }
+.gle-overlay .gle-picker-spinner {
+  animation: gle-spin 0.9s linear infinite;
+  color: rgba(30,27,26,0.5);
+}
+@keyframes gle-spin {
+  to { transform: rotate(360deg); }
+}
+.gle-overlay .gle-picker-empty {
+  padding: 32px 18px;
+  text-align: center;
+  font-size: 12.5px;
+  color: rgba(30,27,26,0.55);
+}
+.gle-overlay.is-dark .gle-picker-empty { color: rgba(255,255,255,0.55); }
+.gle-overlay .gle-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  transition: background-color 0.12s;
+}
+.gle-overlay .gle-picker-item:hover:not(:disabled) { background: rgba(30,27,26,0.05); }
+.gle-overlay.is-dark .gle-picker-item:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+.gle-overlay .gle-picker-item.is-added { opacity: 0.55; cursor: default; }
+.gle-overlay .gle-picker-item-ico {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: rgba(30,27,26,0.06);
+  color: rgba(30,27,26,0.55);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gle-overlay.is-dark .gle-picker-item-ico { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); }
+.gle-overlay .gle-picker-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.gle-overlay .gle-picker-item-name {
+  font-family: 'Noto Serif', serif;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gle-overlay .gle-picker-item-sub {
+  font-size: 11.5px;
+  color: rgba(30,27,26,0.55);
+  line-height: 1.35;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gle-overlay.is-dark .gle-picker-item-sub { color: rgba(255,255,255,0.55); }
+.gle-overlay .gle-picker-item-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: #9F3012;
+  flex-shrink: 0;
+}
+.gle-overlay .gle-picker-item-plus,
+.gle-overlay .gle-picker-item-check {
+  color: rgba(30,27,26,0.35);
+  flex-shrink: 0;
+}
+.gle-overlay.is-dark .gle-picker-item-plus,
+.gle-overlay.is-dark .gle-picker-item-check { color: rgba(255,255,255,0.35); }
+.gle-overlay .gle-picker-item:hover:not(:disabled) .gle-picker-item-plus { color: #9F3012; }
+.gle-overlay .gle-picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(30,27,26,0.08);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.4);
+  flex-shrink: 0;
+}
+.gle-overlay.is-dark .gle-picker-foot {
+  border-top-color: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.4);
+}
+.gle-overlay .gle-picker-foot-ico { opacity: 0.7; }
+.gle-overlay .gle-toc-cta {
+  margin-top: 12px;
+}
+.gle-overlay .gle-toc-cta button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(30,27,26,0.06);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gle-overlay .gle-toc-cta button:hover { background: rgba(30,27,26,0.12); }
+
+/* ── Inspector ──────────────────────────────────────────────── */
+
+.gle-overlay .gle-inspector {
+  width: 340px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid rgba(30,27,26,0.08);
+  color: #1e1b1a;
+}
+.gle-overlay.is-dark .gle-inspector { background: #232120; color: #f4ede4; border-left-color: rgba(255,255,255,0.10); }
+
+.gle-overlay .gle-insp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(30,27,26,0.08);
+  font-weight: 700;
+}
+.gle-overlay .gle-insp-title { font-size: 14px; }
+.gle-overlay .gle-insp-close {
+  width: 26px; height: 26px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gle-overlay .gle-insp-close:hover { background: rgba(30,27,26,0.06); }
+
+.gle-overlay .gle-insp-tabs {
+  display: flex;
+  padding: 8px;
+  gap: 4px;
+  background: rgba(30,27,26,0.04);
+  border-bottom: 1px solid rgba(30,27,26,0.08);
+}
+.gle-overlay .gle-insp-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  position: relative;
+}
+.gle-overlay .gle-insp-tab.on { background: #1e1b1a; color: #fff; }
+.gle-overlay .gle-tab-ico { display: inline-flex; }
+.gle-overlay .gle-tab-dot {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: #9F3012;
+  position: absolute;
+  top: 4px; right: 4px;
+}
+
+.gle-overlay .gle-insp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 24px;
+}
+.gle-overlay .gle-insp-foot {
+  padding: 10px 16px;
+  border-top: 1px solid rgba(30,27,26,0.08);
+}
+.gle-overlay .gle-insp-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gle-overlay .gle-insp-reset:hover { background: rgba(30,27,26,0.05); }
+
+/* Inspector groups */
+.gle-overlay .gle-grp {
+  border-bottom: 1px solid rgba(30,27,26,0.06);
+  padding: 14px 0 16px;
+}
+.gle-overlay .gle-grp:first-child { padding-top: 4px; }
+.gle-overlay .gle-grp:last-child { border-bottom: 0; }
+.gle-overlay .gle-grp-head {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.55);
+  margin-bottom: 10px;
+}
+.gle-overlay .gle-grp-body { display: flex; flex-direction: column; gap: 8px; }
+.gle-overlay .gle-sub-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.45);
+  margin-top: 4px;
+}
+
+/* Segmented row */
+.gle-overlay .gle-seg {
+  display: flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(30,27,26,0.06);
+  gap: 3px;
+}
+.gle-overlay .gle-seg-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.gle-overlay .gle-seg-btn.on { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.gle-overlay.is-dark .gle-seg-btn.on { background: #1e1b1a; color: #fff; }
+
+/* Toggle */
+.gle-overlay .gle-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+.gle-overlay .gle-toggle-track {
+  width: 32px; height: 18px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.18);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+}
+.gle-overlay .gle-toggle-track.on { background: #9F3012; }
+.gle-overlay .gle-toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  transition: transform 0.15s;
+}
+.gle-overlay .gle-toggle-track.on .gle-toggle-thumb { transform: translateX(14px); }
+
+/* Slider row */
+.gle-overlay .gle-slider-row { padding: 4px 0; }
+.gle-overlay .gle-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11.5px;
+  margin-bottom: 4px;
+}
+.gle-overlay .gle-slider-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.gle-overlay .gle-slider-row input[type=range] { width: 100%; }
+
+/* Surface grid */
+.gle-overlay .gle-surf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.gle-overlay .gle-surf-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.gle-overlay .gle-surf-card.on {
+  border-color: #9F3012;
+  box-shadow: 0 0 0 1px #9F3012;
+}
+.gle-overlay .gle-surf-prev {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(30,27,26,0.10);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Noto Serif', serif;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Font list */
+.gle-overlay .gle-font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gle-overlay .gle-font-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.gle-overlay .gle-font-row.on {
+  border-color: #9F3012;
+  box-shadow: 0 0 0 1px #9F3012;
+}
+.gle-overlay .gle-font-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.5);
+  width: 70px;
+  flex-shrink: 0;
+}
+.gle-overlay .gle-font-sample {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Hex row */
+.gle-overlay .gle-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.gle-overlay .gle-hex-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: rgba(30,27,26,0.5);
+}
+.gle-overlay .gle-hex-input {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  text-transform: uppercase;
+}
+.gle-overlay .gle-color-pick {
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(30,27,26,0.10);
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.gle-overlay .gle-color-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.gle-overlay .gle-color-pick span { display: block; width: 100%; height: 100%; }
+
+/* Element tab */
+.gle-overlay .gle-empty {
+  padding: 36px 12px;
+  text-align: center;
+}
+.gle-overlay .gle-empty-ico {
+  width: 44px; height: 44px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(30,27,26,0.5);
+  margin-bottom: 10px;
+}
+.gle-overlay .gle-empty-title {
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.gle-overlay .gle-empty-sub {
+  font-size: 12px;
+  color: rgba(30,27,26,0.6);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.gle-overlay .gle-elem-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(30,27,26,0.06);
+  margin-bottom: 10px;
+}
+.gle-overlay .gle-elem-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(30,27,26,0.5);
+}
+.gle-overlay .gle-elem-label {
+  font-weight: 700;
+  font-size: 14px;
+}
+.gle-overlay .gle-elem-sample {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(30,27,26,0.04);
+  border-radius: 6px;
+  font-style: italic;
+  font-size: 12px;
+  color: rgba(30,27,26,0.7);
+}
+.gle-overlay .gle-row-pair { display: flex; gap: 6px; }
+.gle-overlay .gle-align-row { display: flex; gap: 6px; }
+.gle-overlay .gle-mini-toggle {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.gle-overlay .gle-mini-toggle.on { background: #1e1b1a; color: #fff; border-color: #1e1b1a; }
+
+.gle-overlay .gle-color-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.gle-overlay .gle-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(30,27,26,0.10);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.gle-overlay .gle-color-chip.on { border-color: #9F3012; box-shadow: 0 0 0 1px #9F3012; }
+.gle-overlay .gle-color-dot {
+  width: 12px; height: 12px;
+  border-radius: 999px;
+  background: rgba(30,27,26,0.20);
+}
+.gle-overlay .gle-color-chip[data-tone="accent"]  .gle-color-dot { background: #9F3012; }
+.gle-overlay .gle-color-chip[data-tone="muted"]   .gle-color-dot { background: rgba(30,27,26,0.45); }
+.gle-overlay .gle-color-chip[data-tone="inverse"] .gle-color-dot { background: #fff; border: 1px solid rgba(30,27,26,0.20); }
