@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowLeft, Check, X, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
@@ -23,6 +23,7 @@ import {
   type RecipeStepDetail,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
+import { refineRecipe } from '../lib/build-recipe-client';
 import {
   saveDraft as saveExplicitDraft,
   removeDraft as removeExplicitDraft,
@@ -118,6 +119,15 @@ export const CUISINE_OPTIONS = [
 
 export const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Drinks', 'Appetizer', 'Side'];
 
+/** One-tap prompts for the "Edit with AI" composer. */
+const AI_EDIT_SUGGESTIONS = [
+  'Make it spicier',
+  'Make it healthier',
+  'Scale to 8 servings',
+  'Simplify the steps',
+  'Add a make-ahead tip',
+];
+
 /** Initial state for a brand-new draft. */
 function emptyState(): AdvancedRecipeState {
   return {
@@ -175,6 +185,58 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
     createdWithAi: !!meal.createdWithAi,
+  };
+}
+
+/** Snapshot the current builder state as a HomeMeal — the inverse of
+ *  fromHomeMeal. Used to hand the in-progress recipe to the AI refine
+ *  call so it edits ON TOP of exactly what the user is looking at
+ *  (rich groups + step details included), not a stale version. Identity
+ *  fields (id / createdAt / photos / date) come from `base` when editing
+ *  an existing recipe so they survive the round-trip. */
+function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): HomeMeal {
+  const cleanIngredientGroups = state.ingredientGroups
+    .map((g) => ({ name: g.name, ingredients: g.ingredients.filter((i) => i.name.trim()) }))
+    .filter((g) => g.ingredients.length > 0);
+  const flatIngredients = cleanIngredientGroups.flatMap((g) => g.ingredients);
+  const cleanSteps = state.steps.filter((s) => (s.body || s.title || '').trim());
+  const flatSteps = cleanSteps.map((s) => (s.title ? `${s.title}: ${s.body}` : s.body));
+  const summary = state.summary.trim();
+  return {
+    id: base?.id || `ai-edit-${Date.now()}`,
+    createdAt: base?.createdAt ?? Date.now(),
+    name: state.name.trim(),
+    date: base?.date || new Date().toISOString().slice(0, 10),
+    score: state.score,
+    wouldMakeAgain: base?.wouldMakeAgain ?? true,
+    description: summary,
+    photos: base?.photos || [],
+    tags: state.tags,
+    dishes: base?.dishes || [],
+    isPublic: state.isPublic,
+    coverPhoto: state.coverPhoto || undefined,
+    prepTime: state.prepTime,
+    cookTime: state.cookTime,
+    chillTime: state.chillTime,
+    servings: state.servings,
+    difficulty: state.difficulty,
+    cuisine: state.cuisine || undefined,
+    yieldDescription: state.yieldDescription.trim() || undefined,
+    course: state.course,
+    summary: summary || undefined,
+    ingredients: flatIngredients,
+    ingredientGroups: cleanIngredientGroups,
+    steps: flatSteps,
+    stepDetails: cleanSteps,
+    equipment: state.equipment.filter(Boolean),
+    notes: state.notes.filter((n) => n.text.trim()),
+    builderVersion: 'advanced',
+    createdWithAi: state.createdWithAi || undefined,
+    // Preserve source attribution if somehow present (defensive — saved
+    // copies aren't editable, so this is normally undefined).
+    sourceAuthorId: base?.sourceAuthorId,
+    sourceAuthorName: base?.sourceAuthorName,
+    sourceAuthorUsername: base?.sourceAuthorUsername,
   };
 }
 
@@ -420,6 +482,15 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
    *  from Activity), we remember that draft's id so further saves
    *  update the same row rather than spawning a new one. */
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  // "Edit with AI" composer — lets the user revise the recipe they're
+  // editing with a free-text instruction. The AI builds on top of the
+  // current draft (refineRecipe) rather than generating something new.
+  const [aiEditOpen, setAiEditOpen] = useState(false);
+  const [aiEditText, setAiEditText] = useState('');
+  const [aiEditBusy, setAiEditBusy] = useState(false);
+  const [aiEditError, setAiEditError] = useState<string | null>(null);
+  const aiEditInputRef = useRef<HTMLTextAreaElement>(null);
+  const aiEditAbortRef = useRef<AbortController | null>(null);
   const toast = useToast();
 
   const key = useMemo(() => resumeSlotKey(userId, existing?.id || null), [userId, existing?.id]);
@@ -545,6 +616,49 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     });
   }, [key, state, currentStep, currentDraftId, userId, existing, toast]);
 
+  // Apply a free-text AI instruction to the recipe being edited. We send
+  // the CURRENT builder state (not the original) so the AI revises exactly
+  // what's on screen, then hydrate the builder with its merged result —
+  // identity-bearing fields (id, photos) are preserved by refineRecipe.
+  const handleApplyAiEdit = useCallback(async (override?: string): Promise<void> => {
+    const instruction = (override ?? aiEditText).trim();
+    if (!instruction || aiEditBusy) return;
+    if (!state.name.trim()) {
+      setAiEditError('Add a recipe name first so the AI knows what it’s editing.');
+      return;
+    }
+    setAiEditBusy(true);
+    setAiEditError(null);
+    aiEditAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiEditAbortRef.current = controller;
+    const current = stateToHomeMeal(state, existing || seed || null);
+    const res = await refineRecipe(current, instruction, controller.signal);
+    if (controller.signal.aborted) return;
+    setAiEditBusy(false);
+    if (res.ok && res.meal) {
+      dispatch({ type: 'HYDRATE', state: fromHomeMeal(res.meal) });
+      hasUserInputRef.current = true;
+      setAiEditText('');
+      setAiEditOpen(false);
+      toast.showToast('Recipe updated with AI', {
+        subtitle: 'Review the changes, then publish when you’re happy.',
+        variant: 'success',
+      });
+    } else {
+      setAiEditError(res.error || 'Couldn’t apply that. Try rephrasing.');
+    }
+  }, [aiEditText, aiEditBusy, state, existing, seed, toast]);
+
+  // Focus the composer when it opens; abort any in-flight refine on unmount.
+  useEffect(() => {
+    if (aiEditOpen) {
+      const t = setTimeout(() => aiEditInputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [aiEditOpen]);
+  useEffect(() => () => aiEditAbortRef.current?.abort(), []);
+
   const handlePublish = useCallback(() => {
     const v = validate(state);
     if (!v.ok) {
@@ -657,6 +771,79 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         </div>
       )}
 
+      {/* Edit-with-AI composer overlay. */}
+      {aiEditOpen && (
+        <div
+          className="arb-draft-overlay"
+          onClick={() => { if (!aiEditBusy) setAiEditOpen(false); }}
+        >
+          <div className="arb-aiedit-card" onClick={(e) => e.stopPropagation()}>
+            <div className="arb-aiedit-head">
+              <div className="arb-aiedit-eyebrow"><Sparkles size={14} /> Edit with AI</div>
+              <button
+                type="button"
+                className="arb-aiedit-close"
+                onClick={() => setAiEditOpen(false)}
+                disabled={aiEditBusy}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="arb-aiedit-sub">
+              Describe a change and the AI will revise <strong>{state.name.trim() || 'this recipe'}</strong> —
+              building on what's here, not starting over.
+            </p>
+            <div className="arb-aiedit-chips">
+              {AI_EDIT_SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="arb-aiedit-chip"
+                  disabled={aiEditBusy}
+                  onClick={() => handleApplyAiEdit(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <textarea
+              ref={aiEditInputRef}
+              className="arb-aiedit-input"
+              value={aiEditText}
+              onChange={(e) => { setAiEditText(e.target.value); if (aiEditError) setAiEditError(null); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleApplyAiEdit(); }
+              }}
+              disabled={aiEditBusy}
+              rows={3}
+              placeholder="e.g. Make it vegetarian, add a make-ahead tip, scale to 8 servings…"
+            />
+            {aiEditError && (
+              <p className="arb-aiedit-error"><AlertCircle size={13} /> {aiEditError}</p>
+            )}
+            <div className="arb-aiedit-actions">
+              <button
+                type="button"
+                className="arb-aiedit-cancel"
+                onClick={() => setAiEditOpen(false)}
+                disabled={aiEditBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="arb-aiedit-apply"
+                onClick={() => handleApplyAiEdit()}
+                disabled={aiEditBusy || !aiEditText.trim()}
+              >
+                {aiEditBusy ? (<><Loader2 size={15} className="arb-spin" /> Revising…</>) : (<><Sparkles size={15} /> Apply edit</>)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!isPhone && (
         <button type="button" className="arb-pane-close" onClick={onClose} aria-label="Close">
           <X size={18} />
@@ -721,6 +908,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               );
             })}
           </div>
+          {existing && (
+            <button
+              type="button"
+              className="arb-edit-ai-btn is-mobile"
+              onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
+            >
+              <Sparkles size={13} />
+              Edit with AI
+            </button>
+          )}
         </header>
       )}
 
@@ -738,6 +935,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               </button>
             )}
             {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
+            {existing && (
+              <button
+                type="button"
+                className="arb-edit-ai-btn"
+                onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
+              >
+                <Sparkles size={14} />
+                Edit with AI
+              </button>
+            )}
             <ol className="arb-rail-steps">
               {STEP_TITLES.map((t, i) => {
                 const isDone = i < currentStep;
