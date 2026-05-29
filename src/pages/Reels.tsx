@@ -2260,15 +2260,12 @@ export const Reels: React.FC = () => {
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveVideoEl })}
         </div>
 
-        {/* Right column — action rail + side panels in a single flex row.
-            The action rail stays bottom-anchored at the left edge of the
-            column; comments / restaurant / recipe panels (h-full motion
-            divs) sit to its right when opened, expanding from width 0 so
-            the reel never reflows. Keeping these inside the same grid
-            cell prevents a stray fourth grid item from forcing a second
-            row that would squash the reel. */}
-        <div className="h-full min-w-0 flex items-stretch justify-start gap-3">
-          <div className="flex items-end justify-start pb-2 flex-shrink-0">
+        {/* Right column — action rail in-flow at bottom-left; side panels
+            absolutely positioned next to it so they don't push the column's
+            intrinsic width. That keeps the surrounding `1fr auto 1fr` grid
+            from reflowing when a panel opens — the reel stays put. */}
+        <div className="relative h-full min-w-0 flex items-end justify-start pb-2">
+          <div className="flex-shrink-0">
             {activeReel && (
               <DesktopSideActions
                 reel={activeReel}
@@ -2305,35 +2302,33 @@ export const Reels: React.FC = () => {
             )}
           </div>
 
-          {/* Comments panel — switches data source based on active tab. */}
-          <CommentsPanel
-            targetId={commentsTargetId}
-            onClose={commentsClose}
-            loadComments={commentsLoad}
-            addComment={commentsAdd}
-            deleteComment={commentsDelete}
-            currentUserId={currentUserId}
-          />
-
-          {/* Restaurant side panel — opens when a featured-place card is
-              tapped on a reel or post. Sits to the right of the action
-              rail, mirrors the comments panel's animation + chrome. */}
-          <RestaurantPanel
-            variant="panel"
-            snapshot={restaurantPanelSnapshot}
-            onClose={() => setRestaurantPanelSnapshot(null)}
-            currentUserId={currentUserId}
-          />
-
-          {/* Recipe side panel — sibling of the restaurant panel; opens
-              when a featured-recipe card is tapped. Mutual-exclusion
-              logic guarantees only one of the two is ever mounted. */}
-          <RecipePanel
-            variant="panel"
-            snapshot={recipePanelSnapshot}
-            onClose={() => setRecipePanelSnapshot(null)}
-            currentUserId={currentUserId}
-          />
+          {/* Panels overlay — left-anchored just past the rail, full height.
+              Out of flow, so opening a panel never resizes the column. */}
+          <div className="absolute top-0 bottom-0 left-[68px] flex items-stretch gap-3 pointer-events-none">
+            {/* Each panel re-enables pointer events on its own root */}
+            <div className="contents [&>*]:pointer-events-auto">
+              <CommentsPanel
+                targetId={commentsTargetId}
+                onClose={commentsClose}
+                loadComments={commentsLoad}
+                addComment={commentsAdd}
+                deleteComment={commentsDelete}
+                currentUserId={currentUserId}
+              />
+              <RestaurantPanel
+                variant="panel"
+                snapshot={restaurantPanelSnapshot}
+                onClose={() => setRestaurantPanelSnapshot(null)}
+                currentUserId={currentUserId}
+              />
+              <RecipePanel
+                variant="panel"
+                snapshot={recipePanelSnapshot}
+                onClose={() => setRecipePanelSnapshot(null)}
+                currentUserId={currentUserId}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Share dialog — fixed-position, floats above the layout. */}

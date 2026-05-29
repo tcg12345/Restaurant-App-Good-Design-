@@ -2,21 +2,20 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
-import { getMyGuides, type Guide as PublishedGuide } from '../lib/supabase-guides';
-import { GuideCard as PublishedGuideCard } from '../components/GuideCard';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
+import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { getMyGuides, deleteGuide, setGuideVisibility, type Guide as MyGuide } from '../lib/supabase-guides';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -396,6 +395,69 @@ function saveCustomization(userId: string | null | undefined, c: TopListCustomiz
    value with MIN_LIST_SIZE+ matching ratings the user hasn't already
    added. Adding a hidden auto-list un-hides it; adding a fresh slice
    pushes onto the custom list. */
+
+/* ── Settings primitives ─────────────────────────────────────────
+   Used by the redesigned Settings sheet (Profile / Preferences /
+   Account groups). Section gives a labeled card-style group with
+   subtle dividers between rows; Row renders either a navigable
+   chevron item or a toggle item. Hover, focus and tap-feedback are
+   built in so the whole row feels intentional, not just a button
+   styled to look like one. */
+const SettingsSection: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <section className="pt-4 first:pt-2">
+    <h4 className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 px-1 mb-2">{label}</h4>
+    <div className="rounded-2xl border border-on-surface/[0.06] bg-on-surface/[0.02] overflow-hidden divide-y divide-on-surface/[0.05]">
+      {children}
+    </div>
+  </section>
+);
+
+const SettingsRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  hint?: string;
+  onClick: () => void;
+  /** When set, the row renders a switch on the right instead of a
+   *  chevron. The click handler still fires when anywhere on the
+   *  row is tapped, so it doubles as the switch's hit target. */
+  toggle?: boolean;
+  toggleValue?: boolean;
+  /** Suppress the bottom divider when this is the last row in a
+   *  Section (the parent's `divide-y` handles internal dividers, but
+   *  this lets callers explicitly mark the tail). Cosmetic only. */
+  isLast?: boolean;
+}> = ({ icon, label, hint, onClick, toggle, toggleValue, isLast: _isLast }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="w-full flex items-center gap-3.5 px-4 py-3.5 hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] focus:outline-none focus-visible:bg-on-surface/[0.05] transition-colors text-left"
+  >
+    <span className="w-9 h-9 rounded-xl bg-on-surface/[0.05] flex items-center justify-center text-on-surface/65 flex-shrink-0">
+      {icon}
+    </span>
+    <span className="flex-1 min-w-0">
+      <span className="block text-[14px] font-semibold text-on-surface leading-tight">{label}</span>
+      {hint && <span className="block text-[11.5px] text-on-surface/45 mt-0.5 leading-snug truncate">{hint}</span>}
+    </span>
+    {toggle ? (
+      <span
+        className={cn(
+          'relative inline-block w-[42px] h-[24px] rounded-full transition-colors flex-shrink-0',
+          toggleValue ? 'bg-primary' : 'bg-on-surface/15',
+        )}
+        aria-hidden
+      >
+        <motion.span
+          className="absolute top-[2px] w-5 h-5 bg-white rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+          animate={{ left: toggleValue ? 19 : 2 }}
+          transition={{ type: 'spring', damping: 22, stiffness: 380 }}
+        />
+      </span>
+    ) : (
+      <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
+    )}
+  </button>
+);
 const EditTopListsSheet: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -572,7 +634,7 @@ export const Profile: React.FC = () => {
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
-  const { openGuideCreator } = useGuideCreator();
+  const { openGuideCreator, isOpen: guideCreatorOpen } = useGuideCreator();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
 
   // Reels and posts authored by the signed-in user. Both come from their
@@ -587,8 +649,36 @@ export const Profile: React.FC = () => {
   );
   const [confirmDeleteReelId, setConfirmDeleteReelId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
+  const [confirmDeleteGuideId, setConfirmDeleteGuideId] = useState<string | null>(null);
   const [deletingReel, setDeletingReel] = useState(false);
   const [deletingPost, setDeletingPost] = useState(false);
+  const [deletingGuide, setDeletingGuide] = useState(false);
+
+  // Guides owned by the signed-in user. Unlike reels/posts there's no
+  // global context loading these, so we fetch in-page on mount and after
+  // mutations. Includes drafts so the owner can see + finish them.
+  const [myGuides, setMyGuides] = useState<MyGuide[]>([]);
+  const refreshMyGuides = React.useCallback(async () => {
+    if (!user?.id) { setMyGuides([]); return; }
+    const list = await getMyGuides(user.id);
+    setMyGuides(list);
+  }, [user?.id]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id) { setMyGuides([]); return; }
+      const list = await getMyGuides(user.id);
+      if (!cancelled) setMyGuides(list);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+  // Re-fetch the moment the guide creator closes — covers create / edit / save.
+  const prevGuideCreatorOpen = useRef(false);
+  useEffect(() => {
+    if (prevGuideCreatorOpen.current && !guideCreatorOpen) void refreshMyGuides();
+    prevGuideCreatorOpen.current = guideCreatorOpen;
+  }, [guideCreatorOpen, refreshMyGuides]);
+
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
     setDeletingReel(true);
@@ -605,22 +695,27 @@ export const Profile: React.FC = () => {
     setConfirmDeletePostId(null);
     if (!ok) alert("Couldn't delete that post. Try again.");
   };
+  const onConfirmDeleteGuide = async () => {
+    if (!confirmDeleteGuideId) return;
+    setDeletingGuide(true);
+    const ok = await deleteGuide(confirmDeleteGuideId);
+    setDeletingGuide(false);
+    setConfirmDeleteGuideId(null);
+    if (!ok) { alert("Couldn't delete that guide. Try again."); return; }
+    setMyGuides((prev) => prev.filter((g) => g.id !== confirmDeleteGuideId));
+  };
+  const onToggleGuideVisibility = async (guideId: string, nextIsPublic: boolean) => {
+    const next = nextIsPublic ? 'public' : 'private';
+    // Optimistic flip — revert if the write fails.
+    setMyGuides((prev) => prev.map((g) => g.id === guideId ? { ...g, visibility: next } : g));
+    const ok = await setGuideVisibility(guideId, next);
+    if (!ok) {
+      alert("Couldn't update that guide's visibility. Try again.");
+      void refreshMyGuides();
+    }
+  };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
-  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated' | 'guides'>('top');
-  // Published guides authored by the signed-in user. Refreshed when the
-  // user id changes (e.g. on sign-in) so the tab is populated by the
-  // time it's visited.
-  const [publishedGuides, setPublishedGuides] = useState<PublishedGuide[]>([]);
-  useEffect(() => {
-    if (!user?.id) { setPublishedGuides([]); return; }
-    let cancelled = false;
-    (async () => {
-      const all = await getMyGuides(user.id);
-      if (cancelled) return;
-      setPublishedGuides(all.filter((g) => g.isPublished));
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id]);
+  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'guides' | 'rated'>('top');
   const [editListsOpen, setEditListsOpen] = useState(false);
   const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
@@ -629,6 +724,7 @@ export const Profile: React.FC = () => {
   useEffect(() => { saveCustomization(user?.id, customization); }, [user?.id, customization]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
+  const settingsDrag = useBottomSheet(settingsOpen && phoneMode, () => setSettingsOpen(false));
   // Create menu — single button under the action row that opens a small
   // popover offering Post or Reel. Mirrors the desktop sidebar's pattern.
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -1368,33 +1464,23 @@ export const Profile: React.FC = () => {
         )}
 
         {activeTab === 'guides' && (
-          publishedGuides.length === 0 ? (
+          myGuides.length === 0 ? (
             <EmptyTabState
               icon={<BookOpen size={32} className="text-on-surface/15" />}
               title="No guides yet"
-              subtitle="Curate your favorite restaurants or recipes into a guide — they'll show up here once you publish."
+              subtitle="Curate a list of places or recipes worth sharing."
               ctaLabel="Create a guide"
-              onCta={() => navigate('/create')}
+              onCta={() => openGuideCreator()}
             />
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {publishedGuides.map((g) => (
-                <PublishedGuideCard
-                  key={g.id}
-                  size="md"
-                  className="w-full"
-                  guide={{
-                    id: g.id,
-                    title: g.title,
-                    authorName: displayName || username || undefined,
-                    coverPhoto: g.coverPhoto,
-                    entryCount: g.entries.length,
-                    type: g.type,
-                    avgScore: g.avgScore,
-                  }}
-                />
-              ))}
-            </div>
+            <ProfileGuidesSection
+              guides={myGuides}
+              isOwn
+              onEdit={(guide) => openGuideCreator(guide)}
+              onDelete={(id) => setConfirmDeleteGuideId(id)}
+              onToggleVisibility={onToggleGuideVisibility}
+              hideHeader
+            />
           )
         )}
 
@@ -1529,29 +1615,77 @@ export const Profile: React.FC = () => {
             </motion.div>
           </motion.div>
         )}
+        {confirmDeleteGuideId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingGuide) setConfirmDeleteGuideId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete guide?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the guide and all its entries. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeleteGuideId(null)} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeleteGuide} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingGuide ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
-      {/* Settings Sheet — unified: main, edit profile, account sub-pages */}
+      {/* Settings — desktop: centered modal card. Phone: bottom sheet
+          with drag-to-dismiss. Three sub-pages (main / edit / account)
+          slide in and out within the same shell. */}
       <AnimatePresence>
         {settingsOpen && (
-          <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+            className={cn(
+              'fixed inset-0 z-[60]',
+              phoneMode
+                ? 'bg-black/45 backdrop-blur-sm'
+                : 'bg-black/55 backdrop-blur-md flex items-center justify-center px-4',
+            )}
+            onClick={() => setSettingsOpen(false)}
+          >
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
-              onClick={() => setSettingsOpen(false)}
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed inset-x-0 bottom-0 z-[60] bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' },
+                    animate: { y: 0 },
+                    exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    ...settingsDrag.dragProps,
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.95, y: -10 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.97, y: -6 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className={cn(
+                'bg-surface flex flex-col overflow-hidden',
+                phoneMode
+                  ? 'fixed inset-x-0 bottom-0 rounded-t-[28px] max-h-[88vh]'
+                  : 'w-full max-w-[480px] max-h-[86vh] rounded-[28px] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.45)] ring-1 ring-on-surface/[0.06]',
+              )}
             >
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
+              {phoneMode && (
+                <div
+                  className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                  onPointerDown={settingsDrag.startDrag}
+                >
+                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                </div>
+              )}
               <AnimatePresence mode="wait">
                 {settingsPage === 'main' && (
                   <motion.div
@@ -1561,142 +1695,94 @@ export const Profile: React.FC = () => {
                     exit={{ opacity: 0, x: -20 }}
                     className="flex flex-col flex-1 overflow-hidden"
                   >
-                    <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                      <h3 className="font-serif font-bold text-lg">Settings</h3>
+                    <div className={cn(
+                      'flex items-center justify-between flex-shrink-0',
+                      phoneMode ? 'px-6 pt-3 pb-4' : 'px-7 pt-6 pb-4',
+                    )}>
+                      <div>
+                        <h3 className="font-serif font-bold text-[22px] leading-none">Settings</h3>
+                        <p className="text-[11.5px] text-on-surface/45 mt-1.5">Manage your profile and preferences.</p>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setSettingsOpen(false)}
-                        className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center"
+                        aria-label="Close"
+                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center -mr-1"
                       >
-                        <X size={16} className="text-on-surface/60" />
+                        <X size={16} className="text-on-surface/65" />
                       </button>
                     </div>
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
+                    <div className={cn(
+                      'flex-1 overflow-y-auto',
+                      phoneMode ? 'px-5 pb-5' : 'px-5 pb-6',
+                    )}>
+                      <SettingsSection label="Profile">
+                        <SettingsRow
+                          icon={<Sparkles size={17} />}
+                          label="Your Activity"
+                          hint="Saves, likes, and comments"
+                          onClick={() => { setSettingsOpen(false); navigate('/activity'); }}
+                        />
+                        <SettingsRow
+                          icon={<Edit3 size={17} />}
+                          label="Edit Profile"
+                          hint="Name, username, bio, home city"
+                          onClick={() => { resetEditFields(); setSettingsPage('edit'); }}
+                        />
+                        <SettingsRow
+                          icon={<Lock size={17} />}
+                          label="Account"
+                          hint="Email, password, delete account"
+                          onClick={() => {
+                            setSettingsPage('account');
+                            setAccountMsg('');
+                            setAccountError('');
+                            setDeleteStep(0);
+                          }}
+                          isLast
+                        />
+                      </SettingsSection>
+
+                      <SettingsSection label="Preferences">
+                        <SettingsRow
+                          icon={profile?.is_public ? <Globe size={17} /> : <Lock size={17} />}
+                          label="Private Account"
+                          hint={profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
+                          toggle
+                          toggleValue={!profile?.is_public}
+                          onClick={async () => {
+                            if (!user?.id || !profile) return;
+                            const newVal = !profile.is_public;
+                            await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
+                            await refreshProfile();
+                          }}
+                        />
+                        <SettingsRow
+                          icon={darkMode ? <Moon size={17} /> : <Sun size={17} />}
+                          label="Dark Mode"
+                          hint={darkMode ? 'On — dark surface' : 'Off — light cream surface'}
+                          toggle
+                          toggleValue={darkMode}
+                          onClick={toggleDarkMode}
+                        />
+                        <SettingsRow
+                          icon={<Smartphone size={17} />}
+                          label="Phone View"
+                          hint="Force mobile layout on desktop"
+                          toggle
+                          toggleValue={phoneMode}
+                          onClick={togglePhoneMode}
+                          isLast
+                        />
+                      </SettingsSection>
+
                       <button
                         type="button"
-                        onClick={() => {
-                          setSettingsOpen(false);
-                          navigate('/activity');
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                        onClick={() => { setSettingsOpen(false); signOut(); }}
+                        className="mt-5 w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-600 text-[14px] font-semibold transition-colors"
                       >
-                        <Sparkles size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Your Activity</p>
-                          <p className="text-[11px] text-on-surface/35">Saves, likes, and comments</p>
-                        </div>
-                        <ChevronRight size={16} className="text-on-surface/20" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetEditFields();
-                          setSettingsPage('edit');
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Edit3 size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Edit Profile</p>
-                          <p className="text-[11px] text-on-surface/35">Name, username, bio</p>
-                        </div>
-                        <ChevronRight size={16} className="text-on-surface/20" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSettingsPage('account');
-                          setAccountMsg('');
-                          setAccountError('');
-                          setDeleteStep(0);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Lock size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Account</p>
-                          <p className="text-[11px] text-on-surface/35">Email, password, delete account</p>
-                        </div>
-                        <ChevronRight size={16} className="text-on-surface/20" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!user?.id || !profile) return;
-                          const newVal = !profile.is_public;
-                          await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
-                          await refreshProfile();
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Lock size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Private Account</p>
-                          <p className="text-[11px] text-on-surface/35">
-                            {profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
-                          </p>
-                        </div>
-                        <div
-                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${!profile?.is_public ? 'bg-primary' : 'bg-on-surface/15'}`}
-                        >
-                          <motion.div
-                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
-                            animate={{ left: !profile?.is_public ? '1.125rem' : '0.125rem' }}
-                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
-                          />
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={toggleDarkMode}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Moon size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Dark Mode</p>
-                          <p className="text-[11px] text-on-surface/35">{darkMode ? 'On — dark surface across the app' : 'Off — light cream surface'}</p>
-                        </div>
-                        <div
-                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${darkMode ? 'bg-primary' : 'bg-on-surface/15'}`}
-                        >
-                          <motion.div
-                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
-                            animate={{ left: darkMode ? '1.125rem' : '0.125rem' }}
-                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
-                          />
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={togglePhoneMode}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Smartphone size={18} className="text-on-surface/40" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Phone View</p>
-                          <p className="text-[11px] text-on-surface/35">Force mobile layout on desktop</p>
-                        </div>
-                        <div
-                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${phoneMode ? 'bg-primary' : 'bg-on-surface/15'}`}
-                        >
-                          <motion.div
-                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
-                            animate={{ left: phoneMode ? '1.125rem' : '0.125rem' }}
-                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
-                          />
-                        </div>
-                      </button>
-                      <div className="border-t border-on-surface/6 my-2" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSettingsOpen(false);
-                          signOut();
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-red-50 transition-colors text-left"
-                      >
-                        <LogOut size={18} className="text-red-400" />
-                        <span className="text-sm font-medium text-red-500">Sign Out</span>
+                        <LogOut size={15} />
+                        Sign out
                       </button>
                     </div>
                   </motion.div>
@@ -1709,11 +1795,29 @@ export const Profile: React.FC = () => {
                     exit={{ opacity: 0, x: 20 }}
                     className="flex flex-col flex-1 overflow-hidden"
                   >
-                    <div className="flex items-center gap-3 px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                      <button type="button" onClick={() => setSettingsPage('main')} className="p-1 text-on-surface/40">
-                        <ArrowLeft size={20} />
+                    <div className={cn(
+                      'flex items-center justify-between flex-shrink-0',
+                      phoneMode ? 'px-5 pt-3 pb-3' : 'px-6 pt-6 pb-3',
+                    )}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsPage('main')}
+                          aria-label="Back"
+                          className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -ml-1"
+                        >
+                          <ArrowLeft size={16} />
+                        </button>
+                        <h3 className="font-serif font-bold text-[20px] leading-none">Edit Profile</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsOpen(false)}
+                        aria-label="Close"
+                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -mr-1"
+                      >
+                        <X size={16} />
                       </button>
-                      <h3 className="font-serif font-bold text-lg">Edit Profile</h3>
                     </div>
                     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                       <div>
@@ -1805,11 +1909,29 @@ export const Profile: React.FC = () => {
                     exit={{ opacity: 0, x: 20 }}
                     className="flex flex-col flex-1 overflow-hidden"
                   >
-                    <div className="flex items-center gap-3 px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                      <button type="button" onClick={() => setSettingsPage('main')} className="p-1 text-on-surface/40">
-                        <ArrowLeft size={20} />
+                    <div className={cn(
+                      'flex items-center justify-between flex-shrink-0',
+                      phoneMode ? 'px-5 pt-3 pb-3' : 'px-6 pt-6 pb-3',
+                    )}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setSettingsPage('main')}
+                          aria-label="Back"
+                          className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -ml-1"
+                        >
+                          <ArrowLeft size={16} />
+                        </button>
+                        <h3 className="font-serif font-bold text-[20px] leading-none">Account</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsOpen(false)}
+                        aria-label="Close"
+                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -mr-1"
+                      >
+                        <X size={16} />
                       </button>
-                      <h3 className="font-serif font-bold text-lg">Account</h3>
                     </div>
                     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
                       <div className="bg-on-surface/3 rounded-xl px-3 py-2.5">
@@ -1932,7 +2054,7 @@ export const Profile: React.FC = () => {
                 )}
               </AnimatePresence>
             </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
 

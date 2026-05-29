@@ -27,8 +27,141 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
   ? process.env?.ANTHROPIC_API_KEY
   : undefined;
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+// Model IDs the chat can run on. The client selects one of these
+// (or 'auto') via the header model picker.
+const MODEL_SONNET = 'claude-sonnet-4-6';
+const MODEL_OPUS = 'claude-opus-4-8';
+// Retired id still accepted from older clients, mapped to MODEL_OPUS.
+const MODEL_OPUS_LEGACY = 'claude-opus-4-7';
+const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
+
+/** Adaptive model selector for 'auto' mode.
+ *
+ *  Lightweight heuristic on the most recent user message + a few
+ *  conversation signals. Opus 4.8 is much costlier than Sonnet 4.6, so
+ *  we only escalate when the request actually looks like it needs
+ *  multi-step reasoning. Cheap signals (length, keyword presence,
+ *  conversation depth) are good enough — the model still chooses
+ *  its own tool-use depth from there. */
+function pickAutoModel(messages: ChatRequest['messages']): string {
+  const last = [...messages].reverse().find((m) => m.role === 'user');
+  let userText = '';
+  if (last) {
+    if (typeof last.content === 'string') userText = last.content;
+    else if (Array.isArray(last.content)) {
+      for (const block of last.content) {
+        if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+          userText += (block as { text?: string }).text || '';
+        }
+      }
+    }
+  }
+  const text = userText.toLowerCase();
+
+  let score = 0;
+  if (text.length > 200) score += 1;
+  if ((text.match(/\?/g) || []).length >= 2) score += 1;
+  if ((text.match(/,/g) || []).length >= 3) score += 1;
+  if (messages.length >= 6) score += 1;
+
+  // Complex-task keywords — multi-criteria planning, comparison,
+  // group/occasion logistics. Hits add a single point combined so a
+  // string of synonyms doesn't over-count.
+  const complexHits = [
+    /\b(compare|comparison|vs\.?|versus|between)\b/,
+    /\b(plan|planning|itinerary|schedule|route)\b/,
+    /\b(alternatives?|options?|trade[- ]offs?)\b/,
+    /\b(for\s+(a\s+)?(group|party|crowd)|party of|group of)\b/,
+    /\b(anniversary|birthday|engagement|proposal|host(?:ing)?|dinner party)\b/,
+    /\b(weekend|two-?day|three-?day|long weekend)\b/,
+    /\b(walking distance|under \$?\d+|less than \$?\d+|within \d+)\b/,
+    /\b(?:both|and also|as well as)\b.*\b(?:and|plus|with)\b/,
+  ].some((re) => re.test(text));
+  if (complexHits) score += 1;
+
+  return score >= 2 ? MODEL_OPUS : MODEL_SONNET;
+}
+
+/** True when the latest user message reads like a request to author a
+ *  recipe — "build me a recipe", "create a banana bread recipe", "recipe
+ *  for X", "best <food> recipe", etc. Also catches the second turn of an
+ *  AI clarification loop: prior assistant message ended in '?' and the
+ *  user is now answering (so the recipe build is still in flight). */
+function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
+  if (!messages.length) return false;
+
+  const extractText = (msg: ChatRequest['messages'][number]): string => {
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+      let acc = '';
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+          acc += (block as { text?: string }).text || '';
+        }
+      }
+      return acc;
+    }
+    return '';
+  };
+
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const lastUserText = lastUser ? extractText(lastUser).toLowerCase() : '';
+
+  const directHit = [
+    /\b(create|build|make|generate|write|draft)\b[^.?!]{0,80}\brecipe\b/,
+    /\brecipe\s+for\b/,
+    /\bbest\b[^.?!]{0,40}\brecipe\b/,
+    /\b(give|send|share)\b[^.?!]{0,30}\b(me\s+)?(a|the)\s+recipe\b/,
+  ].some((re) => re.test(lastUserText));
+  if (directHit) return true;
+
+  // Mid-clarification continuation: the assistant just asked a recipe-
+  // related question and the user is replying. Only check the LAST
+  // assistant turn so we don't escalate forever.
+  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  if (lastAssistant) {
+    const txt = extractText(lastAssistant).toLowerCase();
+    if (/\brecipe\b/.test(txt) && /\?/.test(txt)) return true;
+  }
+
+  // Follow-up tweak to an existing draft. If the conversation already
+  // contains a build_recipe or edit_recipe_draft tool_use, the user's
+  // next short message is likely a refinement ("less salt", "swap to
+  // pecans", "make it spicier"). Keep Opus + 6000-token budget so the
+  // edit_recipe_draft call has room for a full revised ingredient or
+  // step list.
+  const hasPriorDraft = messages.some((m) => {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return false;
+    return m.content.some((block) => {
+      if (!block || typeof block !== 'object') return false;
+      const b = block as { type?: string; name?: string };
+      return b.type === 'tool_use' && (b.name === 'build_recipe' || b.name === 'edit_recipe_draft');
+    });
+  });
+  if (hasPriorDraft) return true;
+
+  return false;
+}
+
+/** Resolve the model for this request. Accepts 'auto', a known model
+ *  ID, or undefined (treated as 'auto'). Falls back to the default
+ *  when the client passes something unrecognised.
+ *
+ *  Recipe-building turns ALWAYS run on Opus 4.8 regardless of the
+ *  client's pick — the structured JSON output is sensitive to quality
+ *  and the user explicitly opted in to this trade-off. The override is
+ *  silent and per-turn; the picker is unchanged. */
+function resolveModel(body: ChatRequest): string {
+  if (looksLikeRecipeBuild(body.messages)) return MODEL_OPUS;
+  const requested = (body.model || 'auto').trim();
+  if (requested === MODEL_SONNET || requested === MODEL_OPUS) return requested;
+  // Older clients may still send the retired Opus 4.7 id — honor the
+  // intent by running on the current Opus.
+  if (requested === MODEL_OPUS_LEGACY) return MODEL_OPUS;
+  if (requested === 'auto' || !requested) return pickAutoModel(body.messages);
+  return DEFAULT_MODEL;
+}
 
 // Tools Claude can use.
 //
@@ -286,7 +419,7 @@ const TOOL_TOGGLE_WISHLIST = {
 const TOOL_OPEN_ADD_RECIPE_MODAL = {
   name: 'open_add_recipe_modal',
   description:
-    "Open the Add Recipe modal — the canonical surface for adding a dish the user cooked, with ingredients, steps, photos, and a score. Use when the user says 'add a recipe', 'create a recipe', 'log a recipe', 'log what I cooked', etc. (In this app, recipes and home-cooked meals are the same concept — always use this tool.) The chat closes automatically when the modal opens.",
+    "Open the empty Add Recipe modal so the user can MANUALLY type in a recipe they cooked themselves. Use ONLY when the user wants to enter THEIR OWN recipe (e.g. 'log the pasta I made tonight', 'I want to add a recipe', 'open the recipe form', 'let me type in a recipe'). DO NOT use this when the user asks YOU to author / build / create / make / generate / write / draft a recipe — for that use `build_recipe` instead. The chat closes automatically when the modal opens.",
   input_schema: {
     type: 'object',
     properties: {},
@@ -325,11 +458,202 @@ const TOOL_OPEN_ADD_REEL_MODAL = {
 const TOOL_OPEN_HOME_MEAL_MODAL = {
   name: 'open_home_meal_modal',
   description:
-    "Alias of open_add_recipe_modal — opens the Add Recipe modal. Either tool is fine; both surface the same flow. (Recipes and home-cooked meals are one and the same in this app.)",
+    "Alias of open_add_recipe_modal — opens the EMPTY Add Recipe modal for MANUAL entry. Same disambiguation: use ONLY when the user wants to type in their own recipe; use `build_recipe` when the user wants YOU to author one.",
   input_schema: {
     type: 'object',
     properties: {},
     required: [],
+  },
+};
+
+/** AI-authored recipe. The tool result renders a draft card in the
+ *  chat — NOT in the user's account. The user has to tap Publish in
+ *  the preview sheet to commit the recipe to their cookbook.
+ *
+ *  Schema is intentionally permissive: only `name` is required, and
+ *  ingredients / steps can be supplied either as a flat list (simple
+ *  recipes) or as grouped objects (multi-stage recipes). The model
+ *  should still fill EVERY relevant field with care — measurements,
+ *  step ordering, realistic timing, 1–3 useful notes. */
+const TOOL_BUILD_RECIPE = {
+  name: 'build_recipe',
+  description:
+    "Author a complete recipe and render it as a draft card in the chat for the user to review. Use this when the user asks you to create / build / make / generate / write / draft a recipe. The card shows a preview; tapping it opens a full read-only sheet with Publish and Edit actions. Do NOT paste the recipe text in your reply — the card IS the deliverable. After calling this tool, reply with ONE short sentence pointing the user at the card (e.g. 'Drafted a brown-butter banana bread — open the card to review.').",
+  input_schema: {
+    type: 'object',
+    required: ['name'],
+    properties: {
+      name: { type: 'string', description: 'Recipe title.' },
+      summary: { type: 'string', description: 'One-line description shown under the title.' },
+      cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
+      course: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Pick items from COURSE_OPTIONS. E.g. ["Dessert"] or ["Lunch", "Dinner"].',
+      },
+      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+      prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
+      cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
+      chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
+      servings: { type: 'integer', minimum: 1 },
+      yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
+      ingredients: {
+        type: 'array',
+        description: 'Flat list of ingredients. Use this for simple recipes; for multi-stage recipes prefer ingredientGroups instead. Either field is fine.',
+        items: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
+            unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
+          },
+        },
+      },
+      ingredientGroups: {
+        type: 'array',
+        description: 'Grouped ingredients for multi-stage recipes ("For the batter", "For the streusel"). Use either this OR ingredients — not both.',
+        items: {
+          type: 'object',
+          required: ['name', 'ingredients'],
+          properties: {
+            name: { type: 'string', description: 'Section name.' },
+            ingredients: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string' },
+                  amount: { type: 'string' },
+                  unit: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+      steps: {
+        type: 'array',
+        description: 'Ordered cooking steps. Each step is an object with a `body` (the action) and optional title / durationMin / tip.',
+        items: {
+          type: 'object',
+          required: ['body'],
+          properties: {
+            title: { type: 'string', description: 'Optional short imperative, e.g. "Brown the butter".' },
+            body: { type: 'string', description: 'One action per step, named clearly.' },
+            durationMin: { type: 'integer', minimum: 0 },
+            tip: { type: 'string', description: 'Optional inline tip for this step.' },
+          },
+        },
+      },
+      equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Free-text tags.' },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['type', 'text'],
+          properties: {
+            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
+            text: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+/** Edit the most recent AI-built recipe draft IN PLACE. Use this for
+ *  any tweak to a recipe you've already drafted (spicier, swap an
+ *  ingredient, shorter prep, fix a measurement, add a note). The
+ *  existing draft card refreshes — no second card appears. Emit ONLY
+ *  the fields that change. For array fields (ingredients, steps,
+ *  notes, equipment, tags, course) emit the FULL revised list. Do NOT
+ *  use this to start a completely different dish — call `build_recipe`
+ *  for that. */
+const TOOL_EDIT_RECIPE_DRAFT = {
+  name: 'edit_recipe_draft',
+  description:
+    "Edit the most recent unpublished AI-built recipe draft IN PLACE. Use this for ANY refinement of a recipe you already drafted in this conversation — spicier, swap an ingredient, shorter timing, fix a measurement, add a note. Emit ONLY the fields you're changing; omitted fields are left alone. For ingredients/steps/notes/equipment/tags/course you must emit the FULL revised list (not just the delta items). After calling this tool, reply with ONE short sentence about what changed (e.g. \"Bumped the chili and added a tip about heat — refresh the card.\"). Do NOT use this when the user asks for a completely different dish — call `build_recipe` for that instead.",
+  input_schema: {
+    type: 'object',
+    required: [],
+    properties: {
+      name: { type: 'string', description: 'Replace the recipe title.' },
+      summary: { type: 'string' },
+      cuisine: { type: 'string' },
+      course: { type: 'array', items: { type: 'string' } },
+      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+      prepTime: { type: 'integer', minimum: 0 },
+      cookTime: { type: 'integer', minimum: 0 },
+      chillTime: { type: 'integer', minimum: 0 },
+      servings: { type: 'integer', minimum: 1 },
+      yieldDescription: { type: 'string' },
+      ingredients: {
+        type: 'array',
+        description: 'Flat list. Use either this OR ingredientGroups. Emit the FULL revised list — replaces the existing ingredients entirely.',
+        items: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string' },
+            amount: { type: 'string' },
+            unit: { type: 'string' },
+          },
+        },
+      },
+      ingredientGroups: {
+        type: 'array',
+        description: 'Grouped list. Use either this OR ingredients. Emit the FULL revised list of groups.',
+        items: {
+          type: 'object',
+          required: ['name', 'ingredients'],
+          properties: {
+            name: { type: 'string' },
+            ingredients: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string' },
+                  amount: { type: 'string' },
+                  unit: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+      steps: {
+        type: 'array',
+        description: 'Full revised ordered step list — replaces the existing steps entirely.',
+        items: {
+          type: 'object',
+          required: ['body'],
+          properties: {
+            title: { type: 'string' },
+            body: { type: 'string' },
+            durationMin: { type: 'integer', minimum: 0 },
+            tip: { type: 'string' },
+          },
+        },
+      },
+      equipment: { type: 'array', items: { type: 'string' } },
+      tags: { type: 'array', items: { type: 'string' } },
+      notes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['type', 'text'],
+          properties: {
+            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
+            text: { type: 'string' },
+          },
+        },
+      },
+    },
   },
 };
 
@@ -652,6 +976,31 @@ function buildSystemPrompt(body: ChatRequest): string {
     "8. Active filters may be hiding good answers; you can call it out (\"your Japanese filter is hiding wing spots — I searched broader\") but don't ask the user to clear filters first, just help.",
   );
 
+  // ── Recipe-building protocol ──
+  lines.push("");
+  lines.push("RECIPE BUILDING — when the user asks YOU to author / build / create / make / generate / write / draft a recipe (\"make me a banana bread recipe\", \"best soup recipe\", \"build a vegan pasta recipe\"):");
+  lines.push(
+    "  R0. CRITICAL — use the `build_recipe` tool. Do NOT use `open_add_recipe_modal` or `open_home_meal_modal` for this — those are for MANUAL entry only (the user typing in their own recipe). When the user wants YOU to write the recipe, `build_recipe` is the ONLY correct tool. Calling the manual modal in this case is a bug.",
+  );
+  lines.push(
+    "  R1. ASK AT MOST ONE clarifying question, ONLY if the request is too vague to write anything good (e.g. user just says \"make me a recipe\" with no dish). Once you have a dish in mind, COMMIT — call the `build_recipe` tool. Do NOT keep asking follow-ups.",
+  );
+  lines.push(
+    "  R2. When you call `build_recipe`, only `name` is required, but FILL EVERY relevant field: a one-line `summary`, `cuisine`, `course`, `difficulty`, `prepTime`, `cookTime`, `servings`, ingredients (use the flat `ingredients` array for single-stage recipes; use `ingredientGroups` only for recipes with distinct stages like \"For the batter\" / \"For the streusel\"), `steps` with real actions, optional `equipment`, optional `notes` (1–3 useful tips). Realistic measurements and timing.",
+  );
+  lines.push(
+    "  R3. `cuisine` examples: Italian, French, American, Japanese, Mexican, Thai, Indian, Mediterranean, etc. `course` examples: Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side. Pick the closest match.",
+  );
+  lines.push(
+    "  R4. AFTER calling the tool, reply with ONE short sentence pointing the user at the card (e.g. \"Drafted a brown-butter banana bread — open the card to review.\"). DO NOT paste the recipe text back. The card IS the deliverable; the user publishes or edits it from there.",
+  );
+  lines.push(
+    "  R5. REFINEMENTS to a draft you already created in this conversation (\"make it spicier\", \"swap walnuts for pecans\", \"shorter prep\", \"less salt\", \"add a make-ahead note\", \"fix the flour measurement\") → call `edit_recipe_draft` with ONLY the fields that change. The existing card in chat refreshes in place — do NOT re-call `build_recipe` for tweaks, or the user will end up with a duplicate orphan card. For array fields you're editing (ingredients, steps, notes, equipment, tags, course), emit the FULL revised list — you're replacing the existing list, not appending to it. After the call, reply with ONE short sentence describing what changed (\"Swapped the walnuts for pecans and bumped the salt — refresh the card.\").",
+  );
+  lines.push(
+    "  R6. NEW DISH entirely (\"now do me a savory carbonara\", \"forget the bread, make me a Thai curry\") → call `build_recipe`, which spawns a brand-new draft card. Rule of thumb: same dish being adjusted → `edit_recipe_draft`. Different dish → `build_recipe`.",
+  );
+
   return lines.join('\n');
 }
 
@@ -694,9 +1043,17 @@ export default async function handler(req: Request): Promise<Response> {
 
   const systemText = buildSystemPrompt(body);
 
+  // Recipe-build turns produce a single large tool_use JSON (full
+  // recipe with ingredients + steps + notes). 1024 tokens truncates
+  // mid-stream — the tool input never finishes, the client sees an
+  // empty / malformed JSON, and from the user's perspective the chat
+  // just goes silent. Everything else fits easily in 1024.
+  const recipeBuild = looksLikeRecipeBuild(body.messages);
+  const maxTokens = recipeBuild ? 6000 : 1024;
+
   const anthropicBody = {
-    model: body.model || DEFAULT_MODEL,
-    max_tokens: 1024,
+    model: resolveModel(body),
+    max_tokens: maxTokens,
     stream: true,
     // System is shipped as a single text block with ephemeral cache_control
     // so consecutive turns against the same filter snapshot hit Anthropic's
@@ -726,6 +1083,8 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_OPEN_ADD_POST_MODAL,
       TOOL_OPEN_ADD_REEL_MODAL,
       TOOL_OPEN_HOME_MEAL_MODAL,
+      TOOL_BUILD_RECIPE,
+      TOOL_EDIT_RECIPE_DRAFT,
       TOOL_OPEN_GUIDE_CREATOR,
       TOOL_WEB_SEARCH,
     ],

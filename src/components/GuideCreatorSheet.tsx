@@ -304,9 +304,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
 
   /* ── Per-step gate ────────────────────────────────────────────── */
   const gate: { ok: boolean; reason?: string } = (() => {
-    if (step === 'cover' && !coverPhoto) {
-      return { ok: false, reason: 'Pick a cover photo before moving on.' };
-    }
+    // Cover photo is OPTIONAL — when omitted, the guide opens with the
+    // photo-less "Minimal" hero (see getTheme in supabase-guides.ts).
     if (step === 'details' && !title.trim()) {
       return { ok: false, reason: 'Give your guide a title before moving on.' };
     }
@@ -1436,10 +1435,10 @@ const StepCover: React.FC<StepCoverProps> = ({ coverPhoto, entries, onPickCoverF
 
   return (
     <>
-      <p className="gc-pane-intro">Pick a cover photo — it sets the tone for the whole guide.</p>
+      <p className="gc-pane-intro">Pick a cover photo to set the tone — or skip and use the minimal, photo-less header.</p>
       <div className="gc-field">
         <div className="gc-label">
-          Cover photo <span className="req">required</span>
+          Cover photo <span className="opt">optional</span>
         </div>
         {coverPhoto ? (
           <div className="gc-dropzone-preview" style={{ backgroundImage: `url(${coverPhoto})` }}>
@@ -1455,7 +1454,7 @@ const StepCover: React.FC<StepCoverProps> = ({ coverPhoto, entries, onPickCoverF
               <span className="gc-dropzone-text">
                 Drop an image or <span className="accent">click to browse</span>
               </span>
-              <span className="gc-dropzone-sub">JPG or PNG · sets the tone for the whole guide</span>
+              <span className="gc-dropzone-sub">JPG or PNG · optional — skip for a minimal, photo-less header</span>
             </span>
           </button>
         )}

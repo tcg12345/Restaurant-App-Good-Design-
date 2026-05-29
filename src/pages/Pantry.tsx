@@ -9,7 +9,7 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
-import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
@@ -41,7 +41,6 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
   { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
   { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location', type: 'hotel-breakfast' },
-  { name: 'Recipes', emoji: '🍳', category: 'Functional & Daily', type: 'home-cooking' },
   { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
   { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
   { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },
@@ -84,6 +83,79 @@ const PRESET_LISTS: PresetList[] = [
   { name: "Places We've Been Together", emoji: '🤝', category: 'Social' },
   { name: 'Friend Recommendations', emoji: '💬', category: 'Social' },
   { name: 'Want to Try Together', emoji: '📌', category: 'Social' },
+
+  // ─── Recipe presets — type: 'home-cooking' ───
+  // These power the recipes-tab list picker. Grouped into seven
+  // categories so the picker reads as a real cookbook index rather
+  // than a single bucket.
+  { name: 'Recipes', emoji: '🍳', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Weeknight Dinners', emoji: '🍽️', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Quick & Easy', emoji: '🏃', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: '30-Minute Meals', emoji: '⏱️', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'One-Pot Meals', emoji: '🍲', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Sheet-Pan Dinners', emoji: '🍖', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Slow Cooker', emoji: '🐢', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Instant Pot', emoji: '⚡', category: 'Everyday & Weeknight', type: 'home-cooking' },
+  { name: 'Meal Prep', emoji: '🥡', category: 'Everyday & Weeknight', type: 'home-cooking' },
+
+  { name: 'Breakfast & Brunch', emoji: '🥞', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Lunches', emoji: '🥪', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Soups & Stews', emoji: '🍜', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Salads', emoji: '🥗', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Sides & Small Plates', emoji: '🥔', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Appetizers', emoji: '🧀', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Snacks & Bites', emoji: '🍿', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Drinks & Cocktails', emoji: '🍹', category: 'Meal Types', type: 'home-cooking' },
+  { name: 'Sauces & Dressings', emoji: '🥫', category: 'Meal Types', type: 'home-cooking' },
+
+  { name: 'Desserts', emoji: '🍰', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Cookies', emoji: '🍪', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Cakes', emoji: '🎂', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Pies & Tarts', emoji: '🥧', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Bread Baking', emoji: '🍞', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Pastries', emoji: '🥐', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Ice Cream & Frozen', emoji: '🍦', category: 'Sweet & Baking', type: 'home-cooking' },
+  { name: 'Chocolate', emoji: '🍫', category: 'Sweet & Baking', type: 'home-cooking' },
+
+  { name: 'Italian', emoji: '🍝', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Mexican', emoji: '🌮', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Asian', emoji: '🥢', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Chinese', emoji: '🥟', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Japanese', emoji: '🍣', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Korean', emoji: '🍱', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Thai', emoji: '🌶️', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Indian', emoji: '🍛', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'Mediterranean', emoji: '🫒', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'French', emoji: '🥂', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'American Comfort', emoji: '🍔', category: 'By Cuisine', type: 'home-cooking' },
+  { name: 'BBQ & Grilling', emoji: '🔥', category: 'By Cuisine', type: 'home-cooking' },
+
+  { name: 'Vegetarian', emoji: '🌿', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Vegan', emoji: '🌱', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Gluten-Free', emoji: '🌾', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Dairy-Free', emoji: '🥛', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Keto / Low-Carb', emoji: '🥩', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'High Protein', emoji: '💪', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Whole 30 / Paleo', emoji: '🦴', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+  { name: 'Plant-Based', emoji: '🥦', category: 'Dietary & Lifestyle', type: 'home-cooking' },
+
+  { name: 'Holiday Dinners', emoji: '🦃', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Thanksgiving', emoji: '🍂', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Christmas Cooking', emoji: '🎄', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Game Day', emoji: '🏈', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Date Night Cooking', emoji: '🕯️', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Cooking for a Crowd', emoji: '👥', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Cooking for Two', emoji: '💑', category: 'Occasion & Holiday', type: 'home-cooking' },
+  { name: 'Birthdays & Celebrations', emoji: '🎉', category: 'Occasion & Holiday', type: 'home-cooking' },
+
+  // "Want to Cook" is the built-in default recipe list (see
+  // DEFAULT_WANT_TO_COOK_ID in ListsContext) — every user has it,
+  // so it's intentionally not offered as a preset to avoid duplicates.
+  { name: 'Tried & Loved', emoji: '❤️', category: 'Inspiration & Wishlist', type: 'home-cooking' },
+  { name: 'Family Favorites', emoji: '👨‍👩‍👧', category: 'Inspiration & Wishlist', type: 'home-cooking' },
+  { name: 'Restaurant Copycats', emoji: '🧑‍🍳', category: 'Inspiration & Wishlist', type: 'home-cooking' },
+  { name: 'From My Travels', emoji: '✈️', category: 'Inspiration & Wishlist', type: 'home-cooking' },
+  { name: 'Kid-Friendly Recipes', emoji: '👶', category: 'Inspiration & Wishlist', type: 'home-cooking' },
 ];
 
 const PRESET_CATEGORIES = [...new Set(PRESET_LISTS.map((p) => p.category))];
@@ -1687,6 +1759,7 @@ const ListDetailView: React.FC<{
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
   const isWishlistView = list.id === '__wishlist__';
+  const isDefaultWantToCook = list.id === DEFAULT_WANT_TO_COOK_ID;
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
@@ -2125,7 +2198,7 @@ const ListDetailView: React.FC<{
             </span>
           </button>
           <ListMoreMenu
-            items={isWishlistView ? [] : [{
+            items={isWishlistView || isDefaultWantToCook ? [] : [{
               label: 'Delete list',
               icon: <Trash2 size={14} />,
               destructive: true,
@@ -2460,6 +2533,11 @@ const ListDetailView: React.FC<{
                         <span className="text-[10px] text-on-surface/35">{recipe.tags[0]}{recipe.tags.length > 1 ? ` +${recipe.tags.length - 1}` : ''}</span>
                       )}
                     </div>
+                    {(recipe.sourceAuthorUsername || recipe.sourceAuthorName) && (
+                      <p className="text-[10.5px] text-on-surface/40 italic mt-1 truncate">
+                        by {recipe.sourceAuthorUsername ? `@${recipe.sourceAuthorUsername}` : recipe.sourceAuthorName}
+                      </p>
+                    )}
                   </div>
                   <ScoreBadge rating={recipe.score} size="sm" />
                 </button>
@@ -5552,17 +5630,19 @@ const HomeCookingTab: React.FC<{
               meal={meal}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
+              onDelete={() => onDeleteMeal(meal.id)}
             />
           ))}
         </div>
       ) : (
-        <ul className="divide-y divide-on-surface/[0.06]">
+        <ul className="space-y-2.5">
           {filteredMeals.map((meal) => (
             <RecipeRow
               key={meal.id}
               meal={meal}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
+              onDelete={() => onDeleteMeal(meal.id)}
             />
           ))}
         </ul>
@@ -5593,59 +5673,157 @@ const HomeCookingTab: React.FC<{
    List view drops the cover image — just title + meta + score on a
    single line. The cover photo is already the headline element of the
    grid view, so the list view stays compact and text-first. */
+/* ── Recipe list row ──
+   Editorial card matching the rest of the program: cover thumbnail
+   on the left, title + chip-style meta + ingredient preview in the
+   middle, score badge on the right. Hover lifts the surface and
+   reveals Edit / Delete actions; both share the same focus-within
+   target so keyboard users get them too. */
 const RecipeRow: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
   onEdit: () => void;
-}> = ({ meal, onClick, onEdit }) => {
+  onDelete?: () => void;
+}> = ({ meal, onClick, onEdit, onDelete }) => {
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
   const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+  const ingredientText = ingredientPreview.map((i) => i.name).filter(Boolean).join(', ');
+  const ingredientOverflow = (meal.ingredients?.length ?? 0) > ingredientPreview.length;
+  const coverPhoto = getMealCoverUrl(meal);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <li className="relative group/row">
       <button
         onClick={onClick}
-        className="w-full text-left py-4 active:scale-[0.99] transition-transform"
+        className="w-full text-left flex items-center gap-4 p-3 sm:p-3.5 rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/15 hover:shadow-[0_6px_18px_-10px_rgba(0,0,0,0.18)] active:scale-[0.995] transition-all"
       >
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-          <div className="flex-shrink-0 mr-7">
-            {meal.score > 0 ? (
-              <ScoreBadge rating={meal.score} size="sm" />
-            ) : (
-              <span className="text-on-surface/25 text-lg font-serif font-bold leading-none pt-0.5">—</span>
-            )}
+        {/* Cover thumbnail. Mirrors the grid card's chef-hat placeholder
+            on bg-emerald-50 so a cookbook without photos still feels
+            warm and intentional instead of empty. */}
+        <div className="w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] rounded-xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 ring-1 ring-on-surface/[0.05]">
+          {coverPhoto ? (
+            <img
+              src={coverPhoto}
+              alt={meal.name}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+              <ChefHat size={26} className="text-emerald-300" strokeWidth={1.6} />
+            </div>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-3">
+            <h3 className="font-serif font-bold text-[15.5px] leading-snug line-clamp-2 flex-1 text-on-surface">
+              {meal.name}
+            </h3>
+            <div className="flex-shrink-0 -mt-0.5">
+              {meal.score > 0 ? (
+                <ScoreBadge rating={meal.score} size="sm" />
+              ) : (
+                <span className="text-on-surface/20 text-lg font-serif font-bold leading-none">—</span>
+              )}
+            </div>
+          </div>
+
+          {/* Meta chips — soft pills, not uppercase prose, so the row
+              reads as a polished card instead of plain text. */}
+          {(meal.cuisine || totalTime > 0 || meal.difficulty || meal.dishes.length > 0) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {meal.cuisine && (
+                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  {meal.cuisine}
+                </span>
+              )}
+              {totalTime > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  <Clock size={10} className="opacity-70" />
+                  {formatDuration(totalTime)}
+                </span>
+              )}
+              {meal.difficulty && (
+                <span className={cn(
+                  'inline-flex items-center text-[10.5px] font-semibold px-2 py-0.5 rounded-full',
+                  meal.difficulty === 'Easy' && 'bg-emerald-50 text-emerald-700',
+                  meal.difficulty === 'Medium' && 'bg-amber-50 text-amber-700',
+                  meal.difficulty === 'Hard' && 'bg-rose-50 text-rose-700',
+                )}>
+                  {meal.difficulty}
+                </span>
+              )}
+              {meal.dishes.length > 0 && totalTime === 0 && !meal.difficulty && (
+                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
+                  {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
+                </span>
+              )}
+            </div>
+          )}
+
+          {ingredientText && (
+            <p className="text-[12.5px] text-on-surface/55 mt-1.5 leading-snug line-clamp-1 sm:line-clamp-2 pr-1">
+              {ingredientText}{ingredientOverflow ? '…' : ''}
+            </p>
+          )}
+          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
+            <p className="text-[11px] text-on-surface/45 mt-1 italic truncate">
+              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+            </p>
+          )}
+        </div>
+      </button>
+
+      {/* Hover actions — sit on the surface of the card without
+          covering the score badge. Always visible on touch (no
+          hover), fade in on hover for pointer users. */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          aria-label={`Edit ${meal.name}`}
+          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors flex items-center justify-center"
+        >
+          <Edit3 size={13} />
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            aria-label={`Delete ${meal.name}`}
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors flex items-center justify-center"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+
+      {confirmDelete && onDelete && (
+        <div
+          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-3 px-4 py-3 border border-on-surface/10 shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm text-on-surface/80 font-medium text-center">
+            Delete <span className="font-serif font-bold">{meal.name}</span>?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
+            >
+              Delete
+            </button>
           </div>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
-          {meal.cuisine && <><span>{meal.cuisine}</span></>}
-          {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
-          {totalTime > 0 ? (
-            <>
-              <Clock size={11} />
-              <span>{formatDuration(totalTime)}</span>
-              {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
-            </>
-          ) : meal.difficulty ? (
-            <span>{meal.difficulty}</span>
-          ) : meal.dishes.length > 0 ? (
-            <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
-          ) : null}
-        </div>
-        {ingredientPreview.length > 0 && (
-          <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
-            {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-            {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-          </p>
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        aria-label={`Edit ${meal.name}`}
-        className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
-      >
-        <Edit3 size={15} />
-      </button>
+      )}
     </li>
   );
 };
@@ -5658,9 +5836,11 @@ const RecipeGridCard: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
   onEdit: () => void;
-}> = ({ meal, onClick, onEdit }) => {
+  onDelete?: () => void;
+}> = ({ meal, onClick, onEdit, onDelete }) => {
   const coverPhoto = getMealCoverUrl(meal);
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="group relative">
       <button
@@ -5705,16 +5885,60 @@ const RecipeGridCard: React.FC<{
             {(meal.cuisine || totalTime > 0) && meal.difficulty && <span className="text-on-surface/25">·</span>}
             {meal.difficulty && <span>{meal.difficulty}</span>}
           </div>
+          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
+            <p className="mt-1 text-[11px] text-on-surface/45 italic normal-case tracking-normal truncate">
+              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+            </p>
+          )}
         </div>
       </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        aria-label={`Edit ${meal.name}`}
-        className="absolute top-2 left-2 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-all opacity-0 group-hover:opacity-100"
-      >
-        <Edit3 size={13} className="mx-auto" />
-      </button>
+      {/* Hover actions: Edit (top-left) and Delete (top-left, just under
+          edit). Stacked vertically so they don't crowd the score chip
+          on the right. */}
+      <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          aria-label={`Edit ${meal.name}`}
+          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors"
+        >
+          <Edit3 size={13} className="mx-auto" />
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+            aria-label={`Delete ${meal.name}`}
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors"
+          >
+            <Trash2 size={13} className="mx-auto" />
+          </button>
+        )}
+      </div>
+      {confirmDelete && onDelete && (
+        <div
+          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm text-on-surface/80 font-medium text-center leading-snug">
+            Delete this recipe?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete(); }}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -6885,10 +7109,13 @@ export const Pantry: React.FC = () => {
     () => lists.filter((l) => l.type !== 'home-cooking'),
     [lists],
   );
-  const recipeListsForSwitcher = useMemo(
-    () => lists.filter((l) => l.type === 'home-cooking'),
-    [lists],
-  );
+  const recipeListsForSwitcher = useMemo(() => {
+    // Pin the built-in "Want to Cook" list to the top.
+    const all = lists.filter((l) => l.type === 'home-cooking');
+    const def = all.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID);
+    const rest = all.filter((l) => l.id !== DEFAULT_WANT_TO_COOK_ID);
+    return def ? [def, ...rest] : rest;
+  }, [lists]);
 
   // Helpers to drive the switcher's destinations through the existing
   // showHomeCooking / showTrips / selectedList state machine. Each one

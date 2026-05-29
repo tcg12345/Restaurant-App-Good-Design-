@@ -18,15 +18,16 @@
  * editorial tokens don't leak into other routes.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Award, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Edit3, Flame, Heart, Loader2, MessageCircle, Play, Plus, Printer,
+  Edit3, Flame, Heart, Loader2, MessageCircle, Pause, Play, Plus, Printer,
   Share2, Sparkles, Star, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
   getPublicHomeMealById,
@@ -43,6 +44,9 @@ import {
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
 import { cn } from '../lib/utils';
+import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
+import { ShareDialog } from '../components/ShareDialog';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,7 +54,6 @@ const isUuidLike = (v: string): boolean => UUID_RE.test(v);
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
-const STORAGE_KEY_SAVED = 'gourmad-saved-recipes';
 const STORAGE_KEY_COOKED = 'gourmad-cooked-recipes';
 
 // Hash a string to a stable hue 0–360. Used for avatar gradients.
@@ -198,6 +201,12 @@ type UnifiedRecipe = {
   stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
   /** Labeled callouts (Chef's Tip / Make Ahead / etc.). */
   notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+  /** When this recipe is a copy saved from another user, the original
+   *  author's display name and username. Used as a fallback byline
+   *  while their live profile is still loading (or if it can't be
+   *  fetched) so the page never momentarily shows the wrong person. */
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -252,10 +261,18 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
   };
+  // If this meal was saved from another user, the original author owns
+  // the recipe view — not the user who copied it. Attributing ownerId
+  // to the source author makes the profile fetch, byline, author link,
+  // and isOwner check all resolve to the original person automatically;
+  // the saver's "viewing someone else's recipe" experience is identical
+  // to how the original author's recipe renders. Self-authored meals
+  // have no sourceAuthorId, so this falls back to m.userId unchanged.
+  const sourceAuthorId = m.sourceAuthorId;
   return {
     source: 'homeMeal',
     id: m.id,
-    ownerId: m.userId,
+    ownerId: sourceAuthorId || m.userId,
     title: m.name || '',
     description: m.description || '',
     intro: splitIntro(m.description || ''),
@@ -279,6 +296,8 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     equipment: adv.equipment,
     stepDetails: adv.stepDetails,
     notes: adv.notes,
+    sourceAuthorName: m.sourceAuthorName,
+    sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
   };
 }
@@ -302,7 +321,7 @@ export const RecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
-  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals } = useLists();
+  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
   // ── Data ──
@@ -317,10 +336,6 @@ export const RecipePage: React.FC = () => {
   const [relatedAuthors, setRelatedAuthors] = useState<Record<string, UserProfile>>({});
 
   // ── User interactions ──
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY_SAVED); return new Set(raw ? JSON.parse(raw) : []); }
-    catch { return new Set(); }
-  });
   const [cookedIds, setCookedIds] = useState<Set<string>>(() => {
     try { const raw = localStorage.getItem(STORAGE_KEY_COOKED); return new Set(raw ? JSON.parse(raw) : []); }
     catch { return new Set(); }
@@ -332,11 +347,20 @@ export const RecipePage: React.FC = () => {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Save-to-list sheet. The heart reflects whether the recipe is in any
+  // home-cooking list; clicking it opens the sheet to manage membership.
+  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
+  // Share sheet — friend/group multi-select + an OS share-via fallback.
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
-  const saved = data ? savedIds.has(data.id) : false;
+  const saved = data ? getListsForRecipe(data.id).length > 0 : false;
   const cooked = data ? cookedIds.has(data.id) : false;
 
   // ── Load the recipe ──
+  // Initial fetch — runs only when the recipe identity changes (route
+  // navigation). Local store changes (myRecipes / myHomeMeals) flow
+  // through the patch-in-place effect below, so saving a recipe to a
+  // list while viewing it doesn't unmount the page via setLoading(true).
   useEffect(() => {
     if (!resolvedId) return;
     let cancelled = false;
@@ -351,12 +375,12 @@ export const RecipePage: React.FC = () => {
     (async () => {
       // 1. Local stores — owner viewing their own content.
       if (ownerId && currentUserId === ownerId) {
-        const ownRecipe = myRecipes.find((r) => r.id === resolvedId);
+        const ownRecipe = myRecipesRef.current.find((r) => r.id === resolvedId);
         if (ownRecipe) {
           if (!cancelled) { setData(adaptRecipe(ownRecipe)); setLoading(false); }
           return;
         }
-        const ownMeal = myHomeMeals.find((m) => m.id === resolvedId);
+        const ownMeal = myHomeMealsRef.current.find((m) => m.id === resolvedId);
         if (ownMeal) {
           if (!cancelled) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); setLoading(false); }
           return;
@@ -381,7 +405,27 @@ export const RecipePage: React.FC = () => {
       if (!cancelled) { setNotFound(true); setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [resolvedId, ownerId, currentUserId, myRecipes, myHomeMeals]);
+  }, [resolvedId, ownerId, currentUserId]);
+
+  // Refs let the initial-fetch effect read the latest local stores
+  // without listing them as deps (which would re-trigger the loading
+  // flash every time a save mirrors into homeMeals).
+  const myRecipesRef = useRef(myRecipes);
+  const myHomeMealsRef = useRef(myHomeMeals);
+  useEffect(() => { myRecipesRef.current = myRecipes; }, [myRecipes]);
+  useEffect(() => { myHomeMealsRef.current = myHomeMeals; }, [myHomeMeals]);
+
+  // Patch-in-place: when the local cookbook updates (you saved, edited
+  // or deleted a recipe in this session), refresh the page data WITHOUT
+  // setLoading(true), so the page chrome — and any sheet open on top —
+  // stays mounted.
+  useEffect(() => {
+    if (!resolvedId || !ownerId || currentUserId !== ownerId) return;
+    const ownRecipe = myRecipes.find((r) => r.id === resolvedId);
+    if (ownRecipe) { setData(adaptRecipe(ownRecipe)); return; }
+    const ownMeal = myHomeMeals.find((m) => m.id === resolvedId);
+    if (ownMeal) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); }
+  }, [myRecipes, myHomeMeals, resolvedId, ownerId, currentUserId]);
 
   // ── Reviews + author profile + related recipes ──
   useEffect(() => {
@@ -513,14 +557,60 @@ export const RecipePage: React.FC = () => {
   };
   const handleSave = useCallback(() => {
     if (!data) return;
-    setSavedIds((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(data.id)) { next.delete(data.id); showToast('Removed from saved'); }
-      else { next.add(data.id); showToast('Saved to your recipe box'); }
-      persistSet(next, STORAGE_KEY_SAVED);
-      return next;
-    });
-  }, [data, showToast]);
+    setSaveSheetOpen(true);
+  }, [data]);
+
+  // The recipe to hand to the save sheet. Prefer the canonical cookbook
+  // entry (full fidelity) when this is the user's own meal; otherwise
+  // synthesize a HomeMeal from the normalized page data so other users'
+  // recipes can still be saved into a list.
+  const saveMeal = useMemo<HomeMeal | null>(() => {
+    if (!data) return null;
+    const own = myHomeMeals.find((m) => m.id === data.id);
+    if (own) return own;
+    const difficulty = data.difficulty
+      ? (data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)) as 'Easy' | 'Medium' | 'Hard'
+      : undefined;
+    // Saving from someone else's recipe — stamp the original author so
+    // cards can show "by @author" wherever this saved copy appears.
+    const isAnotherUsers = !!currentUserId && data.ownerId !== currentUserId;
+    const sourceName = authorProfile?.display_name || authorProfile?.username || undefined;
+    return {
+      id: data.id,
+      name: data.title,
+      date: data.date || new Date().toISOString().slice(0, 10),
+      score: 0,
+      wouldMakeAgain: false,
+      description: data.description,
+      photos: (data.photos || []).map((url) => ({ url, caption: '', isFavorite: false })),
+      tags: data.tags || [],
+      dishes: [],
+      isPublic: true,
+      createdAt: Date.now(),
+      coverPhoto: data.coverPhoto || undefined,
+      prepTime: data.prepMinutes || undefined,
+      cookTime: data.cookMinutes || undefined,
+      servings: data.servings || undefined,
+      difficulty,
+      cuisine: data.cuisine || undefined,
+      ingredients: data.ingredients || [],
+      steps: data.steps || [],
+      summary: data.summary,
+      course: data.course,
+      chillTime: data.chillMinutes,
+      yieldDescription: data.yieldDescription,
+      ingredientGroups: data.ingredientGroups,
+      equipment: data.equipment,
+      stepDetails: data.stepDetails,
+      notes: data.notes,
+      builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
+      ...(isAnotherUsers ? {
+        sourceAuthorId: data.ownerId,
+        sourceAuthorName: sourceName,
+        sourceAuthorUsername: authorProfile?.username || undefined,
+      } : {}),
+    };
+  }, [data, myHomeMeals, currentUserId, authorProfile]);
   const handleCooked = useCallback(() => {
     if (!data) return;
     setCookedIds((prev) => {
@@ -533,20 +623,52 @@ export const RecipePage: React.FC = () => {
   }, [data, showToast]);
   const handleShare = useCallback(() => {
     if (!data) return;
-    const url = `${window.location.origin}/recipe/${data.ownerId}/${data.id}`;
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      navigator.share({ title: data.title, url }).catch(() => { /* user cancel */ });
-    } else {
-      navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
-      showToast('Link copied to clipboard');
-    }
-  }, [data, showToast]);
+    setShareSheetOpen(true);
+  }, [data]);
+
+  // Payload + URL for the share sheet. The dialog renders a recipe
+  // preview chip, lets the user pick friends / groups (auto-creates a
+  // 1:1 chat when needed), and falls back to the OS share sheet (or
+  // clipboard) via its "Share via…" button.
+  const sharePayload = useMemo<{ recipe: SharedRecipe; url: string } | null>(() => {
+    if (!data) return null;
+    const authorName = authorProfile?.display_name || authorProfile?.username || 'A home cook';
+    const totalTime = (data.prepMinutes ?? 0) + (data.cookMinutes ?? 0);
+    const recipe: SharedRecipe = {
+      mealId: data.id,
+      authorId: data.ownerId,
+      authorName,
+      name: data.title,
+      image: data.coverPhoto || '',
+      description: data.summary || data.description || undefined,
+      tags: data.tags && data.tags.length > 0 ? data.tags : undefined,
+      totalTime: totalTime > 0 ? totalTime : undefined,
+      difficulty: data.difficulty || undefined,
+      ingredientCount: data.ingredients?.length || undefined,
+      stepCount: (data.stepDetails?.length ?? data.steps?.length) || undefined,
+    };
+    // home-meal recipes live at /meal/<userId>/<mealId>; formal recipes
+    // are at /recipe/<userId>/<id>. Match how RecipePage routes itself.
+    const path = data.source === 'homeMeal'
+      ? `/meal/${data.ownerId}/${data.id}`
+      : `/recipe/${data.ownerId}/${data.id}`;
+    const url = typeof window !== 'undefined' ? `${window.location.origin}${path}` : path;
+    return { recipe, url };
+  }, [data, authorProfile]);
   const handlePrint = useCallback(() => window.print(), []);
   const handleEdit = useCallback(() => {
     if (!data) return;
-    if (data.source === 'recipe') openRecipeModal(data.raw as Recipe);
-    else navigate('/pantry?view=home-cooking');
-  }, [data, openRecipeModal, navigate]);
+    if (data.source === 'recipe') {
+      openRecipeModal(data.raw as Recipe);
+      return;
+    }
+    // Home meal / Advanced-builder recipe. Open the Add Recipe modal
+    // pre-filled with the meal so the user can edit in place. Prefer
+    // the canonical store copy (myHomeMeals) over the adapted view
+    // data — it carries the full HomeMeal shape the modal expects.
+    const meal = myHomeMeals.find((m) => m.id === data.id) ?? (data.raw as HomeMeal);
+    openHomeMealModal(meal);
+  }, [data, openRecipeModal, openHomeMealModal, myHomeMeals]);
 
   const submitReview = useCallback(async (
     rating: number,
@@ -662,7 +784,14 @@ export const RecipePage: React.FC = () => {
   }
 
   // ── Author display ──
-  const authorName = authorProfile?.display_name || authorProfile?.username || 'Anonymous';
+  // Fall back to the saved-from attribution (sourceAuthor*) while the
+  // live profile hasn't loaded yet — that way a saved-from-another
+  // recipe never flashes the wrong byline.
+  const authorName = authorProfile?.display_name
+    || authorProfile?.username
+    || data.sourceAuthorName
+    || data.sourceAuthorUsername
+    || 'Anonymous';
   const authorRole = authorProfile?.is_expert
     ? `Chef${authorProfile.home_city ? ` · ${authorProfile.home_city}` : ''}`
     : 'Home cook';
@@ -670,6 +799,7 @@ export const RecipePage: React.FC = () => {
   const authorInitials = authorName.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || 'A';
   const authorHue = hashToHue(data.ownerId || authorName);
   const authorBg = `hsl(${authorHue} 45% 38%)`;
+  const authorUsername = authorProfile?.username || data.sourceAuthorUsername || '';
 
   // ── Stars renderer ──
   const renderStars = (value: number, size = 13) => {
@@ -732,11 +862,19 @@ export const RecipePage: React.FC = () => {
           authorInitial={authorInitial}
           authorInitials={authorInitials}
           authorBg={authorBg}
-          authorUsername={authorProfile?.username || ''}
+          authorUsername={authorUsername}
           currentUserId={currentUserId}
           currentUserName={user?.email?.split('@')[0] || 'You'}
           navigate={navigate}
         />
+        <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
+        <ShareDialog
+          open={shareSheetOpen}
+          onClose={() => setShareSheetOpen(false)}
+          payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
+          externalShareUrl={sharePayload?.url}
+        />
+        <RecipePrintView data={data} authorName={authorName} />
       </div>
     );
   }
@@ -829,7 +967,7 @@ export const RecipePage: React.FC = () => {
             <button
               type="button"
               className="rd-hero-author"
-              onClick={() => authorProfile?.username && navigate(`/user/${authorProfile.username}`)}
+              onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
               style={{ background: 'transparent', textAlign: 'left' }}
             >
               <div className="rd-hero-author-av" style={{ background: authorBg }}>{authorInitial}</div>
@@ -1138,7 +1276,7 @@ export const RecipePage: React.FC = () => {
               <button
                 type="button"
                 className="rd-author-follow"
-                onClick={() => authorProfile.username && navigate(`/user/${authorProfile.username}`)}
+                onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
               >
                 View profile
               </button>
@@ -1297,6 +1435,15 @@ export const RecipePage: React.FC = () => {
           <Check /> {toast}
         </div>
       )}
+
+      <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
+      <ShareDialog
+        open={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        payload={sharePayload ? { sharedRecipe: sharePayload.recipe } : null}
+        externalShareUrl={sharePayload?.url}
+      />
+      <RecipePrintView data={data} authorName={authorName} />
     </div>
   );
 };
@@ -1347,6 +1494,208 @@ const StepTimerButton: React.FC<{ label: string; durationMs: number }> = ({ labe
       <span>{label}</span>
       <span className="play">
         {running ? display : (remaining > 0 && remaining < durationMs ? `${display} · paused` : 'Start')}
+      </span>
+    </button>
+  );
+};
+
+// Clean, paper-friendly version of the recipe rendered into a portal on
+// document.body. Hidden on screen; `@media print` hides the app (#root)
+// and shows only this, so printing produces just the recipe — title,
+// meta, ingredients, steps, notes — with none of the app chrome.
+const RecipePrintView: React.FC<{ data: UnifiedRecipe; authorName: string }> = ({ data, authorName }) => {
+  const totalTime = (data.prepMinutes || 0) + (data.cookMinutes || 0) + (data.chillMinutes || 0);
+  const groups = data.ingredientGroups && data.ingredientGroups.length > 0
+    ? data.ingredientGroups
+    : [{ name: '', ingredients: data.ingredients || [] }];
+  const steps: Array<{ title?: string; body: string; durationMin?: number }> =
+    data.stepDetails && data.stepDetails.length > 0
+      ? data.stepDetails
+      : (data.steps || []).map((body) => ({ body }));
+  const difficulty = data.difficulty
+    ? data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)
+    : '';
+
+  const meta: Array<{ label: string; value: string }> = [];
+  if (data.cuisine) meta.push({ label: 'Cuisine', value: data.cuisine });
+  if (difficulty) meta.push({ label: 'Difficulty', value: difficulty });
+  if (data.prepMinutes) meta.push({ label: 'Prep', value: formatMinutes(data.prepMinutes) });
+  if (data.cookMinutes) meta.push({ label: 'Cook', value: formatMinutes(data.cookMinutes) });
+  if (data.chillMinutes) meta.push({ label: 'Rest', value: formatMinutes(data.chillMinutes) });
+  if (totalTime > 0) meta.push({ label: 'Total', value: formatMinutes(totalTime) });
+  if (data.servings) meta.push({ label: 'Servings', value: String(data.servings) });
+  if (data.yieldDescription) meta.push({ label: 'Yield', value: data.yieldDescription });
+
+  return createPortal(
+    <div className="rd-print-portal" aria-hidden="true">
+      <article className="rd-print">
+        <header className="rd-print-head">
+          <h1>{data.title}</h1>
+          {(data.summary || data.description) && (
+            <p className="rd-print-summary">{data.summary || data.description}</p>
+          )}
+          {authorName && <p className="rd-print-byline">Recipe by {authorName}</p>}
+        </header>
+
+        {meta.length > 0 && (
+          <ul className="rd-print-meta">
+            {meta.map((m) => (
+              <li key={m.label}><span className="k">{m.label}</span><span className="v">{m.value}</span></li>
+            ))}
+          </ul>
+        )}
+
+        <section className="rd-print-section rd-print-ingredients">
+          <h2>Ingredients</h2>
+          {groups.map((g, gi) => (
+            <div key={gi} className="rd-print-group">
+              {g.name && <h3>{g.name}</h3>}
+              <ul>
+                {g.ingredients.map((ing, ii) => (
+                  <li key={ii}>
+                    {[ing.amount, ing.unit].filter(Boolean).join(' ')} {ing.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+
+        {steps.length > 0 && (
+          <section className="rd-print-section rd-print-steps">
+            <h2>Method</h2>
+            <ol>
+              {steps.map((s, i) => (
+                <li key={i}>
+                  {s.title && <span className="rd-print-step-title">{s.title}. </span>}
+                  {s.body}
+                  {typeof s.durationMin === 'number' && s.durationMin > 0 && (
+                    <span className="rd-print-step-time"> ({s.durationMin} min)</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        {data.notes && data.notes.length > 0 && (
+          <section className="rd-print-section rd-print-notes">
+            <h2>Notes</h2>
+            <ul>
+              {data.notes.map((n, i) => <li key={i}>{n.text}</li>)}
+            </ul>
+          </section>
+        )}
+
+        {data.equipment && data.equipment.length > 0 && (
+          <section className="rd-print-section rd-print-equipment">
+            <h2>Equipment</h2>
+            <p>{data.equipment.join(' · ')}</p>
+          </section>
+        )}
+      </article>
+    </div>,
+    document.body,
+  );
+};
+
+// Best-effort "timer finished" chime: a short triple beep via Web Audio.
+// Wrapped in try/catch since autoplay policies / missing AudioContext can
+// throw; the visual "Done" state + vibration are the real signal.
+function playTimerChime() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const beep = (start: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + 0.32);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + 0.34);
+    };
+    beep(0); beep(0.45); beep(0.9);
+    window.setTimeout(() => { ctx.close().catch(() => {}); }, 1600);
+  } catch { /* no audio — visual + haptic still fire */ }
+}
+
+// Live countdown for a Cook Mode step. Tap to start; tap again to
+// pause / resume. When it hits zero it flashes a "Done" state, vibrates
+// (mobile), and plays a short chime. Reset by tapping once done.
+// Rendered with a per-step `key` so navigating steps starts it fresh.
+const CookModeTimer: React.FC<{ durationMs: number; label: string }> = ({ durationMs, label }) => {
+  const [remaining, setRemaining] = useState(durationMs);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+  const intervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!running) {
+      if (intervalRef.current) window.clearInterval(intervalRef.current);
+      return;
+    }
+    intervalRef.current = window.setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1000) {
+          if (intervalRef.current) window.clearInterval(intervalRef.current);
+          setRunning(false);
+          setDone(true);
+          try { navigator.vibrate?.([200, 100, 200]); } catch { /* unsupported */ }
+          playTimerChime();
+          return 0;
+        }
+        return r - 1000;
+      });
+    }, 1000);
+    return () => { if (intervalRef.current) window.clearInterval(intervalRef.current); };
+  }, [running]);
+
+  const display = useMemo(() => {
+    const total = Math.ceil(remaining / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }, [remaining]);
+
+  const started = running || remaining < durationMs || done;
+
+  const handleClick = () => {
+    if (done) { setDone(false); setRemaining(durationMs); setRunning(false); return; }
+    setRunning((r) => !r);
+  };
+
+  const hint = done ? 'Tap to reset'
+    : running ? 'Tap to pause'
+    : remaining < durationMs ? 'Tap to resume'
+    : 'Tap to start';
+
+  // Pick the state-appropriate icon for the circular button affordance:
+  // play before running, pause while running, check on completion.
+  const StateIcon = done ? Check : running ? Pause : Play;
+
+  return (
+    <button
+      type="button"
+      className={cn('rd-cm-timer', running && 'is-running', done && 'is-done')}
+      onClick={handleClick}
+      aria-label={`${label} timer — ${hint}`}
+    >
+      <span className="rd-cm-timer-icon" aria-hidden="true">
+        <StateIcon fill={running ? 'none' : 'currentColor'} />
+      </span>
+      <span className="rd-cm-timer-text">
+        <span className="rd-cm-timer-time">
+          {done ? 'Done' : (started ? display : label)}
+        </span>
+        <span className="rd-cm-timer-hint">{hint}</span>
       </span>
     </button>
   );
@@ -1405,9 +1754,8 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
         <div>
           <div className="rd-cookmode-step-num">{String(step + 1).padStart(2, '0')}</div>
           {timer && (
-            <div className="rd-cookmode-step-meta" style={{ marginTop: 16 }}>
-              <Clock size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: '-2px' }} />
-              {timer.label}
+            <div style={{ marginTop: 20 }}>
+              <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />
             </div>
           )}
         </div>
@@ -2234,11 +2582,16 @@ const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> =
       </div>
       <div className="rdm-cm-body">
         <div className="rdm-cm-stepmeta">
-          Step {step + 1} of {total}{timer ? ` · ${timer.label}` : ''}
+          Step {step + 1} of {total}
         </div>
         <div className="rdm-cm-num">{String(step + 1).padStart(2, '0')}</div>
         {split.title && <h2 className="rdm-cm-step-title">{split.title}</h2>}
         <p className="rdm-cm-step-body">{split.body || current}</p>
+        {timer && (
+          <div style={{ marginTop: 18 }}>
+            <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />
+          </div>
+        )}
       </div>
       <div className="rdm-cm-controls">
         <button

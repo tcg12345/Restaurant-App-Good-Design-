@@ -210,9 +210,17 @@ export const DEFAULT_THEME: GuideTheme = {
 /** Merge a stored theme with DEFAULT_THEME, preserving the partial
  *  visibility and textStyles maps. Use this anywhere a render primitive
  *  needs a fully-populated theme. */
-export function getTheme(guide: Pick<Guide, 'theme'> | null | undefined): GuideTheme {
+export function getTheme(guide: Pick<Guide, 'theme' | 'coverPhoto'> | null | undefined): GuideTheme {
   const t = guide?.theme;
-  if (!t) return DEFAULT_THEME;
+  // When the user hasn't customized the theme and there's no cover
+  // photo, default the hero to 'minimal'. The Classic / Centered /
+  // Split heroes are built around an image; without one they look
+  // empty, while Minimal is purpose-designed for the photo-less case.
+  // Explicit theme choices (made via Live Edit) always win.
+  if (!t) {
+    const hasCover = !!guide?.coverPhoto;
+    return hasCover ? DEFAULT_THEME : { ...DEFAULT_THEME, heroLayout: 'minimal' };
+  }
   return {
     ...DEFAULT_THEME,
     ...t,
@@ -371,6 +379,28 @@ export async function deleteGuide(guideId: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error('[Supabase] deleteGuide exception:', err);
+    return false;
+  }
+}
+
+/** Flip a guide between 'public' and 'private' without rewriting its entries. */
+export async function setGuideVisibility(
+  guideId: string,
+  visibility: GuideVisibility,
+): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from('guides')
+      .update({ visibility, updated_at: new Date().toISOString() })
+      .eq('id', guideId);
+    if (error) {
+      console.error('[Supabase] setGuideVisibility error:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[Supabase] setGuideVisibility exception:', err);
     return false;
   }
 }

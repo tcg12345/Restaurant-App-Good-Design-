@@ -86,6 +86,12 @@ export interface Recipe {
   score: number;            // 0–10 rating
   isPrivate: boolean;
   createdAt: number;
+  /** When this recipe was saved from another user's recipe, who
+   *  originally authored it. Drives the "by @author" byline on cards.
+   *  Unset for the user's own recipes. */
+  sourceAuthorId?: string;
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
 }
 
 export interface CustomList {
@@ -237,6 +243,12 @@ export interface HomeMeal {
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
+  /** When this meal was saved from another user's recipe, who
+   *  originally authored it. Drives the "by @author" byline shown on
+   *  cookbook / list / profile cards. Unset for the user's own meals. */
+  sourceAuthorId?: string;
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
 }
 
 interface ListsContextValue {
@@ -262,7 +274,7 @@ interface ListsContextValue {
 
   // Custom lists
   lists: CustomList[];
-  createList: (name: string, emoji: string, type?: CustomList['type']) => void;
+  createList: (name: string, emoji: string, type?: CustomList['type']) => CustomList;
   deleteList: (id: string) => void;
   renameList: (id: string, name: string, emoji: string) => void;
   addToList: (listId: string, restaurantId: string) => void;
@@ -317,6 +329,16 @@ interface ListsContextValue {
   updateRecipe: (listId: string, recipeId: string, updates: Partial<Recipe>) => void;
   removeRecipe: (listId: string, recipeId: string) => void;
   getRecipes: (listId: string) => Recipe[];
+  /** Save / unsave a recipe (by HomeMeal) to a home-cooking list, and
+   *  query which lists already contain it. Used by the recipe detail
+   *  page's Save button. */
+  addRecipeToList: (listId: string, meal: HomeMeal) => void;
+  removeRecipeFromList: (listId: string, recipeId: string) => void;
+  getListsForRecipe: (recipeId: string) => CustomList[];
+  /** Save / un-save a recipe to the "All Recipes" cookbook pool
+   *  (no sub-list). Used by the recipe detail page's Save sheet. */
+  addRecipeToCookbook: (meal: HomeMeal) => void;
+  removeRecipeFromCookbook: (recipeId: string) => void;
 
   // Add recipe modal
   addRecipeModalOpen: boolean;
@@ -353,7 +375,11 @@ interface ListsContextValue {
   // Home meal modal
   homeMealModalOpen: boolean;
   homeMealModalData: HomeMeal | null;
-  openHomeMealModal: (meal?: HomeMeal) => void;
+  /** When the modal was opened to fine-tune an AI draft, a callback to
+   *  return to that draft preview. The Advanced builder shows a "Back
+   *  to AI draft" button while it's set. */
+  homeMealModalBackToDraft: (() => void) | null;
+  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => void;
   closeHomeMealModal: () => void;
 }
 
@@ -457,20 +483,51 @@ function saveToStorage(key: string, value: unknown) {
   }
 }
 
+/** Built-in "Want to Cook" recipe list — the recipe equivalent of the
+ *  restaurant Wishlist. Auto-injected for every user, cannot be deleted
+ *  or renamed. */
+export const DEFAULT_WANT_TO_COOK_ID = 'default-want-to-cook';
+export const DEFAULT_WANT_TO_COOK_NAME = 'Want to Cook';
+export const DEFAULT_WANT_TO_COOK_EMOJI = '📌';
+
+const buildDefaultWantToCookList = (): CustomList => ({
+  id: DEFAULT_WANT_TO_COOK_ID,
+  name: DEFAULT_WANT_TO_COOK_NAME,
+  emoji: DEFAULT_WANT_TO_COOK_EMOJI,
+  type: 'home-cooking',
+  restaurantIds: [],
+  wishlistIds: [],
+  recipes: [],
+  // 0 so it sorts before everything in chronological orderings.
+  createdAt: 0,
+});
+
 const DEFAULT_LISTS: CustomList[] = [
+  buildDefaultWantToCookList(),
   { id: 'date-nights', name: 'Date Nights', emoji: '🕯️', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 4000 },
   { id: 'hidden-gems', name: 'Hidden Gems', emoji: '💎', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 3000 },
   { id: 'best-cocktails', name: 'Best Cocktails', emoji: '🍸', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 2000 },
   { id: 'quick-bites', name: 'Quick Bites', emoji: '⚡', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 1000 },
 ];
 
-// Migration: add wishlistIds to lists that don't have it
+/** Guarantee the built-in "Want to Cook" recipe list exists in the array.
+ *  Idempotent — if it's already there, returns the input unchanged so
+ *  React reference equality is preserved. */
+function ensureDefaultRecipeList(lists: CustomList[]): CustomList[] {
+  if (!Array.isArray(lists)) return [buildDefaultWantToCookList()];
+  if (lists.some((l) => l.id === DEFAULT_WANT_TO_COOK_ID)) return lists;
+  return [buildDefaultWantToCookList(), ...lists];
+}
+
+// Migration: add wishlistIds to lists that don't have it, and ensure the
+// built-in Want to Cook list is present.
 function migrateLists(lists: CustomList[]): CustomList[] {
   if (!Array.isArray(lists)) return DEFAULT_LISTS;
-  return lists.map((l) => ({
+  const migrated = lists.map((l) => ({
     ...l,
     wishlistIds: l.wishlistIds ?? [],
   }));
+  return ensureDefaultRecipeList(migrated);
 }
 
 // Strips stale Google Places photo URLs cached on RestaurantMeta entries
@@ -541,6 +598,39 @@ function recipeToHomeMeal(r: Recipe): HomeMeal {
     cuisine: r.cuisine,
     ingredients: r.ingredients,
     steps: r.steps,
+    sourceAuthorId: r.sourceAuthorId,
+    sourceAuthorName: r.sourceAuthorName,
+    sourceAuthorUsername: r.sourceAuthorUsername,
+  };
+}
+
+// Inverse of recipeToHomeMeal: collapse a HomeMeal into the lighter
+// list-Recipe shape stored on home-cooking lists. Rich advanced fields
+// (ingredientGroups / stepDetails / notes / equipment) don't exist on
+// the list-Recipe type — they stay on the canonical HomeMeal in the
+// "All Recipes" pool, which is what the detail page reads. The list
+// only needs enough to render its card (title, cuisine, time, score).
+function homeMealToRecipe(m: HomeMeal): Recipe {
+  return {
+    id: m.id,
+    title: m.name || '',
+    description: m.summary || m.description || '',
+    coverPhoto: m.coverPhoto || '',
+    prepTime: m.prepTime ?? 0,
+    cookTime: m.cookTime ?? 0,
+    servings: m.servings ?? 0,
+    difficulty: m.difficulty || 'Medium',
+    cuisine: m.cuisine || '',
+    ingredients: m.ingredients || [],
+    steps: m.steps || [],
+    photos: m.photos || [],
+    tags: m.tags || [],
+    score: m.score ?? 0,
+    isPrivate: !m.isPublic,
+    createdAt: m.createdAt || Date.now(),
+    sourceAuthorId: m.sourceAuthorId,
+    sourceAuthorName: m.sourceAuthorName,
+    sourceAuthorUsername: m.sourceAuthorUsername,
   };
 }
 
@@ -795,7 +885,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const listsChanged = reconciledLists.some((l, i) => l !== cloudLists[i]);
 
         setRatings(cloudRatings);
-        setLists(listsChanged ? reconciledLists : cloudLists);
+        setLists(ensureDefaultRecipeList(listsChanged ? reconciledLists : cloudLists));
         setWishlist(cloudWishlist);
         setRestaurantMeta(migrateMeta(cloudMeta));
         setTrips(cloudTrips as Trip[]);
@@ -1117,6 +1207,49 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncListsToCloud]);
 
+  // ── Save-a-recipe-to-a-list helpers (used by the recipe detail page) ──
+  // These work in terms of a HomeMeal — the canonical recipe shape the
+  // detail page already has — and reuse addRecipe/removeRecipe under the
+  // hood so list membership + the cookbook mirror stay consistent.
+  const addRecipeToList = useCallback((listId: string, meal: HomeMeal) => {
+    addRecipe(listId, homeMealToRecipe(meal));
+  }, [addRecipe]);
+
+  const removeRecipeFromList = useCallback((listId: string, recipeId: string) => {
+    removeRecipe(listId, recipeId);
+  }, [removeRecipe]);
+
+  // Every home-cooking list that currently contains this recipe id.
+  const getListsForRecipe = useCallback((recipeId: string): CustomList[] => {
+    return lists.filter((l) => (l.recipes || []).some((r) => r.id === recipeId));
+  }, [lists]);
+
+  // Save a recipe straight into the "All Recipes" cookbook pool without
+  // attaching it to a sub-list. Preserves the meal's existing id (so
+  // membership checks + later sub-list saves dedupe cleanly) and carries
+  // its source-author attribution. No-op if already present.
+  const addRecipeToCookbook = useCallback((meal: HomeMeal) => {
+    setHomeMeals((prev) => {
+      if (prev.some((m) => m.id === meal.id)) return prev;
+      const next = [...prev, { ...meal, createdAt: meal.createdAt || Date.now() }];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  // Remove a recipe from the cookbook pool. Used to un-save a recipe that
+  // was saved from another user from the "All Recipes" target.
+  const removeRecipeFromCookbook = useCallback((recipeId: string) => {
+    setHomeMeals((prev) => {
+      if (!prev.some((m) => m.id === recipeId)) return prev;
+      const next = prev.filter((m) => m.id !== recipeId);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
   // Generate a meal id that's unique even when createHomeMeal is called many
   // times in the same tick (e.g. a bulk import). Date.now() alone collides
   // inside a synchronous loop, which would make every imported meal share an
@@ -1185,6 +1318,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
+  const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: Partial<RestaurantMeta> & { id: string }) => {
@@ -1485,16 +1619,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [removeRating, syncRatingsToCloud]);
 
   // Lists
-  const createList = useCallback((name: string, emoji: string, type?: CustomList['type']) => {
+  const createList = useCallback((name: string, emoji: string, type?: CustomList['type']): CustomList => {
+    const created: CustomList = { id: `list-${Date.now()}`, name, emoji, ...(type ? { type } : {}), restaurantIds: [], wishlistIds: [], createdAt: Date.now() };
     setLists((prev) => {
-      const next = [...prev, { id: `list-${Date.now()}`, name, emoji, ...(type ? { type } : {}), restaurantIds: [], wishlistIds: [], createdAt: Date.now() }];
+      const next = [...prev, created];
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
     });
+    return created;
   }, [syncListsToCloud]);
 
   const deleteList = useCallback((id: string) => {
+    // Built-in Want to Cook list is permanent — silently no-op.
+    if (id === DEFAULT_WANT_TO_COOK_ID) return;
     setLists((prev) => {
       const next = prev.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEY_LISTS, next);
@@ -1504,6 +1642,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const renameList = useCallback((id: string, name: string, emoji: string) => {
+    if (id === DEFAULT_WANT_TO_COOK_ID) return;
     setLists((prev) => {
       const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
@@ -1765,11 +1904,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
-  const openHomeMealModal = useCallback((meal?: HomeMeal) => {
+  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => {
     setHomeMealModalData(meal || null);
+    // Store as a value-returning thunk so React doesn't treat the
+    // callback as a state updater.
+    setHomeMealModalBackToDraft(() => opts?.onBackToDraft ?? null);
     setHomeMealModalOpen(true);
   }, []);
-  const closeHomeMealModal = useCallback(() => { setHomeMealModalOpen(false); setHomeMealModalData(null); }, []);
+  const closeHomeMealModal = useCallback(() => {
+    setHomeMealModalOpen(false);
+    setHomeMealModalData(null);
+    setHomeMealModalBackToDraft(null);
+  }, []);
 
   return (
     <ListsContext.Provider value={{
@@ -1781,11 +1927,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
+      addRecipeToList, removeRecipeFromList, getListsForRecipe,
+      addRecipeToCookbook, removeRecipeFromCookbook,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
-      homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
+      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

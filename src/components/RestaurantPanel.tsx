@@ -1063,12 +1063,12 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
         <motion.div
           key={snapshot.id}
           initial={{ opacity: 0, x: 20, width: 0 }}
-          animate={{ opacity: 1, x: 0, width: 380 }}
+          animate={{ opacity: 1, x: 0, width: 340 }}
           exit={{ opacity: 0, x: 20, width: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 280 }}
           className="h-full bg-surface ring-1 ring-on-surface/[0.16] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0 shadow-md"
         >
-          <div className="w-[380px] h-full flex flex-col">
+          <div className="w-[340px] h-full flex flex-col">
             <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
           </div>
         </motion.div>

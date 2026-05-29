@@ -11,10 +11,11 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers, Pencil } from 'lucide-react';
+import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Reel } from '../contexts/ReelsContext';
 import type { Post } from '../contexts/PostsContext';
+import type { Guide } from '../lib/supabase-guides';
 
 interface ProfileReelsSectionProps {
   reels: Reel[];
@@ -326,6 +327,163 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
               className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary"
             >
               See all {reels.length} reels
+              <ChevronRight size={12} />
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+
+/* ── Guides grid (3-up, mirrors the Posts / Reels layouts) ─────────────── */
+
+interface ProfileGuidesSectionProps {
+  guides: Guide[];
+  isOwn?: boolean;
+  onTileClick?: (guide: Guide) => void;
+  onDelete?: (guideId: string) => void;
+  onEdit?: (guide: Guide) => void;
+  onToggleVisibility?: (guideId: string, nextIsPublic: boolean) => void;
+  title?: string;
+  hideHeader?: boolean;
+  trailing?: React.ReactNode;
+}
+
+export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
+  guides,
+  isOwn = false,
+  onTileClick,
+  onDelete,
+  onEdit,
+  onToggleVisibility,
+  title,
+  hideHeader = false,
+  trailing,
+}) => {
+  const navigate = useNavigate();
+  const [showAll, setShowAll] = useState(false);
+  if (guides.length === 0) return null;
+
+  const visible = showAll ? guides : guides.slice(0, VISIBLE_LIMIT);
+
+  const handleClick = (g: Guide) => {
+    if (onTileClick) { onTileClick(g); return; }
+    navigate(`/guides/${g.id}`);
+  };
+
+  return (
+    <section>
+      {!hideHeader && (
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+            {title ?? (isOwn ? 'My Guides' : 'Guides')}
+            <span className="text-on-surface/30 font-medium ml-1.5">{guides.length}</span>
+          </h3>
+          {trailing}
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2.5 max-w-2xl">
+        {visible.map((g) => {
+          const isRecipes = g.type === 'recipes';
+          const Icon = isRecipes ? ChefHat : BookOpen;
+          const entryCount = g.entries?.length ?? 0;
+          const isPublic = g.visibility === 'public';
+          return (
+            <div key={g.id} className="relative group">
+              <button
+                type="button"
+                onClick={() => handleClick(g)}
+                className="block w-full aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative ring-1 ring-on-surface/[0.06] shadow-sm hover:shadow-md transition-shadow"
+                aria-label={g.title || 'Open guide'}
+              >
+                {g.coverPhoto ? (
+                  <img
+                    src={g.coverPhoto}
+                    alt={g.title}
+                    referrerPolicy="no-referrer"
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className={cn(
+                    'absolute inset-0 grid place-items-center bg-gradient-to-br',
+                    isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900',
+                  )}>
+                    <Icon size={28} className="text-white/30" />
+                  </div>
+                )}
+                <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 h-[22px] rounded-full bg-black/55 backdrop-blur text-white text-[10px] font-bold tabular-nums">
+                  <Icon size={11} />
+                  {entryCount}
+                </span>
+                {/* Title overlay with serif title */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 px-2.5 pb-2.5 pt-7">
+                  <p className="font-serif font-bold text-white text-[12.5px] leading-tight line-clamp-2 drop-shadow">
+                    {g.title || 'Untitled guide'}
+                  </p>
+                  {g.avgScore != null && (
+                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-white/85">
+                      <Star size={10} className="fill-white" />
+                      {g.avgScore.toFixed(1)}
+                    </div>
+                  )}
+                </div>
+                {/* Private chip */}
+                {!isPublic && (
+                  <div className="absolute bottom-2 right-2 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-[22px] text-white text-[10px] font-bold">
+                    <Lock size={9} />
+                  </div>
+                )}
+              </button>
+              {isOwn && (
+                <div className="absolute right-2 top-2 flex items-center gap-1">
+                  {onEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(g)}
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      aria-label="Edit guide"
+                      title="Edit guide"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
+                  {onToggleVisibility && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleVisibility(g.id, !isPublic)}
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      aria-label={isPublic ? 'Make private' : 'Make public'}
+                      title={isPublic ? 'Public — tap to make private' : 'Private — tap to make public'}
+                    >
+                      {isPublic ? <Globe size={13} /> : <Lock size={13} />}
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(g.id)}
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
+                      aria-label="Delete guide"
+                      title="Delete guide"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {guides.length > VISIBLE_LIMIT && (
+        <div className="mt-3 max-w-2xl">
+          {showAll ? (
+            <button type="button" onClick={() => setShowAll(false)} className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+          ) : (
+            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary">
+              See all {guides.length} guides
               <ChevronRight size={12} />
             </button>
           )}

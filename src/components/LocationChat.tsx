@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   ChefHat,
+  Check,
+  ChevronDown,
   ChevronRight,
   Clock,
   Loader2,
@@ -22,9 +24,12 @@ import {
   Sparkles,
   Trash2,
   X,
+  Zap,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   formatLocationLabel,
@@ -32,7 +37,7 @@ import {
   CUISINE_TYPES,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
-import type { RestaurantMeta } from '../contexts/ListsContext';
+import type { RestaurantMeta, HomeMeal } from '../contexts/ListsContext';
 import type { Recipe } from '../contexts/RecipesContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import {
@@ -43,6 +48,10 @@ import {
   type CompactRestaurant,
   type UserContext,
 } from '../lib/location-chat-client';
+import { RecipeDraftCard } from './chat/RecipeDraftCard';
+import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
+import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
+import { refineRecipe } from '../lib/build-recipe-client';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
   const out: Record<string, string> = {};
@@ -114,6 +123,37 @@ export interface ActionResult {
   ok: boolean;
   detail?: string;
 }
+
+/* ── Model picker ────────────────────────────────────────────────
+   The chat can run on Sonnet 4.6, Opus 4.8, or 'auto' (server-side
+   heuristic chooses per turn). Stored as a literal string so it
+   round-trips through localStorage and over the wire untouched.
+   The legacy 'claude-opus-4-7' pref is accepted on load and migrated
+   to 4.8 so a persisted choice from before the bump still resolves. */
+export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
+const CHAT_MODEL_STORAGE_KEY = 'gourmad-chat-model';
+const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'];
+function loadModelPref(): ChatModelPref {
+  try {
+    const raw = localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
+    if (raw === 'claude-opus-4-7') return 'claude-opus-4-8'; // migrate retired id
+    if (raw && (VALID_MODEL_PREFS as readonly string[]).includes(raw)) return raw as ChatModelPref;
+  } catch { /* private mode / quota — fall through */ }
+  return 'auto';
+}
+function saveModelPref(pref: ChatModelPref) {
+  try { localStorage.setItem(CHAT_MODEL_STORAGE_KEY, pref); } catch { /* best-effort */ }
+}
+const MODEL_LABELS: Record<ChatModelPref, string> = {
+  auto: 'Auto',
+  'claude-sonnet-4-6': 'Sonnet 4.6',
+  'claude-opus-4-8': 'Opus 4.8',
+};
+const MODEL_SUBLABELS: Record<ChatModelPref, string> = {
+  auto: 'Picks per turn',
+  'claude-sonnet-4-6': 'Fast, low cost',
+  'claude-opus-4-8': 'Deepest reasoning',
+};
 
 interface LocationChatProps {
   /** Filtered restaurant pool — what the user is currently looking at. */
@@ -195,7 +235,16 @@ interface LocationChatProps {
   /** Open the Add Reel flow, optionally pre-selecting a kind. */
   onOpenAddReelModal?: (kind?: 'restaurant' | 'recipe') => ActionResult | Promise<ActionResult>;
   /** Open the Log Home Meal flow. */
-  onOpenHomeMealModal?: () => ActionResult | Promise<ActionResult>;
+  onOpenHomeMealModal?: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => ActionResult | Promise<ActionResult>;
+  /** All recipes/home-cooked meals on the user's account. Used by the
+   *  AI-recipe-draft preview sheet to (a) commit a new meal via
+   *  `onPublishHomeMeal` and (b) detect when a meal published via the
+   *  Edit → modal path has actually landed in the user's cookbook. */
+  homeMeals?: HomeMeal[];
+  /** Persist an AI-built recipe draft into the user's cookbook. Returns
+   *  the freshly assigned id so the chat block can transition to a
+   *  "Published" state. */
+  onPublishHomeMeal?: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
   /** Open the Guide Creator sheet. */
   onOpenGuideCreator?: () => ActionResult | Promise<ActionResult>;
   /** When true the FAB sits high enough to clear the global
@@ -221,6 +270,14 @@ type UiBlock =
   | { type: 'text'; text: string }
   | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
   | { type: 'recipe_cards'; toolUseId: string; recipeIds: string[]; reason?: string }
+  // AI-built recipe draft. The `draft` is a full HomeMeal-shaped object
+  // with builderVersion: 'advanced'; it has a stable client-assigned id
+  // but is NOT in homeMeals until the user taps Publish in the preview
+  // sheet. `publishedMealId` is set once the user publishes — either
+  // from the sheet directly or via the Edit → modal path (matched by id).
+  // `rawInput` round-trips the original tool input back to Anthropic so
+  // the conversation history stays valid across turns.
+  | { type: 'recipe_draft'; toolUseId: string; draft: HomeMeal; rawInput: unknown; publishedMealId: string | null }
   // Invisible: assistant's tool_use blocks we don't surface as cards
   // (currently search_restaurants and lookup_user). Kept in messages
   // state so the conversation can be reconstructed on the next API
@@ -411,7 +468,7 @@ function sanitizeForAnthropic(messages: UiMessage[]): UiMessage[] {
         }
       }
       const blocks = m.blocks.filter((b) => {
-        if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+        if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'recipe_draft' || b.type === 'tool_use') {
           return nextResultIds.has(b.toolUseId);
         }
         return true;
@@ -420,6 +477,7 @@ function sanitizeForAnthropic(messages: UiMessage[]): UiMessage[] {
         (b.type === 'text' && !!b.text)
         || (b.type === 'cards' && b.placeIds.length > 0)
         || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+        || b.type === 'recipe_draft'
         || b.type === 'tool_use'
       );
       if (hasContent) out.push({ ...m, blocks });
@@ -430,7 +488,7 @@ function sanitizeForAnthropic(messages: UiMessage[]): UiMessage[] {
       const prevMsg = messages[i - 1];
       if (prevMsg && prevMsg.role === 'assistant') {
         for (const b of prevMsg.blocks) {
-          if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+          if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'recipe_draft' || b.type === 'tool_use') {
             prevToolUseIds.add(b.toolUseId);
           }
         }
@@ -466,6 +524,15 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
         id: b.toolUseId,
         name: 'recommend_recipes',
         input: { recipe_ids: b.recipeIds, reason: b.reason || '' },
+      });
+    } else if (b.type === 'recipe_draft') {
+      // Round-trip the original tool input so the model sees its own
+      // build_recipe call exactly as it emitted it.
+      out.push({
+        type: 'tool_use',
+        id: b.toolUseId,
+        name: 'build_recipe',
+        input: b.rawInput,
       });
     } else if (b.type === 'tool_use') {
       out.push({
@@ -617,17 +684,57 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onOpenAddReelModal,
   onOpenHomeMealModal,
   onOpenGuideCreator,
+  homeMeals,
+  onPublishHomeMeal,
   fabAboveBottomNav,
   fabHidden,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { user: authUser } = useAuth();
+  const { showToast } = useToast();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // Elapsed seconds since the current streaming turn started. Drives
+  // the "Thinking… 5s" label so the user has visible feedback that
+  // the AI is still actively working during long recipe builds.
+  const [streamElapsed, setStreamElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Tick once per second while a turn is streaming. Reset on every
+  // start so a new turn always begins at 0.
+  useEffect(() => {
+    if (!streaming) {
+      setStreamElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    setStreamElapsed(0);
+    const interval = setInterval(() => {
+      setStreamElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streaming]);
+
+  // Model preference. Persisted in localStorage so the choice survives
+  // reloads. 'auto' lets the server's heuristic pick per turn.
+  const [model, setModel] = useState<ChatModelPref>(() => loadModelPref());
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { saveModelPref(model); }, [model]);
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [modelMenuOpen]);
 
   // Chat-local cache for places returned by the search_restaurants
   // tool — they may fall outside the user's current filters (whole
@@ -646,6 +753,19 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // rendered by recommend_recipes resolve even when the id isn't
   // one of the user's own saved recipes.
   const [chatCommunityRecipes, setChatCommunityRecipes] = useState<Record<string, CommunityRecipeHit>>({});
+
+  // AI-built recipe drafts. `openDraftToolUseId` identifies the
+  // recipe_draft block whose preview sheet is currently open. The
+  // draft itself lives on the chat block in `messages` — we look it
+  // up by toolUseId when rendering the sheet so edits to the block
+  // (publish status, deletion) stay in sync without prop drilling.
+  const [openDraftToolUseId, setOpenDraftToolUseId] = useState<string | null>(null);
+  // Tracks drafts whose Edit was tapped — used to detect when the
+  // user publishes from the Advanced builder so we can transition the
+  // chat card to a "Published" state. Keyed by recipe_draft.toolUseId,
+  // value is the timestamp at which Edit was tapped (we match a new
+  // homeMeal with name === draft.name and createdAt >= editStartedAt).
+  const [draftEditMarkers, setDraftEditMarkers] = useState<Record<string, number>>({});
 
   // ── Chat history ────────────────────────────────────────────────
   // `view` swaps between the live conversation and the saved-chats
@@ -955,6 +1075,193 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // One pre-built regex for everything — O(text length) per render.
   const linkRegex = useMemo(() => buildLinkableRegex(linkables), [linkables]);
 
+  // ── AI recipe drafts ──
+  // Resolve the open draft block from `messages`. Doing this on every
+  // render (instead of caching) keeps the sheet in sync with publish /
+  // delete edits without any extra plumbing.
+  const openDraftBlock = useMemo(() => {
+    if (!openDraftToolUseId) return null;
+    for (const m of messages) {
+      for (const b of m.blocks) {
+        if (b.type === 'recipe_draft' && b.toolUseId === openDraftToolUseId) {
+          return b;
+        }
+      }
+    }
+    return null;
+  }, [openDraftToolUseId, messages]);
+
+  // Immutably patch the matching recipe_draft block. `mutator` returns
+  // `null` to delete the block entirely. Empty assistant turns (e.g.
+  // the AI's only output was the now-deleted draft card) are dropped
+  // alongside their following user/tool_result turn so the
+  // conversation doesn't render a stranded "no content" message.
+  const patchDraftBlock = useCallback(
+    (toolUseId: string, mutator: (b: Extract<UiBlock, { type: 'recipe_draft' }>) => UiBlock | null) => {
+      setMessages((prev) => {
+        let changed = false;
+        const next = prev.map((m) => {
+          const newBlocks: UiBlock[] = [];
+          for (const b of m.blocks) {
+            if (b.type === 'recipe_draft' && b.toolUseId === toolUseId) {
+              const replacement = mutator(b);
+              if (replacement) newBlocks.push(replacement);
+              changed = true;
+              continue;
+            }
+            newBlocks.push(b);
+          }
+          return { ...m, blocks: newBlocks };
+        });
+        if (!changed) return prev;
+        // Drop any assistant turn that is now empty AND its paired
+        // tool_result on the following user turn — keeps history clean
+        // after a draft deletion.
+        return next.filter((m, i) => {
+          if (m.role === 'user' && i > 0) {
+            const prevAssistant = next[i - 1];
+            const prevEmpty = prevAssistant && prevAssistant.role === 'assistant' && prevAssistant.blocks.length === 0;
+            if (prevEmpty) return false;
+          }
+          if (m.role === 'assistant' && m.blocks.length === 0) return false;
+          return true;
+        });
+      });
+    },
+    [],
+  );
+
+  const handleOpenDraft = useCallback((toolUseId: string) => {
+    setOpenDraftToolUseId(toolUseId);
+  }, []);
+
+  const handleCloseDraft = useCallback(() => {
+    setOpenDraftToolUseId(null);
+  }, []);
+
+  const handlePublishDraft = useCallback((draft: HomeMeal) => {
+    if (!openDraftToolUseId || !onPublishHomeMeal) return;
+    const { id: _ignored, createdAt: _ignored2, ...payload } = draft;
+    const saved = onPublishHomeMeal(payload);
+    patchDraftBlock(openDraftToolUseId, (b) => ({ ...b, publishedMealId: saved.id }));
+    setOpenDraftToolUseId(null);
+    showToast('Recipe published', { variant: 'success' });
+    // Close the chat panel and land on the saved recipe page. Small
+    // delay so the close + sheet exit animations have time to play
+    // before the route changes — matches the AddHomeMealModal flow.
+    setOpen(false);
+    const ownerId = authUser?.id;
+    if (ownerId && saved?.id) {
+      setTimeout(() => navigate(`/recipe/${ownerId}/${saved.id}`), 80);
+    }
+  }, [openDraftToolUseId, onPublishHomeMeal, patchDraftBlock, showToast, authUser?.id, navigate]);
+
+  const handleEditDraft = useCallback((draft: HomeMeal) => {
+    if (!openDraftToolUseId || !onOpenHomeMealModal) return;
+    const toolUseId = openDraftToolUseId;
+    setDraftEditMarkers((prev) => ({ ...prev, [toolUseId]: Date.now() }));
+    setOpen(false);
+    setOpenDraftToolUseId(null);
+    // Pass a "back to AI draft" callback so the Advanced builder can
+    // bounce the user back here: reopen the chat and the draft sheet.
+    void Promise.resolve(onOpenHomeMealModal(draft, {
+      onBackToDraft: () => { setOpen(true); setOpenDraftToolUseId(toolUseId); },
+    }));
+  }, [openDraftToolUseId, onOpenHomeMealModal]);
+
+  const handleCoverPhotoChange = useCallback((dataUrl: string | null) => {
+    if (!openDraftToolUseId) return;
+    patchDraftBlock(openDraftToolUseId, (b) => ({
+      ...b,
+      draft: {
+        ...b.draft,
+        coverPhoto: dataUrl || undefined,
+        photos: dataUrl
+          ? Array.from(new Set([dataUrl, ...(b.draft.photos || [])]))
+          : (b.draft.photos || []).filter((p) => p !== b.draft.coverPhoto),
+      },
+    }));
+  }, [openDraftToolUseId, patchDraftBlock]);
+
+  // Refine the open draft with a free-text AI instruction from the
+  // preview sheet. Runs a stateless /api/build-recipe edit call and
+  // patches the block in place — both the draft (so the sheet + card
+  // refresh) and the rawInput (so the chat conversation round-trips
+  // the latest version back to the model).
+  const handleRefineDraft = useCallback(async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!openDraftToolUseId) return { ok: false, error: 'No recipe to refine.' };
+    const current = openDraftBlock?.draft;
+    if (!current) return { ok: false, error: 'No recipe to refine.' };
+    const res = await refineRecipe(current, instruction);
+    if (res.ok && res.meal) {
+      patchDraftBlock(openDraftToolUseId, (b) => ({
+        ...b,
+        draft: res.meal!,
+        rawInput: res.recipe ?? b.rawInput,
+      }));
+      return { ok: true };
+    }
+    return { ok: false, error: res.error };
+  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+
+  const handleDeleteDraft = useCallback(() => {
+    if (!openDraftToolUseId) return;
+    const id = openDraftToolUseId;
+    setOpenDraftToolUseId(null);
+    patchDraftBlock(id, () => null);
+    setDraftEditMarkers((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, [openDraftToolUseId, patchDraftBlock]);
+
+  // When the user takes the Edit → modal → publish path, the modal's
+  // own publish handler calls createHomeMeal with a fresh id (we don't
+  // intercept). Match the resulting homeMeal back to the chat block
+  // by name + createdAt and mark it published.
+  useEffect(() => {
+    if (!homeMeals || homeMeals.length === 0) return;
+    const markerIds = Object.keys(draftEditMarkers);
+    if (markerIds.length === 0) return;
+    for (const toolUseId of markerIds) {
+      const startedAt = draftEditMarkers[toolUseId];
+      let draftName: string | null = null;
+      let alreadyPublished = false;
+      for (const m of messages) {
+        for (const b of m.blocks) {
+          if (b.type === 'recipe_draft' && b.toolUseId === toolUseId) {
+            draftName = b.draft.name;
+            if (b.publishedMealId !== null) alreadyPublished = true;
+            break;
+          }
+        }
+        if (draftName) break;
+      }
+      if (!draftName || alreadyPublished) {
+        // Block no longer pending — clear the marker and move on.
+        setDraftEditMarkers((prev) => {
+          const next = { ...prev };
+          delete next[toolUseId];
+          return next;
+        });
+        continue;
+      }
+      const match = homeMeals.find(
+        (hm) => hm.name === draftName && hm.createdAt >= startedAt - 1000,
+      );
+      if (match) {
+        patchDraftBlock(toolUseId, (b) => ({ ...b, publishedMealId: match.id }));
+        setDraftEditMarkers((prev) => {
+          const next = { ...prev };
+          delete next[toolUseId];
+          return next;
+        });
+      }
+    }
+  }, [homeMeals, draftEditMarkers, messages, patchDraftBlock]);
+
   const sendTurn = useCallback(async (userText: string) => {
     setError(null);
     setStreaming(true);
@@ -1017,6 +1324,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             userContext,
             currentPath,
             currentPageLabel,
+            model,
           },
           controller.signal,
         );
@@ -1066,6 +1374,39 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
                 return next;
               });
+            } else if (ev.name === 'build_recipe') {
+              // AI-authored recipe. Materialise immediately as a draft
+              // card so the user sees the result the moment the model
+              // commits — no spinner waiting for the dispatch phase.
+              const input = (ev.input || {}) as BuildRecipeInput;
+              console.log('[build_recipe] tool_use event input:', input);
+              const draft = buildRecipeInputToHomeMeal(input);
+              if (draft) {
+                console.log(`[build_recipe] card pushed: "${draft.name}"`);
+                assistantBlocks.push({
+                  type: 'recipe_draft',
+                  toolUseId: ev.id,
+                  draft,
+                  rawInput: ev.input,
+                  publishedMealId: null,
+                });
+                setMessages((prev) => {
+                  const next = [...prev];
+                  next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
+                  return next;
+                });
+              } else {
+                console.warn('[build_recipe] tool_use rejected — no usable name in input');
+                // Invalid payload — fall through so the dispatch phase
+                // emits a tool_result describing what's missing. Still
+                // record the tool_use so the protocol stays valid.
+                assistantBlocks.push({
+                  type: 'tool_use',
+                  toolUseId: ev.id,
+                  toolName: ev.name,
+                  input: ev.input,
+                });
+              }
             } else {
               // search_restaurants (or any future invisible tool) —
               // record the tool_use so the assistant turn round-trips
@@ -1099,6 +1440,27 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           return;
         }
         if (!modelCalledTools) {
+          // No tools, no visible content — almost always max_tokens
+          // truncation mid-output. Surface a friendly message so the
+          // user isn't staring at an empty chat.
+          const hasAnyVisible = assistantBlocks.some(
+            (b) =>
+              (b.type === 'text' && b.text.trim().length > 0)
+              || b.type === 'cards'
+              || b.type === 'recipe_cards'
+              || b.type === 'recipe_draft',
+          );
+          if (!hasAnyVisible) {
+            assistantBlocks.push({
+              type: 'text',
+              text: "Sorry — I ran out of room before I could finish that. Try asking again, or be a bit more specific.",
+            });
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
+              return next;
+            });
+          }
           // Final answer — exit the agentic loop.
           return;
         }
@@ -1472,6 +1834,56 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 content = `open_add_reel_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
               }
             }
+          } else if (tu.name === 'build_recipe') {
+            const input = (tu.input || {}) as BuildRecipeInput;
+            console.log('[build_recipe] dispatch input:', input);
+            const draft = buildRecipeInputToHomeMeal(input);
+            if (!draft) {
+              content = 'build_recipe failed: the recipe needs a `name` at minimum. Re-call build_recipe with a name and as much detail as you have (ingredients, steps, timing).';
+            } else {
+              const ingredientCount = draft.ingredients?.length || 0;
+              const stepCount = (draft.stepDetails?.length || draft.steps?.length || 0);
+              console.log(`[build_recipe] rendered "${draft.name}" — ${ingredientCount} ingredients, ${stepCount} steps`);
+              content = `Recipe draft "${draft.name}" rendered as an in-chat card (${ingredientCount} ingredients, ${stepCount} steps). The user can tap it to preview, then Publish to add it to their cookbook or Edit to fine-tune in the Advanced builder. Reply with ONE short sentence pointing the user at the card — do NOT paste the recipe text.`;
+            }
+          } else if (tu.name === 'edit_recipe_draft') {
+            const input = (tu.input || {}) as BuildRecipeInput;
+            const changed = changedFieldsInEdit(input);
+            console.log('[edit_recipe_draft] dispatch input:', input, 'changed:', changed);
+            if (changed.length === 0) {
+              content = 'edit_recipe_draft failed: no fields supplied. Include at least one field to change.';
+            } else {
+              // Find AND patch the most recent unpublished recipe_draft
+              // in a single setMessages callback so we read live state
+              // (the streaming convo may have queued other updates).
+              let patchedName: string | null = null;
+              let foundDraft = false;
+              setMessages((prev) => {
+                for (let mi = prev.length - 1; mi >= 0; mi--) {
+                  const msg = prev[mi];
+                  for (let bi = msg.blocks.length - 1; bi >= 0; bi--) {
+                    const b = msg.blocks[bi];
+                    if (b.type === 'recipe_draft' && b.publishedMealId === null) {
+                      foundDraft = true;
+                      const merged = mergeRecipeEdit(b.draft, input);
+                      patchedName = merged.name;
+                      const newBlocks = [...msg.blocks];
+                      newBlocks[bi] = { ...b, draft: merged };
+                      const next = [...prev];
+                      next[mi] = { ...msg, blocks: newBlocks };
+                      console.log(`[edit_recipe_draft] patched "${merged.name}" — fields:`, changed.join(', '));
+                      return next;
+                    }
+                  }
+                }
+                return prev;
+              });
+              if (!foundDraft) {
+                content = 'edit_recipe_draft failed: no editable draft in this conversation. Call build_recipe first to create a recipe, then edit it.';
+              } else {
+                content = `Updated draft "${patchedName}" — replaced fields: ${changed.join(', ')}. The card refreshed in chat. Reply with ONE short sentence about what changed (no full recipe text).`;
+              }
+            }
           } else if (tu.name === 'open_home_meal_modal') {
             if (!onOpenHomeMealModal) {
               content = 'Add Recipe modal is not wired up in this context.';
@@ -1694,7 +2106,43 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 ) : (
                   <>
                     <h3>Ask a local</h3>
-                    <p>Powered by Claude</p>
+                    <div className="lp-chat-head-model" ref={modelMenuRef}>
+                      <button
+                        type="button"
+                        className="lp-chat-model-pill"
+                        onClick={() => setModelMenuOpen((o) => !o)}
+                        aria-haspopup="listbox"
+                        aria-expanded={modelMenuOpen}
+                        title="Change model"
+                      >
+                        {model === 'auto' && <Zap size={10} strokeWidth={2.6} />}
+                        <span>{MODEL_LABELS[model]}</span>
+                        <ChevronDown size={11} strokeWidth={2.4} />
+                      </button>
+                      {modelMenuOpen && (
+                        <div className="lp-chat-model-menu" role="listbox">
+                          {(['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'] as ChatModelPref[]).map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              role="option"
+                              aria-selected={model === opt}
+                              className={cn('lp-chat-model-opt', model === opt && 'is-selected')}
+                              onClick={() => { setModel(opt); setModelMenuOpen(false); }}
+                            >
+                              <div className="lp-chat-model-opt-text">
+                                <div className="lp-chat-model-opt-label">
+                                  {opt === 'auto' && <Zap size={11} strokeWidth={2.4} />}
+                                  <span>{MODEL_LABELS[opt]}</span>
+                                </div>
+                                <div className="lp-chat-model-opt-sub">{MODEL_SUBLABELS[opt]}</div>
+                              </div>
+                              {model === opt && <Check size={13} strokeWidth={2.4} />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -1808,7 +2256,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   (b) =>
                     (b.type === 'text' && b.text)
                     || (b.type === 'cards' && b.placeIds.length > 0)
-                    || (b.type === 'recipe_cards' && b.recipeIds.length > 0),
+                    || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+                    || b.type === 'recipe_draft',
                 );
                 if (!hasVisibleContent) return null;
                 return (
@@ -1896,6 +2345,17 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         </div>
                       );
                     }
+                    if (b.type === 'recipe_draft') {
+                      return (
+                        <div key={bi} className="lp-chat-cards">
+                          <RecipeDraftCard
+                            draft={b.draft}
+                            publishedMealId={b.publishedMealId}
+                            onOpen={() => handleOpenDraft(b.toolUseId)}
+                          />
+                        </div>
+                      );
+                    }
                     // restaurant cards
                     if (b.placeIds.length === 0) return null;
                     return (
@@ -1967,10 +2427,20 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   the existing scroll effect re-fires on `streaming`. */}
               {streaming && (
                 <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
-                  <div className="lp-chat-bubble">
+                  <div className="lp-chat-bubble lp-chat-thinking">
                     <span className="lp-chat-typing" aria-label="Assistant is responding">
                       <span /><span /><span />
                     </span>
+                    <span className="lp-chat-thinking-label">
+                      {streamElapsed >= 20
+                        ? 'Still working on it…'
+                        : streamElapsed >= 8
+                          ? 'Working on it…'
+                          : 'Thinking…'}
+                    </span>
+                    {streamElapsed >= 4 && (
+                      <span className="lp-chat-thinking-elapsed">{streamElapsed}s</span>
+                    )}
                   </div>
                 </div>
               )}
@@ -2026,6 +2496,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <RecipeDraftSheet
+        open={openDraftBlock !== null}
+        draft={openDraftBlock?.draft ?? null}
+        publishedMealId={openDraftBlock?.publishedMealId ?? null}
+        onClose={handleCloseDraft}
+        onPublish={handlePublishDraft}
+        onEdit={handleEditDraft}
+        onDelete={handleDeleteDraft}
+        onCoverPhotoChange={handleCoverPhotoChange}
+        onRefine={handleRefineDraft}
+      />
     </>
   );
 };

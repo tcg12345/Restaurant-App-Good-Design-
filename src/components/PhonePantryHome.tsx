@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
-import type { CustomList, HomeMeal } from '../contexts/ListsContext';
+import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
 
 /**
  * Pantry landing — used on phone and desktop. Two top-level tabs:
@@ -184,6 +184,18 @@ const RecipesTab: React.FC<{
     [homeMeals],
   );
 
+  // Pull the built-in "Want to Cook" list out so it gets its own
+  // essentials card (parallel to the restaurant Wishlist card on the
+  // other tab). The remaining recipe lists fall through to the grid.
+  const wantToCook = useMemo(
+    () => lists.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID) || null,
+    [lists],
+  );
+  const otherRecipeLists = useMemo(
+    () => lists.filter((l) => l.id !== DEFAULT_WANT_TO_COOK_ID),
+    [lists],
+  );
+
   return (
     <>
       {/* ── Section: Essentials ── */}
@@ -191,21 +203,25 @@ const RecipesTab: React.FC<{
         <SectionLabel>Essentials</SectionLabel>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <AllRecipesCard count={homeMeals.length} topMeal={sortedMeals[0]} onClick={onOpenAllRecipes} />
-          <NewListCard label="New recipe list" onClick={onCreateRecipeList} />
+          {wantToCook && (
+            <WantToCookCard
+              count={wantToCook.recipes?.length || 0}
+              onClick={() => onOpenList(wantToCook)}
+            />
+          )}
         </div>
       </div>
 
       {/* ── Section: Recipe lists ── */}
-      {lists.length > 0 && (
-        <div className="mt-7">
-          <SectionLabel>Recipe lists</SectionLabel>
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            {lists.map((list) => (
-              <RecipeListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
-            ))}
-          </div>
+      <div className="mt-7">
+        <SectionLabel>Recipe lists</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <NewListCard label="New recipe list" onClick={onCreateRecipeList} />
+          {otherRecipeLists.map((list) => (
+            <RecipeListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
+          ))}
         </div>
-      )}
+      </div>
     </>
   );
 };
@@ -319,6 +335,31 @@ const AllRecipesCard: React.FC<{ count: number; topMeal?: HomeMeal; onClick: () 
     </button>
   );
 };
+
+// "Want to Cook" essential card — recipe-side counterpart to the
+// restaurant Wishlist card. Saffron gradient evokes a dog-eared
+// cookbook page so the user can immediately tell it from All Recipes
+// (deep green) and the other tab's Wishlist (orange-red).
+const WantToCookCard: React.FC<{ count: number; onClick: () => void }> = ({ count, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#C68F3A] to-[#8E5E1F] active:scale-[0.98] transition-transform"
+  >
+    <div className="flex items-start justify-between">
+      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">
+        Saved
+      </span>
+      <Bookmark size={20} className="text-white fill-white" />
+    </div>
+    <div>
+      <p className="text-white font-serif font-bold text-[20px] leading-tight">Want to cook</p>
+      <p className="text-white/75 text-xs mt-0.5">
+        {count > 0 ? `${count} saved` : 'Nothing saved yet'}
+      </p>
+    </div>
+  </button>
+);
 
 const NewListCard: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
   <button

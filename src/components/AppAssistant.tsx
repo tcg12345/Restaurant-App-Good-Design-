@@ -94,8 +94,14 @@ function routeShowsBottomNav(pathname: string): boolean {
 /* ── Scroll-driven hide for the FAB on mobile ────────────────────
    Twitter / Instagram-style: the floating button slips down + fades
    out when the user scrolls DOWN, and snaps back when they scroll UP.
-   We listen on the phone-frame's inner scroll container when it
-   exists (phoneMode + non-native), and on the window otherwise.
+
+   Different pages scroll in different containers — sometimes the
+   window, sometimes the phone-frame's inner div, sometimes a page's
+   own nested `overflow-y-auto` element. To catch them all with one
+   listener we bind to `document` in the CAPTURE phase: scroll events
+   don't bubble, but a capturing listener still observes them from any
+   descendant scroller. We then read the scroll position off the event
+   target. This is what makes it work on every page.
 
    - `enabled=false` short-circuits the listener so desktop / sidebar
      mode keeps the FAB pinned.
@@ -104,7 +110,10 @@ function routeShowsBottomNav(pathname: string): boolean {
      into view).
    - We require a small DELTA threshold so a single jittery wheel
      tick can't flip-flop the state, and always show near the top
-     so a scroll-to-top doesn't leave the FAB hidden. */
+     so a scroll-to-top doesn't leave the FAB hidden.
+   - When the active scroller changes (navigating between containers)
+     we reset the baseline instead of comparing scrollTops across two
+     unrelated elements. */
 function useFabScrollHide(enabled: boolean, pathname: string): boolean {
   const [hidden, setHidden] = React.useState(false);
 
@@ -119,24 +128,40 @@ function useFabScrollHide(enabled: boolean, pathname: string): boolean {
       setHidden(false);
       return;
     }
-    // Phone-frame mode wraps the routes in a div with overflow-y-auto;
-    // that's where scroll events fire. On native / no-frame layouts
-    // the window scrolls normally.
-    const root = document.getElementById('phone-frame-root');
-    const inner = root?.firstElementChild;
-    const scroller: HTMLElement | null = inner instanceof HTMLElement ? inner : null;
-    const useWindow = !scroller;
 
-    const readY = (): number => useWindow ? window.scrollY : (scroller as HTMLElement).scrollTop;
-
-    let lastY = readY();
-    let raf = 0;
     const SHOW_NEAR_TOP = 80;
-    const DELTA_THRESHOLD = 10;
+    const DELTA_THRESHOLD = 8;
+
+    const scrollTopOf = (target: EventTarget | null): number => {
+      if (
+        !target
+        || target === document
+        || target === window
+        || target === document.documentElement
+        || target === document.body
+      ) {
+        return window.scrollY || document.documentElement.scrollTop || 0;
+      }
+      return (target as HTMLElement).scrollTop ?? 0;
+    };
+
+    let lastY = 0;
+    let lastTarget: EventTarget | null = null;
+    let pendingTarget: EventTarget | null = null;
+    let raf = 0;
 
     const handle = () => {
       raf = 0;
-      const y = readY();
+      const target = pendingTarget;
+      const y = scrollTopOf(target);
+      // New scroll container in focus — rebase rather than diffing
+      // against an unrelated element's scrollTop.
+      if (target !== lastTarget) {
+        lastTarget = target;
+        lastY = y;
+        if (y < SHOW_NEAR_TOP) setHidden(false);
+        return;
+      }
       const dy = y - lastY;
       if (y < SHOW_NEAR_TOP) {
         setHidden(false);
@@ -146,15 +171,18 @@ function useFabScrollHide(enabled: boolean, pathname: string): boolean {
       lastY = y;
     };
 
-    const onScroll = () => {
+    const onScroll = (e: Event) => {
+      pendingTarget = e.target;
       if (raf) return;
       raf = requestAnimationFrame(handle);
     };
 
-    const target: EventTarget = scroller || window;
-    target.addEventListener('scroll', onScroll, { passive: true });
+    // Capture phase + document target = catches scroll from the window
+    // AND any nested scroll container on the page.
+    const opts: AddEventListenerOptions = { capture: true, passive: true };
+    document.addEventListener('scroll', onScroll, opts);
     return () => {
-      target.removeEventListener('scroll', onScroll);
+      document.removeEventListener('scroll', onScroll, opts);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [enabled, pathname]);
@@ -825,8 +853,8 @@ export const AppAssistant: React.FC = () => {
     return { ok: true };
   }, [reels]);
 
-  const handleOpenHomeMealModal = useCallback((): ActionResult => {
-    lists.openHomeMealModal();
+  const handleOpenHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void }): ActionResult => {
+    lists.openHomeMealModal(meal, opts);
     return { ok: true };
   }, [lists]);
 
@@ -875,6 +903,8 @@ export const AppAssistant: React.FC = () => {
       onOpenAddReelModal={handleOpenAddReelModal}
       onOpenHomeMealModal={handleOpenHomeMealModal}
       onOpenGuideCreator={handleOpenGuideCreator}
+      homeMeals={lists.homeMeals}
+      onPublishHomeMeal={lists.createHomeMeal}
     />
   );
 };

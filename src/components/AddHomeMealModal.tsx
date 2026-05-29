@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight } from '../lib/score';
-import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
 import { ImportRecipesModal } from './ImportRecipesModal';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -20,6 +23,9 @@ import {
   type BulkResult,
 } from '../lib/ingredient-parsing';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
+import { AiRecipeGenerator } from './AiRecipeGenerator';
+import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
+import { refineRecipe } from '../lib/build-recipe-client';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 
 /* ── Tab-mode preference (sticky across sessions) ────────────── */
@@ -32,12 +38,17 @@ const saveMode = (m: 'basic' | 'advanced') => {
   try { localStorage.setItem(MODE_KEY, m); } catch { /* quota — skip */ }
 };
 
+type BuilderMode = 'basic' | 'advanced' | 'ai';
+
 interface TabToggleProps {
-  mode: 'basic' | 'advanced';
-  onChange: (m: 'basic' | 'advanced') => void;
+  mode: BuilderMode;
+  onChange: (m: BuilderMode) => void;
   forceAdvanced?: boolean;
+  /** Show the AI segment. Only offered for brand-new recipes — editing
+   *  an existing meal hides it. */
+  showAi?: boolean;
 }
-const TabToggle: React.FC<TabToggleProps> = ({ mode, onChange, forceAdvanced }) => (
+const TabToggle: React.FC<TabToggleProps> = ({ mode, onChange, forceAdvanced, showAi }) => (
   <div className="arb-tab-toggle" role="tablist" aria-label="Recipe builder mode">
     <button
       type="button"
@@ -59,6 +70,18 @@ const TabToggle: React.FC<TabToggleProps> = ({ mode, onChange, forceAdvanced }) 
     >
       Advanced
     </button>
+    {showAi && (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === 'ai'}
+        className={cn('arb-tab-ai', mode === 'ai' ? 'is-active' : '')}
+        onClick={() => onChange('ai')}
+      >
+        <Sparkles size={13} />
+        AI
+      </button>
+    )}
   </div>
 );
 
@@ -108,12 +131,16 @@ type Page = 'main' | 'tags' | 'photos' | 'dishList' | 'dishes' | 'ingredients' |
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, closeHomeMealModal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, closeHomeMealModal,
     createHomeMeal, updateHomeMeal, deleteHomeMeal,
   } = useLists();
   const { phoneMode } = useSettings();
   const { myRecipes } = useRecipes();
   const { dragProps } = useBottomSheet(homeMealModalOpen, closeHomeMealModal);
+  const { showToast } = useToast();
+  const navigate = useNavigate();
+  const auth = useAuth();
+  const userId = auth.user?.id || null;
 
   const existing = homeMealModalData;
 
@@ -125,7 +152,7 @@ export const AddHomeMealModal: React.FC = () => {
   // When editing a Basic meal, open Basic. Otherwise (new recipe),
   // default to the user's last-used tab.
   const forceAdvanced = !!(existing && existing.builderVersion === 'advanced');
-  const [mode, setMode] = useState<'basic' | 'advanced'>(() => {
+  const [mode, setMode] = useState<BuilderMode>(() => {
     if (forceAdvanced) return 'advanced';
     // Pending resume from Activity → Recipe drafts always lands the
     // user on Advanced (Basic can't render an Advanced draft anyway).
@@ -133,6 +160,15 @@ export const AddHomeMealModal: React.FC = () => {
     if (existing) return 'basic';
     return loadMode();
   });
+
+  // ── Create-with-AI state ──
+  // `aiDraft`  — the generated recipe shown in the RecipeDraftSheet
+  //              preview (reuses the exact sheet from the main chat).
+  // `aiSeed`   — set when the user taps Edit in that sheet; pre-fills
+  //              the Advanced builder as a NEW recipe for fine-tuning.
+  const [aiDraft, setAiDraft] = useState<HomeMeal | null>(null);
+  const [aiSeed, setAiSeed] = useState<HomeMeal | null>(null);
+
   // Re-evaluate when the modal opens with a different `existing` meal
   // or a new pending-resume flag.
   useEffect(() => {
@@ -140,10 +176,83 @@ export const AddHomeMealModal: React.FC = () => {
     else if (peekPendingResumeDraftId()) setMode('advanced');
     else if (existing) setMode('basic');
   }, [forceAdvanced, existing, homeMealModalOpen]);
-  const handleModeChange = (m: 'basic' | 'advanced') => {
+  const handleModeChange = (m: BuilderMode) => {
     if (forceAdvanced && m === 'basic') return;
     setMode(m);
-    saveMode(m);
+    // The AI tab is transient — never persist it as the sticky default.
+    if (m !== 'ai') saveMode(m);
+  };
+
+  // Hand-off from the AI generator: stash the generated recipe and open
+  // the preview sheet. Nothing is saved to the cookbook yet — the user
+  // publishes (or edits) from the sheet.
+  const handleAiGenerated = (meal: HomeMeal) => setAiDraft(meal);
+
+  // Publish straight from the AI preview sheet.
+  const handleAiPublish = (meal: HomeMeal) => {
+    const { id: _id, createdAt: _createdAt, ...payload } = meal;
+    const created = createHomeMeal(payload);
+    setAiDraft(null);
+    closeHomeMealModal();
+    showToast('Recipe published', { variant: 'success' });
+    // Route to the saved recipe. Prefer the canonical
+    // /recipe/<userId>/<id> when we have an id; fall back to the
+    // userId-less alias so the user still lands on the page even if
+    // the auth context is briefly out of sync.
+    if (created?.id) {
+      const target = userId
+        ? `/recipe/${userId}/${created.id}`
+        : `/recipe/${created.id}`;
+      setTimeout(() => navigate(target), 80);
+    }
+  };
+
+  // Refine the in-preview AI draft with a free-text instruction. The
+  // AI returns the full revised recipe (merged over the current draft
+  // so cover photo etc. survive); swap it into place.
+  const handleAiRefine = async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!aiDraft) return { ok: false, error: 'No recipe to refine.' };
+    const res = await refineRecipe(aiDraft, instruction);
+    if (res.ok && res.meal) {
+      setAiDraft(res.meal);
+      return { ok: true };
+    }
+    return { ok: false, error: res.error };
+  };
+
+  // Edit from the AI preview sheet → seed the Advanced builder (as a
+  // brand-new recipe) and switch to it so the user can fine-tune.
+  const handleAiEdit = (meal: HomeMeal) => {
+    setAiSeed(meal);
+    setAiDraft(null);
+    setMode('advanced');
+  };
+
+  // "Back to AI draft" from the Advanced builder. Two origins:
+  //  • Modal "Create with AI" Edit → aiSeed is set; reopen the local
+  //    draft sheet and drop back to the AI tab behind it.
+  //  • Chat Edit → the chat passed a reopen callback via
+  //    openHomeMealModal(..., { onBackToDraft }); close this modal and
+  //    fire it to re-surface the chat's draft sheet.
+  const backToDraft = aiSeed
+    ? () => { setAiDraft(aiSeed); setAiSeed(null); setMode('ai'); }
+    : homeMealModalBackToDraft
+      ? () => { const cb = homeMealModalBackToDraft; closeHomeMealModal(); cb(); }
+      : undefined;
+
+  // Attach / clear a cover photo on the in-preview AI draft.
+  const handleAiCoverChange = (dataUrl: string | null) => {
+    setAiDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            coverPhoto: dataUrl || undefined,
+            photos: dataUrl
+              ? Array.from(new Set([dataUrl, ...(prev.photos || [])]))
+              : (prev.photos || []).filter((p) => p !== prev.coverPhoto),
+          }
+        : prev,
+    );
   };
 
   const [mealName, setMealName] = useState('');
@@ -248,6 +357,9 @@ export const AddHomeMealModal: React.FC = () => {
       setTagSearch('');
       setPage('main');
       setConfirmDelete(false);
+      // Clear any leftover AI draft / seed from a previous session.
+      setAiDraft(null);
+      setAiSeed(null);
     }
   }, [homeMealModalOpen, existing]);
 
@@ -599,9 +711,20 @@ export const AddHomeMealModal: React.FC = () => {
           >
             {mode === 'advanced' ? (
               <AdvancedRecipeBuilder
+                key={aiSeed ? aiSeed.id : 'fresh'}
                 existing={existing}
+                seed={aiSeed}
+                initialStep={aiSeed ? 5 : undefined}
                 onClose={closeHomeMealModal}
-                tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} />}
+                onBackToDraft={backToDraft}
+                tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}
+              />
+            ) : mode === 'ai' ? (
+              <AiRecipeGenerator
+                onGenerated={handleAiGenerated}
+                onClose={closeHomeMealModal}
+                phoneMode={phoneMode}
+                tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}
               />
             ) : (
               <>
@@ -613,10 +736,10 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  {/* Basic / Advanced tab strip — sits above the title
-                      row so it's visible on phone without crowding. */}
+                  {/* Basic / Advanced / AI tab strip — sits above the
+                      title row so it's visible on phone without crowding. */}
                   <div className="px-6 pt-safe-5 sm:pt-6 pb-2 flex items-center justify-between flex-shrink-0 gap-2">
-                    <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} />
+                    <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />
                     <button
                       onClick={closeHomeMealModal}
                       className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"
@@ -1534,6 +1657,23 @@ export const AddHomeMealModal: React.FC = () => {
     <ImportRecipesModal
       open={importRecipesOpen}
       onClose={() => setImportRecipesOpen(false)}
+    />
+    {/* AI recipe preview — the SAME sheet the main chat uses. Layered
+        above the modal (z-[210]) so Publish / Edit / cover-photo all
+        work in place. Publish saves + closes; Edit hands off to the
+        Advanced builder seeded with the draft. */}
+    <RecipeDraftSheet
+      open={aiDraft !== null}
+      draft={aiDraft}
+      publishedMealId={null}
+      onClose={() => setAiDraft(null)}
+      onPublish={handleAiPublish}
+      onEdit={handleAiEdit}
+      onDelete={() => setAiDraft(null)}
+      onCoverPhotoChange={handleAiCoverChange}
+      onRefine={handleAiRefine}
+      zClass="z-[210]"
+      publishLabel="Publish recipe"
     />
     </>
   );
