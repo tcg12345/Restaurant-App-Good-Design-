@@ -6,12 +6,12 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, MapPin, Globe, Star, Send, Loader2, Navigation } from 'lucide-react';
+import { X, Search, MapPin, Globe, Star, Send, Loader2, Navigation, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import { useLists, type RestaurantRating } from '../../contexts/ListsContext';
 import { type SharedRestaurant } from '../../contexts/ChatContext';
-import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../../lib/places';
+import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../../lib/places';
 import { getCuisineLabel } from '../../pages/useRestaurantDetail';
 import { loadLastSelectedLocation } from '../HomeLocationBar';
 
@@ -222,18 +222,33 @@ export const ShareRestaurantPicker: React.FC<{
                   ) : (
                     <>
                       <SectionLabel text={`${dbResults.length} result${dbResults.length === 1 ? '' : 's'} near ${coords.label || 'you'}`} />
-                      <div className="grid grid-cols-2 gap-2.5">
+                      {/* Single-column rows, mirroring the header search results. */}
+                      <div className="flex flex-col -mx-1">
                         {dbResults.map((p) => {
                           const shared = placeToShared(p);
+                          const location = formatLocationLabel(p.addressComponents, p.fullAddress || p.address);
+                          const sel = picked?.restaurantId === p.id && picked?.isReview === false;
                           return (
-                            <PickCard
+                            <button
                               key={p.id}
-                              image={p.photoUrl || ''}
-                              name={p.name}
-                              meta={[shared.cuisine, shared.price, p.address].filter(Boolean) as string[]}
-                              selected={picked?.restaurantId === p.id && picked?.isReview === false}
                               onClick={() => setPicked(shared)}
-                            />
+                              className={cn(
+                                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors',
+                                sel ? 'bg-primary/[0.07] ring-1 ring-primary/30' : 'hover:bg-on-surface/[0.04]',
+                              )}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="font-serif font-bold text-[15px] text-on-surface leading-tight truncate">{p.name}</p>
+                                <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">
+                                  {shared.cuisine || 'Restaurant'}
+                                  {shared.price ? <span className="text-on-surface/30"> · {shared.price}</span> : null}
+                                  {location ? <span className="text-on-surface/30"> · {location}</span> : null}
+                                </p>
+                              </div>
+                              {sel && (
+                                <span className="w-6 h-6 rounded-full bg-primary text-white grid place-items-center flex-shrink-0"><Check size={14} strokeWidth={3} /></span>
+                              )}
+                            </button>
                           );
                         })}
                       </div>
@@ -274,8 +289,8 @@ const SectionLabel: React.FC<{ text: string }> = ({ text }) => (
 );
 
 const EmptyState: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, text }) => (
-  <div className="text-center py-16 text-on-surface/35">
-    <div className="mx-auto mb-3 text-on-surface/20">{icon}</div>
+  <div className="flex flex-col items-center justify-center text-center py-16 text-on-surface/35">
+    <div className="mb-3 text-on-surface/20">{icon}</div>
     <p className="font-serif italic text-[17px]">{text}</p>
   </div>
 );
