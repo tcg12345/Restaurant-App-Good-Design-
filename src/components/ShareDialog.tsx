@@ -27,24 +27,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
-
-/* ── Avatar palette — keeps friend chips visually consistent ─────────── */
-
-const AVATAR_PALETTE = [
-  'bg-emerald-700', 'bg-rose-700', 'bg-amber-600', 'bg-indigo-700',
-  'bg-sky-700', 'bg-fuchsia-700', 'bg-orange-700', 'bg-teal-700',
-];
-function pickAvatarColor(userId: string): string {
-  let h = 0;
-  for (let i = 0; i < userId.length; i++) h = (h * 31 + userId.charCodeAt(i)) >>> 0;
-  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
-}
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'U';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
+import { pickAvatarColor, initialsFor } from '../lib/avatar';
 
 /* ── Payload preview — small chip at the top of the dialog ───────────── */
 

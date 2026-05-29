@@ -70,6 +70,12 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, validation }) => 
       </div>
       <h3 className="arb-review-title">{state.name || 'Your recipe'}</h3>
       {state.summary && <p className="arb-review-summary">{state.summary}</p>}
+      {state.introParagraph.trim() && (
+        <div className="arb-review-section">
+          <h4>Intro paragraph</h4>
+          <p className="arb-review-intro">{state.introParagraph.trim()}</p>
+        </div>
+      )}
 
       <div className="arb-review-section">
         <h4>Timing & yield</h4>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, type UserAppData } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
@@ -221,6 +221,11 @@ export interface HomeMeal {
      legacy flat fields above so existing meals render unchanged. */
   /** One-line summary shown under the title on the recipe page. */
   summary?: string;
+  /** Longer multi-paragraph intro shown in the recipe page body (the
+   *  drop-cap "story" paragraph). Distinct from `summary` (the one-line
+   *  byline) and from `description` (kept as the one-liner for card/feed
+   *  previews). Falls back to `description` on the recipe page when blank. */
+  introParagraph?: string;
   /** Meal courses, e.g. ['Dinner', 'Side']. Rendered as chips. */
   course?: string[];
   /** Rest / chill minutes, separate from prep + cook. */
@@ -243,6 +248,10 @@ export interface HomeMeal {
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
+  /** True when this recipe was drafted by the "Create with AI" generator
+   *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
+   *  recipe page. Stays set after the user edits + publishes the draft. */
+  createdWithAi?: boolean;
   /** When this meal was saved from another user's recipe, who
    *  originally authored it. Drives the "by @author" byline shown on
    *  cookbook / list / profile cards. Unset for the user's own meals. */
@@ -701,6 +710,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => migrateHomeMeals(loadFromStorage(STORAGE_KEY_HOME_MEALS, [])));
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  // True only after a cloud load FAILED (timeout/network). While set, we must
+  // not push the full home-meals array to the cloud — the in-memory set may be
+  // incomplete and would clobber the stored recipes. localStorage keeps the
+  // change; the next successful load unions + backfills it.
+  const cloudLoadFailedRef = useRef(false);
 
   // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
@@ -740,7 +754,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     let cancelled = false;
 
     (async () => {
-      const cloud = await loadUserData(userId);
+      let cloud: UserAppData | null;
+      try {
+        cloud = await loadUserData(userId);
+      } catch (err) {
+        if (cancelled) return;
+        // The cloud load failed/timed out. Do NOT treat this as an empty
+        // account — pushing local (often empty) to the cloud here is exactly
+        // what wiped users' recipes. Keep whatever's already in local state
+        // and leave the cloud untouched; a later reload will load it.
+        console.warn('[Lists] Cloud load failed; keeping local data and not overwriting the cloud.', err);
+        cloudLoadFailedRef.current = true;
+        setCloudLoaded(true);
+        return;
+      }
       if (cancelled) return;
 
       if (cloud) {
@@ -943,24 +970,39 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTrips(localTrips);
         setHomeMeals(localHomeMeals);
 
-        // Save local data to cloud so it persists.
-        // Re-read localStorage at save time so a toggle the user made while
-        // loadUserData was in flight (e.g. tapping a heart on the first
-        // visible card) is included in the upsert instead of being clobbered
-        // by the snapshot we captured at the top of this branch.
-        await saveUserData(userId, {
-          ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
-          lists: migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
-          wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
-          restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
-          recentViews: [],
-          trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
-          homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
-          chats: [],
-          chatsRead: {},
-        });
+        // Only push to the cloud when local actually has content to persist.
+        // Writing empty arrays here would clobber the row, so if there's
+        // nothing local we leave the (genuinely absent) row to be created
+        // lazily on the user's first real write via ensureRow.
+        const localHasContent =
+          localRatings.length > 0 ||
+          localWishlist.length > 0 ||
+          localHomeMeals.length > 0 ||
+          localTrips.length > 0 ||
+          Object.keys(localMeta).length > 0 ||
+          localLists.some((l) => (l.recipes?.length || l.restaurantIds?.length || l.wishlistIds?.length));
+
+        if (localHasContent) {
+          // Re-read localStorage at save time so a toggle the user made while
+          // loadUserData was in flight (e.g. tapping a heart on the first
+          // visible card) is included in the upsert instead of being clobbered
+          // by the snapshot we captured at the top of this branch.
+          await saveUserData(userId, {
+            ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
+            lists: migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
+            wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
+            restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
+            recentViews: [],
+            trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
+            homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
+            chats: [],
+            chatsRead: {},
+          });
+        }
       }
 
+      // Load succeeded (row found, or genuine no-row) — cloud writes are safe.
+      cloudLoadFailedRef.current = false;
       setCloudLoaded(true);
     })();
 
@@ -1152,6 +1194,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // we already do for trips and custom_order.
   const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
     if (!userIdRef.current || !supabaseConfigured) return;
+    // If the cloud load failed this session, the in-memory set may be
+    // incomplete — writing it would clobber the stored recipes. Skip the
+    // cloud write (localStorage already has the change); the next successful
+    // load unions local + cloud and backfills.
+    if (cloudLoadFailedRef.current) return;
     saveHomeMeals(userIdRef.current, data);
     setRestaurantMeta((prev) => {
       const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };

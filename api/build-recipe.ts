@@ -41,6 +41,7 @@ const QUALITY_BAR = [
   '- Realistic prep/cook/chill timing in minutes.',
   '- Group ingredients by stage with `ingredientGroups` ONLY when the recipe truly has distinct stages ("For the batter", "For the glaze"); otherwise use the flat `ingredients` list.',
   '- Include `equipment` the cook needs and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead).',
+  '- Write BOTH a `summary` (one punchy line, the byline under the title) AND a longer `introParagraph` (2–4 sentences of prose for the top of the recipe page). They MUST be different: the intro describes what the dish actually is — its flavor and texture, where it comes from or when to serve it, and why it is worth cooking. Do NOT just restate the summary.',
   `- Set a sensible \`cuisine\` (examples: ${CUISINE_HINT}) and \`course\` (one or more of: ${COURSE_HINT}).`,
 ].join('\n');
 
@@ -74,7 +75,8 @@ const TOOL_BUILD_RECIPE = {
     required: ['name'],
     properties: {
       name: { type: 'string', description: 'Recipe title.' },
-      summary: { type: 'string', description: 'One-line description shown under the title.' },
+      summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
+      introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`.' },
       cuisine: { type: 'string' },
       course: { type: 'array', items: { type: 'string' }, description: 'E.g. ["Dessert"] or ["Lunch", "Dinner"].' },
       difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },

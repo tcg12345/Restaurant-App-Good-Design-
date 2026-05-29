@@ -484,7 +484,8 @@ const TOOL_BUILD_RECIPE = {
     required: ['name'],
     properties: {
       name: { type: 'string', description: 'Recipe title.' },
-      summary: { type: 'string', description: 'One-line description shown under the title.' },
+      summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
+      introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`. Always include it.' },
       cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
       course: {
         type: 'array',
@@ -581,7 +582,8 @@ const TOOL_EDIT_RECIPE_DRAFT = {
     required: [],
     properties: {
       name: { type: 'string', description: 'Replace the recipe title.' },
-      summary: { type: 'string' },
+      summary: { type: 'string', description: 'Replace the one-line byline.' },
+      introParagraph: { type: 'string', description: 'Replace the longer intro paragraph (the prose shown at the top of the recipe page body).' },
       cuisine: { type: 'string' },
       course: { type: 'array', items: { type: 'string' } },
       difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },

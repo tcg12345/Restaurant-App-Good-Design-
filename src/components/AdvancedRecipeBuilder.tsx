@@ -1,4 +1,4 @@
-// Advanced Recipe Builder — a six-step wizard mounted by AddHomeMealModal
+// Advanced Recipe Builder — a multi-step wizard mounted by AddHomeMealModal
 // when the user picks the "Advanced" tab. Writes to the same home_meals
 // store as the Basic tab via lists.createHomeMeal / updateHomeMeal so the
 // rest of the app sees one unified recipe concept.
@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowLeft, Check, X, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
@@ -23,6 +23,7 @@ import {
   type RecipeStepDetail,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
+import { refineRecipe } from '../lib/build-recipe-client';
 import {
   saveDraft as saveExplicitDraft,
   removeDraft as removeExplicitDraft,
@@ -31,6 +32,7 @@ import {
   deriveDraftTitle,
 } from '../lib/recipe-drafts';
 import { StepBasics } from './advanced-recipe-steps/StepBasics';
+import { StepDetails } from './advanced-recipe-steps/StepDetails';
 import { StepTiming } from './advanced-recipe-steps/StepTiming';
 import { StepIngredients } from './advanced-recipe-steps/StepIngredients';
 import { StepMethod } from './advanced-recipe-steps/StepMethod';
@@ -43,6 +45,9 @@ import './AdvancedRecipeBuilder.css';
 export interface AdvancedRecipeState {
   name: string;
   summary: string;
+  /** Longer "story" paragraph shown in the recipe page body. Optional —
+   *  falls back to the summary on the recipe page when blank. */
+  introParagraph: string;
   cuisine: string;
   course: string[];
   difficulty: 'Easy' | 'Medium' | 'Hard';
@@ -63,12 +68,16 @@ export interface AdvancedRecipeState {
    *  appearing in author-profile listings of their own recipes. */
   score: number;
   isPublic: boolean;
+  /** Carried through from an AI-generated seed / existing AI recipe so the
+   *  "Created with AI" note survives editing + publishing. Not user-editable. */
+  createdWithAi: boolean;
 }
 
 /** Step rail / mobile-header label. The accent word renders italic +
  *  rust ("The *basics*.") inside the big serif title. */
 const STEP_LABELS: Array<{ lead: string; accent: string }> = [
   { lead: 'The', accent: 'basics' },
+  { lead: 'The', accent: 'details' },
   { lead: 'Timing &', accent: 'yield' },
   { lead: 'The', accent: 'ingredients' },
   { lead: 'The', accent: 'method' },
@@ -77,24 +86,11 @@ const STEP_LABELS: Array<{ lead: string; accent: string }> = [
 ];
 /** Short, plain title for places that don't render the accent word
  *  (rail step list, mobile header eyebrow, footer "NEXT UP" label). */
-const STEP_TITLES = ['The basics', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
-const STEP_DESCRIPTIONS = [
-  'Name, cuisine, difficulty',
-  'Prep, cook, servings',
-  'Grouped or flat list',
-  'Steps in order',
-  'Tools & callouts',
-  'Preview & publish',
-];
-const STEP_INTROS = [
-  'Start with the essentials. You can change any of this later — readers care about clarity most.',
-  'Be realistic about how long this takes. Tell the truth and your reviews will thank you.',
-  'Group ingredients by stage when it makes sense (For the sauce, For the topping).',
-  'Walk a reader through what you actually do. One action per step, named clearly.',
-  'Tools you reach for, plus any tips, swaps, or make-ahead notes worth flagging.',
-  'Skim it the way a reader will. Tweak anything that looks off, then publish.',
-];
-const NEXT_LABELS = ['Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
+const STEP_TITLES = ['The basics', 'Details', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
+/** Next-step title, indexed by the CURRENT step (so it's STEP_TITLES shifted by one). */
+const NEXT_LABELS = STEP_TITLES.slice(1);
+const STEP_COUNT = STEP_TITLES.length;
+const LAST_STEP = STEP_COUNT - 1;
 
 /** Cuisine catalog — ~90 entries, matches the "Search 90+ cuisines…"
  *  placeholder in the mobile bottom-sheet picker. The basic modal still
@@ -115,11 +111,21 @@ export const CUISINE_OPTIONS = [
 
 export const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Drinks', 'Appetizer', 'Side'];
 
+/** One-tap prompts for the "Edit with AI" composer. */
+const AI_EDIT_SUGGESTIONS = [
+  'Make it spicier',
+  'Make it healthier',
+  'Scale to 8 servings',
+  'Simplify the steps',
+  'Add a make-ahead tip',
+];
+
 /** Initial state for a brand-new draft. */
 function emptyState(): AdvancedRecipeState {
   return {
     name: '',
     summary: '',
+    introParagraph: '',
     cuisine: '',
     course: [],
     difficulty: 'Medium',
@@ -136,6 +142,7 @@ function emptyState(): AdvancedRecipeState {
     notes: [],
     score: 0,
     isPublic: false,
+    createdWithAi: false,
   };
 }
 
@@ -154,6 +161,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
   return {
     name: meal.name || '',
     summary: meal.summary || meal.description || '',
+    introParagraph: meal.introParagraph || '',
     cuisine: meal.cuisine || '',
     course: meal.course || [],
     difficulty: meal.difficulty || 'Medium',
@@ -170,6 +178,60 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     notes: meal.notes || [],
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
+    createdWithAi: !!meal.createdWithAi,
+  };
+}
+
+/** Snapshot the current builder state as a HomeMeal — the inverse of
+ *  fromHomeMeal. Used to hand the in-progress recipe to the AI refine
+ *  call so it edits ON TOP of exactly what the user is looking at
+ *  (rich groups + step details included), not a stale version. Identity
+ *  fields (id / createdAt / photos / date) come from `base` when editing
+ *  an existing recipe so they survive the round-trip. */
+function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): HomeMeal {
+  const cleanIngredientGroups = state.ingredientGroups
+    .map((g) => ({ name: g.name, ingredients: g.ingredients.filter((i) => i.name.trim()) }))
+    .filter((g) => g.ingredients.length > 0);
+  const flatIngredients = cleanIngredientGroups.flatMap((g) => g.ingredients);
+  const cleanSteps = state.steps.filter((s) => (s.body || s.title || '').trim());
+  const flatSteps = cleanSteps.map((s) => (s.title ? `${s.title}: ${s.body}` : s.body));
+  const summary = state.summary.trim();
+  return {
+    id: base?.id || `ai-edit-${Date.now()}`,
+    createdAt: base?.createdAt ?? Date.now(),
+    name: state.name.trim(),
+    date: base?.date || new Date().toISOString().slice(0, 10),
+    score: state.score,
+    wouldMakeAgain: base?.wouldMakeAgain ?? true,
+    description: summary,
+    photos: base?.photos || [],
+    tags: state.tags,
+    dishes: base?.dishes || [],
+    isPublic: state.isPublic,
+    coverPhoto: state.coverPhoto || undefined,
+    prepTime: state.prepTime,
+    cookTime: state.cookTime,
+    chillTime: state.chillTime,
+    servings: state.servings,
+    difficulty: state.difficulty,
+    cuisine: state.cuisine || undefined,
+    yieldDescription: state.yieldDescription.trim() || undefined,
+    course: state.course,
+    summary: summary || undefined,
+    introParagraph: state.introParagraph.trim() || undefined,
+    ingredients: flatIngredients,
+    ingredientGroups: cleanIngredientGroups,
+    steps: flatSteps,
+    stepDetails: cleanSteps,
+    equipment: state.equipment.filter(Boolean),
+    notes: state.notes.filter((n) => n.text.trim()),
+    builderVersion: 'advanced',
+    createdWithAi: state.createdWithAi || undefined,
+    // Preserve source attribution if somehow present (defensive — saved
+    // copies aren't editable, so this is normally undefined).
+    sourceAuthorId: base?.sourceAuthorId,
+    sourceAuthorName: base?.sourceAuthorName,
+    sourceAuthorUsername: base?.sourceAuthorUsername,
   };
 }
 
@@ -292,23 +354,23 @@ function validate(state: AdvancedRecipeState): ValidationResult {
   const errors: ValidationResult['errors'] = [];
   if (!state.name.trim()) errors.push({ step: 0, message: 'Recipe name is required.' });
   if (!state.summary.trim()) errors.push({ step: 0, message: 'One-line summary is required.' });
-  if (!state.coverPhoto) errors.push({ step: 0, message: 'Hero image is required.' });
+  if (!state.coverPhoto) errors.push({ step: 1, message: 'Hero image is required.' });
   const ingredientCount = state.ingredientGroups.reduce(
     (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
     0,
   );
-  if (ingredientCount === 0) errors.push({ step: 2, message: 'Add at least one ingredient.' });
+  if (ingredientCount === 0) errors.push({ step: 3, message: 'Add at least one ingredient.' });
   const stepCount = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
-  if (stepCount === 0) errors.push({ step: 3, message: 'Add at least one method step.' });
+  if (stepCount === 0) errors.push({ step: 4, message: 'Add at least one method step.' });
   return { ok: errors.length === 0, errors };
 }
 
-/** Per-step gate for the "Next" button. Today only Steps 3 (Ingredients)
- *  and 4 (Method) hard-block — the user must add at least one real
+/** Per-step gate for the "Next" button. Only the Ingredients (step 3) and
+ *  Method (step 4) steps hard-block — the user must add at least one real
  *  ingredient / step before moving on. Other steps' missing-required
  *  warnings still surface on Publish via `validate`. */
 function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; reason?: string } {
-  if (step === 2) {
+  if (step === 3) {
     const count = state.ingredientGroups.reduce(
       (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
       0,
@@ -317,7 +379,7 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; 
       return { ok: false, reason: 'Add at least one ingredient before moving on.' };
     }
   }
-  if (step === 3) {
+  if (step === 4) {
     const count = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
     if (count === 0) {
       return { ok: false, reason: 'Add at least one method step before moving on.' };
@@ -405,7 +467,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   );
   const [state, dispatch] = useReducer(reducer, initial);
   const [currentStep, setCurrentStep] = useState(() =>
-    typeof initialStep === 'number' ? Math.max(0, Math.min(5, initialStep)) : 0,
+    typeof initialStep === 'number' ? Math.max(0, Math.min(LAST_STEP, initialStep)) : 0,
   );
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [showResume, setShowResume] = useState(false);
@@ -415,6 +477,15 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
    *  from Activity), we remember that draft's id so further saves
    *  update the same row rather than spawning a new one. */
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+  // "Edit with AI" composer — lets the user revise the recipe they're
+  // editing with a free-text instruction. The AI builds on top of the
+  // current draft (refineRecipe) rather than generating something new.
+  const [aiEditOpen, setAiEditOpen] = useState(false);
+  const [aiEditText, setAiEditText] = useState('');
+  const [aiEditBusy, setAiEditBusy] = useState(false);
+  const [aiEditError, setAiEditError] = useState<string | null>(null);
+  const aiEditInputRef = useRef<HTMLTextAreaElement>(null);
+  const aiEditAbortRef = useRef<AbortController | null>(null);
   const toast = useToast();
 
   const key = useMemo(() => resumeSlotKey(userId, existing?.id || null), [userId, existing?.id]);
@@ -436,7 +507,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       const draft = getDraft(userId, pendingId);
       if (draft) {
         dispatch({ type: 'HYDRATE', state: draft.state });
-        setCurrentStep(Math.max(0, Math.min(5, draft.currentStep)));
+        setCurrentStep(Math.max(0, Math.min(LAST_STEP, draft.currentStep)));
         setCurrentDraftId(draft.id);
         setDraftSavedAt(draft.savedAt);
         return;
@@ -484,7 +555,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const handleResumeAccept = useCallback(() => {
     if (!resumeSlot) return;
     dispatch({ type: 'HYDRATE', state: resumeSlot.state });
-    setCurrentStep(Math.max(0, Math.min(5, resumeSlot.currentStep)));
+    setCurrentStep(Math.max(0, Math.min(LAST_STEP, resumeSlot.currentStep)));
     setDraftSavedAt(resumeSlot.savedAt);
     setShowResume(false);
   }, [resumeSlot]);
@@ -506,7 +577,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     // in the render, but block here too in case it's clicked via the
     // keyboard while still focused.
     if (!canLeaveStep(state, currentStep).ok) return;
-    if (currentStep < 5) setCurrentStep(currentStep + 1);
+    if (currentStep < LAST_STEP) setCurrentStep(currentStep + 1);
   }, [currentStep, state]);
 
   const handleBack = useCallback(() => {
@@ -539,6 +610,49 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       variant: 'success',
     });
   }, [key, state, currentStep, currentDraftId, userId, existing, toast]);
+
+  // Apply a free-text AI instruction to the recipe being edited. We send
+  // the CURRENT builder state (not the original) so the AI revises exactly
+  // what's on screen, then hydrate the builder with its merged result —
+  // identity-bearing fields (id, photos) are preserved by refineRecipe.
+  const handleApplyAiEdit = useCallback(async (override?: string): Promise<void> => {
+    const instruction = (override ?? aiEditText).trim();
+    if (!instruction || aiEditBusy) return;
+    if (!state.name.trim()) {
+      setAiEditError('Add a recipe name first so the AI knows what it’s editing.');
+      return;
+    }
+    setAiEditBusy(true);
+    setAiEditError(null);
+    aiEditAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiEditAbortRef.current = controller;
+    const current = stateToHomeMeal(state, existing || seed || null);
+    const res = await refineRecipe(current, instruction, controller.signal);
+    if (controller.signal.aborted) return;
+    setAiEditBusy(false);
+    if (res.ok && res.meal) {
+      dispatch({ type: 'HYDRATE', state: fromHomeMeal(res.meal) });
+      hasUserInputRef.current = true;
+      setAiEditText('');
+      setAiEditOpen(false);
+      toast.showToast('Recipe updated with AI', {
+        subtitle: 'Review the changes, then publish when you’re happy.',
+        variant: 'success',
+      });
+    } else {
+      setAiEditError(res.error || 'Couldn’t apply that. Try rephrasing.');
+    }
+  }, [aiEditText, aiEditBusy, state, existing, seed, toast]);
+
+  // Focus the composer when it opens; abort any in-flight refine on unmount.
+  useEffect(() => {
+    if (aiEditOpen) {
+      const t = setTimeout(() => aiEditInputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [aiEditOpen]);
+  useEffect(() => () => aiEditAbortRef.current?.abort(), []);
 
   const handlePublish = useCallback(() => {
     const v = validate(state);
@@ -585,6 +699,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       steps: flatSteps,
       // Advanced-only fields
       summary: state.summary.trim(),
+      introParagraph: state.introParagraph.trim() || undefined,
       course: state.course,
       chillTime: state.chillTime,
       yieldDescription: state.yieldDescription.trim() || undefined,
@@ -593,6 +708,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       notes: cleanNotes,
       stepDetails: cleanSteps,
       builderVersion: 'advanced',
+      createdWithAi: state.createdWithAi || undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft
@@ -619,18 +735,19 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   // Progress bar fill: 5/6 when on step 5, etc. Step 6 (index 5) at
   // full bar (100%) is reached only when the user actually publishes,
   // so cap at 5/6 = 83% while inside the wizard. Tweak as desired.
-  const progress = Math.round(((currentStep + 1) / 6) * 100);
+  const progress = Math.round(((currentStep + 1) / STEP_COUNT) * 100);
 
   const isPhone = phoneMode;
 
   const renderStep = () => {
     switch (currentStep) {
       case 0: return <StepBasics state={state} dispatch={dispatch} />;
-      case 1: return <StepTiming state={state} dispatch={dispatch} />;
-      case 2: return <StepIngredients state={state} dispatch={dispatch} />;
-      case 3: return <StepMethod state={state} dispatch={dispatch} />;
-      case 4: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
-      case 5: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
+      case 1: return <StepDetails state={state} dispatch={dispatch} />;
+      case 2: return <StepTiming state={state} dispatch={dispatch} />;
+      case 3: return <StepIngredients state={state} dispatch={dispatch} />;
+      case 4: return <StepMethod state={state} dispatch={dispatch} />;
+      case 5: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
+      case 6: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
       default: return null;
     }
   };
@@ -646,6 +763,79 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             <div className="arb-draft-actions">
               <button type="button" className="discard" onClick={handleResumeDiscard}>Start over</button>
               <button type="button" className="resume" onClick={handleResumeAccept}>Resume</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit-with-AI composer overlay. */}
+      {aiEditOpen && (
+        <div
+          className="arb-draft-overlay"
+          onClick={() => { if (!aiEditBusy) setAiEditOpen(false); }}
+        >
+          <div className="arb-aiedit-card" onClick={(e) => e.stopPropagation()}>
+            <div className="arb-aiedit-head">
+              <div className="arb-aiedit-eyebrow"><Sparkles size={14} /> Edit with AI</div>
+              <button
+                type="button"
+                className="arb-aiedit-close"
+                onClick={() => setAiEditOpen(false)}
+                disabled={aiEditBusy}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="arb-aiedit-sub">
+              Describe a change and the AI will revise <strong>{state.name.trim() || 'this recipe'}</strong> —
+              building on what's here, not starting over.
+            </p>
+            <div className="arb-aiedit-chips">
+              {AI_EDIT_SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="arb-aiedit-chip"
+                  disabled={aiEditBusy}
+                  onClick={() => handleApplyAiEdit(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <textarea
+              ref={aiEditInputRef}
+              className="arb-aiedit-input"
+              value={aiEditText}
+              onChange={(e) => { setAiEditText(e.target.value); if (aiEditError) setAiEditError(null); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleApplyAiEdit(); }
+              }}
+              disabled={aiEditBusy}
+              rows={3}
+              placeholder="e.g. Make it vegetarian, add a make-ahead tip, scale to 8 servings…"
+            />
+            {aiEditError && (
+              <p className="arb-aiedit-error"><AlertCircle size={13} /> {aiEditError}</p>
+            )}
+            <div className="arb-aiedit-actions">
+              <button
+                type="button"
+                className="arb-aiedit-cancel"
+                onClick={() => setAiEditOpen(false)}
+                disabled={aiEditBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="arb-aiedit-apply"
+                onClick={() => handleApplyAiEdit()}
+                disabled={aiEditBusy || !aiEditText.trim()}
+              >
+                {aiEditBusy ? (<><Loader2 size={15} className="arb-spin" /> Revising…</>) : (<><Sparkles size={15} /> Apply edit</>)}
+              </button>
             </div>
           </div>
         </div>
@@ -695,9 +885,8 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             </div>
           </div>
           <div className="arb-m-header-sub">
-            <span className="arb-m-header-desc">{STEP_DESCRIPTIONS[currentStep]}</span>
             <span className="arb-m-header-counter">
-              Step <span className="strong">{currentStep + 1}</span> / 6
+              Step <span className="strong">{currentStep + 1}</span> / {STEP_COUNT}
             </span>
           </div>
           <div className="arb-m-progress-row">
@@ -715,6 +904,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               );
             })}
           </div>
+          {existing && (
+            <button
+              type="button"
+              className="arb-edit-ai-btn is-mobile"
+              onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
+            >
+              <Sparkles size={13} />
+              Edit with AI
+            </button>
+          )}
         </header>
       )}
 
@@ -722,8 +921,10 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         {/* Desktop left rail. */}
         {!isPhone && (
           <nav className="arb-rail">
-            <div className="arb-rail-eyebrow">New recipe</div>
-            <div className="arb-rail-title">Let's build a <em>recipe</em>.</div>
+            <div className="arb-rail-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
+            <div className="arb-rail-title">
+              {existing ? <>Let's <em>refine</em> it.</> : <>Let's build a <em>recipe</em>.</>}
+            </div>
             {onBackToDraft && (
               <button type="button" className="arb-back-to-draft" onClick={onBackToDraft}>
                 <ArrowLeft size={14} />
@@ -732,6 +933,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               </button>
             )}
             {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
+            {existing && (
+              <button
+                type="button"
+                className="arb-edit-ai-btn"
+                onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
+              >
+                <Sparkles size={14} />
+                Edit with AI
+              </button>
+            )}
             <ol className="arb-rail-steps">
               {STEP_TITLES.map((t, i) => {
                 const isDone = i < currentStep;
@@ -757,7 +968,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               <div className="arb-rail-foot-status">
                 <span className="dot" />
                 <span>{draftSavedAt ? 'Draft saved' : 'Not saved yet'}</span>
-                <span style={{ marginLeft: 'auto' }}>Step {currentStep + 1} of 6</span>
+                <span style={{ marginLeft: 'auto' }}>Step {currentStep + 1} of {STEP_COUNT}</span>
               </div>
               <div className="arb-rail-foot-bar">
                 <div className="arb-rail-foot-bar-fill" style={{ width: `${progress}%` }} />
@@ -770,13 +981,12 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         <div className="arb-pane">
           <div className="arb-pane-head">
             <div className="arb-pane-eyebrow">
-              Step <span className="strong">{currentStep + 1}</span> of 6
+              Step <span className="strong">{currentStep + 1}</span> of {STEP_COUNT}
             </div>
             <h2 className="arb-pane-title">
               {STEP_LABELS[currentStep].lead}{' '}
               <span className="arb-pane-title-accent">{STEP_LABELS[currentStep].accent}</span>.
             </h2>
-            <p className="arb-pane-intro">{STEP_INTROS[currentStep]}</p>
           </div>
           <div className="arb-pane-body">
             {renderStep()}
@@ -809,7 +1019,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               >
                 <ArrowLeft size={18} />
               </button>
-              {currentStep < 5 ? (
+              {currentStep < LAST_STEP ? (
                 <button
                   type="button"
                   className="arb-m-foot-next"
@@ -849,7 +1059,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             <button type="button" className="arb-foot-save" onClick={handleSaveDraft}>
               Save draft
             </button>
-            {currentStep < 5 ? (
+            {currentStep < LAST_STEP ? (
               <button
                 type="button"
                 className="arb-foot-next"

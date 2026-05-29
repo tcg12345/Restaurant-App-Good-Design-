@@ -52,6 +52,9 @@ import { RecipeDraftCard } from './chat/RecipeDraftCard';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
 import { refineRecipe } from '../lib/build-recipe-client';
+import { generateRecipeImage } from '../lib/generate-recipe-image-client';
+import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
+import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
   const out: Record<string, string> = {};
@@ -259,34 +262,9 @@ interface LocationChatProps {
   fabHidden?: boolean;
 }
 
-interface UiMessage {
-  role: 'user' | 'assistant';
-  /** Rendered content blocks for this turn. Text deltas append into
-   *  the last text block; tool_use cards become their own block. */
-  blocks: UiBlock[];
-}
-
-type UiBlock =
-  | { type: 'text'; text: string }
-  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
-  | { type: 'recipe_cards'; toolUseId: string; recipeIds: string[]; reason?: string }
-  // AI-built recipe draft. The `draft` is a full HomeMeal-shaped object
-  // with builderVersion: 'advanced'; it has a stable client-assigned id
-  // but is NOT in homeMeals until the user taps Publish in the preview
-  // sheet. `publishedMealId` is set once the user publishes — either
-  // from the sheet directly or via the Edit → modal path (matched by id).
-  // `rawInput` round-trips the original tool input back to Anthropic so
-  // the conversation history stays valid across turns.
-  | { type: 'recipe_draft'; toolUseId: string; draft: HomeMeal; rawInput: unknown; publishedMealId: string | null }
-  // Invisible: assistant's tool_use blocks we don't surface as cards
-  // (currently search_restaurants and lookup_user). Kept in messages
-  // state so the conversation can be reconstructed on the next API
-  // call without breaking Anthropic's "every tool_use needs a matching
-  // tool_result immediately after" rule.
-  | { type: 'tool_use'; toolUseId: string; toolName: string; input: unknown }
-  // Invisible: user-role tool_result blocks emitted between agentic
-  // turns. Stored on the user turn so the history round-trips cleanly.
-  | { type: 'tool_result'; toolUseId: string; content: string };
+// UiMessage / UiBlock / SavedChat and the history persistence helpers live
+// in ../lib/ai-chat-history so they can be shared with AiChatHistoryContext
+// and the Add Recipe modal's "Create with AI" flow.
 
 /** Build the compact restaurant payload sent to the model. */
 function buildCompactRestaurants(
@@ -579,63 +557,6 @@ const MAX_AGENTIC_TURNS = 5;
    rules). chatPlaces — the search_restaurants result cache — is
    snapshot too so cards inside an old chat still resolve. */
 
-interface SavedChat {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  messages: UiMessage[];
-  chatPlaces: Record<string, ScoredPlace>;
-}
-
-const CHAT_STORAGE_KEY = 'lp-chat-history-v1';
-const MAX_SAVED_CHATS = 30;
-
-function loadSavedChats(): SavedChat[] {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages));
-  } catch {
-    return [];
-  }
-}
-
-function persistSavedChats(chats: SavedChat[]) {
-  const bounded = [...chats]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_SAVED_CHATS);
-  try {
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(bounded));
-  } catch {
-    // Quota exceeded — drop oldest one at a time until it fits.
-    let working = bounded;
-    while (working.length > 1) {
-      working = working.slice(0, -1);
-      try {
-        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(working));
-        return;
-      } catch { /* keep trimming */ }
-    }
-  }
-}
-
-/** Derive a chat title from the first user message in the conversation. */
-function deriveChatTitle(messages: UiMessage[]): string {
-  for (const m of messages) {
-    if (m.role !== 'user') continue;
-    for (const b of m.blocks) {
-      if (b.type === 'text' && b.text) {
-        const t = b.text.trim().replace(/\s+/g, ' ');
-        return t.length > 50 ? t.slice(0, 50).trimEnd() + '…' : t;
-      }
-    }
-  }
-  return 'New conversation';
-}
-
 /** Compact relative-time label for the history list. */
 function formatTimeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -772,12 +693,40 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // list. `currentChatId` tracks which saved chat (if any) the
   // current messages belong to — null = unsaved new chat. Sending
   // the first message auto-creates the id; auto-save persists every
-  // subsequent change. The savedChats list is loaded once on mount
-  // and kept in lockstep with localStorage.
+  // subsequent change. The savedChats list itself lives in
+  // AiChatHistoryContext (localStorage cache + Supabase cross-device
+  // sync); this component just reads it and upserts/deletes entries.
   const [view, setView] = useState<'chat' | 'history'>('chat');
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [savedChats, setSavedChats] = useState<SavedChat[]>(() => loadSavedChats());
+  const { savedChats, upsertChat, deleteChat } = useAiChatHistory();
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror the latest conversation into refs so we can persist it on unmount
+  // / panel-close even if the debounce hasn't fired. AppAssistant unmounts
+  // this component on hidden routes and sign-out, so without a flush a chat
+  // created in the last ~600ms would never reach localStorage (or the cloud).
+  const messagesRef = useRef(messages);
+  const chatPlacesRef = useRef(chatPlaces);
+  const currentChatIdRef = useRef(currentChatId);
+  const saveDirtyRef = useRef(false);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { chatPlacesRef.current = chatPlaces; }, [chatPlaces]);
+  useEffect(() => { currentChatIdRef.current = currentChatId; }, [currentChatId]);
+
+  // Persist the in-progress conversation immediately (cancels the pending
+  // debounce). Safe to call when nothing's dirty — it no-ops. Reads from
+  // refs so it works from an unmount cleanup.
+  const flushSave = useCallback(() => {
+    if (!saveDirtyRef.current || messagesRef.current.length === 0) return;
+    saveDirtyRef.current = false;
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    let id = currentChatIdRef.current;
+    if (!id) {
+      id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      currentChatIdRef.current = id;
+      setCurrentChatId(id);
+    }
+    upsertChat({ id, title: deriveChatTitle(messagesRef.current), messages: messagesRef.current, chatPlaces: chatPlacesRef.current });
+  }, [upsertChat]);
 
   // Desktop drag — repositions the island. Resize is handled by
   // the browser's native CSS `resize: both` on the island element
@@ -827,41 +776,24 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [open]);
 
   // Auto-save the current conversation on any change. Debounced so
-  // streaming text deltas don't trigger one localStorage write per
-  // token; one save fires ~600ms after activity settles. On the
-  // first message we mint an id and adopt it as currentChatId so
-  // subsequent saves update the same row.
+  // streaming text deltas don't trigger one write per token; one save
+  // fires ~600ms after activity settles, and flushSave() guarantees a
+  // final write on panel-close / unmount.
   useEffect(() => {
     if (messages.length === 0) return;
+    saveDirtyRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      let id = currentChatId;
-      if (!id) {
-        id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        setCurrentChatId(id);
-      }
-      setSavedChats((prev) => {
-        const now = Date.now();
-        const idx = prev.findIndex((c) => c.id === id);
-        const updated: SavedChat = {
-          id: id!,
-          title: deriveChatTitle(messages),
-          createdAt: idx >= 0 ? prev[idx].createdAt : now,
-          updatedAt: now,
-          messages,
-          chatPlaces,
-        };
-        const next = idx >= 0
-          ? prev.map((c, i) => (i === idx ? updated : c))
-          : [updated, ...prev];
-        persistSavedChats(next);
-        return next;
-      });
-    }, 600);
+    saveTimerRef.current = setTimeout(flushSave, 600);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [messages, chatPlaces, currentChatId]);
+  }, [messages, chatPlaces, currentChatId, flushSave]);
+
+  // Flush immediately when the panel closes, and once on unmount — so a
+  // conversation survives closing the chat or navigating to a route where
+  // the assistant is hidden, not just the 600ms debounce.
+  useEffect(() => { if (!open) flushSave(); }, [open, flushSave]);
+  useEffect(() => () => flushSave(), [flushSave]);
 
   // History-feature handlers.
   const handleNewChat = useCallback(() => {
@@ -891,11 +823,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, []);
 
   const handleDeleteChat = useCallback((id: string) => {
-    setSavedChats((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      persistSavedChats(next);
-      return next;
-    });
+    deleteChat(id);
     if (currentChatId === id) {
       // The user just deleted the conversation they're currently in
       // — drop into a fresh empty chat so they can start over.
@@ -904,7 +832,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setCurrentChatId(null);
       setError(null);
     }
-  }, [currentChatId]);
+  }, [currentChatId, deleteChat]);
 
   // Compute the initial desktop position when the chat first opens —
   // bottom-right with a 24px gutter, sized to match the CSS defaults
@@ -1203,6 +1131,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
     return { ok: false, error: res.error };
   }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+
+  // Generate an AI hero photo of the finished dish for the open draft. The
+  // preview sheet compresses the result and applies it through
+  // handleCoverPhotoChange (same path as an uploaded cover photo).
+  const handleGenerateDraftImage = useCallback(async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+    const current = openDraftBlock?.draft;
+    if (!current) return { ok: false, error: 'No recipe to picture yet.' };
+    return generateRecipeImage(current);
+  }, [openDraftBlock]);
 
   const handleDeleteDraft = useCallback(() => {
     if (!openDraftToolUseId) return;
@@ -2507,6 +2444,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         onDelete={handleDeleteDraft}
         onCoverPhotoChange={handleCoverPhotoChange}
         onRefine={handleRefineDraft}
+        onGenerateImage={handleGenerateDraftImage}
       />
     </>
   );

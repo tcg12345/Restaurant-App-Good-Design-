@@ -58,6 +58,7 @@ import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelConte
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
 import { HomeLocationProvider } from './contexts/HomeLocationContext';
 import { AssistantProvider } from './contexts/AssistantContext';
+import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
@@ -357,7 +358,9 @@ export default function App() {
                             <GuideCreatorProvider>
                               <HomeLocationProvider>
                                 <AssistantProvider>
-                                  <AppContent />
+                                  <AiChatHistoryProvider>
+                                    <AppContent />
+                                  </AiChatHistoryProvider>
                                 </AssistantProvider>
                               </HomeLocationProvider>
                             </GuideCreatorProvider>

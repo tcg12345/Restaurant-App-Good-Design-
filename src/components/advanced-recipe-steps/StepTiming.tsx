@@ -210,11 +210,6 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
         <label className="arb-label">
           How long does it take? <span className="req">*</span>
         </label>
-        <p className="arb-help">
-          {phoneMode
-            ? 'Tap a field to spin the wheel — be honest, readers cross-check against the steps below.'
-            : 'Spin the wheels — be honest, readers cross-check against the steps below.'}
-        </p>
         <div className="arb-time-row">
           {phoneMode ? (
             <>
@@ -282,7 +277,6 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
         <label className="arb-label">
           Servings <span className="req">*</span>
         </label>
-        <p className="arb-help">How many people will this feed at one sitting?</p>
         <div className={`arb-stepper${phoneMode ? ' is-mobile' : ''}`}>
           {phoneMode ? (
             <>
@@ -340,9 +334,8 @@ export const StepTiming: React.FC<Props> = ({ state, dispatch }) => {
 
       <div className="arb-field">
         <label className="arb-label">
-          Yield description <span className="opt">Optional</span>
+          Yield description <span className="opt">optional</span>
         </label>
-        <p className="arb-help">e.g. "4 generous bowls", "12 cookies", "one 9-inch loaf"</p>
         <input
           type="text"
           className="arb-input"

@@ -26,6 +26,8 @@ import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { refineRecipe } from '../lib/build-recipe-client';
+import { generateRecipeImage } from '../lib/generate-recipe-image-client';
+import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 
 /* ── Tab-mode preference (sticky across sessions) ────────────── */
@@ -138,6 +140,7 @@ export const AddHomeMealModal: React.FC = () => {
   const { myRecipes } = useRecipes();
   const { dragProps } = useBottomSheet(homeMealModalOpen, closeHomeMealModal);
   const { showToast } = useToast();
+  const { addGeneratedRecipeChat } = useAiChatHistory();
   const navigate = useNavigate();
   const auth = useAuth();
   const userId = auth.user?.id || null;
@@ -185,8 +188,13 @@ export const AddHomeMealModal: React.FC = () => {
 
   // Hand-off from the AI generator: stash the generated recipe and open
   // the preview sheet. Nothing is saved to the cookbook yet — the user
-  // publishes (or edits) from the sheet.
-  const handleAiGenerated = (meal: HomeMeal) => setAiDraft(meal);
+  // publishes (or edits) from the sheet. We also record the draft into the
+  // assistant's chat history so a recipe generated here shows up there too,
+  // exactly like one drafted in a conversation.
+  const handleAiGenerated = (meal: HomeMeal, meta?: { prompt: string; rawInput: unknown }) => {
+    setAiDraft(meal);
+    if (meta) addGeneratedRecipeChat({ prompt: meta.prompt, draft: meal, rawInput: meta.rawInput });
+  };
 
   // Publish straight from the AI preview sheet.
   const handleAiPublish = (meal: HomeMeal) => {
@@ -253,6 +261,13 @@ export const AddHomeMealModal: React.FC = () => {
           }
         : prev,
     );
+  };
+
+  // Generate an AI hero photo of the finished dish. The sheet compresses
+  // the result and applies it via handleAiCoverChange.
+  const handleAiGenerateImage = async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+    if (!aiDraft) return { ok: false, error: 'No recipe to picture yet.' };
+    return generateRecipeImage(aiDraft);
   };
 
   const [mealName, setMealName] = useState('');
@@ -714,7 +729,7 @@ export const AddHomeMealModal: React.FC = () => {
                 key={aiSeed ? aiSeed.id : 'fresh'}
                 existing={existing}
                 seed={aiSeed}
-                initialStep={aiSeed ? 5 : undefined}
+                initialStep={aiSeed ? 6 : undefined}
                 onClose={closeHomeMealModal}
                 onBackToDraft={backToDraft}
                 tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}
@@ -1672,6 +1687,7 @@ export const AddHomeMealModal: React.FC = () => {
       onDelete={() => setAiDraft(null)}
       onCoverPhotoChange={handleAiCoverChange}
       onRefine={handleAiRefine}
+      onGenerateImage={handleAiGenerateImage}
       zClass="z-[210]"
       publishLabel="Publish recipe"
     />

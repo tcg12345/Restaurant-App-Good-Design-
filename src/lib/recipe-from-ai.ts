@@ -20,6 +20,9 @@ import type {
 export interface BuildRecipeInput {
   name?: string;
   summary?: string;
+  /** Longer "story" paragraph for the recipe page body (distinct from the
+   *  one-line summary). */
+  introParagraph?: string;
   cuisine?: string;
   course?: string[];
   difficulty?: 'Easy' | 'Medium' | 'Hard';
@@ -86,12 +89,14 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
   const flatSteps = stepDetails.map((s) => s.body);
 
   const summary = (input.summary || '').trim();
+  const introParagraph = (input.introParagraph || '').trim();
   const today = new Date().toISOString().slice(0, 10);
 
   return {
     id: `ai-draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name,
     summary: summary || undefined,
+    introParagraph: introParagraph || undefined,
     description: summary,
     date: today,
     score: 0,
@@ -117,6 +122,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
       ? input.notes.filter((n) => n && n.text && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
       : [],
     builderVersion: 'advanced',
+    createdWithAi: true,
     coverPhoto: undefined,
     createdAt: Date.now(),
   };
@@ -142,6 +148,9 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
     const summary = (input.summary || '').trim();
     out.summary = summary || undefined;
     out.description = summary;
+  }
+  if (has('introParagraph')) {
+    out.introParagraph = (input.introParagraph || '').trim() || undefined;
   }
   if (has('cuisine')) {
     const cuisine = (input.cuisine || '').trim();
@@ -242,7 +251,7 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
  *  steps, notes"). Order matches what a human would read. */
 export function changedFieldsInEdit(input: BuildRecipeInput): string[] {
   const order: Array<keyof BuildRecipeInput> = [
-    'name', 'summary', 'cuisine', 'course', 'difficulty',
+    'name', 'summary', 'introParagraph', 'cuisine', 'course', 'difficulty',
     'prepTime', 'cookTime', 'chillTime', 'servings', 'yieldDescription',
     'ingredients', 'ingredientGroups', 'steps', 'equipment', 'tags', 'notes',
   ];
