@@ -10,6 +10,7 @@ import { X, Search, Globe, Star, Send, Loader2, Navigation, Check } from 'lucide
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import { useLists, type RestaurantRating } from '../../contexts/ListsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { type SharedRestaurant } from '../../contexts/ChatContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../../lib/places';
 import { getCuisineLabel } from '../../pages/useRestaurantDetail';
@@ -52,6 +53,7 @@ export const ShareRestaurantPicker: React.FC<{
   onShare: (restaurant: SharedRestaurant) => void;
 }> = ({ open, recipientName, onClose, onShare }) => {
   const { ratings } = useLists();
+  const { phoneMode } = useSettings();
   const [tab, setTab] = useState<Tab>('rated');
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<SharedRestaurant | null>(null);
@@ -115,15 +117,25 @@ export const ShareRestaurantPicker: React.FC<{
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-sm" onClick={onClose}
           />
-          <div className="fixed inset-0 z-[90] grid place-items-center p-6 pointer-events-none">
+          <div className={cn('fixed inset-0 z-[90] pointer-events-none', phoneMode ? 'flex' : 'grid place-items-center p-6')}>
             <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.985 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+              initial={phoneMode ? { y: '100%' } : { opacity: 0, y: 10, scale: 0.985 }}
+              animate={phoneMode ? { y: 0 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={phoneMode ? { y: '100%' } : { opacity: 0, y: 10, scale: 0.985 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               onClick={(e) => e.stopPropagation()}
-              className="pointer-events-auto w-full max-w-3xl max-h-[86vh] flex flex-col rounded-3xl bg-surface border border-on-surface/10 shadow-2xl overflow-hidden"
+              className={cn(
+                'pointer-events-auto flex flex-col bg-surface border-on-surface/10 shadow-2xl overflow-hidden',
+                phoneMode
+                  ? 'absolute inset-x-0 bottom-0 top-[max(env(safe-area-inset-top),28px)] rounded-t-3xl border-t'
+                  : 'w-full max-w-3xl max-h-[86vh] rounded-3xl border',
+              )}
             >
+              {phoneMode && (
+                <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
+              )}
               {/* Header */}
-              <div className="px-7 pt-6">
+              <div className={phoneMode ? 'px-5 pt-2' : 'px-7 pt-6'}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="font-serif font-bold text-2xl tracking-tight">Share a restaurant</h2>
@@ -245,7 +257,7 @@ export const ShareRestaurantPicker: React.FC<{
               </div>
 
               {/* Footer */}
-              <div className="flex items-center gap-3 px-7 py-4 border-t border-on-surface/10 bg-surface">
+              <div className={cn('flex items-center gap-3 border-t border-on-surface/10 bg-surface', phoneMode ? 'px-5 pt-4 pb-safe-5' : 'px-7 py-4')}>
                 <p className="flex-1 text-[13px] text-on-surface/55 truncate">
                   {picked ? <>Sending <b className="text-on-surface font-semibold">{picked.name}</b>{recipientName ? <> to <b className="text-on-surface font-semibold">{recipientName}</b></> : ''}.</> : 'Pick a place to share.'}
                 </p>

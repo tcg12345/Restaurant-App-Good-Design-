@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock, Film, PlayCircle, Info, Image as ImageIcon, Smile, Mic, Store } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Image as ImageIcon, Smile, Mic, Store } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -551,17 +551,19 @@ const NewChatSheet: React.FC<{
             className={cn(
               'bg-surface flex flex-col overflow-hidden',
               phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl max-h-[85vh]'
+                ? 'fixed inset-0'
                 : 'w-full max-w-2xl rounded-[28px] max-h-[70vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
             )}
           >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/6' : 'px-6 pt-5 pb-4',
+              'flex items-start justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-safe-4 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
             )}>
-              <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>New Chat</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+              <div>
+                <h3 className={cn('font-serif font-bold', phoneMode ? 'text-[22px]' : 'text-[20px]')}>New message</h3>
+                {phoneMode && <p className="text-[13px] text-on-surface/55 mt-0.5">Pick a friend to start a thread.</p>}
+              </div>
+              <button onClick={onClose} className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0">
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
@@ -615,13 +617,11 @@ const NewChatSheet: React.FC<{
                   return (
                     <button key={friend.id} onClick={() => toggleFriend(friend.id)}
                       className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                        selected ? "bg-primary/3" : "hover:bg-on-surface/3")}>
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold text-primary">{friend.name.charAt(0).toUpperCase()}</span>
-                      </div>
+                        selected ? "bg-primary/3" : "hover:bg-on-surface/3 active:bg-on-surface/[0.05]")}>
+                      <PersonAvatar name={friend.name} userId={friend.id} size={44} />
                       <div className="flex-1 min-w-0">
-                        <p className={cn("text-sm font-semibold truncate", selected ? "text-primary" : "text-on-surface/70")}>{friend.name}</p>
-                        {friend.username && <p className="text-[11px] text-on-surface/35">@{friend.username}</p>}
+                        <p className={cn("text-[15px] font-semibold truncate", selected ? "text-primary" : "text-on-surface")}>{friend.name}</p>
+                        {friend.username && <p className="text-[12px] text-on-surface/45">@{friend.username}</p>}
                       </div>
                       {mode === 'group' && (
                         <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
@@ -701,9 +701,8 @@ const ChatView: React.FC<{
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
   const [text, setText] = useState('');
-  const [shareSheetOpen, setShareSheetOpen] = useState(false);     // mobile restaurant sheet
-  const [restPickerOpen, setRestPickerOpen] = useState(false);     // desktop restaurant picker
-  const [recipePickerOpen, setRecipePickerOpen] = useState(false); // desktop recipe picker
+  const [restPickerOpen, setRestPickerOpen] = useState(false);     // share-a-restaurant picker
+  const [recipePickerOpen, setRecipePickerOpen] = useState(false); // share-a-recipe picker
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingShare, setPendingShare] = useState<SharedRestaurant | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -776,13 +775,6 @@ const ChatView: React.FC<{
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  // Mobile sheet: stage the restaurant as a pending share (with optional note).
-  const handleShareRestaurant = (restaurant: SharedRestaurant) => {
-    setPendingShare(restaurant);
-    setShareSheetOpen(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
   // Desktop pickers: send straight into the (possibly draft) thread.
   const handleShareRestaurantNow = (restaurant: SharedRestaurant) => {
     const id = ensureConversationId();
@@ -823,8 +815,8 @@ const ChatView: React.FC<{
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <h2 className={cn('font-serif font-bold truncate', phoneMode ? 'text-base' : 'text-[19px]')}>{title}</h2>
-            {expert && !phoneMode && (
+            <h2 className={cn('font-serif font-bold truncate', phoneMode ? 'text-[17px]' : 'text-[19px]')}>{title}</h2>
+            {expert && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider flex-shrink-0">
                 <Star size={9} className="fill-white" /> Expert
               </span>
@@ -1055,19 +1047,39 @@ const ChatView: React.FC<{
 
       {/* Composer */}
       {phoneMode ? (
-        <div className="flex items-center gap-2 px-4 pt-3 pb-safe-3 border-t border-on-surface/6 bg-surface flex-shrink-0">
-          <button onClick={() => setShareSheetOpen(true)}
-            className="p-2.5 text-on-surface/35 hover:text-primary hover:bg-primary/5 rounded-full transition-all flex-shrink-0"
-            title="Share restaurant">
-            <Share2 size={18} />
-          </button>
-          <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
-            placeholder={pendingShare ? 'Add a message...' : 'Type a message...'}
-            className="flex-1 bg-on-surface/5 rounded-2xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-          <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
-            className="p-2.5 bg-primary text-white rounded-full disabled:opacity-30 transition-opacity flex-shrink-0 active:scale-95">
-            <Send size={16} />
-          </button>
+        <div className="flex flex-col gap-2 px-3 pt-2.5 pb-safe-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
+          {/* Share buttons */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setRestPickerOpen(true)}
+              className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-paper border border-on-surface/10 active:bg-primary/[0.05] active:border-primary/40 transition-colors text-left">
+              <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><Store size={15} /></span>
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share restaurant</span>
+                <span className="block text-[10.5px] text-on-surface/45 truncate">Yours · full DB</span>
+              </span>
+            </button>
+            <button onClick={() => setRecipePickerOpen(true)}
+              className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-paper border border-on-surface/10 active:bg-primary/[0.05] active:border-primary/40 transition-colors text-left">
+              <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><ChefHat size={15} /></span>
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share recipe</span>
+                <span className="block text-[10.5px] text-on-surface/45 truncate">Yours · 1,200+ recipes</span>
+              </span>
+            </button>
+          </div>
+          {/* Input row */}
+          <div className="flex items-center gap-1 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 pl-1.5 pr-1.5 py-1.5">
+            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Photo (coming soon)"><ImageIcon size={18} /></button>
+            <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
+              placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
+              className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
+            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Emoji (coming soon)"><Smile size={18} /></button>
+            {!text.trim() && (
+              <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Voice (coming soon)"><Mic size={18} /></button>
+            )}
+            <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
+              className="w-10 h-10 rounded-full bg-primary text-white grid place-items-center disabled:opacity-30 transition-opacity flex-shrink-0 active:scale-95"><Send size={16} /></button>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-2.5 px-6 pt-3 pb-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
@@ -1108,26 +1120,20 @@ const ChatView: React.FC<{
         </div>
       )}
 
-      {/* Share modals — desktop pickers, mobile sheet */}
-      {phoneMode ? (
-        <ShareRestaurantSheet open={shareSheetOpen} onClose={() => setShareSheetOpen(false)} onShare={handleShareRestaurant} />
-      ) : (
-        <>
-          <ShareRestaurantPicker
-            open={restPickerOpen}
-            recipientName={isGroup ? title : (title || '').split(' ')[0]}
-            onClose={() => setRestPickerOpen(false)}
-            onShare={handleShareRestaurantNow}
-          />
-          <ShareRecipePicker
-            open={recipePickerOpen}
-            recipientName={isGroup ? title : (title || '').split(' ')[0]}
-            selfName={selfName}
-            onClose={() => setRecipePickerOpen(false)}
-            onShare={handleShareRecipeNow}
-          />
-        </>
-      )}
+      {/* Share pickers — responsive (centered modal on desktop, full-screen sheet on mobile) */}
+      <ShareRestaurantPicker
+        open={restPickerOpen}
+        recipientName={isGroup ? title : (title || '').split(' ')[0]}
+        onClose={() => setRestPickerOpen(false)}
+        onShare={handleShareRestaurantNow}
+      />
+      <ShareRecipePicker
+        open={recipePickerOpen}
+        recipientName={isGroup ? title : (title || '').split(' ')[0]}
+        selfName={selfName}
+        onClose={() => setRecipePickerOpen(false)}
+        onShare={handleShareRecipeNow}
+      />
     </div>
   );
 };
@@ -1322,6 +1328,176 @@ const DesktopEmptyChat: React.FC<{ onCompose: () => void }> = ({ onCompose }) =>
   </div>
 );
 
+/* ── Mobile list screen (rail + tabs + sections) ── */
+const MobileSection: React.FC<{ label: string; count: number }> = ({ label, count }) => (
+  <div className="flex items-center justify-between px-5 pt-4 pb-1.5">
+    <span className="text-[10.5px] font-bold uppercase tracking-[0.13em] text-on-surface/40">{label}</span>
+    <span className="text-[10.5px] font-semibold text-on-surface/30">{count}</span>
+  </div>
+);
+
+const MobileConvRow: React.FC<{
+  conv: Conversation;
+  profiles: Record<string, UserProfile>;
+  selfId?: string;
+  unread: number;
+  onClick: () => void;
+}> = ({ conv, profiles, selfId, unread, onClick }) => {
+  const otherId = otherParticipantId(conv, selfId);
+  const fullTitle = conversationTitle(conv, profiles, selfId);
+  const display = conv.isGroup ? fullTitle : (fullTitle.split(' ')[0] || fullTitle);
+  const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_expert : false;
+  const share = lastMessageIsShare(conv);
+  return (
+    <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors">
+      {conv.isGroup
+        ? <div className="w-[52px] h-[52px] rounded-full bg-primary/10 grid place-items-center flex-shrink-0"><Users size={18} className="text-primary" /></div>
+        : <PersonAvatar name={fullTitle} userId={otherId || conv.id} size={52} expert={expert} />}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <p className={cn('text-[15.5px] truncate', unread > 0 ? 'font-bold text-on-surface' : 'font-semibold text-on-surface/85')}>{display}</p>
+          <span className={cn('text-[11.5px] flex-shrink-0', unread > 0 ? 'text-primary font-semibold' : 'text-on-surface/35')}>{formatTime(conv.lastMessageAt)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-0.5">
+          <p className={cn('text-[13px] truncate leading-snug flex items-center gap-1', share ? 'text-primary/80 font-medium' : unread > 0 ? 'text-on-surface/70 font-medium' : 'text-on-surface/45')}>
+            {share && <Store size={12} className="flex-shrink-0" />}
+            <span className="truncate">{lastMessagePreview(conv, profiles, selfId)}</span>
+          </p>
+          {unread > 0 && <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-white text-[11px] font-bold rounded-full grid place-items-center flex-shrink-0">{unread}</span>}
+        </div>
+      </div>
+    </button>
+  );
+};
+
+const MobileFriendRow: React.FC<{ friend: FriendLite; expert: boolean; onClick: () => void }> = ({ friend, expert, onClick }) => (
+  <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors">
+    <PersonAvatar name={friend.name} userId={friend.id} size={48} expert={expert} />
+    <div className="flex-1 min-w-0">
+      <p className="text-[15px] font-semibold text-on-surface/85 truncate">{friend.name.split(' ')[0]}</p>
+      <p className="text-[12.5px] text-on-surface/45 truncate">{friend.username ? `@${friend.username}` : 'Tap to message'}</p>
+    </div>
+    <span className="flex-shrink-0 text-[11px] font-bold tracking-wide text-primary bg-primary/[0.08] px-3 py-1.5 rounded-full">Message</span>
+  </button>
+);
+
+const MobileMessageList: React.FC<{
+  conversations: Conversation[];
+  friends: FriendLite[];
+  profiles: Record<string, UserProfile>;
+  selfId?: string;
+  getUnread: (id: string) => number;
+  hasThread: (friendId: string) => boolean;
+  onOpenConversation: (id: string) => void;
+  onOpenFriend: (friendId: string) => void;
+  onCompose: () => void;
+  onBack: () => void;
+}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack }) => {
+  const [query, setQuery] = useState('');
+  const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
+  const q = query.trim().toLowerCase();
+
+  const matchesConv = (c: Conversation) => {
+    if (!q) return true;
+    const title = conversationTitle(c, profiles, selfId).toLowerCase();
+    const oid = otherParticipantId(c, selfId);
+    const handle = ((oid && profiles[oid]?.username) || '').toLowerCase();
+    return title.includes(q) || handle.includes(q) || lastMessagePreview(c, profiles, selfId).toLowerCase().includes(q);
+  };
+  const filteredConvs = useMemo(() => conversations.filter((c) => {
+    if (tab === 'unread' && getUnread(c.id) === 0) return false;
+    if (tab === 'shares' && !lastMessageIsShare(c)) return false;
+    return matchesConv(c);
+  }), [conversations, tab, q, profiles, selfId, getUnread]);
+
+  const friendsWithoutThread = useMemo(() => {
+    if (tab !== 'all') return [];
+    return friends.filter((f) => !hasThread(f.id) && (!q || f.name.toLowerCase().includes(q) || (f.username || '').toLowerCase().includes(q)));
+  }, [friends, tab, q, hasThread]);
+
+  // Rail: friends with a thread first, then the rest.
+  const rail = useMemo(() => [...friends.filter((f) => hasThread(f.id)), ...friends.filter((f) => !hasThread(f.id))], [friends, hasThread]);
+
+  const unreadCount = conversations.filter((c) => getUnread(c.id) > 0).length;
+  const sharesCount = conversations.filter(lastMessageIsShare).length;
+  const tabs: { key: 'all' | 'unread' | 'shares'; label: string; count?: number }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'unread', label: 'Unread', count: unreadCount },
+    { key: 'shares', label: 'Shares', count: sharesCount },
+  ];
+
+  return (
+    <div className="h-screen flex flex-col bg-surface">
+      <header className="flex-shrink-0 px-4 pt-safe-4 pb-2.5 bg-surface/90 backdrop-blur-md border-b border-on-surface/[0.06]">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <button onClick={onBack} className="p-1.5 -ml-1.5 text-on-surface/45 active:text-on-surface"><ArrowLeft size={22} /></button>
+            <h1 className="font-serif font-bold text-[26px] tracking-tight">Messages</h1>
+          </div>
+          <button onClick={onCompose} className="w-9 h-9 rounded-full grid place-items-center text-primary active:bg-primary/10" title="New message"><Plus size={22} /></button>
+        </div>
+        <div className="mt-2.5 flex items-center gap-2.5 h-10 px-3.5 rounded-full bg-on-surface/[0.05] border border-on-surface/8">
+          <Search size={15} className="text-on-surface/40 flex-shrink-0" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search messages and friends" className="flex-1 bg-transparent text-[14px] text-on-surface placeholder:text-on-surface/40 focus:outline-none min-w-0" />
+        </div>
+        <div className="mt-2.5 flex gap-2">
+          {tabs.map((t) => (
+            <button key={t.key} onClick={() => setTab(t.key)} className={cn('flex-1 py-2 rounded-full text-[12.5px] font-semibold border transition-colors inline-flex items-center justify-center gap-1.5', tab === t.key ? 'bg-on-surface text-surface border-on-surface' : 'bg-surface text-on-surface/60 border-on-surface/10')}>
+              {t.label}
+              {t.count !== undefined && t.count > 0 && <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full', tab === t.key ? 'bg-surface/25 text-surface' : 'bg-primary/12 text-primary')}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto pb-safe-5">
+        {tab === 'all' && !q && rail.length > 0 && (
+          <div className="flex gap-3.5 px-4 pt-3.5 pb-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button onClick={onCompose} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">
+              <span className="w-[58px] h-[58px] rounded-full grid place-items-center bg-surface border-2 border-dashed border-primary text-primary"><Plus size={22} /></span>
+              <span className="text-[11.5px] text-on-surface/60 w-16 text-center truncate">New</span>
+            </button>
+            {rail.map((f) => (
+              <button key={f.id} onClick={() => onOpenFriend(f.id)} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">
+                <PersonAvatar name={f.name} userId={f.id} size={58} expert={!!profiles[f.id]?.is_expert} />
+                <span className="text-[11.5px] text-on-surface/70 w-16 text-center truncate">{f.name.split(' ')[0]}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {filteredConvs.length > 0 && (
+          <>
+            <MobileSection label="Conversations" count={filteredConvs.length} />
+            {filteredConvs.map((c) => (
+              <MobileConvRow key={c.id} conv={c} profiles={profiles} selfId={selfId} unread={getUnread(c.id)} onClick={() => onOpenConversation(c.id)} />
+            ))}
+          </>
+        )}
+
+        {friendsWithoutThread.length > 0 && (
+          <>
+            <MobileSection label="All friends" count={friendsWithoutThread.length} />
+            {friendsWithoutThread.map((f) => (
+              <MobileFriendRow key={f.id} friend={f} expert={!!profiles[f.id]?.is_expert} onClick={() => onOpenFriend(f.id)} />
+            ))}
+          </>
+        )}
+
+        {filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
+          <div className="px-6 py-20 text-center">
+            <MessageCircle size={36} className="mx-auto text-on-surface/12 mb-3" />
+            <p className="text-[14px] font-semibold text-on-surface/40">{q ? `No matches for “${query}”` : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
+            {!q && tab === 'all' && (
+              <button onClick={onCompose} className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-full active:scale-95 transition-transform"><Plus size={16} /> New message</button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /* ── Main Messages Page ── */
 export const Messages: React.FC = () => {
   const { conversations, createConversation, findDirectConversation, getUnreadForConversation } = useChat();
@@ -1427,72 +1603,33 @@ export const Messages: React.FC = () => {
   }
 
   /* ═══ Mobile: single-pane list ↔ thread ═══ */
-  if (activeConversation) {
+  if (activeConversation || draftFriendId) {
     return (
       <div className="h-screen flex flex-col bg-surface">
-        <ChatView conversation={activeConversation} profiles={profiles} onBack={() => setActiveConversationId(null)} />
+        {activeConversation ? (
+          <ChatView conversation={activeConversation} profiles={profiles} onBack={clearSelection} />
+        ) : (
+          <ChatView draftFriendId={draftFriendId!} profiles={profiles} onBack={clearSelection} onConversationCreated={onConversationCreated} />
+        )}
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-surface pb-32">
-      <header className="sticky top-0 w-full px-5 pt-safe-4 pb-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-xl font-serif font-bold tracking-tight">Messages</h1>
-        </div>
-        <button onClick={() => setNewChatOpen(true)} className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors">
-          <Plus size={22} />
-        </button>
-      </header>
-
-      <div className="px-3">
-        {sortedConversations.length === 0 ? (
-          <div className="text-center py-20">
-            <MessageCircle size={40} className="mx-auto text-on-surface/12 mb-4" />
-            <p className="text-base font-semibold text-on-surface/35">No conversations yet</p>
-            <p className="text-xs text-on-surface/25 mt-1">Start chatting with your friends</p>
-            <button onClick={() => setNewChatOpen(true)} className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-2xl hover:bg-primary/90 transition-colors">
-              <Plus size={16} />New Chat
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {sortedConversations.map((conv) => {
-              const unread = getUnreadForConversation(conv.id);
-              const otherId = otherParticipantId(conv, user?.id);
-              const fullTitle = conversationTitle(conv, profiles, user?.id);
-              return (
-                <button key={conv.id} onClick={() => setActiveConversationId(conv.id)}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-2xl hover:bg-on-surface/3 transition-colors text-left">
-                  {conv.isGroup ? (
-                    <div className="w-12 h-12 rounded-full bg-primary/10 grid place-items-center flex-shrink-0"><Users size={16} className="text-primary" /></div>
-                  ) : (
-                    <PersonAvatar name={fullTitle} userId={otherId || conv.id} size={48} expert={!!(otherId && profiles[otherId]?.is_expert)} />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={cn('text-[15px] font-semibold truncate', unread > 0 ? 'text-on-surface' : 'text-on-surface/75')}>{conv.isGroup ? fullTitle : (fullTitle.split(' ')[0] || fullTitle)}</p>
-                      <span className={cn('text-[11px] flex-shrink-0', unread > 0 ? 'text-primary font-semibold' : 'text-on-surface/35')}>{formatTime(conv.lastMessageAt)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 mt-0.5">
-                      <p className={cn('text-[13px] truncate leading-snug', unread > 0 ? 'text-on-surface/70 font-medium' : 'text-on-surface/40')}>{lastMessagePreview(conv, profiles, user?.id)}</p>
-                      {unread > 0 && (
-                        <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-white text-[11px] font-bold rounded-full flex items-center justify-center flex-shrink-0 shadow-sm shadow-primary/25">{unread}</span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
+    <>
+      <MobileMessageList
+        conversations={sortedConversations}
+        friends={friends}
+        profiles={profiles}
+        selfId={user?.id}
+        getUnread={getUnreadForConversation}
+        hasThread={(fid) => !!findDirectConversation(fid)}
+        onOpenConversation={selectConversation}
+        onOpenFriend={selectFriend}
+        onCompose={() => setNewChatOpen(true)}
+        onBack={() => navigate(-1)}
+      />
       <NewChatSheet open={newChatOpen} onClose={() => setNewChatOpen(false)} onCreateChat={handleCreateChat} friends={friends} />
-    </div>
+    </>
   );
 };
