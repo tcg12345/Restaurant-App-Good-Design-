@@ -25,6 +25,7 @@ import {
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
+import { refineRecipe } from '../lib/build-recipe-client';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 
 /* ── Tab-mode preference (sticky across sessions) ────────────── */
@@ -204,6 +205,19 @@ export const AddHomeMealModal: React.FC = () => {
         : `/recipe/${created.id}`;
       setTimeout(() => navigate(target), 80);
     }
+  };
+
+  // Refine the in-preview AI draft with a free-text instruction. The
+  // AI returns the full revised recipe (merged over the current draft
+  // so cover photo etc. survive); swap it into place.
+  const handleAiRefine = async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!aiDraft) return { ok: false, error: 'No recipe to refine.' };
+    const res = await refineRecipe(aiDraft, instruction);
+    if (res.ok && res.meal) {
+      setAiDraft(res.meal);
+      return { ok: true };
+    }
+    return { ok: false, error: res.error };
   };
 
   // Edit from the AI preview sheet → seed the Advanced builder (as a
@@ -1644,6 +1658,7 @@ export const AddHomeMealModal: React.FC = () => {
       onEdit={handleAiEdit}
       onDelete={() => setAiDraft(null)}
       onCoverPhotoChange={handleAiCoverChange}
+      onRefine={handleAiRefine}
       zClass="z-[210]"
       publishLabel="Publish recipe"
     />

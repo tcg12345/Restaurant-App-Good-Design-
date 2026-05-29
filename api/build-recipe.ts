@@ -35,17 +35,35 @@ const CUISINE_HINT =
 
 const COURSE_HINT = 'Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side';
 
-const SYSTEM_PROMPT = [
-  'You are a meticulous recipe developer. Given a short description, you author ONE complete, REAL, testable recipe and return it by calling the `build_recipe` tool. You do not chat, ask questions, or add commentary — you always call the tool exactly once.',
-  '',
-  'Quality bar:',
+const QUALITY_BAR = [
   '- Real, accurate measurements with units. Use mass (g) for baking when precision matters.',
   '- Sensible step ordering; one clear action per step. Add a short `title` to each step.',
   '- Realistic prep/cook/chill timing in minutes.',
   '- Group ingredients by stage with `ingredientGroups` ONLY when the recipe truly has distinct stages ("For the batter", "For the glaze"); otherwise use the flat `ingredients` list.',
   '- Include `equipment` the cook needs and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead).',
   `- Set a sensible \`cuisine\` (examples: ${CUISINE_HINT}) and \`course\` (one or more of: ${COURSE_HINT}).`,
+].join('\n');
+
+const SYSTEM_PROMPT = [
+  'You are a meticulous recipe developer. Given a short description, you author ONE complete, REAL, testable recipe and return it by calling the `build_recipe` tool. You do not chat, ask questions, or add commentary — you always call the tool exactly once.',
+  '',
+  'Quality bar:',
+  QUALITY_BAR,
   '- Honor every constraint in the user\'s prompt (servings, dietary restrictions, time budget, equipment, flavor direction). If the prompt is vague, make reasonable, appealing choices rather than asking.',
+].join('\n');
+
+// Used when the request carries `instruction` + `current` — the user is
+// refining an existing draft. The model returns the FULL revised recipe.
+const EDIT_SYSTEM_PROMPT = [
+  'You are revising an EXISTING recipe. You will be given the current recipe as JSON and an instruction describing a change. Apply the instruction and return the COMPLETE revised recipe by calling the `build_recipe` tool exactly once.',
+  '',
+  'Rules:',
+  '- Include ALL fields in your call — changed AND unchanged. The result fully replaces the old recipe, so anything you omit is lost.',
+  '- Change ONLY what the instruction asks for (plus knock-on edits it implies — e.g. if asked to make it spicier, you may also add a note). Keep the rest faithful to the current recipe.',
+  '- It is the SAME dish unless the instruction explicitly asks for a different one. Keep the name unless the change warrants a new one.',
+  '',
+  'Quality bar (maintain it):',
+  QUALITY_BAR,
 ].join('\n');
 
 const TOOL_BUILD_RECIPE = {
@@ -156,15 +174,37 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
 
-  let body: { prompt?: string };
+  let body: { prompt?: string; instruction?: string; current?: unknown };
   try {
     body = await req.json();
   } catch {
     return jsonError(400, 'Invalid JSON body');
   }
-  const prompt = (body.prompt || '').trim().slice(0, MAX_PROMPT_CHARS);
-  if (!prompt) {
-    return jsonError(400, 'Tell me what recipe you want to create.');
+
+  // Two modes:
+  //  • create — { prompt }
+  //  • refine — { instruction, current }  (edit an existing draft)
+  const instruction = (body.instruction || '').trim().slice(0, MAX_PROMPT_CHARS);
+  const isRefine = !!instruction && !!body.current;
+
+  let messages: Array<{ role: 'user'; content: string }>;
+  if (isRefine) {
+    let currentJson = '';
+    try {
+      currentJson = JSON.stringify(body.current).slice(0, 12000);
+    } catch {
+      return jsonError(400, 'Could not read the current recipe.');
+    }
+    messages = [{
+      role: 'user',
+      content: `Here is the current recipe as JSON:\n\n${currentJson}\n\nApply this change and return the COMPLETE revised recipe (all fields): ${instruction}`,
+    }];
+  } else {
+    const prompt = (body.prompt || '').trim().slice(0, MAX_PROMPT_CHARS);
+    if (!prompt) {
+      return jsonError(400, 'Tell me what recipe you want to create.');
+    }
+    messages = [{ role: 'user', content: prompt }];
   }
 
   const anthropicBody = {
@@ -176,11 +216,11 @@ export default async function handler(req: Request): Promise<Response> {
     // Streaming sends bytes immediately, so we just proxy Anthropic's
     // SSE straight through and let the client assemble the tool input.
     stream: true,
-    system: SYSTEM_PROMPT,
+    system: isRefine ? EDIT_SYSTEM_PROMPT : SYSTEM_PROMPT,
     tools: [TOOL_BUILD_RECIPE],
     // Force the tool so the only possible output is a recipe object.
     tool_choice: { type: 'tool', name: 'build_recipe' },
-    messages: [{ role: 'user', content: prompt }],
+    messages,
   };
 
   let anthropicRes: Response;

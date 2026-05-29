@@ -51,6 +51,7 @@ import {
 import { RecipeDraftCard } from './chat/RecipeDraftCard';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
+import { refineRecipe } from '../lib/build-recipe-client';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
   const out: Record<string, string> = {};
@@ -1173,6 +1174,27 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       },
     }));
   }, [openDraftToolUseId, patchDraftBlock]);
+
+  // Refine the open draft with a free-text AI instruction from the
+  // preview sheet. Runs a stateless /api/build-recipe edit call and
+  // patches the block in place — both the draft (so the sheet + card
+  // refresh) and the rawInput (so the chat conversation round-trips
+  // the latest version back to the model).
+  const handleRefineDraft = useCallback(async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!openDraftToolUseId) return { ok: false, error: 'No recipe to refine.' };
+    const current = openDraftBlock?.draft;
+    if (!current) return { ok: false, error: 'No recipe to refine.' };
+    const res = await refineRecipe(current, instruction);
+    if (res.ok && res.meal) {
+      patchDraftBlock(openDraftToolUseId, (b) => ({
+        ...b,
+        draft: res.meal!,
+        rawInput: res.recipe ?? b.rawInput,
+      }));
+      return { ok: true };
+    }
+    return { ok: false, error: res.error };
+  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
 
   const handleDeleteDraft = useCallback(() => {
     if (!openDraftToolUseId) return;
@@ -2476,6 +2498,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         onEdit={handleEditDraft}
         onDelete={handleDeleteDraft}
         onCoverPhotoChange={handleCoverPhotoChange}
+        onRefine={handleRefineDraft}
       />
     </>
   );

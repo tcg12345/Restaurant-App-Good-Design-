@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera } from 'lucide-react';
+import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useBottomSheet } from '../../lib/useBottomSheet';
@@ -23,6 +23,11 @@ interface RecipeDraftSheetProps {
   /** Override the primary action label. Defaults to "Publish to my
    *  cookbook". The modal uses a shorter "Publish recipe". */
   publishLabel?: string;
+  /** Refine the draft with a free-text AI instruction. When provided,
+   *  the sheet shows a "Refine with AI" composer. The parent runs the
+   *  edit and updates its draft; resolve `{ ok }` (with an optional
+   *  user-facing `error`). Omit to hide the composer entirely. */
+  onRefine?: (instruction: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Downsize an image to fit within 800px and re-encode as JPEG@0.6 —
@@ -73,6 +78,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   onCoverPhotoChange,
   zClass = 'z-[70]',
   publishLabel = 'Publish to my cookbook',
+  onRefine,
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
@@ -80,13 +86,35 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   const [uploadingCover, setUploadingCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset the delete-confirm any time the sheet opens with a new draft.
+  // Refine-with-AI composer state.
+  const [refineText, setRefineText] = useState('');
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+
+  // Reset transient state any time the sheet opens with a new draft.
   React.useEffect(() => {
     if (open) {
       setConfirmingDelete(false);
       setUploadingCover(false);
+      setRefineText('');
+      setRefining(false);
+      setRefineError(null);
     }
   }, [open, draft?.id]);
+
+  const submitRefine = async () => {
+    const instruction = refineText.trim();
+    if (!instruction || refining || !onRefine) return;
+    setRefining(true);
+    setRefineError(null);
+    const res = await onRefine(instruction);
+    setRefining(false);
+    if (res.ok) {
+      setRefineText('');
+    } else {
+      setRefineError(res.error || "Couldn't apply that. Try rephrasing.");
+    }
+  };
 
   const handleCoverPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -415,6 +443,64 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 </Section>
               )}
             </div>
+
+            {/* Refine with AI — only while unpublished and when the
+                parent wired a handler. Lets the user keep tweaking the
+                draft ("make it spicier", "swap walnuts for pecans")
+                without leaving the preview. */}
+            {onRefine && !publishedMealId && (
+              <div className={cn(
+                'flex-shrink-0 border-t border-on-surface/[0.06]',
+                phoneMode ? 'px-5 pt-3' : 'px-6 pt-3',
+              )}>
+                <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wider text-primary/80">
+                  <Sparkles size={12} />
+                  Refine with AI
+                </div>
+                <div className={cn(
+                  'rounded-2xl border bg-on-surface/[0.03] transition-colors flex items-end gap-2 pl-3.5 pr-2 py-2',
+                  refineError ? 'border-red-300' : 'border-on-surface/12 focus-within:border-primary/40',
+                )}>
+                  <textarea
+                    value={refineText}
+                    onChange={(e) => { setRefineText(e.target.value); if (refineError) setRefineError(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRefine(); }
+                    }}
+                    disabled={refining}
+                    rows={1}
+                    placeholder="e.g. make it spicier, swap walnuts for pecans, halve the servings…"
+                    className="flex-1 bg-transparent text-[14px] leading-snug text-on-surface placeholder:text-on-surface/35 focus:outline-none resize-none py-1.5 max-h-24 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={submitRefine}
+                    disabled={!refineText.trim() || refining}
+                    aria-label="Apply refinement"
+                    className={cn(
+                      'flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0',
+                      refineText.trim() && !refining
+                        ? 'bg-primary text-white hover:opacity-90'
+                        : 'bg-on-surface/[0.08] text-on-surface/30 cursor-not-allowed',
+                    )}
+                  >
+                    {refining ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.5} />}
+                  </button>
+                </div>
+                {refining && (
+                  <p className="text-[11.5px] text-on-surface/45 mt-1.5 pl-1 flex items-center gap-1.5">
+                    <Sparkles size={11} className="text-primary/70" />
+                    Reworking the recipe…
+                  </p>
+                )}
+                {refineError && (
+                  <p className="text-[11.5px] text-red-600 mt-1.5 pl-1 flex items-center gap-1.5">
+                    <AlertCircle size={12} />
+                    {refineError}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className={cn(
               'flex-shrink-0 border-t border-on-surface/[0.06]',
