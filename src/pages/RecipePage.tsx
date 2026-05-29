@@ -207,6 +207,9 @@ type UnifiedRecipe = {
    *  fetched) so the page never momentarily shows the wrong person. */
   sourceAuthorName?: string;
   sourceAuthorUsername?: string;
+  /** True when the recipe was drafted by the "Create with AI" generator.
+   *  Drives the "Created with AI" note under the title. */
+  createdWithAi?: boolean;
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -260,6 +263,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     equipment?: string[];
     stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+    createdWithAi?: boolean;
   };
   // If this meal was saved from another user, the original author owns
   // the recipe view — not the user who copied it. Attributing ownerId
@@ -296,6 +300,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     equipment: adv.equipment,
     stepDetails: adv.stepDetails,
     notes: adv.notes,
+    createdWithAi: adv.createdWithAi,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
@@ -603,6 +608,7 @@ export const RecipePage: React.FC = () => {
       equipment: data.equipment,
       stepDetails: data.stepDetails,
       notes: data.notes,
+      createdWithAi: data.createdWithAi || undefined,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
       ...(isAnotherUsers ? {
         sourceAuthorId: data.ownerId,
@@ -978,6 +984,12 @@ export const RecipePage: React.FC = () => {
                 </span>
               </div>
             </button>
+          )}
+          {data.createdWithAi && (
+            <div className="rd-ai-note" role="note">
+              <Sparkles />
+              <span>Created with AI</span>
+            </div>
           )}
         </div>
         <div className="rd-hero-image">
@@ -2102,6 +2114,13 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
               <span className="role">{authorRole}</span>
             </div>
           </button>
+        )}
+
+        {data.createdWithAi && (
+          <div className="rdm-ai-note" role="note">
+            <Sparkles />
+            <span>Created with AI</span>
+          </div>
         )}
 
         <div className="rdm-stats">

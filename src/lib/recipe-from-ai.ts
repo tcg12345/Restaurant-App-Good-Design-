@@ -117,6 +117,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
       ? input.notes.filter((n) => n && n.text && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
       : [],
     builderVersion: 'advanced',
+    createdWithAi: true,
     coverPhoto: undefined,
     createdAt: Date.now(),
   };

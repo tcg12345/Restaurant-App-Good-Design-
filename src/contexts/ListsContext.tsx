@@ -243,6 +243,10 @@ export interface HomeMeal {
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
+  /** True when this recipe was drafted by the "Create with AI" generator
+   *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
+   *  recipe page. Stays set after the user edits + publishes the draft. */
+  createdWithAi?: boolean;
   /** When this meal was saved from another user's recipe, who
    *  originally authored it. Drives the "by @author" byline shown on
    *  cookbook / list / profile cards. Unset for the user's own meals. */

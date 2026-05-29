@@ -63,6 +63,9 @@ export interface AdvancedRecipeState {
    *  appearing in author-profile listings of their own recipes. */
   score: number;
   isPublic: boolean;
+  /** Carried through from an AI-generated seed / existing AI recipe so the
+   *  "Created with AI" note survives editing + publishing. Not user-editable. */
+  createdWithAi: boolean;
 }
 
 /** Step rail / mobile-header label. The accent word renders italic +
@@ -136,6 +139,7 @@ function emptyState(): AdvancedRecipeState {
     notes: [],
     score: 0,
     isPublic: false,
+    createdWithAi: false,
   };
 }
 
@@ -170,6 +174,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     notes: meal.notes || [],
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
+    createdWithAi: !!meal.createdWithAi,
   };
 }
 
@@ -593,6 +598,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       notes: cleanNotes,
       stepDetails: cleanSteps,
       builderVersion: 'advanced',
+      createdWithAi: state.createdWithAi || undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft
