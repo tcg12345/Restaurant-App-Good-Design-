@@ -147,6 +147,7 @@ function homeMealToInput(meal: HomeMeal): BuildRecipeInput {
   return {
     name: meal.name,
     summary: meal.summary || meal.description || undefined,
+    introParagraph: meal.introParagraph || undefined,
     cuisine: meal.cuisine || undefined,
     course: meal.course,
     difficulty: meal.difficulty,
