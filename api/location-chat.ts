@@ -30,14 +30,16 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
 // Model IDs the chat can run on. The client selects one of these
 // (or 'auto') via the header model picker.
 const MODEL_SONNET = 'claude-sonnet-4-6';
-const MODEL_OPUS = 'claude-opus-4-7';
+const MODEL_OPUS = 'claude-opus-4-8';
+// Retired id still accepted from older clients, mapped to MODEL_OPUS.
+const MODEL_OPUS_LEGACY = 'claude-opus-4-7';
 const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
 
 /** Adaptive model selector for 'auto' mode.
  *
  *  Lightweight heuristic on the most recent user message + a few
- *  conversation signals. Opus 4.7 is ~5x the cost of Sonnet 4.6, so
+ *  conversation signals. Opus 4.8 is much costlier than Sonnet 4.6, so
  *  we only escalate when the request actually looks like it needs
  *  multi-step reasoning. Cheap signals (length, keyword presence,
  *  conversation depth) are good enough — the model still chooses
@@ -146,7 +148,7 @@ function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
  *  ID, or undefined (treated as 'auto'). Falls back to the default
  *  when the client passes something unrecognised.
  *
- *  Recipe-building turns ALWAYS run on Opus 4.7 regardless of the
+ *  Recipe-building turns ALWAYS run on Opus 4.8 regardless of the
  *  client's pick — the structured JSON output is sensitive to quality
  *  and the user explicitly opted in to this trade-off. The override is
  *  silent and per-turn; the picker is unchanged. */
@@ -154,6 +156,9 @@ function resolveModel(body: ChatRequest): string {
   if (looksLikeRecipeBuild(body.messages)) return MODEL_OPUS;
   const requested = (body.model || 'auto').trim();
   if (requested === MODEL_SONNET || requested === MODEL_OPUS) return requested;
+  // Older clients may still send the retired Opus 4.7 id — honor the
+  // intent by running on the current Opus.
+  if (requested === MODEL_OPUS_LEGACY) return MODEL_OPUS;
   if (requested === 'auto' || !requested) return pickAutoModel(body.messages);
   return DEFAULT_MODEL;
 }

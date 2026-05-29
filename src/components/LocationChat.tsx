@@ -125,15 +125,18 @@ export interface ActionResult {
 }
 
 /* ── Model picker ────────────────────────────────────────────────
-   The chat can run on Sonnet 4.6, Opus 4.7, or 'auto' (server-side
+   The chat can run on Sonnet 4.6, Opus 4.8, or 'auto' (server-side
    heuristic chooses per turn). Stored as a literal string so it
-   round-trips through localStorage and over the wire untouched. */
-export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-7';
+   round-trips through localStorage and over the wire untouched.
+   The legacy 'claude-opus-4-7' pref is accepted on load and migrated
+   to 4.8 so a persisted choice from before the bump still resolves. */
+export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
 const CHAT_MODEL_STORAGE_KEY = 'gourmad-chat-model';
-const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-7'];
+const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'];
 function loadModelPref(): ChatModelPref {
   try {
     const raw = localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
+    if (raw === 'claude-opus-4-7') return 'claude-opus-4-8'; // migrate retired id
     if (raw && (VALID_MODEL_PREFS as readonly string[]).includes(raw)) return raw as ChatModelPref;
   } catch { /* private mode / quota — fall through */ }
   return 'auto';
@@ -144,12 +147,12 @@ function saveModelPref(pref: ChatModelPref) {
 const MODEL_LABELS: Record<ChatModelPref, string> = {
   auto: 'Auto',
   'claude-sonnet-4-6': 'Sonnet 4.6',
-  'claude-opus-4-7': 'Opus 4.7',
+  'claude-opus-4-8': 'Opus 4.8',
 };
 const MODEL_SUBLABELS: Record<ChatModelPref, string> = {
   auto: 'Picks per turn',
   'claude-sonnet-4-6': 'Fast, low cost',
-  'claude-opus-4-7': 'Deepest reasoning',
+  'claude-opus-4-8': 'Deepest reasoning',
 };
 
 interface LocationChatProps {
@@ -2113,7 +2116,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       </button>
                       {modelMenuOpen && (
                         <div className="lp-chat-model-menu" role="listbox">
-                          {(['auto', 'claude-sonnet-4-6', 'claude-opus-4-7'] as ChatModelPref[]).map((opt) => (
+                          {(['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'] as ChatModelPref[]).map((opt) => (
                             <button
                               key={opt}
                               type="button"

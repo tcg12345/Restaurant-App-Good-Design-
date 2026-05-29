@@ -26,7 +26,7 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
 // Opus authors noticeably better recipes (measurements, sequencing,
 // realistic timing) than Sonnet, and this is a one-shot call rather
 // than a high-volume chat, so the cost trade-off is worth it.
-const MODEL = 'claude-opus-4-7';
+const MODEL = 'claude-opus-4-8';
 const MAX_TOKENS = 6000;
 const MAX_PROMPT_CHARS = 2000;
 
