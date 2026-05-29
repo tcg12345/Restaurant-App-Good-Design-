@@ -26,6 +26,7 @@ import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { refineRecipe } from '../lib/build-recipe-client';
+import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 
 /* ── Tab-mode preference (sticky across sessions) ────────────── */
@@ -253,6 +254,13 @@ export const AddHomeMealModal: React.FC = () => {
           }
         : prev,
     );
+  };
+
+  // Generate an AI hero photo of the finished dish. The sheet compresses
+  // the result and applies it via handleAiCoverChange.
+  const handleAiGenerateImage = async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+    if (!aiDraft) return { ok: false, error: 'No recipe to picture yet.' };
+    return generateRecipeImage(aiDraft);
   };
 
   const [mealName, setMealName] = useState('');
@@ -1672,6 +1680,7 @@ export const AddHomeMealModal: React.FC = () => {
       onDelete={() => setAiDraft(null)}
       onCoverPhotoChange={handleAiCoverChange}
       onRefine={handleAiRefine}
+      onGenerateImage={handleAiGenerateImage}
       zClass="z-[210]"
       publishLabel="Publish recipe"
     />

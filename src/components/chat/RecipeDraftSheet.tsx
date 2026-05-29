@@ -27,35 +27,46 @@ interface RecipeDraftSheetProps {
    *  edit and updates its draft; resolve `{ ok }` (with an optional
    *  user-facing `error`). Omit to hide the composer entirely. */
   onRefine?: (instruction: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Generate an AI hero photo of the finished dish. When provided, the
+   *  cover-photo area offers a "Generate with AI" action. The parent runs
+   *  the network call and resolves the raw image `dataUrl`; the sheet then
+   *  compresses it and applies it via `onCoverPhotoChange` (same path as an
+   *  upload). Omit to hide the AI generation option. */
+  onGenerateImage?: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
 }
 
-/** Downsize an image to fit within 800px and re-encode as JPEG@0.6 —
- *  matches the AddHomeMealModal compression pipeline so cover photos
- *  attached here aren't dramatically larger than cover photos attached
- *  from the canonical flow. */
+/** Downsize an image (given as a data-URL / object-URL `src`) to fit within
+ *  800px and re-encode as JPEG@0.6. Shared by uploaded cover photos and
+ *  AI-generated ones so both are stored at the same modest size — matches
+ *  the AddHomeMealModal compression pipeline. */
+function compressDataUrl(src: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = document.createElement('img');
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxSize = 800;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) { height = (height / width) * maxSize; width = maxSize; }
+        else { width = (width / height) * maxSize; height = maxSize; }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('canvas 2d unavailable')); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+    };
+    img.onerror = () => reject(new Error('image decode failed'));
+    img.src = src;
+  });
+}
+
+/** Read a picked File and compress it via `compressDataUrl`. */
 function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const img = document.createElement('img');
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxSize = 800;
-        let { width, height } = img;
-        if (width > maxSize || height > maxSize) {
-          if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-          else { width = (width / height) * maxSize; height = maxSize; }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error('canvas 2d unavailable')); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6));
-      };
-      img.onerror = () => reject(new Error('image decode failed'));
-      img.src = reader.result as string;
-    };
+    reader.onload = () => resolve(compressDataUrl(reader.result as string));
     reader.onerror = () => reject(new Error('file read failed'));
     reader.readAsDataURL(file);
   });
@@ -78,10 +89,15 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   zClass = 'z-[70]',
   publishLabel = 'Publish to my cookbook',
   onRefine,
+  onGenerateImage,
 }) => {
   const { phoneMode } = useSettings();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
+  // AI cover generation: in-flight flag + last error, shown inline in the
+  // cover-photo area.
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Refine-with-AI: collapsed by default, expands into a floating
@@ -97,6 +113,8 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
     if (open) {
       setConfirmingDelete(false);
       setUploadingCover(false);
+      setGeneratingImage(false);
+      setImageError(null);
       setRefineOpen(false);
       setRefineText('');
       setRefining(false);
@@ -124,6 +142,30 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
       setRefineOpen(false);
     } else {
       setRefineError(res.error || "Couldn't apply that. Try rephrasing.");
+    }
+  };
+
+  // Ask the parent to generate an AI hero photo, then compress + apply it
+  // through the same cover-photo path an upload uses.
+  const handleGenerateImage = async () => {
+    if (!onGenerateImage || generatingImage || uploadingCover) return;
+    setGeneratingImage(true);
+    setImageError(null);
+    try {
+      const res = await onGenerateImage();
+      if (res.ok && res.dataUrl) {
+        try {
+          onCoverPhotoChange(await compressDataUrl(res.dataUrl));
+        } catch {
+          // Compression failed (decode error) — keep the full-size image
+          // rather than dropping the user's generated photo.
+          onCoverPhotoChange(res.dataUrl);
+        }
+      } else {
+        setImageError(res.error || "Couldn't generate a photo. Try again.");
+      }
+    } finally {
+      setGeneratingImage(false);
     }
   };
 
@@ -227,7 +269,21 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                     className="hidden"
                     onChange={handleCoverPick}
                   />
-                  {cover ? (
+                  {generatingImage ? (
+                    // AI is painting the dish — placeholder hero with a
+                    // shimmer so the long (10-40s) call reads as progress.
+                    <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9] flex flex-col items-center justify-center gap-2.5">
+                      <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-on-surface/[0.03] to-on-surface/[0.10]" />
+                      <Loader2 size={22} className="relative animate-spin text-primary" />
+                      <div className="relative text-[13px] font-semibold text-on-surface/75 flex items-center gap-1.5">
+                        <Sparkles size={13} className="text-primary" />
+                        Generating photo…
+                      </div>
+                      <div className="relative text-[11px] text-on-surface/45">
+                        This can take up to a minute
+                      </div>
+                    </div>
+                  ) : cover ? (
                     <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9]">
                       <img
                         src={cover}
@@ -235,6 +291,17 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                         className="absolute inset-0 w-full h-full object-cover"
                       />
                       <div className="absolute bottom-2 right-2 flex gap-2">
+                        {onGenerateImage && (
+                          <button
+                            type="button"
+                            onClick={handleGenerateImage}
+                            disabled={uploadingCover}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-sm text-white hover:bg-black/70 transition-colors disabled:opacity-60"
+                            aria-label="Regenerate photo with AI"
+                          >
+                            <Sparkles size={14} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
@@ -256,22 +323,47 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingCover}
-                      className="w-full rounded-2xl border-2 border-dashed border-on-surface/15 bg-on-surface/[0.03] hover:bg-on-surface/[0.06] hover:border-on-surface/25 transition-colors py-7 flex flex-col items-center justify-center gap-2 text-on-surface/55 disabled:opacity-60"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-on-surface/[0.06] flex items-center justify-center">
+                    // Empty state — upload your own, or let AI picture the
+                    // finished dish from the recipe.
+                    <div className="w-full rounded-2xl border-2 border-dashed border-on-surface/15 bg-on-surface/[0.03] py-6 px-5 flex flex-col items-center justify-center gap-2.5">
+                      <div className="w-10 h-10 rounded-full bg-on-surface/[0.06] flex items-center justify-center text-on-surface/55">
                         <ImagePlus size={18} />
                       </div>
                       <div className="text-[13px] font-semibold text-on-surface/75">
-                        {uploadingCover ? 'Uploading photo…' : 'Add cover photo'}
+                        {uploadingCover ? 'Uploading photo…' : 'Add a cover photo'}
                       </div>
-                      <div className="text-[11px] text-on-surface/45">
+                      <div className="text-[11px] text-on-surface/45 -mt-1">
                         Optional · saved with the recipe
                       </div>
-                    </button>
+                      <div className="flex items-center gap-2 w-full max-w-sm mt-1">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploadingCover}
+                          className="flex-1 h-10 rounded-xl bg-on-surface/[0.06] text-on-surface text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-on-surface/[0.10] transition-colors disabled:opacity-60"
+                        >
+                          <Camera size={14} />
+                          Upload
+                        </button>
+                        {onGenerateImage && (
+                          <button
+                            type="button"
+                            onClick={handleGenerateImage}
+                            disabled={uploadingCover}
+                            className="flex-1 h-10 rounded-xl bg-primary/[0.08] border border-primary/25 text-primary text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-primary/[0.12] transition-colors disabled:opacity-60"
+                          >
+                            <Sparkles size={14} />
+                            Generate with AI
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {imageError && (
+                    <p className="text-[11.5px] text-red-600 mt-2 pl-1 flex items-center gap-1.5">
+                      <AlertCircle size={12} />
+                      {imageError}
+                    </p>
                   )}
                 </div>
               ) : cover ? (

@@ -52,6 +52,7 @@ import { RecipeDraftCard } from './chat/RecipeDraftCard';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
 import { refineRecipe } from '../lib/build-recipe-client';
+import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
   const out: Record<string, string> = {};
@@ -1203,6 +1204,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
     return { ok: false, error: res.error };
   }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+
+  // Generate an AI hero photo of the finished dish for the open draft. The
+  // preview sheet compresses the result and applies it through
+  // handleCoverPhotoChange (same path as an uploaded cover photo).
+  const handleGenerateDraftImage = useCallback(async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+    const current = openDraftBlock?.draft;
+    if (!current) return { ok: false, error: 'No recipe to picture yet.' };
+    return generateRecipeImage(current);
+  }, [openDraftBlock]);
 
   const handleDeleteDraft = useCallback(() => {
     if (!openDraftToolUseId) return;
@@ -2507,6 +2517,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         onDelete={handleDeleteDraft}
         onCoverPhotoChange={handleCoverPhotoChange}
         onRefine={handleRefineDraft}
+        onGenerateImage={handleGenerateDraftImage}
       />
     </>
   );
