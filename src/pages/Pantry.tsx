@@ -25,6 +25,13 @@ import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
+/** A recipe saved into a list from another user carries source-author
+ *  attribution. Those copies are read-only — the original author owns the
+ *  recipe — so we hide the Edit affordance (Delete/removal still allowed). */
+function isSavedFromOtherUser(meal: HomeMeal): boolean {
+  return !!(meal.sourceAuthorId || meal.sourceAuthorUsername || meal.sourceAuthorName);
+}
+
 /* ── Preset list suggestions ── */
 interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
 
@@ -4842,10 +4849,12 @@ const HomeCookingTab: React.FC<{
           className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
           <Share2 size={20} />
         </button>
-        <button onClick={() => onOpenModal(selectedMeal)}
-          className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
-          <Edit3 size={20} />
-        </button>
+        {!isSavedFromOtherUser(selectedMeal) && (
+          <button onClick={() => onOpenModal(selectedMeal)}
+            className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
+            <Edit3 size={20} />
+          </button>
+        )}
         <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
           className="p-2 -mr-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
           <Trash2 size={20} />
@@ -5690,6 +5699,8 @@ const RecipeRow: React.FC<{
   const ingredientText = ingredientPreview.map((i) => i.name).filter(Boolean).join(', ');
   const ingredientOverflow = (meal.ingredients?.length ?? 0) > ingredientPreview.length;
   const coverPhoto = getMealCoverUrl(meal);
+  // Recipes saved from another user can't be edited — only removed.
+  const isSavedCopy = isSavedFromOtherUser(meal);
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <li className="relative group/row">
@@ -5780,14 +5791,16 @@ const RecipeRow: React.FC<{
           covering the score badge. Always visible on touch (no
           hover), fade in on hover for pointer users. */}
       <div className="absolute top-2 right-2 flex items-center gap-1 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          aria-label={`Edit ${meal.name}`}
-          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors flex items-center justify-center"
-        >
-          <Edit3 size={13} />
-        </button>
+        {!isSavedCopy && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            aria-label={`Edit ${meal.name}`}
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors flex items-center justify-center"
+          >
+            <Edit3 size={13} />
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
@@ -5840,6 +5853,8 @@ const RecipeGridCard: React.FC<{
 }> = ({ meal, onClick, onEdit, onDelete }) => {
   const coverPhoto = getMealCoverUrl(meal);
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  // Recipes saved from another user can't be edited — only removed.
+  const isSavedCopy = isSavedFromOtherUser(meal);
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="group relative">
@@ -5896,14 +5911,16 @@ const RecipeGridCard: React.FC<{
           edit). Stacked vertically so they don't crowd the score chip
           on the right. */}
       <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          aria-label={`Edit ${meal.name}`}
-          className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors"
-        >
-          <Edit3 size={13} className="mx-auto" />
-        </button>
+        {!isSavedCopy && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            aria-label={`Edit ${meal.name}`}
+            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors"
+          >
+            <Edit3 size={13} className="mx-auto" />
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
