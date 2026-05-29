@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -98,6 +98,11 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   // cover-photo area.
   const [generatingImage, setGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  // Estimated progress for the image generation. The image API can't report
+  // real progress (one OpenAI call, ~10-40s), so we ease a bar toward ~95%
+  // off elapsed time and let it snap to done when the photo arrives.
+  const [imageElapsed, setImageElapsed] = useState(0);   // whole seconds
+  const [imageProgress, setImageProgress] = useState(0); // 0–100
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Refine-with-AI: collapsed by default, expands into a floating
@@ -168,6 +173,25 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
       setGeneratingImage(false);
     }
   };
+
+  // Drive the estimated progress bar while a photo is generating. We don't
+  // get real progress events, so ease toward ~95% on an exponential curve
+  // tuned to a ~30s typical generation, then let the arriving image finish
+  // it. Resets each time a generation starts.
+  useEffect(() => {
+    if (!generatingImage) return;
+    const ESTIMATE_S = 30;       // typical generation time
+    const TAU = ESTIMATE_S / 2.3; // ~90% by the estimate, asymptotic after
+    const start = Date.now();
+    setImageElapsed(0);
+    setImageProgress(0);
+    const id = window.setInterval(() => {
+      const elapsed = (Date.now() - start) / 1000;
+      setImageElapsed(Math.floor(elapsed));
+      setImageProgress(Math.min(95, 100 * (1 - Math.exp(-elapsed / TAU))));
+    }, 150);
+    return () => window.clearInterval(id);
+  }, [generatingImage]);
 
   const handleCoverPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -271,16 +295,23 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                   />
                   {generatingImage ? (
                     // AI is painting the dish — placeholder hero with a
-                    // shimmer so the long (10-40s) call reads as progress.
-                    <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9] flex flex-col items-center justify-center gap-2.5">
+                    // shimmer + an estimated progress bar so the long
+                    // (10-40s) call reads as visible progress.
+                    <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9] flex flex-col items-center justify-center gap-3 px-6">
                       <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-on-surface/[0.03] to-on-surface/[0.10]" />
                       <Loader2 size={22} className="relative animate-spin text-primary" />
                       <div className="relative text-[13px] font-semibold text-on-surface/75 flex items-center gap-1.5">
                         <Sparkles size={13} className="text-primary" />
-                        Generating photo…
+                        Generating photo… {Math.round(imageProgress)}%
                       </div>
-                      <div className="relative text-[11px] text-on-surface/45">
-                        This can take up to a minute
+                      <div className="relative w-full max-w-[260px] h-1.5 rounded-full bg-on-surface/[0.12] overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                          style={{ width: `${imageProgress}%` }}
+                        />
+                      </div>
+                      <div className="relative text-[11px] text-on-surface/45 tabular-nums">
+                        {imageElapsed}s elapsed · usually ~30s
                       </div>
                     </div>
                   ) : cover ? (
