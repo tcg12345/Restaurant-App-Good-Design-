@@ -30,6 +30,34 @@ const EXAMPLES = [
   'Classic New York–style cheesecake',
 ];
 
+// Optional guidelines the user can set; they're folded into the prompt as
+// plain-language requirements (the build-recipe function honors any
+// constraint in the prompt, so no API change is needed).
+const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
+const TIME_OPTIONS: { key: string; label: string }[] = [
+  { key: '30', label: 'Under 30 min' },
+  { key: '60', label: 'Under 1 hr' },
+  { key: '120', label: 'Under 2 hr' },
+];
+const SERVING_OPTIONS = [1, 2, 4, 6, 8];
+const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Snack', 'Side'];
+const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Gluten-free', 'Dairy-free', 'High-protein', 'Low-carb'];
+
+const guidelinePill = (active: boolean) =>
+  cn(
+    'px-3 py-1.5 rounded-full text-[12.5px] font-semibold border transition-colors',
+    active
+      ? 'bg-primary text-white border-primary'
+      : 'border-on-surface/12 bg-on-surface/[0.02] text-on-surface/65 hover:border-primary/30 hover:text-on-surface',
+  );
+
+const GuidelineRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <p className="text-[11px] font-semibold text-on-surface/45 mb-1.5 pl-1">{label}</p>
+    <div className="flex flex-wrap gap-2">{children}</div>
+  </div>
+);
+
 export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   onGenerated,
   onClose,
@@ -40,6 +68,12 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // Optional guidelines.
+  const [difficulty, setDifficulty] = useState('');
+  const [timeBudget, setTimeBudget] = useState('');
+  const [servings, setServings] = useState<number | null>(null);
+  const [course, setCourse] = useState('');
+  const [dietary, setDietary] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -64,18 +98,38 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   // Abort any in-flight request if the component unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  const toggleDietary = (d: string) =>
+    setDietary((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+
+  const hasGuidelines = !!(difficulty || timeBudget || servings || course || dietary.length);
+
+  // Fold the free-text prompt + any guideline chips into one instruction the
+  // recipe generator can honor.
+  const composePrompt = (): string => {
+    const base = prompt.trim();
+    const reqs: string[] = [];
+    if (course) reqs.push(`a ${course.toLowerCase()} dish`);
+    if (dietary.length) reqs.push(dietary.map((d) => d.toLowerCase()).join(', '));
+    if (servings) reqs.push(`serves ${servings}`);
+    if (timeBudget) reqs.push(`ready in ${(TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? `${timeBudget} min`).toLowerCase()}`);
+    if (difficulty) reqs.push(`${difficulty.toLowerCase()} difficulty`);
+    if (!base && reqs.length === 0) return '';
+    const head = base || 'A recipe';
+    return reqs.length ? `${head}. Requirements: ${reqs.join('; ')}.` : head;
+  };
+
   const handleGenerate = async () => {
-    const trimmed = prompt.trim();
-    if (!trimmed || loading) return;
+    const finalPrompt = composePrompt();
+    if (!finalPrompt || loading) return;
     setError(null);
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const result = await generateRecipe(trimmed, controller.signal);
+    const result = await generateRecipe(finalPrompt, controller.signal);
     abortRef.current = null;
     setLoading(false);
     if (result.ok && result.meal) {
-      onGenerated(result.meal, { prompt: trimmed, rawInput: result.recipe });
+      onGenerated(result.meal, { prompt: finalPrompt, rawInput: result.recipe });
     } else {
       setError(result.error || 'Something went wrong. Try again.');
     }
@@ -89,7 +143,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     }
   };
 
-  const canSubmit = prompt.trim().length > 0 && !loading;
+  const canSubmit = (prompt.trim().length > 0 || hasGuidelines) && !loading;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -198,6 +252,40 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                 <p className="text-[13px] leading-relaxed">{error}</p>
               </div>
             )}
+
+            {/* Guidelines — optional structured constraints */}
+            <div className="mt-6">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface/35 mb-3 pl-1">
+                Guidelines <span className="font-medium tracking-normal text-on-surface/30">· optional</span>
+              </p>
+              <div className="space-y-3.5">
+                <GuidelineRow label="Difficulty">
+                  {DIFFICULTIES.map((d) => (
+                    <button key={d} type="button" onClick={() => setDifficulty(difficulty === d ? '' : d)} className={guidelinePill(difficulty === d)}>{d}</button>
+                  ))}
+                </GuidelineRow>
+                <GuidelineRow label="Total time">
+                  {TIME_OPTIONS.map((t) => (
+                    <button key={t.key} type="button" onClick={() => setTimeBudget(timeBudget === t.key ? '' : t.key)} className={guidelinePill(timeBudget === t.key)}>{t.label}</button>
+                  ))}
+                </GuidelineRow>
+                <GuidelineRow label="Servings">
+                  {SERVING_OPTIONS.map((s) => (
+                    <button key={s} type="button" onClick={() => setServings(servings === s ? null : s)} className={guidelinePill(servings === s)}>{s}</button>
+                  ))}
+                </GuidelineRow>
+                <GuidelineRow label="Meal">
+                  {COURSE_OPTIONS.map((c) => (
+                    <button key={c} type="button" onClick={() => setCourse(course === c ? '' : c)} className={guidelinePill(course === c)}>{c}</button>
+                  ))}
+                </GuidelineRow>
+                <GuidelineRow label="Dietary">
+                  {DIETARY_OPTIONS.map((d) => (
+                    <button key={d} type="button" onClick={() => toggleDietary(d)} className={guidelinePill(dietary.includes(d))}>{d}</button>
+                  ))}
+                </GuidelineRow>
+              </div>
+            </div>
 
             {/* Example chips */}
             <div className="mt-6">
