@@ -1,7 +1,49 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { useLists } from './ListsContext';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveChats } from '../lib/supabase-db';
+
+/** Key under which we mirror chats into the always-present restaurant_meta
+ *  JSONB column — a reliable cloud fallback when the dedicated chats /
+ *  chats_read columns aren't present (mirrors __home_meals__ / __trips__). */
+const META_CHATS_KEY = '__chats_v1__';
+
+/* ── Merge helpers (union local + cloud so nothing is lost on sign-in) ── */
+
+function mergeConversations(local: Conversation[], cloud: Conversation[]): Conversation[] {
+  const byId = new Map<string, Conversation>();
+  for (const c of cloud) if (c && c.id) byId.set(c.id, c);
+  for (const c of local) {
+    if (!c || !c.id) continue;
+    const existing = byId.get(c.id);
+    if (!existing) { byId.set(c.id, c); continue; }
+    // Same conversation on both sides — union messages by id.
+    const msgs = new Map<string, ChatMessage>();
+    for (const m of existing.messages || []) msgs.set(m.id, m);
+    for (const m of c.messages || []) msgs.set(m.id, m);
+    const messages = [...msgs.values()].sort((a, b) => a.timestamp - b.timestamp);
+    byId.set(c.id, {
+      ...existing,
+      ...c,
+      name: c.name || existing.name,
+      messages,
+      lastMessageAt: Math.max(
+        existing.lastMessageAt || 0,
+        c.lastMessageAt || 0,
+        messages.length ? messages[messages.length - 1].timestamp : 0,
+      ),
+      createdAt: Math.min(existing.createdAt || Date.now(), c.createdAt || Date.now()),
+    });
+  }
+  return [...byId.values()].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+}
+
+function mergeRead(local: Record<string, number>, cloud: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = { ...cloud };
+  for (const [k, v] of Object.entries(local || {})) out[k] = Math.max(out[k] || 0, v || 0);
+  return out;
+}
 
 /* ── Types ── */
 
@@ -159,6 +201,9 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  // ChatProvider is mounted inside ListsProvider, so we can mirror chats into
+  // restaurant_meta (always-present) as a reliable cloud fallback.
+  const { stashMetaKey } = useLists();
   const userId = user?.id ?? null;
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
@@ -168,7 +213,26 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => loadFromStorage(READ_KEY, {}));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
-  // ── Load from Supabase on sign-in ──
+  // Mirrors of state so the async cloud load can merge against the freshest
+  // local data without stale closures.
+  const conversationsRef = useRef(conversations);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+  const readRef = useRef(readTimestamps);
+  useEffect(() => { readRef.current = readTimestamps; }, [readTimestamps]);
+
+  // ── Sync to cloud helper ──
+  // Dual-write: the dedicated chats/chats_read columns (best when they exist)
+  // AND a copy inside restaurant_meta.__chats_v1__ — the latter always works,
+  // so chats persist and follow the user across devices even on schemas where
+  // the dedicated columns were never migrated.
+  const syncToCloud = useCallback((chats: Conversation[], read: Record<string, number>) => {
+    if (!userIdRef.current || !supabaseConfigured) return;
+    saveChats(userIdRef.current, chats, read);
+    stashMetaKey(META_CHATS_KEY, { chats, read });
+  }, [stashMetaKey]);
+
+  // ── Load from Supabase on sign-in: merge cloud (dedicated column OR the
+  //    restaurant_meta fallback) with local, then backfill so nothing is lost. ──
   useEffect(() => {
     if (!userId || !supabaseConfigured) return;
     let cancelled = false;
@@ -176,19 +240,32 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     (async () => {
       try {
         const cloud = await loadUserData(userId);
-        if (cancelled) return;
-        if (cloud) {
-          const cloudChats = cloud.chats || [];
-          const cloudRead = cloud.chatsRead || {};
+        if (cancelled || !cloud) { setCloudLoaded(true); return; }
 
-          if (cloudChats.length > 0 || conversations.length === 0) {
-            setConversations(cloudChats);
-            setReadTimestamps(cloudRead);
-            saveToStorage(STORAGE_KEY, cloudChats);
-            saveToStorage(READ_KEY, cloudRead);
-          }
-        }
+        const metaFallback = (cloud.restaurantMeta as Record<string, unknown> | undefined)?.[META_CHATS_KEY] as
+          | { chats?: Conversation[]; read?: Record<string, number> }
+          | undefined;
+        const cloudChats: Conversation[] = (cloud.chats && cloud.chats.length > 0)
+          ? cloud.chats
+          : (Array.isArray(metaFallback?.chats) ? metaFallback!.chats! : []);
+        const cloudRead: Record<string, number> = (cloud.chats && cloud.chats.length > 0)
+          ? (cloud.chatsRead || {})
+          : (metaFallback?.read || cloud.chatsRead || {});
+
+        const merged = mergeConversations(conversationsRef.current, cloudChats);
+        const mergedRead = mergeRead(readRef.current, cloudRead);
+
+        setConversations(merged);
+        setReadTimestamps(mergedRead);
+        conversationsRef.current = merged;
+        readRef.current = mergedRead;
+        saveToStorage(STORAGE_KEY, merged);
+        saveToStorage(READ_KEY, mergedRead);
         setCloudLoaded(true);
+
+        // Backfill: push the union back so local-only chats reach the cloud and
+        // the __chats_v1__ fallback gets created on existing accounts.
+        syncToCloud(merged, mergedRead);
       } catch (err) {
         console.warn('[Chat] Failed to load from cloud:', err);
         setCloudLoaded(true);
@@ -196,14 +273,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     })();
 
     return () => { cancelled = true; };
-  }, [userId]);
-
-  // ── Sync to cloud helper ──
-  const syncToCloud = useCallback((chats: Conversation[], read: Record<string, number>) => {
-    if (userIdRef.current && supabaseConfigured) {
-      saveChats(userIdRef.current, chats, read);
-    }
-  }, []);
+  }, [userId, syncToCloud]);
 
   // Persist conversations to localStorage + cloud
   useEffect(() => {
