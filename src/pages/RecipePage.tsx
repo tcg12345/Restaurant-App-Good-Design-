@@ -185,6 +185,9 @@ type UnifiedRecipe = {
   /* ── Advanced-builder fields (all optional). ────────────────── */
   /** One-line summary shown under the title on the recipe page. */
   summary?: string;
+  /** Longer "story" paragraph for the body. Drives `intro` when present;
+   *  carried through so saved copies keep it. */
+  introParagraph?: string;
   /** Meal courses, e.g. ['Dinner', 'Side']. Rendered as eyebrow chips. */
   course?: string[];
   /** Rest / chill minutes, separate from prep + cook. */
@@ -256,6 +259,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
   // declared on HomeMeal so they're present in this type too.
   const adv = m as FriendHomeMeal & {
     summary?: string;
+    introParagraph?: string;
     course?: string[];
     chillTime?: number;
     yieldDescription?: string;
@@ -279,7 +283,9 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     ownerId: sourceAuthorId || m.userId,
     title: m.name || '',
     description: m.description || '',
-    intro: splitIntro(m.description || ''),
+    // Body intro prefers the dedicated intro paragraph; falls back to the
+    // description (the one-liner) for recipes saved before this field existed.
+    intro: splitIntro(adv.introParagraph || m.description || ''),
     cuisine: m.cuisine || '',
     difficulty: ((m.difficulty || '').toLowerCase() || '') as UnifiedRecipe['difficulty'],
     tags: m.tags || [],
@@ -293,6 +299,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     date: m.date || '',
     updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
     summary: adv.summary,
+    introParagraph: adv.introParagraph,
     course: adv.course,
     chillMinutes: adv.chillTime,
     yieldDescription: adv.yieldDescription,
@@ -601,6 +608,7 @@ export const RecipePage: React.FC = () => {
       ingredients: data.ingredients || [],
       steps: data.steps || [],
       summary: data.summary,
+      introParagraph: data.introParagraph,
       course: data.course,
       chillTime: data.chillMinutes,
       yieldDescription: data.yieldDescription,
@@ -2076,11 +2084,13 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </div>
         )}
         <h1 className="rdm-title">{data.title}</h1>
-        {data.intro[0] && (
+        {data.summary ? (
+          <p className="rdm-byline">{data.summary}</p>
+        ) : data.intro[0] ? (
           <p className="rdm-byline">
             {data.intro[0].length > 220 ? data.intro[0].slice(0, 217) + '…' : data.intro[0]}
           </p>
-        )}
+        ) : null}
 
         {(ratingsCount > 0 || cooked) && (
           <div className="rdm-rating-row">

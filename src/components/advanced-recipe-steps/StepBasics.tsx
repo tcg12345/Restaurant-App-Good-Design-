@@ -72,13 +72,27 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
         <label className="arb-label">
           One-line summary <span className="req">*</span>
         </label>
-        <p className="arb-help">A short line that tells someone why they'd want to cook this.</p>
+        <p className="arb-help">A short line that tells someone why they'd want to cook this. Shown as the byline under the title.</p>
         <textarea
           className="arb-textarea"
           value={state.summary}
           onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'summary', value: e.target.value })}
           placeholder="Glossy, peppery, and brightened by sweet spring peas — a Roman classic that comes together in under an hour."
           rows={3}
+        />
+      </div>
+
+      <div className="arb-field">
+        <label className="arb-label">
+          Intro paragraph <span className="opt">optional</span>
+        </label>
+        <p className="arb-help">A longer welcome shown at the top of the recipe page — the story, the inspiration, what makes it special. Leave blank to reuse your one-line summary.</p>
+        <textarea
+          className="arb-textarea"
+          value={state.introParagraph}
+          onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'introParagraph', value: e.target.value })}
+          placeholder="This salad started as a way to use up leftover farro, and turned into the dish friends ask me to bring. The grains stay nutty and chewy, the lemon keeps everything bright, and the feta and olives do the heavy lifting. Make it a few hours ahead — it only gets better as it sits."
+          rows={6}
         />
       </div>
 

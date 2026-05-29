@@ -44,6 +44,9 @@ import './AdvancedRecipeBuilder.css';
 export interface AdvancedRecipeState {
   name: string;
   summary: string;
+  /** Longer "story" paragraph shown in the recipe page body. Optional —
+   *  falls back to the summary on the recipe page when blank. */
+  introParagraph: string;
   cuisine: string;
   course: string[];
   difficulty: 'Easy' | 'Medium' | 'Hard';
@@ -133,6 +136,7 @@ function emptyState(): AdvancedRecipeState {
   return {
     name: '',
     summary: '',
+    introParagraph: '',
     cuisine: '',
     course: [],
     difficulty: 'Medium',
@@ -168,6 +172,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
   return {
     name: meal.name || '',
     summary: meal.summary || meal.description || '',
+    introParagraph: meal.introParagraph || '',
     cuisine: meal.cuisine || '',
     course: meal.course || [],
     difficulty: meal.difficulty || 'Medium',
@@ -224,6 +229,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     yieldDescription: state.yieldDescription.trim() || undefined,
     course: state.course,
     summary: summary || undefined,
+    introParagraph: state.introParagraph.trim() || undefined,
     ingredients: flatIngredients,
     ingredientGroups: cleanIngredientGroups,
     steps: flatSteps,
@@ -704,6 +710,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       steps: flatSteps,
       // Advanced-only fields
       summary: state.summary.trim(),
+      introParagraph: state.introParagraph.trim() || undefined,
       course: state.course,
       chillTime: state.chillTime,
       yieldDescription: state.yieldDescription.trim() || undefined,

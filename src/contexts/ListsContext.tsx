@@ -221,6 +221,11 @@ export interface HomeMeal {
      legacy flat fields above so existing meals render unchanged. */
   /** One-line summary shown under the title on the recipe page. */
   summary?: string;
+  /** Longer multi-paragraph intro shown in the recipe page body (the
+   *  drop-cap "story" paragraph). Distinct from `summary` (the one-line
+   *  byline) and from `description` (kept as the one-liner for card/feed
+   *  previews). Falls back to `description` on the recipe page when blank. */
+  introParagraph?: string;
   /** Meal courses, e.g. ['Dinner', 'Side']. Rendered as chips. */
   course?: string[];
   /** Rest / chill minutes, separate from prep + cook. */
