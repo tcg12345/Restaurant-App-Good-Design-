@@ -729,7 +729,7 @@ export const AddHomeMealModal: React.FC = () => {
                 key={aiSeed ? aiSeed.id : 'fresh'}
                 existing={existing}
                 seed={aiSeed}
-                initialStep={aiSeed ? 5 : undefined}
+                initialStep={aiSeed ? 6 : undefined}
                 onClose={closeHomeMealModal}
                 onBackToDraft={backToDraft}
                 tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}

@@ -1,4 +1,4 @@
-// Advanced Recipe Builder — a six-step wizard mounted by AddHomeMealModal
+// Advanced Recipe Builder — a multi-step wizard mounted by AddHomeMealModal
 // when the user picks the "Advanced" tab. Writes to the same home_meals
 // store as the Basic tab via lists.createHomeMeal / updateHomeMeal so the
 // rest of the app sees one unified recipe concept.
@@ -32,6 +32,7 @@ import {
   deriveDraftTitle,
 } from '../lib/recipe-drafts';
 import { StepBasics } from './advanced-recipe-steps/StepBasics';
+import { StepDetails } from './advanced-recipe-steps/StepDetails';
 import { StepTiming } from './advanced-recipe-steps/StepTiming';
 import { StepIngredients } from './advanced-recipe-steps/StepIngredients';
 import { StepMethod } from './advanced-recipe-steps/StepMethod';
@@ -76,6 +77,7 @@ export interface AdvancedRecipeState {
  *  rust ("The *basics*.") inside the big serif title. */
 const STEP_LABELS: Array<{ lead: string; accent: string }> = [
   { lead: 'The', accent: 'basics' },
+  { lead: 'The', accent: 'details' },
   { lead: 'Timing &', accent: 'yield' },
   { lead: 'The', accent: 'ingredients' },
   { lead: 'The', accent: 'method' },
@@ -84,24 +86,11 @@ const STEP_LABELS: Array<{ lead: string; accent: string }> = [
 ];
 /** Short, plain title for places that don't render the accent word
  *  (rail step list, mobile header eyebrow, footer "NEXT UP" label). */
-const STEP_TITLES = ['The basics', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
-const STEP_DESCRIPTIONS = [
-  'Name, cuisine, difficulty',
-  'Prep, cook, servings',
-  'Grouped or flat list',
-  'Steps in order',
-  'Tools & callouts',
-  'Preview & publish',
-];
-const STEP_INTROS = [
-  'Start with the essentials. You can change any of this later — readers care about clarity most.',
-  'Be realistic about how long this takes. Tell the truth and your reviews will thank you.',
-  'Group ingredients by stage when it makes sense (For the sauce, For the topping).',
-  'Walk a reader through what you actually do. One action per step, named clearly.',
-  'Tools you reach for, plus any tips, swaps, or make-ahead notes worth flagging.',
-  'Skim it the way a reader will. Tweak anything that looks off, then publish.',
-];
-const NEXT_LABELS = ['Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
+const STEP_TITLES = ['The basics', 'Details', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
+/** Next-step title, indexed by the CURRENT step (so it's STEP_TITLES shifted by one). */
+const NEXT_LABELS = STEP_TITLES.slice(1);
+const STEP_COUNT = STEP_TITLES.length;
+const LAST_STEP = STEP_COUNT - 1;
 
 /** Cuisine catalog — ~90 entries, matches the "Search 90+ cuisines…"
  *  placeholder in the mobile bottom-sheet picker. The basic modal still
@@ -365,23 +354,23 @@ function validate(state: AdvancedRecipeState): ValidationResult {
   const errors: ValidationResult['errors'] = [];
   if (!state.name.trim()) errors.push({ step: 0, message: 'Recipe name is required.' });
   if (!state.summary.trim()) errors.push({ step: 0, message: 'One-line summary is required.' });
-  if (!state.coverPhoto) errors.push({ step: 0, message: 'Hero image is required.' });
+  if (!state.coverPhoto) errors.push({ step: 1, message: 'Hero image is required.' });
   const ingredientCount = state.ingredientGroups.reduce(
     (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
     0,
   );
-  if (ingredientCount === 0) errors.push({ step: 2, message: 'Add at least one ingredient.' });
+  if (ingredientCount === 0) errors.push({ step: 3, message: 'Add at least one ingredient.' });
   const stepCount = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
-  if (stepCount === 0) errors.push({ step: 3, message: 'Add at least one method step.' });
+  if (stepCount === 0) errors.push({ step: 4, message: 'Add at least one method step.' });
   return { ok: errors.length === 0, errors };
 }
 
-/** Per-step gate for the "Next" button. Today only Steps 3 (Ingredients)
- *  and 4 (Method) hard-block — the user must add at least one real
+/** Per-step gate for the "Next" button. Only the Ingredients (step 3) and
+ *  Method (step 4) steps hard-block — the user must add at least one real
  *  ingredient / step before moving on. Other steps' missing-required
  *  warnings still surface on Publish via `validate`. */
 function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; reason?: string } {
-  if (step === 2) {
+  if (step === 3) {
     const count = state.ingredientGroups.reduce(
       (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
       0,
@@ -390,7 +379,7 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; 
       return { ok: false, reason: 'Add at least one ingredient before moving on.' };
     }
   }
-  if (step === 3) {
+  if (step === 4) {
     const count = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
     if (count === 0) {
       return { ok: false, reason: 'Add at least one method step before moving on.' };
@@ -478,7 +467,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   );
   const [state, dispatch] = useReducer(reducer, initial);
   const [currentStep, setCurrentStep] = useState(() =>
-    typeof initialStep === 'number' ? Math.max(0, Math.min(5, initialStep)) : 0,
+    typeof initialStep === 'number' ? Math.max(0, Math.min(LAST_STEP, initialStep)) : 0,
   );
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [showResume, setShowResume] = useState(false);
@@ -518,7 +507,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       const draft = getDraft(userId, pendingId);
       if (draft) {
         dispatch({ type: 'HYDRATE', state: draft.state });
-        setCurrentStep(Math.max(0, Math.min(5, draft.currentStep)));
+        setCurrentStep(Math.max(0, Math.min(LAST_STEP, draft.currentStep)));
         setCurrentDraftId(draft.id);
         setDraftSavedAt(draft.savedAt);
         return;
@@ -566,7 +555,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const handleResumeAccept = useCallback(() => {
     if (!resumeSlot) return;
     dispatch({ type: 'HYDRATE', state: resumeSlot.state });
-    setCurrentStep(Math.max(0, Math.min(5, resumeSlot.currentStep)));
+    setCurrentStep(Math.max(0, Math.min(LAST_STEP, resumeSlot.currentStep)));
     setDraftSavedAt(resumeSlot.savedAt);
     setShowResume(false);
   }, [resumeSlot]);
@@ -588,7 +577,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     // in the render, but block here too in case it's clicked via the
     // keyboard while still focused.
     if (!canLeaveStep(state, currentStep).ok) return;
-    if (currentStep < 5) setCurrentStep(currentStep + 1);
+    if (currentStep < LAST_STEP) setCurrentStep(currentStep + 1);
   }, [currentStep, state]);
 
   const handleBack = useCallback(() => {
@@ -746,18 +735,19 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   // Progress bar fill: 5/6 when on step 5, etc. Step 6 (index 5) at
   // full bar (100%) is reached only when the user actually publishes,
   // so cap at 5/6 = 83% while inside the wizard. Tweak as desired.
-  const progress = Math.round(((currentStep + 1) / 6) * 100);
+  const progress = Math.round(((currentStep + 1) / STEP_COUNT) * 100);
 
   const isPhone = phoneMode;
 
   const renderStep = () => {
     switch (currentStep) {
       case 0: return <StepBasics state={state} dispatch={dispatch} />;
-      case 1: return <StepTiming state={state} dispatch={dispatch} />;
-      case 2: return <StepIngredients state={state} dispatch={dispatch} />;
-      case 3: return <StepMethod state={state} dispatch={dispatch} />;
-      case 4: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
-      case 5: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
+      case 1: return <StepDetails state={state} dispatch={dispatch} />;
+      case 2: return <StepTiming state={state} dispatch={dispatch} />;
+      case 3: return <StepIngredients state={state} dispatch={dispatch} />;
+      case 4: return <StepMethod state={state} dispatch={dispatch} />;
+      case 5: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
+      case 6: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
       default: return null;
     }
   };
@@ -895,9 +885,8 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             </div>
           </div>
           <div className="arb-m-header-sub">
-            <span className="arb-m-header-desc">{STEP_DESCRIPTIONS[currentStep]}</span>
             <span className="arb-m-header-counter">
-              Step <span className="strong">{currentStep + 1}</span> / 6
+              Step <span className="strong">{currentStep + 1}</span> / {STEP_COUNT}
             </span>
           </div>
           <div className="arb-m-progress-row">
@@ -932,8 +921,10 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         {/* Desktop left rail. */}
         {!isPhone && (
           <nav className="arb-rail">
-            <div className="arb-rail-eyebrow">New recipe</div>
-            <div className="arb-rail-title">Let's build a <em>recipe</em>.</div>
+            <div className="arb-rail-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
+            <div className="arb-rail-title">
+              {existing ? <>Let's <em>refine</em> it.</> : <>Let's build a <em>recipe</em>.</>}
+            </div>
             {onBackToDraft && (
               <button type="button" className="arb-back-to-draft" onClick={onBackToDraft}>
                 <ArrowLeft size={14} />
@@ -977,7 +968,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               <div className="arb-rail-foot-status">
                 <span className="dot" />
                 <span>{draftSavedAt ? 'Draft saved' : 'Not saved yet'}</span>
-                <span style={{ marginLeft: 'auto' }}>Step {currentStep + 1} of 6</span>
+                <span style={{ marginLeft: 'auto' }}>Step {currentStep + 1} of {STEP_COUNT}</span>
               </div>
               <div className="arb-rail-foot-bar">
                 <div className="arb-rail-foot-bar-fill" style={{ width: `${progress}%` }} />
@@ -990,13 +981,12 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         <div className="arb-pane">
           <div className="arb-pane-head">
             <div className="arb-pane-eyebrow">
-              Step <span className="strong">{currentStep + 1}</span> of 6
+              Step <span className="strong">{currentStep + 1}</span> of {STEP_COUNT}
             </div>
             <h2 className="arb-pane-title">
               {STEP_LABELS[currentStep].lead}{' '}
               <span className="arb-pane-title-accent">{STEP_LABELS[currentStep].accent}</span>.
             </h2>
-            <p className="arb-pane-intro">{STEP_INTROS[currentStep]}</p>
           </div>
           <div className="arb-pane-body">
             {renderStep()}
@@ -1029,7 +1019,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               >
                 <ArrowLeft size={18} />
               </button>
-              {currentStep < 5 ? (
+              {currentStep < LAST_STEP ? (
                 <button
                   type="button"
                   className="arb-m-foot-next"
@@ -1069,7 +1059,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             <button type="button" className="arb-foot-save" onClick={handleSaveDraft}>
               Save draft
             </button>
-            {currentStep < 5 ? (
+            {currentStep < LAST_STEP ? (
               <button
                 type="button"
                 className="arb-foot-next"

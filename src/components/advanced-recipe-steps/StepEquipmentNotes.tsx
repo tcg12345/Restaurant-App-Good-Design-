@@ -33,9 +33,8 @@ export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
     <>
       <div className="arb-field">
         <label className="arb-label">
-          Equipment <span className="opt">Optional</span>
+          Equipment <span className="opt">optional</span>
         </label>
-        <p className="arb-help">Tools and cookware readers should have ready before they start.</p>
         <ChipComboInput
           value={state.equipment}
           onChange={(next) => dispatch({ type: 'SET_FIELD', field: 'equipment', value: next })}
@@ -47,9 +46,8 @@ export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
 
       <div className="arb-field">
         <label className="arb-label">
-          Tags <span className="opt">Optional</span>
+          Tags <span className="opt">optional</span>
         </label>
-        <p className="arb-help">Help people discover this — try the cuisine, dietary tags, season.</p>
         <ChipComboInput
           value={state.tags}
           onChange={(next) => dispatch({ type: 'SET_FIELD', field: 'tags', value: next })}
@@ -62,9 +60,8 @@ export const StepEquipmentNotes: React.FC<Props> = ({ state, dispatch }) => {
 
       <div className="arb-field">
         <label className="arb-label">
-          Notes & callouts <span className="opt">Optional</span>
+          Notes & callouts <span className="opt">optional</span>
         </label>
-        <p className="arb-help">Tips, substitutions, make-ahead instructions — anything that didn't fit in a step.</p>
 
         {state.notes.map((note, i) => (
           <div key={i} className="arb-note-card">
