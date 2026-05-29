@@ -7,8 +7,10 @@ import type { HomeMeal } from '../contexts/ListsContext';
 
 interface AiRecipeGeneratorProps {
   /** Called with a fully-formed HomeMeal once the AI finishes. The
-   *  parent seeds the Advanced builder with it for review + publish. */
-  onGenerated: (meal: HomeMeal) => void;
+   *  parent seeds the Advanced builder with it for review + publish.
+   *  `meta` carries the originating prompt + raw tool input so the parent
+   *  can also record the draft into the assistant's chat history. */
+  onGenerated: (meal: HomeMeal, meta?: { prompt: string; rawInput: unknown }) => void;
   /** Close the whole Add Recipe modal. */
   onClose: () => void;
   /** The Basic / Advanced / AI tab strip, injected by the parent so it
@@ -73,7 +75,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     abortRef.current = null;
     setLoading(false);
     if (result.ok && result.meal) {
-      onGenerated(result.meal);
+      onGenerated(result.meal, { prompt: trimmed, rawInput: result.recipe });
     } else {
       setError(result.error || 'Something went wrong. Try again.');
     }
