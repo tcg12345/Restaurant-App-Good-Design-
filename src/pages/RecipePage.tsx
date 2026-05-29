@@ -357,6 +357,10 @@ export const RecipePage: React.FC = () => {
   const cooked = data ? cookedIds.has(data.id) : false;
 
   // ── Load the recipe ──
+  // Initial fetch — runs only when the recipe identity changes (route
+  // navigation). Local store changes (myRecipes / myHomeMeals) flow
+  // through the patch-in-place effect below, so saving a recipe to a
+  // list while viewing it doesn't unmount the page via setLoading(true).
   useEffect(() => {
     if (!resolvedId) return;
     let cancelled = false;
@@ -371,12 +375,12 @@ export const RecipePage: React.FC = () => {
     (async () => {
       // 1. Local stores — owner viewing their own content.
       if (ownerId && currentUserId === ownerId) {
-        const ownRecipe = myRecipes.find((r) => r.id === resolvedId);
+        const ownRecipe = myRecipesRef.current.find((r) => r.id === resolvedId);
         if (ownRecipe) {
           if (!cancelled) { setData(adaptRecipe(ownRecipe)); setLoading(false); }
           return;
         }
-        const ownMeal = myHomeMeals.find((m) => m.id === resolvedId);
+        const ownMeal = myHomeMealsRef.current.find((m) => m.id === resolvedId);
         if (ownMeal) {
           if (!cancelled) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); setLoading(false); }
           return;
@@ -401,7 +405,27 @@ export const RecipePage: React.FC = () => {
       if (!cancelled) { setNotFound(true); setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [resolvedId, ownerId, currentUserId, myRecipes, myHomeMeals]);
+  }, [resolvedId, ownerId, currentUserId]);
+
+  // Refs let the initial-fetch effect read the latest local stores
+  // without listing them as deps (which would re-trigger the loading
+  // flash every time a save mirrors into homeMeals).
+  const myRecipesRef = useRef(myRecipes);
+  const myHomeMealsRef = useRef(myHomeMeals);
+  useEffect(() => { myRecipesRef.current = myRecipes; }, [myRecipes]);
+  useEffect(() => { myHomeMealsRef.current = myHomeMeals; }, [myHomeMeals]);
+
+  // Patch-in-place: when the local cookbook updates (you saved, edited
+  // or deleted a recipe in this session), refresh the page data WITHOUT
+  // setLoading(true), so the page chrome — and any sheet open on top —
+  // stays mounted.
+  useEffect(() => {
+    if (!resolvedId || !ownerId || currentUserId !== ownerId) return;
+    const ownRecipe = myRecipes.find((r) => r.id === resolvedId);
+    if (ownRecipe) { setData(adaptRecipe(ownRecipe)); return; }
+    const ownMeal = myHomeMeals.find((m) => m.id === resolvedId);
+    if (ownMeal) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); }
+  }, [myRecipes, myHomeMeals, resolvedId, ownerId, currentUserId]);
 
   // ── Reviews + author profile + related recipes ──
   useEffect(() => {
