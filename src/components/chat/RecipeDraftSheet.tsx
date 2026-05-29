@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useBottomSheet } from '../../lib/useBottomSheet';
 import type { HomeMeal } from '../../contexts/ListsContext';
 
 interface RecipeDraftSheetProps {
@@ -81,29 +80,40 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   onRefine,
 }) => {
   const { phoneMode } = useSettings();
-  const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Refine-with-AI composer state.
+  // Refine-with-AI: collapsed by default, expands into a floating
+  // composer panel above the footer.
+  const [refineOpen, setRefineOpen] = useState(false);
   const [refineText, setRefineText] = useState('');
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
+  const refineInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset transient state any time the sheet opens with a new draft.
   React.useEffect(() => {
     if (open) {
       setConfirmingDelete(false);
       setUploadingCover(false);
+      setRefineOpen(false);
       setRefineText('');
       setRefining(false);
       setRefineError(null);
     }
   }, [open, draft?.id]);
 
-  const submitRefine = async () => {
-    const instruction = refineText.trim();
+  // Focus the composer when it expands.
+  React.useEffect(() => {
+    if (refineOpen) {
+      const t = setTimeout(() => refineInputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [refineOpen]);
+
+  const submitRefine = async (override?: string) => {
+    const instruction = (override ?? refineText).trim();
     if (!instruction || refining || !onRefine) return;
     setRefining(true);
     setRefineError(null);
@@ -111,6 +121,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
     setRefining(false);
     if (res.ok) {
       setRefineText('');
+      setRefineOpen(false);
     } else {
       setRefineError(res.error || "Couldn't apply that. Try rephrasing.");
     }
@@ -143,23 +154,21 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          transition={{ duration: phoneMode ? 0.2 : 0.16 }}
           className={cn(
             'fixed inset-0',
             zClass,
-            phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-            !phoneMode && 'flex items-start justify-center pt-[8vh] px-4',
+            phoneMode ? 'bg-black/50' : 'bg-black/50 backdrop-blur-md flex items-center justify-center px-4',
           )}
           onClick={onClose}
         >
           <motion.div
             {...(phoneMode
               ? {
-                  initial: { y: '100%' },
-                  animate: { y: 0 },
-                  exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                  ...dragProps,
+                  initial: { opacity: 0, y: 28 },
+                  animate: { opacity: 1, y: 0 },
+                  exit: { opacity: 0, y: 28 },
+                  transition: { duration: 0.24, ease: [0.16, 1, 0.3, 1] as const },
                 }
               : {
                   initial: { opacity: 0, scale: 0.96, y: -8 },
@@ -171,22 +180,14 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             className={cn(
               'flex flex-col overflow-hidden bg-surface',
               phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
-                : 'w-full max-w-2xl rounded-3xl max-h-[84vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+                // Full-page on mobile — not a draggable bottom sheet.
+                ? 'fixed inset-0 h-full w-full'
+                : 'w-full max-w-3xl rounded-[28px] max-h-[90vh] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.5)] ring-1 ring-on-surface/[0.06]',
             )}
           >
-            {phoneMode && (
-              <div
-                className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing"
-                onPointerDown={startDrag}
-              >
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
-
             <div className={cn(
               'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-2 pb-3' : 'px-6 pt-5 pb-3',
+              phoneMode ? 'px-5 pt-safe-4 pb-3' : 'px-7 pt-6 pb-3',
             )}>
               <div className="flex items-center gap-2 min-w-0">
                 {publishedMealId ? (
@@ -211,7 +212,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 pb-4">
+            <div className={cn('flex-1 overflow-y-auto pb-5', phoneMode ? 'px-5' : 'px-7')}>
               {/* Cover photo — full-bleed hero. Acts as either the
                   rendered cover (with a "Change" overlay) or as the
                   "Add cover photo" call-to-action when no cover is
@@ -283,11 +284,11 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 </div>
               ) : null}
 
-              <h2 className="font-serif text-[26px] font-bold text-on-surface leading-tight">
+              <h2 className={cn('font-serif font-bold text-on-surface leading-tight', phoneMode ? 'text-[26px]' : 'text-[32px]')}>
                 {draft.name}
               </h2>
               {draft.summary && (
-                <p className="text-[14px] text-on-surface/70 mt-2 leading-relaxed">
+                <p className={cn('text-on-surface/70 mt-2.5 leading-relaxed', phoneMode ? 'text-[14px]' : 'text-[15.5px]')}>
                   {draft.summary}
                 </p>
               )}
@@ -445,67 +446,105 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             </div>
 
             {/* Refine with AI — only while unpublished and when the
-                parent wired a handler. Lets the user keep tweaking the
-                draft ("make it spicier", "swap walnuts for pecans")
-                without leaving the preview. */}
-            {onRefine && !publishedMealId && (
-              <div className={cn(
-                'flex-shrink-0 border-t border-on-surface/[0.06]',
-                phoneMode ? 'px-5 pt-3' : 'px-6 pt-3',
-              )}>
-                <div className="flex items-center gap-1.5 mb-2 text-[11px] font-bold uppercase tracking-wider text-primary/80">
-                  <Sparkles size={12} />
-                  Refine with AI
-                </div>
-                <div className={cn(
-                  'rounded-2xl border bg-on-surface/[0.03] transition-colors flex items-end gap-2 pl-3.5 pr-2 py-2',
-                  refineError ? 'border-red-300' : 'border-on-surface/12 focus-within:border-primary/40',
-                )}>
-                  <textarea
-                    value={refineText}
-                    onChange={(e) => { setRefineText(e.target.value); if (refineError) setRefineError(null); }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRefine(); }
-                    }}
-                    disabled={refining}
-                    rows={1}
-                    placeholder="e.g. make it spicier, swap walnuts for pecans, halve the servings…"
-                    className="flex-1 bg-transparent text-[14px] leading-snug text-on-surface placeholder:text-on-surface/35 focus:outline-none resize-none py-1.5 max-h-24 disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    onClick={submitRefine}
-                    disabled={!refineText.trim() || refining}
-                    aria-label="Apply refinement"
-                    className={cn(
-                      'flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0',
-                      refineText.trim() && !refining
-                        ? 'bg-primary text-white hover:opacity-90'
-                        : 'bg-on-surface/[0.08] text-on-surface/30 cursor-not-allowed',
-                    )}
-                  >
-                    {refining ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.5} />}
-                  </button>
-                </div>
-                {refining && (
-                  <p className="text-[11.5px] text-on-surface/45 mt-1.5 pl-1 flex items-center gap-1.5">
-                    <Sparkles size={11} className="text-primary/70" />
-                    Reworking the recipe…
-                  </p>
-                )}
-                {refineError && (
-                  <p className="text-[11.5px] text-red-600 mt-1.5 pl-1 flex items-center gap-1.5">
-                    <AlertCircle size={12} />
-                    {refineError}
-                  </p>
-                )}
-              </div>
-            )}
-
+                parent wired a handler. Collapsed by default; tapping
+                "Refine with AI" expands a floating composer that lets
+                the user keep tweaking the draft ("make it spicier",
+                "swap walnuts for pecans") without leaving the preview. */}
             <div className={cn(
-              'flex-shrink-0 border-t border-on-surface/[0.06]',
-              phoneMode ? 'px-5 py-4' : 'px-6 py-4',
+              'relative flex-shrink-0 border-t border-on-surface/[0.06]',
+              phoneMode ? 'px-5 py-4 pb-safe-4' : 'px-7 py-4',
             )}>
+              {/* Floating refine composer — animates up out of the
+                  "Refine with AI" trigger. */}
+              <AnimatePresence>
+                {refineOpen && onRefine && !publishedMealId && (
+                  <motion.div
+                    key="refine-panel"
+                    initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 14, scale: 0.97 }}
+                    transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                    className={cn('absolute left-0 right-0 bottom-full mb-3 z-20', phoneMode ? 'px-5' : 'px-7')}
+                  >
+                    <div className="rounded-[20px] bg-surface border border-on-surface/10 shadow-[0_20px_60px_-14px_rgba(0,0,0,0.4)] p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider text-primary">
+                          <Sparkles size={13} />
+                          Refine with AI
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setRefineOpen(false)}
+                          aria-label="Close"
+                          className="w-7 h-7 -mr-1 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.1] flex items-center justify-center text-on-surface/55 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      {/* Quick suggestions — one tap applies. */}
+                      <div className="flex flex-wrap gap-1.5 mb-2.5">
+                        {REFINE_SUGGESTIONS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            disabled={refining}
+                            onClick={() => submitRefine(s)}
+                            className="text-[12px] font-medium px-2.5 py-1.5 rounded-full bg-on-surface/[0.05] text-on-surface/70 hover:bg-primary/[0.08] hover:text-primary transition-colors disabled:opacity-50"
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className={cn(
+                        'rounded-2xl border bg-on-surface/[0.03] transition-colors flex items-end gap-2 pl-3.5 pr-2 py-2',
+                        refineError ? 'border-red-300' : 'border-on-surface/12 focus-within:border-primary/40',
+                      )}>
+                        <textarea
+                          ref={refineInputRef}
+                          value={refineText}
+                          onChange={(e) => { setRefineText(e.target.value); if (refineError) setRefineError(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitRefine(); }
+                          }}
+                          disabled={refining}
+                          rows={1}
+                          placeholder="Describe a change…"
+                          className="flex-1 bg-transparent text-[14px] leading-snug text-on-surface placeholder:text-on-surface/35 focus:outline-none resize-none py-1.5 max-h-28 disabled:opacity-60"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => submitRefine()}
+                          disabled={!refineText.trim() || refining}
+                          aria-label="Apply refinement"
+                          className={cn(
+                            'flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0',
+                            refineText.trim() && !refining
+                              ? 'bg-primary text-white hover:opacity-90'
+                              : 'bg-on-surface/[0.08] text-on-surface/30 cursor-not-allowed',
+                          )}
+                        >
+                          {refining ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} strokeWidth={2.5} />}
+                        </button>
+                      </div>
+                      {refining && (
+                        <p className="text-[11.5px] text-on-surface/45 mt-2 pl-1 flex items-center gap-1.5">
+                          <Sparkles size={11} className="text-primary/70" />
+                          Reworking the recipe…
+                        </p>
+                      )}
+                      {refineError && (
+                        <p className="text-[11.5px] text-red-600 mt-2 pl-1 flex items-center gap-1.5">
+                          <AlertCircle size={12} />
+                          {refineError}
+                        </p>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {confirmingDelete ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-[13px] text-on-surface/75">
@@ -532,42 +571,61 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    aria-label="Delete draft"
-                    className="w-11 h-11 rounded-2xl bg-on-surface/[0.05] text-on-surface/60 flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
-                    onClick={() => setConfirmingDelete(true)}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex-1 h-11 rounded-2xl bg-on-surface/[0.06] text-on-surface text-[14px] font-semibold hover:bg-on-surface/[0.10] transition-colors"
-                    onClick={() => onEdit(draft)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'flex-[1.5] h-11 rounded-2xl text-[14px] font-semibold transition-colors inline-flex items-center justify-center gap-1.5',
-                      publishedMealId
-                        ? 'bg-emerald-600 text-white cursor-default'
-                        : 'bg-on-surface text-surface hover:bg-on-surface/90',
-                    )}
-                    disabled={publishedMealId !== null}
-                    onClick={() => onPublish(draft)}
-                  >
-                    {publishedMealId ? (
-                      <>
-                        <CheckCircle2 size={15} />
-                        Published
-                      </>
-                    ) : (
-                      publishLabel
-                    )}
-                  </button>
+                <div className="flex flex-col gap-2.5">
+                  {/* Refine-with-AI trigger — expands the floating
+                      composer above. */}
+                  {onRefine && !publishedMealId && (
+                    <button
+                      type="button"
+                      onClick={() => setRefineOpen((o) => !o)}
+                      className={cn(
+                        'w-full h-10 rounded-2xl border text-[13.5px] font-semibold inline-flex items-center justify-center gap-2 transition-colors',
+                        refineOpen
+                          ? 'bg-primary/[0.08] border-primary/30 text-primary'
+                          : 'bg-primary/[0.04] border-primary/20 text-primary/90 hover:bg-primary/[0.08]',
+                      )}
+                    >
+                      <Sparkles size={14} />
+                      Refine with AI
+                    </button>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label="Delete draft"
+                      className="w-11 h-11 rounded-2xl bg-on-surface/[0.05] text-on-surface/60 flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors flex-shrink-0"
+                      onClick={() => setConfirmingDelete(true)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-1 h-11 rounded-2xl bg-on-surface/[0.06] text-on-surface text-[14px] font-semibold hover:bg-on-surface/[0.10] transition-colors"
+                      onClick={() => onEdit(draft)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex-[1.5] h-11 rounded-2xl text-[14px] font-semibold transition-colors inline-flex items-center justify-center gap-1.5',
+                        publishedMealId
+                          ? 'bg-emerald-600 text-white cursor-default'
+                          : 'bg-on-surface text-surface hover:bg-on-surface/90',
+                      )}
+                      disabled={publishedMealId !== null}
+                      onClick={() => onPublish(draft)}
+                    >
+                      {publishedMealId ? (
+                        <>
+                          <CheckCircle2 size={15} />
+                          Published
+                        </>
+                      ) : (
+                        publishLabel
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -577,6 +635,15 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
     </AnimatePresence>
   );
 };
+
+// One-tap refine suggestions shown in the floating composer.
+const REFINE_SUGGESTIONS = [
+  'Make it spicier',
+  'Make it simpler',
+  'Healthier',
+  'Bigger batch',
+  'Add a make-ahead tip',
+];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

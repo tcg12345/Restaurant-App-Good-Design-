@@ -235,7 +235,7 @@ interface LocationChatProps {
   /** Open the Add Reel flow, optionally pre-selecting a kind. */
   onOpenAddReelModal?: (kind?: 'restaurant' | 'recipe') => ActionResult | Promise<ActionResult>;
   /** Open the Log Home Meal flow. */
-  onOpenHomeMealModal?: (meal?: HomeMeal) => ActionResult | Promise<ActionResult>;
+  onOpenHomeMealModal?: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => ActionResult | Promise<ActionResult>;
   /** All recipes/home-cooked meals on the user's account. Used by the
    *  AI-recipe-draft preview sheet to (a) commit a new meal via
    *  `onPublishHomeMeal` and (b) detect when a meal published via the
@@ -1158,10 +1158,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleEditDraft = useCallback((draft: HomeMeal) => {
     if (!openDraftToolUseId || !onOpenHomeMealModal) return;
-    setDraftEditMarkers((prev) => ({ ...prev, [openDraftToolUseId]: Date.now() }));
+    const toolUseId = openDraftToolUseId;
+    setDraftEditMarkers((prev) => ({ ...prev, [toolUseId]: Date.now() }));
     setOpen(false);
     setOpenDraftToolUseId(null);
-    void Promise.resolve(onOpenHomeMealModal(draft));
+    // Pass a "back to AI draft" callback so the Advanced builder can
+    // bounce the user back here: reopen the chat and the draft sheet.
+    void Promise.resolve(onOpenHomeMealModal(draft, {
+      onBackToDraft: () => { setOpen(true); setOpenDraftToolUseId(toolUseId); },
+    }));
   }, [openDraftToolUseId, onOpenHomeMealModal]);
 
   const handleCoverPhotoChange = useCallback((dataUrl: string | null) => {

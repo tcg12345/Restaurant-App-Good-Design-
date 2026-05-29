@@ -131,7 +131,7 @@ type Page = 'main' | 'tags' | 'photos' | 'dishList' | 'dishes' | 'ingredients' |
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, closeHomeMealModal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, closeHomeMealModal,
     createHomeMeal, updateHomeMeal, deleteHomeMeal,
   } = useLists();
   const { phoneMode } = useSettings();
@@ -227,6 +227,18 @@ export const AddHomeMealModal: React.FC = () => {
     setAiDraft(null);
     setMode('advanced');
   };
+
+  // "Back to AI draft" from the Advanced builder. Two origins:
+  //  • Modal "Create with AI" Edit → aiSeed is set; reopen the local
+  //    draft sheet and drop back to the AI tab behind it.
+  //  • Chat Edit → the chat passed a reopen callback via
+  //    openHomeMealModal(..., { onBackToDraft }); close this modal and
+  //    fire it to re-surface the chat's draft sheet.
+  const backToDraft = aiSeed
+    ? () => { setAiDraft(aiSeed); setAiSeed(null); setMode('ai'); }
+    : homeMealModalBackToDraft
+      ? () => { const cb = homeMealModalBackToDraft; closeHomeMealModal(); cb(); }
+      : undefined;
 
   // Attach / clear a cover photo on the in-preview AI draft.
   const handleAiCoverChange = (dataUrl: string | null) => {
@@ -704,6 +716,7 @@ export const AddHomeMealModal: React.FC = () => {
                 seed={aiSeed}
                 initialStep={aiSeed ? 5 : undefined}
                 onClose={closeHomeMealModal}
+                onBackToDraft={backToDraft}
                 tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}
               />
             ) : mode === 'ai' ? (

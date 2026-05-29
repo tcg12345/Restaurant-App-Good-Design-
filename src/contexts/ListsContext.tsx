@@ -375,7 +375,11 @@ interface ListsContextValue {
   // Home meal modal
   homeMealModalOpen: boolean;
   homeMealModalData: HomeMeal | null;
-  openHomeMealModal: (meal?: HomeMeal) => void;
+  /** When the modal was opened to fine-tune an AI draft, a callback to
+   *  return to that draft preview. The Advanced builder shows a "Back
+   *  to AI draft" button while it's set. */
+  homeMealModalBackToDraft: (() => void) | null;
+  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => void;
   closeHomeMealModal: () => void;
 }
 
@@ -1314,6 +1318,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
+  const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: Partial<RestaurantMeta> & { id: string }) => {
@@ -1899,11 +1904,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
-  const openHomeMealModal = useCallback((meal?: HomeMeal) => {
+  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => {
     setHomeMealModalData(meal || null);
+    // Store as a value-returning thunk so React doesn't treat the
+    // callback as a state updater.
+    setHomeMealModalBackToDraft(() => opts?.onBackToDraft ?? null);
     setHomeMealModalOpen(true);
   }, []);
-  const closeHomeMealModal = useCallback(() => { setHomeMealModalOpen(false); setHomeMealModalData(null); }, []);
+  const closeHomeMealModal = useCallback(() => {
+    setHomeMealModalOpen(false);
+    setHomeMealModalData(null);
+    setHomeMealModalBackToDraft(null);
+  }, []);
 
   return (
     <ListsContext.Provider value={{
@@ -1921,7 +1933,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
-      homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
+      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

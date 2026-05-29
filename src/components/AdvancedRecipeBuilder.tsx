@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, ArrowLeft, Check, X } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, X, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
@@ -386,9 +386,13 @@ export interface AdvancedRecipeBuilderProps {
   /** Step index (0–5) to open on. Defaults to 0. The AI flow passes 5
    *  (Review) so the user lands on a skim of the finished recipe. */
   initialStep?: number;
+  /** When the builder was opened to fine-tune an AI draft, a callback
+   *  to discard these edits and return to the draft preview. Renders a
+   *  "Back to AI draft" button when provided. */
+  onBackToDraft?: () => void;
 }
 
-export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, initialStep }) => {
+export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, initialStep, onBackToDraft }) => {
   const navigate = useNavigate();
   const auth = useAuth();
   const { phoneMode } = useSettings();
@@ -656,6 +660,13 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       {/* Mobile sticky header — replaces the desktop rail. */}
       {isPhone && (
         <header className="arb-m-header">
+          {onBackToDraft && (
+            <button type="button" className="arb-back-to-draft is-mobile" onClick={onBackToDraft}>
+              <ArrowLeft size={14} />
+              <Sparkles size={12} />
+              Back to AI draft
+            </button>
+          )}
           <div className="arb-m-header-row">
             <button
               type="button"
@@ -713,6 +724,13 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           <nav className="arb-rail">
             <div className="arb-rail-eyebrow">New recipe</div>
             <div className="arb-rail-title">Let's build a <em>recipe</em>.</div>
+            {onBackToDraft && (
+              <button type="button" className="arb-back-to-draft" onClick={onBackToDraft}>
+                <ArrowLeft size={14} />
+                <Sparkles size={13} />
+                Back to AI draft
+              </button>
+            )}
             {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
             <ol className="arb-rail-steps">
               {STEP_TITLES.map((t, i) => {

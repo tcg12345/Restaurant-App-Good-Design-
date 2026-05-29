@@ -853,8 +853,8 @@ export const AppAssistant: React.FC = () => {
     return { ok: true };
   }, [reels]);
 
-  const handleOpenHomeMealModal = useCallback((meal?: HomeMeal): ActionResult => {
-    lists.openHomeMealModal(meal);
+  const handleOpenHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void }): ActionResult => {
+    lists.openHomeMealModal(meal, opts);
     return { ok: true };
   }, [lists]);
 
