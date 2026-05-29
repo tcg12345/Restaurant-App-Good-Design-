@@ -700,6 +700,33 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const { savedChats, upsertChat, deleteChat } = useAiChatHistory();
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mirror the latest conversation into refs so we can persist it on unmount
+  // / panel-close even if the debounce hasn't fired. AppAssistant unmounts
+  // this component on hidden routes and sign-out, so without a flush a chat
+  // created in the last ~600ms would never reach localStorage (or the cloud).
+  const messagesRef = useRef(messages);
+  const chatPlacesRef = useRef(chatPlaces);
+  const currentChatIdRef = useRef(currentChatId);
+  const saveDirtyRef = useRef(false);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { chatPlacesRef.current = chatPlaces; }, [chatPlaces]);
+  useEffect(() => { currentChatIdRef.current = currentChatId; }, [currentChatId]);
+
+  // Persist the in-progress conversation immediately (cancels the pending
+  // debounce). Safe to call when nothing's dirty — it no-ops. Reads from
+  // refs so it works from an unmount cleanup.
+  const flushSave = useCallback(() => {
+    if (!saveDirtyRef.current || messagesRef.current.length === 0) return;
+    saveDirtyRef.current = false;
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    let id = currentChatIdRef.current;
+    if (!id) {
+      id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      currentChatIdRef.current = id;
+      setCurrentChatId(id);
+    }
+    upsertChat({ id, title: deriveChatTitle(messagesRef.current), messages: messagesRef.current, chatPlaces: chatPlacesRef.current });
+  }, [upsertChat]);
 
   // Desktop drag — repositions the island. Resize is handled by
   // the browser's native CSS `resize: both` on the island element
@@ -749,27 +776,24 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [open]);
 
   // Auto-save the current conversation on any change. Debounced so
-  // streaming text deltas don't trigger one localStorage write per
-  // token; one save fires ~600ms after activity settles. On the
-  // first message we mint an id and adopt it as currentChatId so
-  // subsequent saves update the same row.
+  // streaming text deltas don't trigger one write per token; one save
+  // fires ~600ms after activity settles, and flushSave() guarantees a
+  // final write on panel-close / unmount.
   useEffect(() => {
     if (messages.length === 0) return;
+    saveDirtyRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      let id = currentChatId;
-      if (!id) {
-        id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        setCurrentChatId(id);
-      }
-      // Upsert into the shared history store (localStorage + cloud sync).
-      // createdAt is preserved by the store when the id already exists.
-      upsertChat({ id, title: deriveChatTitle(messages), messages, chatPlaces });
-    }, 600);
+    saveTimerRef.current = setTimeout(flushSave, 600);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [messages, chatPlaces, currentChatId, upsertChat]);
+  }, [messages, chatPlaces, currentChatId, flushSave]);
+
+  // Flush immediately when the panel closes, and once on unmount — so a
+  // conversation survives closing the chat or navigating to a route where
+  // the assistant is hidden, not just the 600ms debounce.
+  useEffect(() => { if (!open) flushSave(); }, [open, flushSave]);
+  useEffect(() => () => flushSave(), [flushSave]);
 
   // History-feature handlers.
   const handleNewChat = useCallback(() => {

@@ -97,6 +97,28 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
     [commit],
   );
 
+  // Push the current chats to the cloud for `uid` NOW, cancelling any pending
+  // debounce. Called on sign-out / account-switch, tab-hide, and unmount so a
+  // chat made in the last debounce window still syncs instead of being lost
+  // with the timer. No-ops before the initial hydrate (cloudReadyRef) so we
+  // never clobber the cloud with a half-loaded set.
+  const flushCloudSave = useCallback((uid: string | null) => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    if (!uid || !cloudReadyRef.current) return;
+    saveAiChatHistory(uid, savedChatsRef.current);
+  }, []);
+
+  // On sign-out / account switch, flush the PREVIOUS user's latest chats to
+  // their cloud before the load effect below resets cloudReady and (maybe)
+  // wipes local. Defined before that effect so it runs first on a userId
+  // change, while cloudReadyRef still reflects the prior session.
+  const prevUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevUserIdRef.current;
+    if (prev && prev !== userId) flushCloudSave(prev);
+    prevUserIdRef.current = userId;
+  }, [userId, flushCloudSave]);
+
   // Load + merge cloud history on sign-in (and clear another account's
   // local cache if a different user signs in on this device).
   useEffect(() => {
@@ -141,6 +163,23 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
     }, CLOUD_SAVE_DEBOUNCE_MS);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [savedChats, userId]);
+
+  // Flush on tab-hide / background / close and on unmount, so a chat made
+  // right before leaving the app still reaches the cloud rather than dying
+  // with the pending debounce timer. visibilitychange fires reliably on
+  // mobile backgrounding and most desktop tab closes.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushCloudSave(userIdRef.current);
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+      flushCloudSave(userIdRef.current);
+    };
+  }, [flushCloudSave]);
 
   return (
     <AiChatHistoryContext.Provider value={{ savedChats, upsertChat, deleteChat, addGeneratedRecipeChat }}>
