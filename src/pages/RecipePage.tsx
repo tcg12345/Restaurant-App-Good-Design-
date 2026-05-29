@@ -201,6 +201,12 @@ type UnifiedRecipe = {
   stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
   /** Labeled callouts (Chef's Tip / Make Ahead / etc.). */
   notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+  /** When this recipe is a copy saved from another user, the original
+   *  author's display name and username. Used as a fallback byline
+   *  while their live profile is still loading (or if it can't be
+   *  fetched) so the page never momentarily shows the wrong person. */
+  sourceAuthorName?: string;
+  sourceAuthorUsername?: string;
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -255,10 +261,18 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
   };
+  // If this meal was saved from another user, the original author owns
+  // the recipe view — not the user who copied it. Attributing ownerId
+  // to the source author makes the profile fetch, byline, author link,
+  // and isOwner check all resolve to the original person automatically;
+  // the saver's "viewing someone else's recipe" experience is identical
+  // to how the original author's recipe renders. Self-authored meals
+  // have no sourceAuthorId, so this falls back to m.userId unchanged.
+  const sourceAuthorId = m.sourceAuthorId;
   return {
     source: 'homeMeal',
     id: m.id,
-    ownerId: m.userId,
+    ownerId: sourceAuthorId || m.userId,
     title: m.name || '',
     description: m.description || '',
     intro: splitIntro(m.description || ''),
@@ -282,6 +296,8 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     equipment: adv.equipment,
     stepDetails: adv.stepDetails,
     notes: adv.notes,
+    sourceAuthorName: m.sourceAuthorName,
+    sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
   };
 }
@@ -744,7 +760,14 @@ export const RecipePage: React.FC = () => {
   }
 
   // ── Author display ──
-  const authorName = authorProfile?.display_name || authorProfile?.username || 'Anonymous';
+  // Fall back to the saved-from attribution (sourceAuthor*) while the
+  // live profile hasn't loaded yet — that way a saved-from-another
+  // recipe never flashes the wrong byline.
+  const authorName = authorProfile?.display_name
+    || authorProfile?.username
+    || data.sourceAuthorName
+    || data.sourceAuthorUsername
+    || 'Anonymous';
   const authorRole = authorProfile?.is_expert
     ? `Chef${authorProfile.home_city ? ` · ${authorProfile.home_city}` : ''}`
     : 'Home cook';
@@ -752,6 +775,7 @@ export const RecipePage: React.FC = () => {
   const authorInitials = authorName.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || 'A';
   const authorHue = hashToHue(data.ownerId || authorName);
   const authorBg = `hsl(${authorHue} 45% 38%)`;
+  const authorUsername = authorProfile?.username || data.sourceAuthorUsername || '';
 
   // ── Stars renderer ──
   const renderStars = (value: number, size = 13) => {
@@ -814,7 +838,7 @@ export const RecipePage: React.FC = () => {
           authorInitial={authorInitial}
           authorInitials={authorInitials}
           authorBg={authorBg}
-          authorUsername={authorProfile?.username || ''}
+          authorUsername={authorUsername}
           currentUserId={currentUserId}
           currentUserName={user?.email?.split('@')[0] || 'You'}
           navigate={navigate}
@@ -919,7 +943,7 @@ export const RecipePage: React.FC = () => {
             <button
               type="button"
               className="rd-hero-author"
-              onClick={() => authorProfile?.username && navigate(`/user/${authorProfile.username}`)}
+              onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
               style={{ background: 'transparent', textAlign: 'left' }}
             >
               <div className="rd-hero-author-av" style={{ background: authorBg }}>{authorInitial}</div>
@@ -1228,7 +1252,7 @@ export const RecipePage: React.FC = () => {
               <button
                 type="button"
                 className="rd-author-follow"
-                onClick={() => authorProfile.username && navigate(`/user/${authorProfile.username}`)}
+                onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
               >
                 View profile
               </button>
