@@ -210,19 +210,19 @@ export const ShareRecipePicker: React.FC<{
                   ) : (
                     <>
                       <SectionLabel text={`${mineFiltered.length} of your recipes`} />
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="flex flex-col -mx-1">
                         {mineFiltered.map((m) => {
                           const shared = mealToShared(m, user?.id || '', selfAuthor);
+                          const sel = picked?.mealId === m.id && picked?.authorId === (user?.id || '');
                           return (
-                            <RecipePickCard
+                            <RecipeRow
                               key={m.id}
-                              image={getMealCoverUrl(m)}
                               name={m.name}
-                              meta={[m.cuisine, m.difficulty].filter(Boolean) as string[]}
+                              cuisine={m.cuisine}
+                              difficulty={m.difficulty}
                               byline="You"
                               time={timeLabel(shared.totalTime)}
-                              yours
-                              selected={picked?.mealId === m.id}
+                              selected={sel}
                               onClick={() => setPicked(shared)}
                             />
                           );
@@ -238,18 +238,19 @@ export const ShareRecipePicker: React.FC<{
                   ) : (
                     <>
                       <SectionLabel text={`${allFiltered.length} recipe${allFiltered.length === 1 ? '' : 's'} from the community`} />
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="flex flex-col -mx-1">
                         {allFiltered.map(({ meal, authorName }) => {
                           const shared = mealToShared(meal, meal.userId, authorName);
+                          const sel = picked?.mealId === meal.id && picked?.authorId === meal.userId;
                           return (
-                            <RecipePickCard
+                            <RecipeRow
                               key={`${meal.userId}-${meal.id}`}
-                              image={getMealCoverUrl(meal)}
                               name={meal.name}
-                              meta={[meal.cuisine, meal.difficulty].filter(Boolean) as string[]}
+                              cuisine={meal.cuisine}
+                              difficulty={meal.difficulty}
                               byline={authorName}
                               time={timeLabel(shared.totalTime)}
-                              selected={picked?.mealId === meal.id && picked?.authorId === meal.userId}
+                              selected={sel}
                               onClick={() => setPicked(shared)}
                             />
                           );
@@ -298,41 +299,31 @@ const EmptyState: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-const RecipePickCard: React.FC<{
-  image: string;
+/** Single-column recipe row — mirrors the restaurant rows / header search:
+ *  serif name + dimmed "cuisine · difficulty · by author", time pill at right. */
+const RecipeRow: React.FC<{
   name: string;
-  meta: string[];
+  cuisine?: string;
+  difficulty?: string;
   byline: string;
   time: string;
-  yours?: boolean;
   selected: boolean;
   onClick: () => void;
-}> = ({ image, name, meta, byline, time, yours, selected, onClick }) => (
+}> = ({ name, cuisine, difficulty, byline, time, selected, onClick }) => (
   <button
     onClick={onClick}
     className={cn(
-      'flex items-center gap-3 p-2.5 rounded-2xl border text-left transition-all bg-paper',
-      selected ? 'border-primary ring-2 ring-primary/15' : 'border-on-surface/8 hover:border-on-surface/20',
+      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors',
+      selected ? 'bg-primary/[0.07] ring-1 ring-primary/30' : 'hover:bg-on-surface/[0.04]',
     )}
   >
-    {image ? (
-      <img src={image} alt={name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
-    ) : (
-      <div className="w-14 h-14 rounded-xl bg-on-surface/[0.06] grid place-items-center flex-shrink-0"><ChefHat size={18} className="text-on-surface/25" /></div>
-    )}
     <div className="min-w-0 flex-1">
-      <p className="font-serif font-bold text-[16px] text-on-surface truncate leading-tight">{name}</p>
-      <div className="flex items-center gap-1.5 mt-1 text-[12px] text-on-surface/50 truncate">
-        {meta.map((m, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="w-1 h-1 rounded-full bg-on-surface/25 flex-shrink-0" />}
-            <span className="truncate">{m}</span>
-          </React.Fragment>
-        ))}
-        <span className="w-1 h-1 rounded-full bg-on-surface/25 flex-shrink-0" />
-        <span className="truncate">by {byline}</span>
-        {yours && <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Yours</span>}
-      </div>
+      <p className="font-serif font-bold text-[15px] text-on-surface leading-tight truncate">{name}</p>
+      <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">
+        {cuisine || 'Recipe'}
+        {difficulty ? <span className="text-on-surface/30"> · {difficulty}</span> : null}
+        <span className="text-on-surface/30"> · by {byline}</span>
+      </p>
     </div>
     {time && (
       <span className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-on-surface/60 bg-on-surface/[0.06] px-2 py-1 rounded-full">

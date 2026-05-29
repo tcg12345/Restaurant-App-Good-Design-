@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, MapPin, Globe, Star, Send, Loader2, Navigation, Check } from 'lucide-react';
+import { X, Search, Globe, Star, Send, Loader2, Navigation, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import { useLists, type RestaurantRating } from '../../contexts/ListsContext';
@@ -191,18 +191,17 @@ export const ShareRestaurantPicker: React.FC<{
                   ) : (
                     <>
                       <SectionLabel text={`${ratedFiltered.length} place${ratedFiltered.length === 1 ? '' : 's'} you've rated`} />
-                      <div className="grid grid-cols-2 gap-2.5">
+                      <div className="flex flex-col -mx-1">
                         {ratedFiltered.map((r) => {
                           const shared = ratingToShared(r);
+                          const sel = picked?.restaurantId === r.restaurantId && picked?.isReview === true;
                           return (
-                            <PickCard
+                            <RestaurantRow
                               key={r.restaurantId}
-                              image={r.image}
                               name={r.name}
-                              meta={[r.cuisine, r.price].filter(Boolean) as string[]}
-                              reviewed
+                              meta={<>{r.cuisine || 'Restaurant'}{r.price ? <span className="text-on-surface/30"> · {r.price}</span> : null}{r.address ? <span className="text-on-surface/30"> · {r.address}</span> : null}</>}
                               right={<ScoreBadge rating={r.score} size="sm" />}
-                              selected={picked?.restaurantId === r.restaurantId && picked?.isReview === true}
+                              selected={sel}
                               onClick={() => setPicked(shared)}
                             />
                           );
@@ -229,26 +228,14 @@ export const ShareRestaurantPicker: React.FC<{
                           const location = formatLocationLabel(p.addressComponents, p.fullAddress || p.address);
                           const sel = picked?.restaurantId === p.id && picked?.isReview === false;
                           return (
-                            <button
+                            <RestaurantRow
                               key={p.id}
+                              name={p.name}
+                              meta={<>{shared.cuisine || 'Restaurant'}{shared.price ? <span className="text-on-surface/30"> · {shared.price}</span> : null}{location ? <span className="text-on-surface/30"> · {location}</span> : null}</>}
+                              right={sel ? <span className="w-6 h-6 rounded-full bg-primary text-white grid place-items-center"><Check size={14} strokeWidth={3} /></span> : null}
+                              selected={sel}
                               onClick={() => setPicked(shared)}
-                              className={cn(
-                                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors',
-                                sel ? 'bg-primary/[0.07] ring-1 ring-primary/30' : 'hover:bg-on-surface/[0.04]',
-                              )}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <p className="font-serif font-bold text-[15px] text-on-surface leading-tight truncate">{p.name}</p>
-                                <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">
-                                  {shared.cuisine || 'Restaurant'}
-                                  {shared.price ? <span className="text-on-surface/30"> · {shared.price}</span> : null}
-                                  {location ? <span className="text-on-surface/30"> · {location}</span> : null}
-                                </p>
-                              </div>
-                              {sel && (
-                                <span className="w-6 h-6 rounded-full bg-primary text-white grid place-items-center flex-shrink-0"><Check size={14} strokeWidth={3} /></span>
-                              )}
-                            </button>
+                            />
                           );
                         })}
                       </div>
@@ -295,38 +282,25 @@ const EmptyState: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, t
   </div>
 );
 
-const PickCard: React.FC<{
-  image: string;
+/** Single-column result row — shared by the rated + DB tabs, mirroring the
+ *  header search results (serif name + dimmed "cuisine · price · location"). */
+const RestaurantRow: React.FC<{
   name: string;
-  meta: string[];
-  reviewed?: boolean;
+  meta: React.ReactNode;
   right?: React.ReactNode;
   selected: boolean;
   onClick: () => void;
-}> = ({ image, name, meta, reviewed, right, selected, onClick }) => (
+}> = ({ name, meta, right, selected, onClick }) => (
   <button
     onClick={onClick}
     className={cn(
-      'flex items-center gap-3 p-2.5 rounded-2xl border text-left transition-all bg-paper',
-      selected ? 'border-primary ring-2 ring-primary/15' : 'border-on-surface/8 hover:border-on-surface/20',
+      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors',
+      selected ? 'bg-primary/[0.07] ring-1 ring-primary/30' : 'hover:bg-on-surface/[0.04]',
     )}
   >
-    {image ? (
-      <img src={image} alt={name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
-    ) : (
-      <div className="w-14 h-14 rounded-xl bg-on-surface/[0.06] grid place-items-center flex-shrink-0"><MapPin size={18} className="text-on-surface/25" /></div>
-    )}
     <div className="min-w-0 flex-1">
-      <p className="font-serif font-bold text-[16px] text-on-surface truncate leading-tight">{name}</p>
-      <div className="flex items-center gap-1.5 mt-1 text-[12px] text-on-surface/50 truncate">
-        {meta.map((m, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="w-1 h-1 rounded-full bg-on-surface/25 flex-shrink-0" />}
-            <span className="truncate">{m}</span>
-          </React.Fragment>
-        ))}
-        {reviewed && <><span className="w-1 h-1 rounded-full bg-on-surface/25 flex-shrink-0" /><span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">Reviewed</span></>}
-      </div>
+      <p className="font-serif font-bold text-[15px] text-on-surface leading-tight truncate">{name}</p>
+      <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{meta}</p>
     </div>
     {right && <div className="flex-shrink-0">{right}</div>}
   </button>
