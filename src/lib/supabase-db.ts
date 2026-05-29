@@ -28,62 +28,80 @@ export interface UserAppData {
 export async function loadUserData(userId: string): Promise<UserAppData | null> {
   if (!supabaseConfigured || !userId) return null;
 
-  try {
-    // Try loading with newest columns first; fall back without them if the
-    // schema hasn't been migrated yet.
-    let { data, error } = await supabase
-      .from('user_app_data')
-      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, chats, chats_read')
-      .eq('user_id', userId)
-      .single();
-
-    // Retry without chats columns if they don't exist yet
-    if (error && !data && error.code !== 'PGRST116') {
-      const retry = await supabase
+  // CRITICAL: a transient/network failure must never be mistaken for an empty
+  // account. The caller treats `null` as "no row exists" and overwrites the
+  // cloud with local data — which WIPES the user's recipes/ratings when local
+  // is empty (fresh browser, post-"different user" clear, etc.). So we retry
+  // transient failures and THROW on a real error; `null` is returned ONLY for
+  // a genuine missing row (PGRST116).
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // Try loading with newest columns first; fall back without them if the
+      // schema hasn't been migrated yet.
+      let { data, error } = await supabase
         .from('user_app_data')
-        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, chats, chats_read')
         .eq('user_id', userId)
         .single();
-      data = retry.data as typeof data;
-      error = retry.error;
-    }
 
-    // Final fallback without trips/home_meals either
-    if (error && !data && error.code !== 'PGRST116') {
-      const fallback = await supabase
-        .from('user_app_data')
-        .select('ratings, lists, wishlist, restaurant_meta, recent_views')
-        .eq('user_id', userId)
-        .single();
-      data = fallback.data as typeof data;
-      error = fallback.error;
-    }
+      // Retry without chats columns if they don't exist yet (schema drift)
+      if (error && !data && error.code !== 'PGRST116') {
+        const retry = await supabase
+          .from('user_app_data')
+          .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
+          .eq('user_id', userId)
+          .single();
+        data = retry.data as typeof data;
+        error = retry.error;
+      }
 
-    if (error) {
-      if (error.code === 'PGRST116') return null; // no rows found
-      console.error('[Supabase] loadUserData error:', error);
-      return null;
-    }
+      // Final fallback without trips/home_meals either
+      if (error && !data && error.code !== 'PGRST116') {
+        const fallback = await supabase
+          .from('user_app_data')
+          .select('ratings, lists, wishlist, restaurant_meta, recent_views')
+          .eq('user_id', userId)
+          .single();
+        data = fallback.data as typeof data;
+        error = fallback.error;
+      }
 
-    return {
-      ratings: asArray<RestaurantRating>(data.ratings, []),
-      lists: asArray<CustomList>(data.lists, []),
-      wishlist: asArray<WishlistItem>(data.wishlist, []),
-      restaurantMeta: (data.restaurant_meta && typeof data.restaurant_meta === 'object' && !Array.isArray(data.restaurant_meta)
-        ? data.restaurant_meta
-        : {}) as Record<string, RestaurantMeta>,
-      recentViews: asArray<unknown>(data.recent_views, []),
-      trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
-      homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
-      chats: asArray<Conversation>((data as Record<string, unknown>).chats, []),
-      chatsRead: ((data as Record<string, unknown>).chats_read && typeof (data as Record<string, unknown>).chats_read === 'object' && !Array.isArray((data as Record<string, unknown>).chats_read)
-        ? (data as Record<string, unknown>).chats_read
-        : {}) as Record<string, number>,
-    };
-  } catch (err) {
-    console.error('[Supabase] loadUserData exception:', err);
-    return null;
+      if (error) {
+        if (error.code === 'PGRST116') return null; // genuine: no row for this user
+        // A real error (network/timeout/permission/etc.). Throw so the caller
+        // keeps local data instead of treating the account as empty.
+        throw new Error(`loadUserData query error: ${error.message || error.code || 'unknown'}`);
+      }
+
+      return {
+        ratings: asArray<RestaurantRating>(data.ratings, []),
+        lists: asArray<CustomList>(data.lists, []),
+        wishlist: asArray<WishlistItem>(data.wishlist, []),
+        restaurantMeta: (data.restaurant_meta && typeof data.restaurant_meta === 'object' && !Array.isArray(data.restaurant_meta)
+          ? data.restaurant_meta
+          : {}) as Record<string, RestaurantMeta>,
+        recentViews: asArray<unknown>(data.recent_views, []),
+        trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
+        homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
+        chats: asArray<Conversation>((data as Record<string, unknown>).chats, []),
+        chatsRead: ((data as Record<string, unknown>).chats_read && typeof (data as Record<string, unknown>).chats_read === 'object' && !Array.isArray((data as Record<string, unknown>).chats_read)
+          ? (data as Record<string, unknown>).chats_read
+          : {}) as Record<string, number>,
+      };
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) {
+        // Back off briefly and retry — covers slow networks / cold starts.
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        continue;
+      }
+    }
   }
+  // All attempts failed with a real error — propagate so the caller preserves
+  // existing data and does NOT overwrite the cloud.
+  console.error('[Supabase] loadUserData failed after retries:', lastError);
+  throw lastError instanceof Error ? lastError : new Error('loadUserData failed after retries');
 }
 
 /**
