@@ -2208,14 +2208,19 @@ export const Reels: React.FC = () => {
      reel sits centered as a tall phone-shaped column; like / comment /
      save / share / more buttons live in a column right next to it. */
   if (showDesktopFrame) {
+    // When a featured restaurant / recipe panel is open it lives in the
+    // right column; give that column more room (and nudge the reel left
+    // off dead-center) so the wider panel has space to breathe.
+    const sidePanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
     return (
       // 3-column grid: [1fr] [auto] [1fr]. The reel column auto-sizes
-      // to its 9:16 aspect ratio, and the two 1fr side columns share
-      // the remaining space symmetrically — so the reel is always
-      // horizontally centered on the page regardless of whether the
-      // side-details column is filled (reels have it, some posts do,
-      // pre-load states don't).
-      <div className="relative h-screen w-full bg-surface overflow-hidden grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-3">
+      // to its 9:16 aspect ratio, and the two side columns share the
+      // remaining space — symmetric (reel centered) by default, weighted
+      // to the right when a side panel is open so the reel slides left.
+      <div className={cn(
+        "relative h-screen w-full bg-surface overflow-hidden grid items-center gap-4 px-6 py-3 transition-[grid-template-columns] duration-300 ease-out",
+        sidePanelOpen ? "grid-cols-[1fr_auto_1.3fr]" : "grid-cols-[1fr_auto_1fr]",
+      )}>
         {focused && (
           <button
             type="button"
