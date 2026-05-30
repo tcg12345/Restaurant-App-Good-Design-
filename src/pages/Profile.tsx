@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1204,7 +1204,10 @@ export const Profile: React.FC = () => {
             onClick={() => setCreateMenuOpen((o) => !o)}
             aria-haspopup="menu"
             aria-expanded={createMenuOpen}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-primary text-white text-[13px] font-bold hover:bg-primary/90 transition-colors"
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-10 bg-primary text-white text-[13px] font-bold hover:bg-primary/90 transition-colors",
+              phoneMode ? "flex-1 rounded-xl" : "rounded-full px-5",
+            )}
           >
             <Plus
               size={15}
@@ -1216,14 +1219,24 @@ export const Profile: React.FC = () => {
           <button
             type="button"
             onClick={openEditProfile}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-on-surface/[0.06] text-on-surface/80 text-[13px] font-bold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-10 text-[13px] font-bold transition-colors",
+              phoneMode
+                ? "flex-1 rounded-xl bg-on-surface/[0.06] text-on-surface/80 border border-on-surface/8 hover:bg-on-surface/10"
+                : "rounded-full px-5 bg-white text-on-surface/80 border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
+            )}
           >
-            <Edit3 size={14} />
-            Edit
+            <SquarePen size={14} />
+            {phoneMode ? 'Edit' : 'Edit profile'}
           </button>
           <Link
             to={publicProfilePath}
-            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            className={cn(
+              "w-10 h-10 inline-flex items-center justify-center text-on-surface/55 transition-colors",
+              phoneMode
+                ? "rounded-xl bg-on-surface/[0.06] border border-on-surface/8 hover:bg-on-surface/10"
+                : "rounded-full bg-white border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
+            )}
             aria-label="View public profile"
           >
             <Upload size={15} />
@@ -1231,7 +1244,12 @@ export const Profile: React.FC = () => {
           <button
             type="button"
             onClick={openSettings}
-            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            className={cn(
+              "w-10 h-10 inline-flex items-center justify-center text-on-surface/55 transition-colors",
+              phoneMode
+                ? "rounded-xl bg-on-surface/[0.06] border border-on-surface/8 hover:bg-on-surface/10"
+                : "rounded-full bg-white border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
+            )}
             aria-label="Settings"
           >
             <Settings size={15} />
