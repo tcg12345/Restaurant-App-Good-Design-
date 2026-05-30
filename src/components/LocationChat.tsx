@@ -20,6 +20,7 @@ import {
   MapPin,
   Plus,
   RotateCw,
+  Search,
   Send,
   Sparkles,
   Trash2,
@@ -704,7 +705,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // sync); this component just reads it and upserts/deletes entries.
   const [view, setView] = useState<'chat' | 'history'>('chat');
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  // Free-text filter for the saved-chats list (history view).
+  const [historyQuery, setHistoryQuery] = useState('');
   const { savedChats, upsertChat, deleteChat } = useAiChatHistory();
+  // Saved chats narrowed by the history search box (matches the title —
+  // which is the user's opening prompt, so it covers what's on screen).
+  const filteredChats = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    if (!q) return savedChats;
+    return savedChats.filter((c) => (c.title || '').toLowerCase().includes(q));
+  }, [savedChats, historyQuery]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirror the latest conversation into refs so we can persist it on unmount
   // / panel-close even if the debounce hasn't fired. AppAssistant unmounts
@@ -2143,7 +2153,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   <button
                     type="button"
                     className="lp-chat-head-action"
-                    onClick={() => setView('history')}
+                    onClick={() => { setHistoryQuery(''); setView('history'); }}
                     aria-label="Prior chats"
                     title="Prior chats"
                   >
@@ -2170,7 +2180,36 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       <p className="sub">Conversations save automatically — they'll appear here after you send your first message.</p>
                     </div>
                   ) : (
-                    savedChats.map((chat) => (
+                    <>
+                    <div className="lp-chat-history-search">
+                      <Search size={15} className="lp-chat-history-search-icon" />
+                      <input
+                        type="text"
+                        value={historyQuery}
+                        onChange={(e) => setHistoryQuery(e.target.value)}
+                        placeholder="Search chats…"
+                        aria-label="Search chats"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      {historyQuery && (
+                        <button
+                          type="button"
+                          className="lp-chat-history-search-clear"
+                          onClick={() => setHistoryQuery('')}
+                          aria-label="Clear search"
+                          title="Clear search"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {filteredChats.length === 0 ? (
+                      <div className="lp-chat-history-empty">
+                        <p>No chats match “{historyQuery.trim()}”.</p>
+                      </div>
+                    ) : (
+                    filteredChats.map((chat) => (
                       <div
                         key={chat.id}
                         className={cn('lp-chat-history-item', chat.id === currentChatId && 'is-current')}
@@ -2203,6 +2242,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         </button>
                       </div>
                     ))
+                    )}
+                    </>
                   )}
                 </div>
               ) : (
