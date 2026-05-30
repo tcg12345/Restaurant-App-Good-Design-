@@ -29,7 +29,8 @@ import {
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter } from '../lib/michelin';
+import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -612,6 +613,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
+  // Michelin distinction filter (multi-select, OR). Empty = off. Applied
+  // client-side to the rendered place list (Discover's cuisine/price filters
+  // are server-side, but Michelin matching is local-only).
+  const [selectedMichelin, setSelectedMichelin] = useState<string[]>([]);
+  const toggleMichelin = useCallback((d: string) => {
+    setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  }, []);
 
   // Hero chip filter — narrows the Recommended rail to a single cuisine.
   // `null` = "All". When set, an effect below keeps pulling more recs from
@@ -712,12 +720,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
   const expertOverlayMarkersRef = useRef<mapboxgl.Marker[]>([]); // expert markers shown in discover mode
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[] });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
-    filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
-  }, [sortBy, selectedCuisines, selectedPrice]);
+    filtersRef.current = { sortBy, selectedCuisines, selectedPrice, selectedMichelin };
+  }, [sortBy, selectedCuisines, selectedPrice, selectedMichelin]);
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
   // Home mode forces 'full' (no map); Map mode starts at 'half' and cannot reach 'full'.
@@ -1543,6 +1551,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       filtered = filtered.filter((p) => p.priceLevel === price);
     }
 
+    // Filter by Michelin distinction (client-side; read from the ref so this
+    // stays a stable callback). No-op until the dataset is loaded.
+    const mich = filtersRef.current.selectedMichelin;
+    if (mich.length > 0) {
+      filtered = filtered.filter((p) =>
+        passesMichelinFilter(mich, p.name, p.lat, p.lng, p.fullAddress || p.address));
+    }
+
     // Sort
     const sorted = [...filtered];
     switch (sort) {
@@ -2345,10 +2361,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
     }
     if (mapMode === 'myratings') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
     }
     if (mapMode === 'friends') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0);
@@ -2360,7 +2376,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0);
     }
     return 0;
-  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy, selectedMichelin]);
 
   // Helper: filter and sort a CommunityRating array by the active rating-mode filters
   const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
@@ -2386,6 +2402,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         return citySet.has(city);
       });
     }
+    // Michelin distinction
+    if (selectedMichelin.length > 0) {
+      filtered = filtered.filter((r) =>
+        passesMichelinFilter(selectedMichelin, r.restaurant_name, r.lat ?? undefined, r.lng ?? undefined, r.address));
+    }
     // Sort
     const sorted = [...filtered];
     switch (ratingSortBy) {
@@ -2395,7 +2416,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       case 'recent': default: sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
     }
     return sorted;
-  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy]);
+  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy, selectedMichelin, michelinReady]);
 
   // Filtered ratings for each mode
   const filteredMyRatings = useMemo(() => {
@@ -3743,11 +3764,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
           const handleReset = () => {
             if (mapMode === 'discover') {
-              setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5);
+              setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
             } else if (mapMode === 'hotels') {
               setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
             } else {
-              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]);
+              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setSelectedMichelin([]);
               if (mapMode === 'friends') setSelectedFriendIds(new Set());
               if (mapMode === 'myratings') setSelectedListId(null);
             }
@@ -4032,6 +4053,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         ))}
                       </div>
                     </div>
+                    <div>
+                      <p className={sectionLabel}>Michelin</p>
+                      <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
+                    </div>
                     {discoverCuisineDropdown}
                   </>
                 )}
@@ -4057,6 +4082,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", ratingPrice === p ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{p}</button>
                         ))}
                       </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Michelin</p>
+                      <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
                     </div>
                     {cuisineDropdown(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
                     {uniqueMyRatingCities.length > 0 && cityDropdown(uniqueMyRatingCities, ratingCities, setRatingCities)}

@@ -22,6 +22,9 @@ import type { HomeMeal } from '../contexts/ListsContext';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText } from '../lib/places';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { passesMichelinFilter } from '../lib/michelin';
+import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
@@ -77,6 +80,10 @@ export const UserProfile: React.FC = () => {
   const [filterCuisine, setFilterCuisine] = useState<string | null>(null);
   const [filterPrice, setFilterPrice] = useState<string | null>(null);
   const [filterCity, setFilterCity] = useState<string | null>(null);
+  const [filterMichelin, setFilterMichelin] = useState<string[]>([]);
+  const toggleFilterMichelin = (d: string) =>
+    setFilterMichelin((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  const michelinReady = useMichelinIndexReady();
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
   const [sortBy, setSortBy] = useState<SortBy>('recent');
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -275,11 +282,12 @@ export const UserProfile: React.FC = () => {
 
   const activeFilterCount =
     (filterPrice ? 1 : 0) + (filterCity ? 1 : 0) +
+    (filterMichelin.length > 0 ? 1 : 0) +
     (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) +
     (sortBy !== 'recent' ? 1 : 0);
 
   const handleResetFilters = () => {
-    setFilterPrice(null); setFilterCity(null);
+    setFilterPrice(null); setFilterCity(null); setFilterMichelin([]);
     setScoreRange([0, 10]); setSortBy('recent');
   };
 
@@ -288,6 +296,10 @@ export const UserProfile: React.FC = () => {
     if (filterCuisine) result = result.filter((r) => r.cuisine === filterCuisine);
     if (filterPrice) result = result.filter((r) => r.price === filterPrice);
     if (filterCity) result = result.filter((r) => r.address?.includes(filterCity));
+    if (filterMichelin.length > 0) {
+      result = result.filter((r) => passesMichelinFilter(
+        filterMichelin, r.restaurant_name, r.lat ?? undefined, r.lng ?? undefined, r.address));
+    }
     result = result.filter((r) => Number(r.score) >= scoreRange[0] && Number(r.score) <= scoreRange[1]);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -301,7 +313,7 @@ export const UserProfile: React.FC = () => {
     else if (sortBy === 'lowest') result = [...result].sort((a, b) => Number(a.score) - Number(b.score));
     else if (sortBy === 'az') result = [...result].sort((a, b) => a.restaurant_name.localeCompare(b.restaurant_name));
     return result;
-  }, [userRatings, searchQuery, filterCuisine, filterPrice, filterCity, scoreRange, sortBy]);
+  }, [userRatings, searchQuery, filterCuisine, filterPrice, filterCity, filterMichelin, michelinReady, scoreRange, sortBy]);
 
   // Coordinate lookup — only runs when map is opened
   const [resolvedCoords] = useState<Record<string, { lat: number; lng: number }>>({});
@@ -953,6 +965,12 @@ export const UserProfile: React.FC = () => {
                           filterPrice === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50")}>{p}</button>
                     ))}
                   </div>
+                </div>
+
+                {/* Michelin */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
+                  <MichelinDistinctionFilter selected={filterMichelin} onToggle={toggleFilterMichelin} />
                 </div>
 
                 {/* Cuisine — collapsible */}

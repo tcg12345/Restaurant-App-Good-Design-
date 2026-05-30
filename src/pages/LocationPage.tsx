@@ -80,7 +80,8 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter } from '../lib/michelin';
+import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -802,6 +803,11 @@ export const LocationPage: React.FC = () => {
   // intersection with no extra network work.
   const [friendsOnly, setFriendsOnly] = useState(false);
   const [expertsOnly, setExpertsOnly] = useState(false);
+  // Michelin distinction filter (multi-select, OR). Empty = off.
+  const [selectedMichelin, setSelectedMichelin] = useState<string[]>([]);
+  const toggleMichelin = useCallback((d: string) => {
+    setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  }, []);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const activeFilterCount =
     (selectedPrice > 0 ? 1 : 0) +
@@ -811,7 +817,8 @@ export const LocationPage: React.FC = () => {
     (selectedWalkMin > 0 ? 1 : 0) +
     (selectedDriveMin > 0 ? 1 : 0) +
     (friendsOnly ? 1 : 0) +
-    (expertsOnly ? 1 : 0);
+    (expertsOnly ? 1 : 0) +
+    (selectedMichelin.length > 0 ? 1 : 0);
 
   // User's saved home, read once and kept stable across re-renders. When
   // this is a precise street address (leading-digit heuristic), the rows'
@@ -1301,6 +1308,10 @@ export const LocationPage: React.FC = () => {
       }
       if (friendsOnly && !friendRestaurantIds.has(p.id)) continue;
       if (expertsOnly && !expertRestaurantIds.has(p.id)) continue;
+      // Michelin distinction filter (depends on the dataset being loaded;
+      // michelinReady is in the deps so the list re-filters once it lands).
+      if (selectedMichelin.length > 0
+        && !passesMichelinFilter(selectedMichelin, p.name, p.lat, p.lng, p.fullAddress || p.address)) continue;
       out.push(p);
     }
     // When the user is searching, Google's text search returns a mix of
@@ -1371,6 +1382,7 @@ export const LocationPage: React.FC = () => {
     ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng,
     selectedRadius, friendsOnly, expertsOnly,
     friendRestaurantIds, expertRestaurantIds, debouncedSearch,
+    selectedMichelin, michelinReady,
   ]);
 
 
@@ -2992,6 +3004,9 @@ export const LocationPage: React.FC = () => {
         onPriceChange={setSelectedPrice}
         selectedCuisines={selectedCuisines}
         onCuisinesChange={setSelectedCuisines}
+        selectedMichelin={selectedMichelin}
+        onMichelinToggle={toggleMichelin}
+        onMichelinClear={() => setSelectedMichelin([])}
         selectedRadius={selectedRadius}
         onRadiusChange={setSelectedRadius}
         friendsOnly={friendsOnly}
@@ -3437,6 +3452,9 @@ interface FilterSheetProps {
   onPriceChange: (p: number) => void;
   selectedCuisines: string[];
   onCuisinesChange: (next: string[]) => void;
+  selectedMichelin: string[];
+  onMichelinToggle: (d: string) => void;
+  onMichelinClear: () => void;
   selectedRadius: number;
   onRadiusChange: (mi: number) => void;
   friendsOnly: boolean;
@@ -3501,6 +3519,9 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onPriceChange,
   selectedCuisines,
   onCuisinesChange,
+  selectedMichelin,
+  onMichelinToggle,
+  onMichelinClear,
   selectedRadius,
   onRadiusChange,
   friendsOnly,
@@ -3539,6 +3560,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onSortChange('recommended');
     onPriceChange(0);
     onCuisinesChange([]);
+    onMichelinClear();
     onRadiusChange(0);
     onFriendsOnlyChange(false);
     onExpertsOnlyChange(false);
@@ -3798,6 +3820,12 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                     </div>
                   </div>
                 )}
+              </section>
+
+              {/* ── Michelin distinction ────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">Michelin</div>
+                <MichelinDistinctionFilter selected={selectedMichelin} onToggle={onMichelinToggle} />
               </section>
             </div>
 

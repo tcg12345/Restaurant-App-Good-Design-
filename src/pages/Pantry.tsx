@@ -18,7 +18,9 @@ import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
-import { useMichelinMatch } from '../lib/useMichelinMatch';
+import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { passesMichelinFilter } from '../lib/michelin';
+import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
@@ -1848,6 +1850,12 @@ const ListDetailView: React.FC<{
   const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
   const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
+  const [wishlistMichelinFilter, setWishlistMichelinFilter] = useState<string[]>([]);
+  const toggleWlMichelin = (d: string) =>
+    setWishlistMichelinFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  // Michelin dataset readiness — gates the distinction filter below so the
+  // saved lists re-filter once the data lands.
+  const wlMichelinReady = useMichelinIndexReady();
   // Per-pill dropdowns now live inside <AnchoredPill> on desktop, so
   // each pill manages its own open state. The shared open/close state
   // that used to coordinate sibling sheets is no longer needed.
@@ -1861,11 +1869,13 @@ const ListDetailView: React.FC<{
   const wishlistActiveFilterCount =
     (wishlistCuisineFilter.length > 0 ? 1 : 0) +
     (wishlistCityFilter.length > 0 ? 1 : 0) +
-    (wishlistPriceFilter ? 1 : 0);
+    (wishlistPriceFilter ? 1 : 0) +
+    (wishlistMichelinFilter.length > 0 ? 1 : 0);
   const resetWishlistFilters = () => {
     setWishlistCuisineFilter([]);
     setWishlistCityFilter([]);
     setWishlistPriceFilter(null);
+    setWishlistMichelinFilter([]);
     setWishlistSort('recent');
   };
 
@@ -1969,8 +1979,12 @@ const ListDetailView: React.FC<{
     if (wishlistPriceFilter) {
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
+    if (wishlistMichelinFilter.length > 0) {
+      out = out.filter(({ info }) => info && passesMichelinFilter(
+        wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
+    }
     return out;
-  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistMichelinFilter, wlMichelinReady]);
 
   const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
@@ -2036,6 +2050,10 @@ const ListDetailView: React.FC<{
     if (wishlistPriceFilter) {
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
+    if (wishlistMichelinFilter.length > 0) {
+      out = out.filter(({ info }) => info && passesMichelinFilter(
+        wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
+    }
     const sorted = [...out];
     sorted.sort((a, b) => {
       switch (wishlistSort) {
@@ -2047,7 +2065,7 @@ const ListDetailView: React.FC<{
       }
     });
     return sorted;
-  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
 
   // Apply the search input on top of the filter pipeline (wishlist view
   // only — the rated and hotel-breakfast paths already filter above).
@@ -2359,6 +2377,20 @@ const ListDetailView: React.FC<{
                 </AnchoredPill>
                 <AnchoredPill
                   pill={{
+                    label: wishlistMichelinFilter.length > 0 ? `Michelin (${wishlistMichelinFilter.length})` : 'Michelin',
+                    active: wishlistMichelinFilter.length > 0,
+                    onClear: wishlistMichelinFilter.length > 0 ? () => setWishlistMichelinFilter([]) : undefined,
+                  }}
+                  popoverWidth="w-[260px]"
+                >
+                  {() => (
+                    <div className="p-1">
+                      <MichelinDistinctionFilter selected={wishlistMichelinFilter} onToggle={toggleWlMichelin} />
+                    </div>
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
                     icon: <ArrowUpDown size={11} />,
                     label: wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort',
                     active: wishlistSort !== 'recent',
@@ -2483,6 +2515,10 @@ const ListDetailView: React.FC<{
             label={wishlistPriceFilter || 'Price'}
             active={!!wishlistPriceFilter}
             onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            label={wishlistMichelinFilter.length > 0 ? `Michelin (${wishlistMichelinFilter.length})` : 'Michelin'}
+            active={wishlistMichelinFilter.length > 0}
+            onClear={wishlistMichelinFilter.length > 0 ? () => setWishlistMichelinFilter([]) : undefined} />
           <FilterPill onClick={() => setWishlistFilterOpen(true)}
             icon={<ArrowUpDown size={11} />}
             label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
@@ -2754,6 +2790,8 @@ const ListDetailView: React.FC<{
           onCityFilter={setWishlistCityFilter}
           priceFilter={wishlistPriceFilter}
           onPriceFilter={setWishlistPriceFilter}
+          michelinFilter={wishlistMichelinFilter}
+          onMichelinToggle={toggleWlMichelin}
           allCuisines={wishlistAllCuisines}
           allCities={wishlistAllCities}
           onReset={resetWishlistFilters}
@@ -3023,11 +3061,13 @@ const WishlistFilterSheet: React.FC<{
   onCityFilter: (v: string[]) => void;
   priceFilter: string | null;
   onPriceFilter: (v: string | null) => void;
+  michelinFilter: string[];
+  onMichelinToggle: (d: string) => void;
   allCuisines: string[];
   allCities: string[];
   onReset: () => void;
   activeCount: number;
-}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, allCuisines, allCities, onReset, activeCount }) => {
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, onReset, activeCount }) => {
   const { phoneMode } = useSettings();
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
@@ -3161,6 +3201,12 @@ const WishlistFilterSheet: React.FC<{
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Michelin */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
+                <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
               </div>
 
               {/* Cuisine */}

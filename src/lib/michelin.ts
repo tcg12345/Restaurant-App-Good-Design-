@@ -329,3 +329,45 @@ export function michelinDistinctionLabel(info: MichelinInfo): string {
   if (info.bibGourmand) return 'Bib Gourmand';
   return `${info.stars} ${info.stars === 1 ? 'Star' : 'Stars'}`;
 }
+
+// ── Distinction filter ───────────────────────────────────────────────────────
+// Canonical option keys for the cross-page "filter by Michelin distinction"
+// control. The label of each option is the key itself (so the UI can render the
+// array directly). Order is the display order.
+export type MichelinDistinction = '1 Star' | '2 Stars' | '3 Stars' | 'Bib Gourmand';
+
+export const MICHELIN_DISTINCTIONS: readonly MichelinDistinction[] = [
+  '3 Stars', '2 Stars', '1 Star', 'Bib Gourmand',
+];
+
+/** Map a matched record to its distinction key (null when no match). */
+export function michelinDistinction(info: MichelinInfo | null): MichelinDistinction | null {
+  if (!info) return null;
+  if (info.bibGourmand) return 'Bib Gourmand';
+  if (info.stars === 1) return '1 Star';
+  if (info.stars === 2) return '2 Stars';
+  if (info.stars === 3) return '3 Stars';
+  return null;
+}
+
+/**
+ * Predicate for the distinction filter. `selected` is the set of active
+ * distinction keys (empty = filter off, everything passes). Resolves the
+ * restaurant via the sync index and tests membership. Multi-select is OR:
+ * a restaurant passes if its distinction is among the selected ones.
+ *
+ * Requires the dataset to be loaded (gate callers on useMichelinIndexReady so
+ * the list re-filters once it lands). Returns true (pass) when the filter is
+ * empty, regardless of load state.
+ */
+export function passesMichelinFilter(
+  selected: readonly string[],
+  name: string,
+  lat?: number,
+  lng?: number,
+  address?: string,
+): boolean {
+  if (!selected || selected.length === 0) return true;
+  const d = michelinDistinction(findMichelinMatchSync(name, lat, lng, address));
+  return d != null && selected.includes(d);
+}
