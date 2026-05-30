@@ -145,18 +145,20 @@ export function useRestaurantDetail() {
   }, [id]);
 
   // Michelin Guide overlay: once the place loads, look it up in the bundled
-  // 1/2/3-star dataset by name + address. A match drives the star badge, the
-  // "View on Michelin Guide" button, and the cuisine/price overrides below.
-  // Only the detail page consults this — search/lists/cards are unaffected.
+  // 1/2/3-star dataset. Matching is coordinate-primary (lat/lng), with a
+  // name-similarity check to confirm and disambiguate; address is only used
+  // for the name-only fallback. A match drives the star badge, the "View on
+  // Michelin Guide" button, and the cuisine/price overrides below. Only the
+  // detail page consults this — search/lists/cards are unaffected.
   useEffect(() => {
     setMichelin(null);
     if (!place?.name) return;
     let cancelled = false;
-    findMichelinMatch(place.name, place.fullAddress || place.address)
+    findMichelinMatch(place.name, place.lat, place.lng, place.fullAddress || place.address)
       .then((m) => { if (!cancelled) setMichelin(m); })
       .catch(() => { if (!cancelled) setMichelin(null); });
     return () => { cancelled = true; };
-  }, [place?.id, place?.name, place?.fullAddress, place?.address]);
+  }, [place?.id, place?.name, place?.lat, place?.lng, place?.fullAddress, place?.address]);
 
   // Track recently viewed restaurants
   useEffect(() => {
