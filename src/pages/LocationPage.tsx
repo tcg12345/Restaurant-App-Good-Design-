@@ -80,7 +80,7 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -1313,6 +1313,24 @@ export const LocationPage: React.FC = () => {
       if (selectedMichelin.length > 0
         && !passesMichelinFilter(selectedMichelin, p.name, p.lat, p.lng, p.fullAddress || p.address)) continue;
       out.push(p);
+    }
+
+    // Michelin filter active: Google's popularity pool rarely overlaps the
+    // Michelin set, so source matching restaurants from the bundled dataset
+    // directly and merge them in (deduping against any Google places already
+    // matched, by name+proximity). michelinReady is in the deps so this fills
+    // in as soon as the dataset loads.
+    if (selectedMichelin.length > 0 && hasCoords && michelinReady) {
+      const radiusMi = selectedRadius > 0 ? selectedRadius : radiusMeters / 1609.34;
+      const haveNames = out.map((p) => ({ n: p.name.toLowerCase(), lat: p.lat, lng: p.lng }));
+      for (const m of michelinNearbySync(lat, lng, radiusMi, selectedMichelin)) {
+        const dup = haveNames.some((h) =>
+          h.n === m.name.toLowerCase()
+          && haversineDistanceMi(h.lat, h.lng, m.lat, m.lng) < 0.12);
+        if (dup) continue;
+        if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
+        out.push({ ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] });
+      }
     }
     // When the user is searching, Google's text search returns a mix of
     // literal name matches and broad "related" results (e.g. "aux delices"

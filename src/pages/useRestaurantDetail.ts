@@ -8,8 +8,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
-import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
-import { findMichelinMatch, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
+import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
+import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
 mapboxgl.workerClass = MapboxWorker;
@@ -138,10 +138,34 @@ export function useRestaurantDetail() {
     if (!id) return;
     setLoading(true);
     setError(null);
-    getPlaceDetails(id)
-      .then(setPlace)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    // A Michelin dataset-sourced row carries a synthetic id (name + coords) — no
+    // Google place id. Resolve it to a real place id (text search near the
+    // point) before fetching details. Falls back to the dataset name if Google
+    // can't find it.
+    const load = async () => {
+      try {
+        let placeId = id;
+        if (isMichelinSyntheticId(id)) {
+          const parsed = parseMichelinSyntheticId(id);
+          const resolved = parsed
+            ? await resolvePlaceIdByNameCoords(parsed.name, parsed.lat, parsed.lng)
+            : null;
+          if (!resolved) {
+            throw new Error('Could not find this restaurant on the map.');
+          }
+          placeId = resolved;
+        }
+        const details = await getPlaceDetails(placeId);
+        if (!cancelled) setPlace(details);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
   }, [id]);
 
   // Michelin Guide overlay: once the place loads, look it up in the bundled

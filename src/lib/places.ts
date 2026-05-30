@@ -757,6 +757,55 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   return details;
 }
 
+/**
+ * Resolve a real Google place id for a restaurant we only know by name +
+ * coordinates (used for Michelin dataset-sourced rows, which carry a synthetic
+ * id). Runs a text search near the point and returns the nearest result whose
+ * coordinates are within ~250 m. Returns null when nothing plausible is found.
+ */
+export async function resolvePlaceIdByNameCoords(
+  name: string,
+  lat: number,
+  lng: number,
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': 'places.id,places.location,places.displayName',
+      },
+      body: JSON.stringify({
+        textQuery: name,
+        maxResultCount: 10,
+        locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 1500 } },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const places: Array<{ id?: string; location?: { latitude: number; longitude: number } }> =
+      data.places || [];
+    let best: string | null = null;
+    let bestMeters = Infinity;
+    for (const p of places) {
+      if (!p.id || !p.location) continue;
+      const dLat = ((p.location.latitude - lat) * Math.PI) / 180;
+      const dLng = ((p.location.longitude - lng) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos((lat * Math.PI) / 180) * Math.cos((p.location.latitude * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      const meters = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      if (meters < bestMeters) { bestMeters = meters; best = p.id; }
+    }
+    // Accept only a genuinely-close match (same venue), else fall back to the
+    // top text result (still the most likely candidate by name relevance).
+    if (best && bestMeters <= 250) return best;
+    return places[0]?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 // Common US state name → abbreviation (also used as the canonical
 // "is this a US state?" lookup).
 const STATE_ABBR: Record<string, string> = {

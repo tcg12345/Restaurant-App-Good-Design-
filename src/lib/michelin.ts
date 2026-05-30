@@ -12,7 +12,7 @@
 // ("Restaurant Le X" vs "Le X", accents, articles, "by <chef>" suffixes) while
 // still disambiguating multiple starred restaurants in the same building.
 
-import { priceLevelToString } from './places';
+import { priceLevelToString, type PlaceResult } from './places';
 import { haversineDistanceMi } from './distance';
 
 export interface MichelinInfo {
@@ -371,3 +371,167 @@ export function passesMichelinFilter(
   const d = michelinDistinction(findMichelinMatchSync(name, lat, lng, address));
   return d != null && selected.includes(d);
 }
+
+// ── Dataset-sourced lookups (for "filter by Michelin" search) ────────────────
+// When a Michelin distinction filter is active, the app sources results from
+// the bundled dataset directly instead of intersecting Google's popularity
+// search (which rarely overlaps the Michelin set, so the intersection comes
+// back empty). These helpers expose the dataset geographically.
+
+/** Resolve the dataset, awaiting the dynamic import if it hasn't loaded. */
+export async function ensureMichelinIndex(): Promise<void> {
+  await loadIndex();
+}
+
+export interface MichelinNearbyResult extends MichelinInfo {
+  /** Distance from the query point, in miles. */
+  distanceMi: number;
+}
+
+// All star-grid cells whose center could hold a point within `radiusMi` of
+// (lat,lng). CELL is 0.1deg (~6.9 mi N-S); we widen the cell window by the
+// radius so nothing near the edge is missed.
+function cellsWithin(lat: number, lng: number, radiusMi: number): string[] {
+  const degPad = radiusMi / 50; // ~50 mi per degree latitude — generous
+  const span = Math.max(1, Math.ceil((radiusMi / 69 + degPad) / CELL));
+  const baseLat = Math.floor(lat / CELL);
+  const baseLng = Math.floor(lng / CELL);
+  const keys: string[] = [];
+  for (let dLat = -span; dLat <= span; dLat++) {
+    for (let dLng = -span; dLng <= span; dLng++) {
+      keys.push(`${baseLat + dLat}:${baseLng + dLng}`);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Michelin restaurants within `radiusMi` of (lat,lng), optionally restricted to
+ * the given distinctions (empty = all). Sorted nearest-first. Synchronous —
+ * call ensureMichelinIndex() first (or gate on the dataset being loaded).
+ */
+export function michelinNearbySync(
+  lat: number,
+  lng: number,
+  radiusMi: number,
+  distinctions: readonly string[] = [],
+): MichelinNearbyResult[] {
+  if (!loadedIndex) return [];
+  const restrict = distinctions.length > 0;
+  const out: MichelinNearbyResult[] = [];
+  const seen = new Set<string>();
+  for (const key of cellsWithin(lat, lng, radiusMi)) {
+    const bucket = loadedIndex.grid.get(key);
+    if (!bucket) continue;
+    for (const info of bucket) {
+      if (seen.has(info.guideUrl)) continue;
+      if (restrict) {
+        const d = michelinDistinction(info);
+        if (d == null || !distinctions.includes(d)) continue;
+      }
+      const distanceMi = haversineDistanceMi(lat, lng, info.lat, info.lng);
+      if (distanceMi > radiusMi) continue;
+      seen.add(info.guideUrl);
+      out.push({ ...info, distanceMi });
+    }
+  }
+  out.sort((a, b) => a.distanceMi - b.distanceMi);
+  return out;
+}
+
+/** Async convenience: await the dataset, then run michelinNearbySync. */
+export async function michelinNearby(
+  lat: number,
+  lng: number,
+  radiusMi: number,
+  distinctions: readonly string[] = [],
+): Promise<MichelinNearbyResult[]> {
+  await ensureMichelinIndex();
+  return michelinNearbySync(lat, lng, radiusMi, distinctions);
+}
+
+// ── Synthetic place ids for dataset-sourced results ──────────────────────────
+// Dataset entries have no Google place id, but list rows + the detail route are
+// keyed by one. We mint a synthetic id that carries the name + coordinates so
+// the detail page can resolve the real Google place on open (resolveMichelin
+// PlaceId below). Prefix is unlikely to collide with Google's ids.
+const MICHELIN_ID_PREFIX = 'michelin:';
+
+export function michelinSyntheticId(info: MichelinInfo): string {
+  return `${MICHELIN_ID_PREFIX}${info.lat.toFixed(6)},${info.lng.toFixed(6)},${encodeURIComponent(info.name)}`;
+}
+
+export function isMichelinSyntheticId(id: string): boolean {
+  return typeof id === 'string' && id.startsWith(MICHELIN_ID_PREFIX);
+}
+
+export function parseMichelinSyntheticId(
+  id: string,
+): { name: string; lat: number; lng: number } | null {
+  if (!isMichelinSyntheticId(id)) return null;
+  const body = id.slice(MICHELIN_ID_PREFIX.length);
+  const firstComma = body.indexOf(',');
+  const secondComma = body.indexOf(',', firstComma + 1);
+  if (firstComma < 0 || secondComma < 0) return null;
+  const lat = parseFloat(body.slice(0, firstComma));
+  const lng = parseFloat(body.slice(firstComma + 1, secondComma));
+  const name = decodeURIComponent(body.slice(secondComma + 1));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !name) return null;
+  return { name, lat, lng };
+}
+
+/** Look up the full Michelin record for a synthetic id (or null). */
+export function michelinBySyntheticId(id: string): MichelinInfo | null {
+  const parsed = parseMichelinSyntheticId(id);
+  if (!parsed) return null;
+  return findMichelinMatchSync(parsed.name, parsed.lat, parsed.lng);
+}
+
+// Cuisine-string -> the most representative Google place type, so dataset-
+// sourced PlaceResults still pass the app's isFoodPlace()/cuisine-label checks
+// and look native in lists. Falls back to a generic 'restaurant'.
+const CUISINE_WORD_TO_TYPE: Record<string, string> = {
+  italian: 'italian_restaurant', french: 'french_restaurant', japanese: 'japanese_restaurant',
+  chinese: 'chinese_restaurant', cantonese: 'chinese_restaurant', sushi: 'sushi_restaurant',
+  korean: 'korean_restaurant', thai: 'thai_restaurant', indian: 'indian_restaurant',
+  mexican: 'mexican_restaurant', spanish: 'spanish_restaurant', seafood: 'seafood_restaurant',
+  steakhouse: 'steak_house', american: 'american_restaurant', mediterranean: 'mediterranean_restaurant',
+  vietnamese: 'vietnamese_restaurant', greek: 'greek_restaurant', turkish: 'turkish_restaurant',
+  lebanese: 'lebanese_restaurant', vegetarian: 'vegetarian_restaurant', vegan: 'vegan_restaurant',
+  pizza: 'pizza_restaurant', ramen: 'ramen_restaurant', barbecue: 'barbecue_restaurant',
+  bbq: 'barbecue_restaurant', brazilian: 'brazilian_restaurant', portuguese: 'portuguese_restaurant',
+};
+
+function cuisineToTypes(cuisine: string): string[] {
+  const types: string[] = [];
+  for (const word of cuisine.toLowerCase().split(/[,/]/).map((s) => s.trim())) {
+    const key = word.split(/\s+/).find((w) => CUISINE_WORD_TO_TYPE[w]) || word;
+    const t = CUISINE_WORD_TO_TYPE[key];
+    if (t && !types.includes(t)) types.push(t);
+  }
+  types.push('restaurant');
+  return types;
+}
+
+/**
+ * Build a PlaceResult from a Michelin dataset record so it can flow through the
+ * app's normal list/marker/card rendering. The id is synthetic (see
+ * michelinSyntheticId) and resolved to a real Google place when the detail page
+ * opens. rating/userRatingCount are 0 (we have no Google rating offline).
+ */
+export function michelinToPlaceResult(info: MichelinInfo): PlaceResult {
+  return {
+    id: michelinSyntheticId(info),
+    name: info.name,
+    lat: info.lat,
+    lng: info.lng,
+    rating: 0,
+    priceLevel: info.priceTier,
+    address: [info.city, info.country].filter(Boolean).join(', '),
+    fullAddress: [info.city, info.country].filter(Boolean).join(', '),
+    photoUrl: null,
+    types: cuisineToTypes(info.cuisine),
+    userRatingCount: 0,
+  };
+}
+

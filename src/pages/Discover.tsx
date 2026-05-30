@@ -29,7 +29,8 @@ import {
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult } from '../lib/michelin';
+import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
@@ -1580,6 +1581,36 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return sorted;
   }, []);
 
+  // When a Michelin distinction filter is active, Google's popularity search
+  // rarely overlaps the Michelin set — so source matching restaurants from the
+  // bundled dataset directly and merge them into the result list (deduped by
+  // name+proximity). Awaits the dataset load so it works on the first search.
+  const mergeMichelinResults = useCallback(async (
+    googlePlaces: PlaceResult[],
+    centerLat: number,
+    centerLng: number,
+    radiusMeters: number,
+  ): Promise<PlaceResult[]> => {
+    const sel = filtersRef.current.selectedMichelin;
+    if (sel.length === 0) return googlePlaces;
+    await ensureMichelinIndex();
+    // Keep only Google places that themselves match (so the list is coherent),
+    // then add dataset entries we don't already have.
+    const kept = googlePlaces.filter((p) =>
+      passesMichelinFilter(sel, p.name, p.lat, p.lng, p.fullAddress || p.address));
+    const radiusMi = Math.min(radiusMeters / 1609.34, 31); // cap ~50 km
+    const price = filtersRef.current.selectedPrice;
+    for (const m of michelinNearbySync(centerLat, centerLng, radiusMi, sel)) {
+      if (price > 0 && m.priceTier !== price) continue;
+      const dup = kept.some((p) =>
+        p.name.toLowerCase() === m.name.toLowerCase()
+        && havMi(p.lat, p.lng, m.lat, m.lng) < 0.12);
+      if (dup) continue;
+      kept.push(michelinToPlaceResult(m));
+    }
+    return kept;
+  }, []);
+
   // Build a lookup of user's own ratings by restaurant ID
   const userRatingMap = useMemo(() => {
     const lookup: Record<string, number> = {};
@@ -1735,7 +1766,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
-      const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -1747,7 +1779,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces]);
+  }, [syncMarkers, getFilteredPlaces, mergeMichelinResults]);
 
   // Keep refs in sync for use in quick filter handler
   fetchNearbyRef.current = fetchNearby;
@@ -1855,13 +1887,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
-      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
       setPlaces(filtered);
       syncMarkers(filtered);
 
-      if (results.length > 0) {
+      if (filtered.length > 0) {
         const bounds = new mapboxgl.LngLatBounds();
-        results.forEach((p) => bounds.extend([p.lng, p.lat]));
+        filtered.forEach((p) => bounds.extend([p.lng, p.lat]));
         map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
       }
       // Add expert overlay markers in the visible area
@@ -1871,7 +1904,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces, searchLocationBias]);
+  }, [syncMarkers, getFilteredPlaces, searchLocationBias, mergeMichelinResults]);
 
   // ── AI chat → map integration (only when mounted as the /map page) ──────
   // Discover is the app's real map surface (route /map). It publishes its
