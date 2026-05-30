@@ -143,13 +143,27 @@ function extractStepMs(text: string): { label: string; ms: number } | null {
   return { label: parts.join(' '), ms };
 }
 
-// Format minute total ("12 min", "1 h", "1 h 25 min")
+// Format minute total. Stays in plain minutes up to 90 min; above that it
+// rolls into hours + minutes ("18 min", "90 min", "15 hr", "16 hr 48 min").
 function formatMinutes(mins: number): string {
   if (!Number.isFinite(mins) || mins <= 0) return '';
-  if (mins < 60) return `${mins} min`;
+  if (mins <= 90) return `${mins} min`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
+}
+
+// Same 90-min threshold as formatMinutes, but rendered as the stat-strip
+// value — big numbers with small `.unit` labels (e.g. "16 hr 48 min").
+// Returns the "—" placeholder when there's no time.
+function renderTimeValue(mins: number): React.ReactNode {
+  if (!Number.isFinite(mins) || mins <= 0) return '—';
+  if (mins <= 90) return <>{mins} <span className="unit">min</span></>;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0
+    ? <>{h} <span className="unit">hr</span></>
+    : <>{h} <span className="unit">hr</span> {m} <span className="unit">min</span></>;
 }
 
 // Normalize a rating to 5-point scale for display. Legacy formal-recipe
@@ -1015,27 +1029,27 @@ export const RecipePage: React.FC = () => {
           <div className="rd-stat">
             <div className="rd-stat-label"><Clock /> Prep</div>
             <div className="rd-stat-value">
-              {data.prepMinutes > 0 ? <>{data.prepMinutes} <span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.prepMinutes)}
             </div>
           </div>
           <div className="rd-stat">
             <div className="rd-stat-label"><Flame /> Cook</div>
             <div className="rd-stat-value">
-              {data.cookMinutes > 0 ? <>{data.cookMinutes} <span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.cookMinutes)}
             </div>
           </div>
           {data.chillMinutes && data.chillMinutes > 0 && (
             <div className="rd-stat">
               <div className="rd-stat-label"><Clock /> Rest</div>
               <div className="rd-stat-value">
-                {data.chillMinutes} <span className="unit">min</span>
+                {renderTimeValue(data.chillMinutes || 0)}
               </div>
             </div>
           )}
           <div className="rd-stat">
             <div className="rd-stat-label"><Clock /> Total</div>
             <div className="rd-stat-value">
-              {totalMinutes > 0 ? <>{totalMinutes} <span className="unit">min</span></> : '—'}
+              {renderTimeValue(totalMinutes)}
             </div>
           </div>
           <div className="rd-stat">
@@ -2137,19 +2151,19 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           <div className="rdm-stat">
             <div className="l">Prep</div>
             <div className="v">
-              {data.prepMinutes > 0 ? <>{data.prepMinutes}<span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.prepMinutes)}
             </div>
           </div>
           <div className="rdm-stat">
             <div className="l">Cook</div>
             <div className="v">
-              {data.cookMinutes > 0 ? <>{data.cookMinutes}<span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.cookMinutes)}
             </div>
           </div>
           <div className="rdm-stat">
             <div className="l">Total</div>
             <div className="v">
-              {totalMinutes > 0 ? <>{totalMinutes}<span className="unit">min</span></> : '—'}
+              {renderTimeValue(totalMinutes)}
             </div>
           </div>
           <div className="rdm-stat">
