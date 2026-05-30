@@ -162,9 +162,15 @@ function homeMealToInput(meal: HomeMeal): BuildRecipeInput {
     yieldDescription: meal.yieldDescription,
     ingredientGroups: meal.ingredientGroups && meal.ingredientGroups.length > 0 ? meal.ingredientGroups : undefined,
     ingredients: (!meal.ingredientGroups || meal.ingredientGroups.length === 0) ? meal.ingredients : undefined,
-    steps: meal.stepDetails && meal.stepDetails.length > 0
-      ? meal.stepDetails
-      : (meal.steps || []).map((body) => ({ body })),
+    // Hand the model grouped sections when the recipe has them so an AI
+    // refine preserves (and can extend) the section structure; otherwise
+    // send the flat step list.
+    stepGroups: meal.stepGroups && meal.stepGroups.length > 0 ? meal.stepGroups : undefined,
+    steps: (!meal.stepGroups || meal.stepGroups.length === 0)
+      ? (meal.stepDetails && meal.stepDetails.length > 0
+          ? meal.stepDetails
+          : (meal.steps || []).map((body) => ({ body })))
+      : undefined,
     equipment: meal.equipment,
     tags: meal.tags,
     notes: meal.notes,

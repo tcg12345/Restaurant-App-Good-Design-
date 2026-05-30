@@ -631,6 +631,17 @@
   display: flex; flex-direction: column;
   list-style: none; padding: 0; margin: 0;
 }
+/* Method sections (multi-component dishes) — a serif subhead per section,
+   steps numbered continuously across them. */
+.recipe-detail-page .rd-steps-group + .rd-steps-group { margin-top: 36px; }
+.recipe-detail-page .rd-steps-group-title {
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--accent);
+  margin: 0 0 18px;
+}
 .recipe-detail-page .rd-step {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -2309,6 +2320,15 @@
   letter-spacing: 0.12em;
   color: var(--accent);
   margin: 0 0 8px;
+}
+/* Method sections on phone. */
+.recipe-detail-page .rdm-steps-group + .rdm-steps-group { margin-top: 24px; }
+.recipe-detail-page .rdm-steps-group-title {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0 0 12px;
 }
 .recipe-detail-page .rdm-ingr-item {
   display: grid;

@@ -21,6 +21,7 @@ import {
   type RecipeIngredientGroup,
   type RecipeNote,
   type RecipeStepDetail,
+  type RecipeStepGroup,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
 import { refineRecipe } from '../lib/build-recipe-client';
@@ -58,7 +59,10 @@ export interface AdvancedRecipeState {
   servings: number;
   yieldDescription: string;
   ingredientGroups: RecipeIngredientGroup[];
-  steps: RecipeStepDetail[];
+  /** Method sections. Always at least one group; a single unnamed group
+   *  renders as a plain flat step list (no section header). Naming it or
+   *  adding a second group turns on the section subheadings everywhere. */
+  stepGroups: RecipeStepGroup[];
   equipment: string[];
   tags: string[];
   notes: RecipeNote[];
@@ -120,6 +124,54 @@ const AI_EDIT_SUGGESTIONS = [
   'Add a make-ahead tip',
 ];
 
+/* ── Method-section helpers ───────────────────────────────────── */
+
+/** Every non-empty step across all sections, in order. */
+function flattenStepGroups(groups: RecipeStepGroup[]): RecipeStepDetail[] {
+  return groups.flatMap((g) => g.steps.filter((s) => (s.body || s.title || '').trim()));
+}
+
+/** Drop empty steps + empty sections; trim section names. */
+function cleanStepGroups(groups: RecipeStepGroup[]): RecipeStepGroup[] {
+  return groups
+    .map((g) => ({ name: g.name.trim(), steps: g.steps.filter((s) => (s.body || s.title || '').trim()) }))
+    .filter((g) => g.steps.length > 0);
+}
+
+/** True when the sections are a real grouping worth persisting +
+ *  rendering as subheadings (2+ sections, or a single *named* one). A
+ *  lone unnamed section is just a flat method. */
+function hasMeaningfulSections(groups: RecipeStepGroup[]): boolean {
+  return groups.length > 1 || (groups.length === 1 && !!groups[0].name);
+}
+
+/** Snapshot the method as { stepGroups?, stepDetails, steps } for a
+ *  HomeMeal payload — section info preserved only when meaningful, flat
+ *  fallbacks always dual-written so legacy consumers keep rendering. */
+function methodToPayload(groups: RecipeStepGroup[]): {
+  stepGroups?: RecipeStepGroup[];
+  stepDetails: RecipeStepDetail[];
+  steps: string[];
+} {
+  const clean = cleanStepGroups(groups);
+  const flat = clean.flatMap((g) => g.steps);
+  return {
+    stepGroups: hasMeaningfulSections(clean) ? clean : undefined,
+    stepDetails: flat,
+    steps: flat.map((s) => (s.title ? `${s.title}: ${s.body}` : s.body)),
+  };
+}
+
+/** Backfill `stepGroups` on a persisted draft that predates sections
+ *  (it only had a flat `steps` array). Keeps old localStorage drafts
+ *  from crashing StepMethod when hydrated. */
+function coerceState(s: AdvancedRecipeState): AdvancedRecipeState {
+  if (Array.isArray(s.stepGroups) && s.stepGroups.length > 0) return s;
+  const legacy = (s as unknown as { steps?: RecipeStepDetail[] }).steps;
+  const steps = Array.isArray(legacy) && legacy.length > 0 ? legacy : [{ title: '', body: '' }];
+  return { ...s, stepGroups: [{ name: '', steps }] };
+}
+
 /** Initial state for a brand-new draft. */
 function emptyState(): AdvancedRecipeState {
   return {
@@ -136,7 +188,7 @@ function emptyState(): AdvancedRecipeState {
     servings: 4,
     yieldDescription: '',
     ingredientGroups: [{ name: 'Ingredients', ingredients: [] }],
-    steps: [{ title: '', body: '' }],
+    stepGroups: [{ name: '', steps: [{ title: '', body: '' }] }],
     equipment: [],
     tags: [],
     notes: [],
@@ -154,10 +206,21 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     meal.ingredientGroups && meal.ingredientGroups.length > 0
       ? meal.ingredientGroups
       : [{ name: 'Ingredients', ingredients: meal.ingredients || [] }];
-  const steps: RecipeStepDetail[] =
-    meal.stepDetails && meal.stepDetails.length > 0
-      ? meal.stepDetails
-      : (meal.steps || []).map((body) => ({ body }));
+  // Method: prefer rich sections, then flat stepDetails, then legacy
+  // string steps — collapsing the last two into one unnamed section.
+  let stepGroups: RecipeStepGroup[];
+  if (meal.stepGroups && meal.stepGroups.length > 0) {
+    stepGroups = meal.stepGroups.map((g) => ({
+      name: g.name || '',
+      steps: g.steps && g.steps.length > 0 ? g.steps : [{ title: '', body: '' }],
+    }));
+  } else {
+    const flat: RecipeStepDetail[] =
+      meal.stepDetails && meal.stepDetails.length > 0
+        ? meal.stepDetails
+        : (meal.steps || []).map((body) => ({ body }));
+    stepGroups = [{ name: '', steps: flat.length > 0 ? flat : [{ title: '', body: '' }] }];
+  }
   return {
     name: meal.name || '',
     summary: meal.summary || meal.description || '',
@@ -172,7 +235,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     servings: meal.servings || 4,
     yieldDescription: meal.yieldDescription || '',
     ingredientGroups: groups.length > 0 ? groups : [{ name: 'Ingredients', ingredients: [] }],
-    steps: steps.length > 0 ? steps : [{ title: '', body: '' }],
+    stepGroups,
     equipment: meal.equipment || [],
     tags: meal.tags || [],
     notes: meal.notes || [],
@@ -193,8 +256,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     .map((g) => ({ name: g.name, ingredients: g.ingredients.filter((i) => i.name.trim()) }))
     .filter((g) => g.ingredients.length > 0);
   const flatIngredients = cleanIngredientGroups.flatMap((g) => g.ingredients);
-  const cleanSteps = state.steps.filter((s) => (s.body || s.title || '').trim());
-  const flatSteps = cleanSteps.map((s) => (s.title ? `${s.title}: ${s.body}` : s.body));
+  const method = methodToPayload(state.stepGroups);
   const summary = state.summary.trim();
   return {
     id: base?.id || `ai-edit-${Date.now()}`,
@@ -221,8 +283,9 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     introParagraph: state.introParagraph.trim() || undefined,
     ingredients: flatIngredients,
     ingredientGroups: cleanIngredientGroups,
-    steps: flatSteps,
-    stepDetails: cleanSteps,
+    steps: method.steps,
+    stepDetails: method.stepDetails,
+    stepGroups: method.stepGroups,
     equipment: state.equipment.filter(Boolean),
     notes: state.notes.filter((n) => n.text.trim()),
     builderVersion: 'advanced',
@@ -247,10 +310,14 @@ export type Action =
   | { type: 'ADD_INGREDIENTS_BULK'; groupIndex: number; ingredients: RecipeIngredient[] }
   | { type: 'UPDATE_INGREDIENT'; groupIndex: number; index: number; ingredient: RecipeIngredient }
   | { type: 'REMOVE_INGREDIENT'; groupIndex: number; index: number }
-  | { type: 'ADD_STEP' }
-  | { type: 'UPDATE_STEP'; index: number; step: RecipeStepDetail }
-  | { type: 'MOVE_STEP'; index: number; direction: -1 | 1 }
-  | { type: 'REMOVE_STEP'; index: number }
+  | { type: 'ADD_STEP'; groupIndex: number }
+  | { type: 'UPDATE_STEP'; groupIndex: number; index: number; step: RecipeStepDetail }
+  | { type: 'MOVE_STEP'; groupIndex: number; index: number; direction: -1 | 1 }
+  | { type: 'REMOVE_STEP'; groupIndex: number; index: number }
+  | { type: 'ADD_STEP_GROUP' }
+  | { type: 'REMOVE_STEP_GROUP'; index: number }
+  | { type: 'RENAME_STEP_GROUP'; index: number; name: string }
+  | { type: 'MOVE_STEP_GROUP'; index: number; direction: -1 | 1 }
   | { type: 'ADD_NOTE'; noteType: RecipeNote['type'] }
   | { type: 'UPDATE_NOTE'; index: number; note: RecipeNote }
   | { type: 'REMOVE_NOTE'; index: number }
@@ -312,21 +379,78 @@ function reducer(state: AdvancedRecipeState, action: Action): AdvancedRecipeStat
         ),
       };
     case 'ADD_STEP':
-      return { ...state, steps: [...state.steps, { title: '', body: '' }] };
+      return {
+        ...state,
+        stepGroups: state.stepGroups.map((g, i) =>
+          i === action.groupIndex ? { ...g, steps: [...g.steps, { title: '', body: '' }] } : g,
+        ),
+      };
     case 'UPDATE_STEP':
-      return { ...state, steps: state.steps.map((s, i) => (i === action.index ? action.step : s)) };
+      return {
+        ...state,
+        stepGroups: state.stepGroups.map((g, i) =>
+          i === action.groupIndex
+            ? { ...g, steps: g.steps.map((s, j) => (j === action.index ? action.step : s)) }
+            : g,
+        ),
+      };
     case 'MOVE_STEP': {
+      const group = state.stepGroups[action.groupIndex];
+      if (!group) return state;
       const target = action.index + action.direction;
-      if (target < 0 || target >= state.steps.length) return state;
-      const next = [...state.steps];
-      const [moved] = next.splice(action.index, 1);
-      next.splice(target, 0, moved);
-      return { ...state, steps: next };
+      if (target < 0 || target >= group.steps.length) return state;
+      const nextSteps = [...group.steps];
+      const [moved] = nextSteps.splice(action.index, 1);
+      nextSteps.splice(target, 0, moved);
+      return {
+        ...state,
+        stepGroups: state.stepGroups.map((g, i) =>
+          i === action.groupIndex ? { ...g, steps: nextSteps } : g,
+        ),
+      };
     }
     case 'REMOVE_STEP': {
-      // Same as groups — keep one step around so the UI doesn't go blank.
-      if (state.steps.length <= 1) return state;
-      return { ...state, steps: state.steps.filter((_, i) => i !== action.index) };
+      const group = state.stepGroups[action.groupIndex];
+      if (!group) return state;
+      // Keep the last step of the last remaining section so the UI never
+      // goes fully blank; otherwise just drop the step.
+      if (group.steps.length <= 1 && state.stepGroups.length <= 1) return state;
+      const nextSteps = group.steps.filter((_, j) => j !== action.index);
+      // A section emptied of its last step disappears (unless it's the
+      // only section left).
+      if (nextSteps.length === 0 && state.stepGroups.length > 1) {
+        return { ...state, stepGroups: state.stepGroups.filter((_, i) => i !== action.groupIndex) };
+      }
+      return {
+        ...state,
+        stepGroups: state.stepGroups.map((g, i) =>
+          i === action.groupIndex ? { ...g, steps: nextSteps.length > 0 ? nextSteps : [{ title: '', body: '' }] } : g,
+        ),
+      };
+    }
+    case 'ADD_STEP_GROUP':
+      return {
+        ...state,
+        stepGroups: [...state.stepGroups, { name: 'New section', steps: [{ title: '', body: '' }] }],
+      };
+    case 'REMOVE_STEP_GROUP': {
+      if (state.stepGroups.length <= 1) return state;
+      return { ...state, stepGroups: state.stepGroups.filter((_, i) => i !== action.index) };
+    }
+    case 'RENAME_STEP_GROUP':
+      return {
+        ...state,
+        stepGroups: state.stepGroups.map((g, i) =>
+          i === action.index ? { ...g, name: action.name } : g,
+        ),
+      };
+    case 'MOVE_STEP_GROUP': {
+      const target = action.index + action.direction;
+      if (target < 0 || target >= state.stepGroups.length) return state;
+      const next = [...state.stepGroups];
+      const [moved] = next.splice(action.index, 1);
+      next.splice(target, 0, moved);
+      return { ...state, stepGroups: next };
     }
     case 'ADD_NOTE':
       return { ...state, notes: [...state.notes, { type: action.noteType, text: '' }] };
@@ -335,7 +459,7 @@ function reducer(state: AdvancedRecipeState, action: Action): AdvancedRecipeStat
     case 'REMOVE_NOTE':
       return { ...state, notes: state.notes.filter((_, i) => i !== action.index) };
     case 'HYDRATE':
-      return action.state;
+      return coerceState(action.state);
     case 'RESET':
       return emptyState();
     default:
@@ -360,7 +484,7 @@ function validate(state: AdvancedRecipeState): ValidationResult {
     0,
   );
   if (ingredientCount === 0) errors.push({ step: 3, message: 'Add at least one ingredient.' });
-  const stepCount = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
+  const stepCount = flattenStepGroups(state.stepGroups).length;
   if (stepCount === 0) errors.push({ step: 4, message: 'Add at least one method step.' });
   return { ok: errors.length === 0, errors };
 }
@@ -380,7 +504,7 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; 
     }
   }
   if (step === 4) {
-    const count = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
+    const count = flattenStepGroups(state.stepGroups).length;
     if (count === 0) {
       return { ok: false, reason: 'Add at least one method step before moving on.' };
     }
@@ -668,14 +792,11 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     // Discover) keep working without an update.
     const flatIngredients: RecipeIngredient[] = flattenIngredientGroups(state.ingredientGroups)
       .filter((i) => i.name.trim());
-    const flatSteps = state.steps
-      .filter((s) => (s.body || s.title || '').trim())
-      .map((s) => (s.title ? `${s.title}: ${s.body}` : s.body));
+    const method = methodToPayload(state.stepGroups);
     const cleanIngredientGroups = state.ingredientGroups.map((g) => ({
       name: g.name,
       ingredients: g.ingredients.filter((i) => i.name.trim()),
     }));
-    const cleanSteps = state.steps.filter((s) => (s.body || s.title || '').trim());
     const cleanNotes = state.notes.filter((n) => n.text.trim());
 
     const today = new Date().toISOString().slice(0, 10);
@@ -696,7 +817,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       difficulty: state.difficulty,
       cuisine: state.cuisine,
       ingredients: flatIngredients,
-      steps: flatSteps,
+      steps: method.steps,
       // Advanced-only fields
       summary: state.summary.trim(),
       introParagraph: state.introParagraph.trim() || undefined,
@@ -706,7 +827,8 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       ingredientGroups: cleanIngredientGroups,
       equipment: state.equipment.filter(Boolean),
       notes: cleanNotes,
-      stepDetails: cleanSteps,
+      stepDetails: method.stepDetails,
+      stepGroups: method.stepGroups,
       builderVersion: 'advanced',
       createdWithAi: state.createdWithAi || undefined,
     };

@@ -39,11 +39,25 @@ export const RECIPE_QUALITY_BAR = [
   '',
   'STRUCTURE:',
   '- Sensible step ordering; one clear action per step, each with a short imperative `title`.',
+  '- Group the METHOD into sections with `stepGroups` whenever the dish is built from distinct components or stages — e.g. a Beef Wellington with "For the duxelles", "For the crêpes", "Sear & wrap the beef", "Assemble & bake", or a laminated dough with "Make the détrempe", "Laminate", "Shape & proof", "Bake". Each section is a named run of steps. Use the flat `steps` list instead for a simple single-flow recipe. Use ONE of `stepGroups` or `steps`, never both. Number of sections should match the dish\'s real components — do not invent sections for a simple recipe.',
   '- Group ingredients with `ingredientGroups` ONLY when the recipe truly has distinct stages ("For the détrempe", "For the butter block"); otherwise use the flat `ingredients` list.',
   '- Include the `equipment` the cook needs and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead). Complex projects warrant the make-ahead timeline note above.',
   '- Write BOTH a `summary` (one punchy line, the byline under the title) AND a longer `introParagraph` (2–4 sentences of prose for the top of the recipe page). They MUST be different: the intro describes what the dish actually is — its flavor and texture, where it comes from or when to serve it, and why it is worth cooking. Do NOT just restate the summary.',
   `- Set a sensible \`cuisine\` (examples: ${CUISINE_HINT}) and \`course\` (one or more of: ${COURSE_HINT}).`,
 ].join('\n');
+
+// One method step — shared between the flat `steps` array and the steps
+// inside each `stepGroups` section so both author identical step JSON.
+const STEP_ITEM_SCHEMA = {
+  type: 'object',
+  required: ['body'],
+  properties: {
+    title: { type: 'string', description: 'Short imperative, e.g. "Brown the butter".' },
+    body: { type: 'string', description: 'One clear action per step. For demanding dishes include exact temperatures, dimensions/roll-out sizes, fold or shaping schemes, and sensory doneness cues — not just clock times.' },
+    durationMin: { type: 'integer', minimum: 0, description: 'Minutes this step takes, including any passive wait (proof/chill/rest) it contains, so per-step times sum to the real total.' },
+    tip: { type: 'string', description: 'Optional inline tip for this step.' },
+  },
+};
 
 // The build_recipe tool INPUT SCHEMA (the recipe object shape + field
 // guidance). Shared verbatim so both paths emit identical, richly-described
@@ -101,15 +115,22 @@ export const RECIPE_INPUT_SCHEMA = {
     },
     steps: {
       type: 'array',
-      description: 'Ordered cooking steps.',
+      description: 'Ordered cooking steps for a simple single-flow recipe. Use this OR stepGroups — not both.',
+      items: STEP_ITEM_SCHEMA,
+    },
+    stepGroups: {
+      type: 'array',
+      description: 'The method split into named sections — use for any dish built from distinct components or stages (e.g. a Beef Wellington: "For the duxelles", "For the crêpes", "Sear & wrap the beef", "Assemble & bake"). Each section is a named run of ordered steps; steps stay continuously numbered across sections when rendered. Use this OR the flat steps array — not both. Prefer it for multi-component dishes; use flat steps for simple ones.',
       items: {
         type: 'object',
-        required: ['body'],
+        required: ['name', 'steps'],
         properties: {
-          title: { type: 'string', description: 'Short imperative, e.g. "Brown the butter".' },
-          body: { type: 'string', description: 'One clear action per step. For demanding dishes include exact temperatures, dimensions/roll-out sizes, fold or shaping schemes, and sensory doneness cues — not just clock times.' },
-          durationMin: { type: 'integer', minimum: 0, description: 'Minutes this step takes, including any passive wait (proof/chill/rest) it contains, so per-step times sum to the real total.' },
-          tip: { type: 'string', description: 'Optional inline tip for this step.' },
+          name: { type: 'string', description: 'Section name, e.g. "For the duxelles" or "Assembly".' },
+          steps: {
+            type: 'array',
+            description: 'Ordered steps within this section.',
+            items: STEP_ITEM_SCHEMA,
+          },
         },
       },
     },

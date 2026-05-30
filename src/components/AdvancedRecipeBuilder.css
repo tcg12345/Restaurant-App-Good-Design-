@@ -933,6 +933,30 @@
 
 /* ── Method (Step 4) ─────────────────────────────────────────── */
 
+/* Section wrapper + header — only rendered when there's more than one
+   method section. A single section reads as a plain flat step list. */
+.arb-method-section { margin-bottom: 22px; }
+.arb-method-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1.5px solid var(--border, rgba(31,26,23,0.1));
+}
+.arb-method-section-head .arb-section-card-title {
+  font-size: 17px;
+  width: auto;
+  flex: 1;
+}
+.arb-method-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .arb-step-card {
   background: #fff;
   border-radius: 18px;

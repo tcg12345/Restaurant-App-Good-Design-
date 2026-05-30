@@ -194,6 +194,16 @@ export interface RecipeStepDetail {
   tip?: string;
 }
 
+/** A named section within the method — a run of steps that belong to one
+ *  component of the dish (e.g. "For the duxelles", "For the crêpes",
+ *  "Assembly"). Mirrors RecipeIngredientGroup. The Advanced builder writes
+ *  these; the flat `stepDetails[]` / `steps[]` are kept in sync so older
+ *  consumers (cook mode, feed, search) keep rendering. */
+export interface RecipeStepGroup {
+  name: string;
+  steps: RecipeStepDetail[];
+}
+
 export interface HomeMeal {
   id: string;
   name: string;
@@ -245,6 +255,12 @@ export interface HomeMeal {
    *  and non-empty, supersedes the flat `steps` array for rendering.
    *  Advanced publish also dual-writes the flat list. */
   stepDetails?: RecipeStepDetail[];
+  /** Grouped method sections ("For the duxelles", "Assembly", …). When
+   *  present and non-empty, supersedes the flat `stepDetails` for
+   *  rendering — section subheadings are drawn between the (continuously
+   *  numbered) steps. Advanced publish dual-writes the flat
+   *  `stepDetails` / `steps` arrays so legacy consumers keep working. */
+  stepGroups?: RecipeStepGroup[];
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';

@@ -59,7 +59,12 @@ function formatMin(m: number): string {
 export const StepReview: React.FC<Props> = ({ state, dispatch, validation }) => {
   const totalMin = state.prepTime + state.cookTime + state.chillTime;
   const flatIngredients = flattenIngredientGroups(state.ingredientGroups).filter((i) => i.name.trim());
-  const flatStepCount = state.steps.filter((s) => (s.body || s.title || '').trim()).length;
+  // Only sections with a real name and 2+ groups read as sections here.
+  const stepSections = state.stepGroups
+    .map((g) => ({ name: g.name.trim(), steps: g.steps.filter((s) => (s.body || s.title || '').trim()) }))
+    .filter((g) => g.steps.length > 0);
+  const showStepSections = stepSections.length > 1;
+  const flatStepCount = stepSections.reduce((sum, g) => sum + g.steps.length, 0);
 
   return (
     <>
@@ -120,19 +125,37 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, validation }) => 
         </div>
       )}
 
-      {flatStepCount > 0 && (
-        <div className="arb-review-section">
-          <h4>Method ({flatStepCount} step{flatStepCount === 1 ? '' : 's'})</h4>
-          <ol className="arb-review-list" style={{ counterReset: 'step', listStyle: 'none' }}>
-            {state.steps.filter((s) => (s.body || s.title || '').trim()).map((s, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>
-                <strong>{i + 1}.</strong> {s.title || s.body.slice(0, 80)}
-                {s.durationMin ? <span style={{ color: 'var(--accent, #A8392A)', marginLeft: 6 }}>· {s.durationMin}m</span> : null}
-              </li>
+      {flatStepCount > 0 && (() => {
+        let n = 0; // continuous numbering across sections
+        return (
+          <div className="arb-review-section">
+            <h4>Method ({flatStepCount} step{flatStepCount === 1 ? '' : 's'})</h4>
+            {stepSections.map((g, gi) => (
+              <div key={gi} style={{ marginBottom: showStepSections ? 10 : 0 }}>
+                {showStepSections && (
+                  <div style={{
+                    fontFamily: 'var(--serif, Georgia, serif)',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    margin: '6px 0 4px',
+                  }}>{g.name || `Section ${gi + 1}`}</div>
+                )}
+                <ol className="arb-review-list" style={{ counterReset: 'step', listStyle: 'none' }}>
+                  {g.steps.map((s, i) => {
+                    n += 1;
+                    return (
+                      <li key={i} style={{ marginBottom: 6 }}>
+                        <strong>{n}.</strong> {s.title || s.body.slice(0, 80)}
+                        {s.durationMin ? <span style={{ color: 'var(--accent, #A8392A)', marginLeft: 6 }}>· {s.durationMin}m</span> : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
             ))}
-          </ol>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {state.equipment.length > 0 && (
         <div className="arb-review-section">
