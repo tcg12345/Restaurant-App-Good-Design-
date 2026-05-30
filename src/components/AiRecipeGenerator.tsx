@@ -43,31 +43,19 @@ const SERVING_OPTIONS = [1, 2, 4, 6, 8];
 const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Snack', 'Side'];
 const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Gluten-free', 'Dairy-free', 'High-protein', 'Low-carb'];
 
-// Desktop rail "table of contents" — mirrors the Advanced builder's step
-// rail, but the entries are section anchors rather than a linear wizard.
+const AI_DESC =
+  "Describe the dish — flavors, servings, dietary needs, time budget — and I'll draft a complete recipe you can review, tweak, and publish.";
+const DISCLAIMER = 'AI-generated recipes can have mistakes. Review measurements and steps before cooking.';
+
+// Rail "table of contents" — mirrors the Advanced builder's step rail,
+// but the entries are section anchors rather than a linear wizard.
 const AI_STEPS: { title: string; sub: string; icon: React.ReactNode }[] = [
   { title: 'Describe it', sub: 'Flavors, time, servings', icon: <PenLine size={14} /> },
   { title: 'Set guidelines', sub: 'Optional constraints', icon: <Gauge size={14} /> },
   { title: 'Review & publish', sub: 'You stay in control', icon: <Eye size={14} /> },
 ];
 
-// ── Phone-only chip helpers (kept from the original compact layout) ──
-const guidelinePill = (active: boolean) =>
-  cn(
-    'px-3 py-1.5 rounded-full text-[12.5px] font-semibold border transition-colors',
-    active
-      ? 'bg-primary text-white border-primary'
-      : 'border-on-surface/12 bg-on-surface/[0.02] text-on-surface/65 hover:border-primary/30 hover:text-on-surface',
-  );
-
-const GuidelineRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div>
-    <p className="text-[11px] font-semibold text-on-surface/45 mb-1.5 pl-1">{label}</p>
-    <div className="flex flex-wrap gap-2">{children}</div>
-  </div>
-);
-
-// ── Desktop guideline dropdown ──
+// Guideline dropdown — a styled native <select> with a chevron.
 const GuideSelect: React.FC<{
   label: string;
   value: string;
@@ -108,7 +96,10 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => textareaRef.current?.focus(), phoneMode ? 280 : 150);
+    // Desktop only — auto-focusing on phone pops the keyboard the instant
+    // the modal opens, hiding the header and guidelines. Let the user tap in.
+    if (phoneMode) return;
+    const t = setTimeout(() => textareaRef.current?.focus(), 150);
     return () => clearTimeout(t);
   }, [phoneMode]);
 
@@ -174,385 +165,223 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   };
 
   const canSubmit = (prompt.trim().length > 0 || hasGuidelines) && !loading;
-
   const loadingTitle = elapsed >= 18 ? 'Almost there…' : elapsed >= 8 ? 'Writing the steps…' : 'Drafting your recipe…';
 
-  // ════════════════════════════════════════════════════════════════
-  // PHONE — original compact single-column layout (unchanged)
-  // ════════════════════════════════════════════════════════════════
-  if (phoneMode) {
-    return (
-      <div className="flex flex-col flex-1 min-h-0">
-        {/* Tab strip + close — mirrors the Basic page header layout. */}
-        <div className="px-6 pt-safe-5 sm:pt-6 pb-2 flex items-center justify-between flex-shrink-0 gap-2">
-          {tabSlot}
+  // ── Shared body (prompt + guidelines + inspiration), used on both
+  //    phone and desktop inside the .arb-pane-body. ──
+  const body = loading ? (
+    <div className="arb-ai-loading">
+      <motion.div
+        className="arb-ai-loading-orb"
+        animate={{ scale: [1, 1.06, 1] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <ChefHat size={34} />
+      </motion.div>
+      <div>
+        <div className="arb-ai-loading-title">{loadingTitle}</div>
+        <p className="arb-ai-loading-sub" style={{ marginTop: 6 }}>
+          Measuring ingredients, sequencing steps, and dialing in the timing.
+        </p>
+      </div>
+      {elapsed >= 3 && <span className="arb-ai-loading-secs">{elapsed}s</span>}
+    </div>
+  ) : (
+    <>
+      {phoneMode && (
+        <p className="arb-pane-sub" style={{ marginTop: 0, marginBottom: 18 }}>{AI_DESC}</p>
+      )}
+
+      {/* Prompt box */}
+      <div className={cn('arb-prompt', error && 'is-error')}>
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
+          onKeyDown={handleKeyDown}
+          placeholder="e.g. A creamy one-pot Tuscan chicken pasta for 4, ready in under 45 minutes…"
+          rows={4}
+        />
+        <div className="arb-prompt-foot">
+          <span className="arb-prompt-hint">
+            <span className="arb-kbd">Enter</span>
+            {prompt.trim().length > 0 ? 'to generate · Shift+Enter for a new line' : 'to generate'}
+          </span>
           <button
-            onClick={onClose}
-            className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"
-            aria-label="Close"
+            type="button"
+            className="arb-prompt-send"
+            onClick={handleGenerate}
+            disabled={!canSubmit}
+            aria-label="Generate recipe"
           >
-            <X size={22} />
+            <ArrowUp size={18} strokeWidth={2.5} />
           </button>
         </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-4 flex flex-col">
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center gap-5 py-12">
-              <div className="relative">
-                <motion.div
-                  className="w-20 h-20 rounded-3xl bg-primary/[0.08] flex items-center justify-center"
-                  animate={{ scale: [1, 1.06, 1] }}
-                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <ChefHat size={34} className="text-primary" />
-                </motion.div>
-                <motion.div
-                  className="absolute -top-1 -right-1"
-                  animate={{ rotate: [0, 18, -10, 0], scale: [1, 1.15, 1] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <Sparkles size={20} className="text-primary fill-primary/30" />
-                </motion.div>
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="font-serif font-bold text-xl text-on-surface">{loadingTitle}</h3>
-                <p className="text-sm text-on-surface/50 max-w-[18rem]">
-                  Measuring ingredients, sequencing steps, and dialing in the timing.
-                </p>
-              </div>
-              {elapsed >= 3 && (
-                <span className="text-[12px] font-semibold text-on-surface/40 tabular-nums px-3 py-1 rounded-full bg-on-surface/[0.05]">
-                  {elapsed}s
-                </span>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Hero intro */}
-              <div className="pt-2 pb-5 text-center sm:text-left">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/[0.08] text-primary text-[11px] font-bold uppercase tracking-wider mb-3">
-                  <Sparkles size={13} />
-                  Create with AI
-                </div>
-                <h2 className="font-serif font-bold text-[26px] leading-tight text-on-surface">
-                  What do you want to cook?
-                </h2>
-                <p className="text-sm text-on-surface/55 mt-2 leading-relaxed max-w-md mx-auto sm:mx-0">
-                  Describe the dish — flavors, servings, dietary needs, time budget — and I'll
-                  draft a complete recipe you can review, tweak, and publish.
-                </p>
-              </div>
-
-              {/* Prompt box */}
-              <div
-                className={cn(
-                  'rounded-3xl border bg-on-surface/[0.02] transition-colors',
-                  error ? 'border-red-300' : 'border-on-surface/12 focus-within:border-primary/40',
-                )}
-              >
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="e.g. A creamy one-pot Tuscan chicken pasta for 4, ready in under 45 minutes…"
-                  rows={4}
-                  className="w-full bg-transparent px-5 pt-4 pb-2 text-[15px] leading-relaxed text-on-surface placeholder:text-on-surface/30 focus:outline-none resize-none"
-                />
-                <div className="flex items-center justify-between px-3 pb-3 pt-1">
-                  <span className="text-[11px] text-on-surface/35 pl-2">
-                    {prompt.trim().length > 0 ? 'Enter to generate · Shift+Enter for a new line' : 'Press Enter to generate'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleGenerate}
-                    disabled={!canSubmit}
-                    className={cn(
-                      'flex items-center justify-center w-10 h-10 rounded-full transition-all flex-shrink-0',
-                      canSubmit
-                        ? 'bg-primary text-white hover:opacity-90 shadow-sm'
-                        : 'bg-on-surface/[0.06] text-on-surface/30 cursor-not-allowed',
-                    )}
-                    aria-label="Generate recipe"
-                  >
-                    <ArrowUp size={18} strokeWidth={2.5} />
-                  </button>
-                </div>
-              </div>
-
-              {error && (
-                <div className="flex items-start gap-2.5 mt-3 px-4 py-3 rounded-2xl bg-red-50 border border-red-200 text-red-700">
-                  <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
-                  <p className="text-[13px] leading-relaxed">{error}</p>
-                </div>
-              )}
-
-              {/* Guidelines — optional structured constraints */}
-              <div className="mt-6">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface/35 mb-3 pl-1">
-                  Guidelines <span className="font-medium tracking-normal text-on-surface/30">· optional</span>
-                </p>
-                <div className="space-y-3.5">
-                  <GuidelineRow label="Difficulty">
-                    {DIFFICULTIES.map((d) => (
-                      <button key={d} type="button" onClick={() => setDifficulty(difficulty === d ? '' : d)} className={guidelinePill(difficulty === d)}>{d}</button>
-                    ))}
-                  </GuidelineRow>
-                  <GuidelineRow label="Total time">
-                    {TIME_OPTIONS.map((t) => (
-                      <button key={t.key} type="button" onClick={() => setTimeBudget(timeBudget === t.key ? '' : t.key)} className={guidelinePill(timeBudget === t.key)}>{t.label}</button>
-                    ))}
-                  </GuidelineRow>
-                  <GuidelineRow label="Servings">
-                    {SERVING_OPTIONS.map((s) => (
-                      <button key={s} type="button" onClick={() => setServings(servings === s ? null : s)} className={guidelinePill(servings === s)}>{s}</button>
-                    ))}
-                  </GuidelineRow>
-                  <GuidelineRow label="Meal">
-                    {COURSE_OPTIONS.map((c) => (
-                      <button key={c} type="button" onClick={() => setCourse(course === c ? '' : c)} className={guidelinePill(course === c)}>{c}</button>
-                    ))}
-                  </GuidelineRow>
-                  <GuidelineRow label="Dietary">
-                    {DIETARY_OPTIONS.map((d) => (
-                      <button key={d} type="button" onClick={() => toggleDietary(d)} className={guidelinePill(dietary.includes(d))}>{d}</button>
-                    ))}
-                  </GuidelineRow>
-                </div>
-              </div>
-
-              {/* Example chips */}
-              <div className="mt-6">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface/35 mb-2.5 pl-1">
-                  Need inspiration?
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {EXAMPLES.map((ex) => (
-                    <button
-                      key={ex}
-                      type="button"
-                      onClick={() => {
-                        setPrompt(ex);
-                        setError(null);
-                        textareaRef.current?.focus();
-                      }}
-                      className="text-left px-3.5 py-2 rounded-2xl border border-on-surface/12 bg-on-surface/[0.02] text-[12.5px] text-on-surface/70 hover:border-primary/30 hover:bg-primary/[0.04] hover:text-on-surface transition-colors"
-                    >
-                      {ex}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <p className="text-[11px] text-on-surface/35 mt-auto pt-6 text-center leading-relaxed">
-                AI-generated recipes can have mistakes. Review measurements and steps before cooking.
-              </p>
-            </>
-          )}
-        </div>
       </div>
-    );
-  }
 
-  // ════════════════════════════════════════════════════════════════
-  // DESKTOP — editorial rail + pane shell, matching the Advanced tab
-  // ════════════════════════════════════════════════════════════════
-  return (
-    <div className="advanced-recipe-builder">
-      <button type="button" className="arb-pane-close" onClick={onClose} aria-label="Close">
-        <X size={18} />
-      </button>
+      {error && (
+        <div className="arb-ai-error">
+          <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+          <p>{error}</p>
+        </div>
+      )}
 
-      <div className="arb-shell">
-        {/* Left rail */}
-        <nav className="arb-rail">
-          <div className="arb-rail-eyebrow">New recipe</div>
-          <div className="arb-rail-title">Cook with <em>intent</em>.</div>
-          {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
-          <p className="arb-rail-desc">
-            Describe a dish in your own words and get a complete, editable draft in seconds.
-          </p>
-          <ol className="arb-rail-steps is-toc">
-            {AI_STEPS.map((s, i) => (
-              <li key={s.title} className={`arb-rail-step is-toc${i === 0 ? ' is-current' : ''}`}>
-                <span className="arb-rail-step-circle">{s.icon}</span>
-                <span className="arb-rail-step-text">
-                  <span className="arb-rail-step-title">{s.title}</span>
-                  <span className="arb-rail-step-sub">{s.sub}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-          <div className="arb-rail-foot">
-            <div className="arb-rail-foot-status">
-              <span className="dot" />
-              <span>Always editable</span>
-              <span style={{ marginLeft: 'auto' }}>Powered by AI</span>
+      {/* Guidelines — optional, as dropdowns */}
+      <div className="arb-sec" style={{ marginTop: 26 }}>
+        <div className="arb-sec-label">
+          Guidelines <span className="opt">· optional</span>
+        </div>
+        <div className="arb-guide-grid">
+          <GuideSelect label="Difficulty" value={difficulty} onChange={setDifficulty}
+            options={DIFFICULTIES.map((d) => ({ value: d, label: d }))} />
+          <GuideSelect label="Total time" value={timeBudget} onChange={setTimeBudget}
+            options={TIME_OPTIONS.map((t) => ({ value: t.key, label: t.label }))} />
+          <GuideSelect label="Servings" value={servings != null ? String(servings) : ''}
+            onChange={(v) => setServings(v ? Number(v) : null)}
+            options={SERVING_OPTIONS.map((s) => ({ value: String(s), label: String(s) }))} />
+          <GuideSelect label="Meal" value={course} onChange={setCourse}
+            options={COURSE_OPTIONS.map((c) => ({ value: c, label: c }))} />
+          <div className="arb-guide-field is-full">
+            <label className="arb-guide-label">
+              Dietary <span style={{ color: 'var(--muted-2, #B8AFA4)' }}>· select any</span>
+            </label>
+            <div className="arb-diet-chips">
+              {DIETARY_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => toggleDietary(d)}
+                  className={cn('arb-diet-chip', dietary.includes(d) && 'is-active')}
+                >
+                  {d}
+                </button>
+              ))}
             </div>
           </div>
-        </nav>
+        </div>
+      </div>
 
-        {/* Right pane */}
+      {/* Inspiration list */}
+      <div className="arb-sec">
+        <div className="arb-sec-label">Need inspiration?</div>
+        <div className="arb-inspo-list">
+          {EXAMPLES.map((ex) => (
+            <button
+              key={ex}
+              type="button"
+              className="arb-inspo-item"
+              onClick={() => { setPrompt(ex); setError(null); textareaRef.current?.focus(); }}
+            >
+              <span className="arb-inspo-icon"><Sparkles size={16} /></span>
+              <span className="arb-inspo-text">{ex}</span>
+              <ArrowRight size={16} className="arb-inspo-arrow" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {phoneMode && (
+        <p className="arb-foot-note" style={{ marginTop: 22, textAlign: 'center', maxWidth: 'none' }}>
+          {DISCLAIMER}
+        </p>
+      )}
+    </>
+  );
+
+  return (
+    <div className={cn('advanced-recipe-builder', phoneMode && 'is-phone')}>
+      {!phoneMode && (
+        <button type="button" className="arb-pane-close" onClick={onClose} aria-label="Close">
+          <X size={18} />
+        </button>
+      )}
+
+      {/* Mobile sticky header — tab strip + title (replaces the rail). */}
+      {phoneMode && (
+        <header className="arb-m-header">
+          <div className="arb-m-tabs">
+            {tabSlot}
+            <button type="button" className="arb-m-header-close" onClick={onClose} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="arb-m-titleblock-left">
+            <div className="arb-m-header-eyebrow">Create with AI</div>
+            <div className="arb-m-header-title">What do you want to cook?</div>
+          </div>
+        </header>
+      )}
+
+      <div className="arb-shell">
+        {/* Desktop left rail */}
+        {!phoneMode && (
+          <nav className="arb-rail">
+            <div className="arb-rail-eyebrow">New recipe</div>
+            <div className="arb-rail-title">Cook with <em>intent</em>.</div>
+            {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
+            <p className="arb-rail-desc">
+              Describe a dish in your own words and get a complete, editable draft in seconds.
+            </p>
+            <ol className="arb-rail-steps is-toc">
+              {AI_STEPS.map((s, i) => (
+                <li key={s.title} className={`arb-rail-step is-toc${i === 0 ? ' is-current' : ''}`}>
+                  <span className="arb-rail-step-circle">{s.icon}</span>
+                  <span className="arb-rail-step-text">
+                    <span className="arb-rail-step-title">{s.title}</span>
+                    <span className="arb-rail-step-sub">{s.sub}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <div className="arb-rail-foot">
+              <div className="arb-rail-foot-status">
+                <span className="dot" />
+                <span>Always editable</span>
+                <span style={{ marginLeft: 'auto' }}>Powered by AI</span>
+              </div>
+            </div>
+          </nav>
+        )}
+
+        {/* Pane */}
         <div className="arb-pane">
           <div className="arb-pane-head is-flush">
             <div className="arb-pane-eyebrow is-pill">
               <Sparkles size={12} /> Create with AI
             </div>
             <h2 className="arb-pane-title is-hero">What do you want to cook?</h2>
-            <p className="arb-pane-sub">
-              Describe the dish — flavors, servings, dietary needs, time budget — and I'll draft a
-              complete recipe you can review, tweak, and publish.
-            </p>
+            <p className="arb-pane-sub">{AI_DESC}</p>
           </div>
 
-          <div className="arb-pane-body">
-            {loading ? (
-              <div className="arb-ai-loading">
-                <motion.div
-                  className="arb-ai-loading-orb"
-                  animate={{ scale: [1, 1.06, 1] }}
-                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <ChefHat size={34} />
-                </motion.div>
-                <div>
-                  <div className="arb-ai-loading-title">{loadingTitle}</div>
-                  <p className="arb-ai-loading-sub" style={{ marginTop: 6 }}>
-                    Measuring ingredients, sequencing steps, and dialing in the timing.
-                  </p>
-                </div>
-                {elapsed >= 3 && <span className="arb-ai-loading-secs">{elapsed}s</span>}
-              </div>
-            ) : (
-              <>
-                {/* Prompt box */}
-                <div className={cn('arb-prompt', error && 'is-error')}>
-                  <textarea
-                    ref={textareaRef}
-                    value={prompt}
-                    onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
-                    onKeyDown={handleKeyDown}
-                    placeholder="e.g. A creamy one-pot Tuscan chicken pasta for 4, ready in under 45 minutes…"
-                    rows={4}
-                  />
-                  <div className="arb-prompt-foot">
-                    <span className="arb-prompt-hint">
-                      <span className="arb-kbd">Enter</span>
-                      {prompt.trim().length > 0 ? 'to generate · Shift+Enter for a new line' : 'to generate'}
-                    </span>
-                    <button
-                      type="button"
-                      className="arb-prompt-send"
-                      onClick={handleGenerate}
-                      disabled={!canSubmit}
-                      aria-label="Generate recipe"
-                    >
-                      <ArrowUp size={18} strokeWidth={2.5} />
-                    </button>
-                  </div>
-                </div>
+          <div className="arb-pane-body">{body}</div>
 
-                {error && (
-                  <div className="arb-ai-error">
-                    <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-                    <p>{error}</p>
-                  </div>
-                )}
-
-                {/* Guidelines — optional, as dropdowns */}
-                <div className="arb-sec" style={{ marginTop: 26 }}>
-                  <div className="arb-sec-label">
-                    Guidelines <span className="opt">· optional</span>
-                  </div>
-                  <div className="arb-guide-grid">
-                    <GuideSelect
-                      label="Difficulty"
-                      value={difficulty}
-                      onChange={setDifficulty}
-                      options={DIFFICULTIES.map((d) => ({ value: d, label: d }))}
-                    />
-                    <GuideSelect
-                      label="Total time"
-                      value={timeBudget}
-                      onChange={setTimeBudget}
-                      options={TIME_OPTIONS.map((t) => ({ value: t.key, label: t.label }))}
-                    />
-                    <GuideSelect
-                      label="Servings"
-                      value={servings != null ? String(servings) : ''}
-                      onChange={(v) => setServings(v ? Number(v) : null)}
-                      options={SERVING_OPTIONS.map((s) => ({ value: String(s), label: String(s) }))}
-                    />
-                    <GuideSelect
-                      label="Meal"
-                      value={course}
-                      onChange={setCourse}
-                      options={COURSE_OPTIONS.map((c) => ({ value: c, label: c }))}
-                    />
-                    <div className="arb-guide-field is-full">
-                      <label className="arb-guide-label">
-                        Dietary <span style={{ color: 'var(--muted-2, #B8AFA4)' }}>· select any</span>
-                      </label>
-                      <div className="arb-diet-chips">
-                        {DIETARY_OPTIONS.map((d) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => toggleDietary(d)}
-                            className={cn('arb-diet-chip', dietary.includes(d) && 'is-active')}
-                          >
-                            {d}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Inspiration list */}
-                <div className="arb-sec">
-                  <div className="arb-sec-label">Need inspiration?</div>
-                  <div className="arb-inspo-list">
-                    {EXAMPLES.map((ex) => (
-                      <button
-                        key={ex}
-                        type="button"
-                        className="arb-inspo-item"
-                        onClick={() => {
-                          setPrompt(ex);
-                          setError(null);
-                          textareaRef.current?.focus();
-                        }}
-                      >
-                        <span className="arb-inspo-icon"><Sparkles size={16} /></span>
-                        <span className="arb-inspo-text">{ex}</span>
-                        <ArrowRight size={16} className="arb-inspo-arrow" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          {/* Mobile footer dock — single primary action. */}
+          {phoneMode && (
+            <div className="arb-m-foot is-single">
+              <button
+                type="button"
+                className="arb-m-foot-primary"
+                onClick={handleGenerate}
+                disabled={!canSubmit}
+              >
+                <Sparkles size={16} /> {loading ? 'Generating…' : 'Generate recipe'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Sticky footer */}
-      <div className="arb-foot">
-        <span className="arb-foot-note">
-          AI-generated recipes can have mistakes. Review measurements and steps before cooking.
-        </span>
-        <div className="arb-foot-right">
-          <button
-            type="button"
-            className="arb-foot-publish"
-            onClick={handleGenerate}
-            disabled={!canSubmit}
-          >
-            <Sparkles size={16} /> {loading ? 'Generating…' : 'Generate recipe'}
-          </button>
+      {/* Desktop sticky footer */}
+      {!phoneMode && (
+        <div className="arb-foot">
+          <span className="arb-foot-note">{DISCLAIMER}</span>
+          <div className="arb-foot-right">
+            <button type="button" className="arb-foot-publish" onClick={handleGenerate} disabled={!canSubmit}>
+              <Sparkles size={16} /> {loading ? 'Generating…' : 'Generate recipe'}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

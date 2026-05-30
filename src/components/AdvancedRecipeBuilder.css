@@ -762,8 +762,12 @@
   align-items: center;
 }
 .advanced-recipe-builder.is-phone .arb-ingr-row {
-  grid-template-columns: 70px 70px 1fr 32px;
+  /* Tighter amount column + smaller delete target leaves more room for
+     the ingredient name on ~320px phones (was 70/70/1fr/32). */
+  grid-template-columns: 56px 72px 1fr 30px;
+  gap: 7px;
 }
+.advanced-recipe-builder.is-phone .arb-ingr-input { padding: 10px 9px; }
 .arb-ingr-input {
   padding: 10px 12px;
   background: var(--cream-2, #E6DFCE);
@@ -1698,7 +1702,9 @@
   flex-shrink: 0;
   background: var(--surface-2, #FBF7F0);
   border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
-  padding: 14px 16px 0;
+  /* Carry the iOS safe-area inset so the header clears the notch / status
+     bar in the Capacitor app instead of sliding underneath it. */
+  padding: max(12px, env(safe-area-inset-top)) 16px 0;
 }
 .arb-m-header-row {
   display: grid;
@@ -2787,3 +2793,73 @@
   color: var(--muted, #8C8278);
   max-width: 46ch;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   MOBILE CONSISTENCY — shared chrome across Basic / Advanced / AI
+   ────────────────────────────────────────────────────────────────
+   On phone all three tabs render the .advanced-recipe-builder.is-phone
+   shell. They share: a top tab strip (switch modes) with safe-area
+   handling, a left-aligned eyebrow + serif title, and the floating
+   footer dock. The in-pane .arb-pane-head is hidden on phone since the
+   sticky mobile header already supplies the title.
+   ════════════════════════════════════════════════════════════════ */
+
+/* The desktop pane title is redundant with the mobile header on phone. */
+.advanced-recipe-builder.is-phone .arb-pane-head { display: none; }
+
+/* Top tab strip — tab toggle on the left, close on the right. Lives
+   inside .arb-m-header so it inherits the 16px horizontal padding; the
+   header itself now carries the safe-area-top inset (notch fix). */
+.arb-m-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.arb-m-tabs .arb-tab-toggle { flex-shrink: 1; min-width: 0; }
+.arb-m-tabs .arb-tab-toggle button { padding: 6px 13px; }
+
+/* Left-aligned eyebrow + title block (Basic / AI, and the Advanced
+   title within its title row). */
+.arb-m-titleblock-left { min-width: 0; padding-bottom: 12px; }
+.arb-m-header-title em { font-style: italic; color: var(--accent, #A8392A); }
+
+/* Advanced: title (left) paired with the save status (right). */
+.arb-m-titlerow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.arb-m-titlerow .arb-m-titleblock-left { padding-bottom: 0; }
+
+/* Single-action footer dock (Basic "Save", AI "Generate") — one
+   full-width pill, no back circle. */
+.arb-m-foot.is-single .arb-m-foot-primary {
+  flex: 1;
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  background: var(--accent, #A8392A);
+  color: var(--cream, #EDE7D9);
+  font-family: var(--serif, Georgia, serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  box-shadow: 0 8px 22px -6px rgba(31,26,23,0.32), 0 2px 4px rgba(31,26,23,0.08);
+  cursor: pointer;
+}
+.arb-m-foot.is-single .arb-m-foot-primary:disabled { opacity: 0.5; cursor: default; }
+
+/* Phone tweaks for the Basic/AI cards so they breathe on narrow screens. */
+.advanced-recipe-builder.is-phone .arb-qi-grid { gap: 10px; }
+.advanced-recipe-builder.is-phone .arb-qi-card { padding: 14px 15px; min-height: 84px; }
+.advanced-recipe-builder.is-phone .arb-guide-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+.advanced-recipe-builder.is-phone .arb-pane-title.is-hero { font-size: 26px; }
+.advanced-recipe-builder.is-phone .arb-prompt textarea { font-size: 16px; min-height: 104px; }
+.advanced-recipe-builder.is-phone .arb-inspo-text { font-size: 14.5px; }

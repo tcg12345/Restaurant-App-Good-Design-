@@ -736,7 +736,7 @@ export const AddHomeMealModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            {...((mode === 'advanced' || !phoneMode) ? {} : dragProps)}
+            {...((phoneMode && mode === 'basic' && page !== 'main') ? dragProps : {})}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
@@ -772,249 +772,36 @@ export const AddHomeMealModal: React.FC = () => {
             <input ref={dishPhotoInputRef} type="file" accept="image/*" onChange={handleDishPhotoUpload} className="hidden" />
             <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
             <AnimatePresence mode="wait">
-              {/* ═══════════ MAIN PAGE (phone) ═══════════ */}
-              {page === 'main' && phoneMode && (
-                <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
-                  className="flex flex-col flex-1 min-h-0">
-                  {/* Basic / Advanced / AI tab strip — sits above the
-                      title row so it's visible on phone without crowding. */}
-                  <div className="px-6 pt-safe-5 sm:pt-6 pb-2 flex items-center justify-between flex-shrink-0 gap-2">
-                    <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />
-                    <button
-                      onClick={closeHomeMealModal}
-                      className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"
-                      aria-label="Close"
-                    >
-                      <X size={22} />
-                    </button>
-                  </div>
-                  <div className="px-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
-                    <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Recipe' : 'Add Recipe'}</h2>
-                      {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
-                    </div>
-                    {!existing && (
-                      <button
-                        type="button"
-                        onClick={() => setImportRecipesOpen(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-primary bg-primary/[0.08] hover:bg-primary/[0.14] transition-colors flex-shrink-0"
-                      >
-                        <FileUp size={13} />
-                        <span>Import Recipes</span>
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-4 space-y-6">
-                    {/* Cover photo — taller, more generous dropzone */}
-                    <button
-                      onClick={() => coverInputRef.current?.click()}
-                      className="w-full h-32 rounded-3xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] flex items-center justify-center gap-2 overflow-hidden hover:border-primary/30 transition-colors relative mt-1"
-                    >
-                      {coverPhoto ? (
-                        <>
-                          <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/25 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                            <Camera size={20} className="text-white" />
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <Camera size={18} className="text-on-surface/30" />
-                          <span className="text-xs text-on-surface/45 font-medium">Add cover photo</span>
-                        </>
-                      )}
-                    </button>
-
-                    {/* Meal name + description — borderless, editorial feel */}
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={mealName}
-                        onChange={(e) => setMealName(e.target.value)}
-                        placeholder="Recipe name"
-                        autoFocus
-                        className="w-full bg-transparent text-[22px] font-serif font-bold placeholder:font-serif placeholder:font-normal placeholder:text-on-surface/25 focus:outline-none"
-                      />
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="A brief description..."
-                        rows={2}
-                        className="w-full bg-transparent text-sm text-on-surface/75 leading-relaxed placeholder:text-on-surface/30 focus:outline-none resize-none"
-                      />
-                    </div>
-
-                    {/* Quick Info — 2×2 grid of tappable cells. Each cell opens
-                         its own dedicated picker sheet. */}
-                    <section>
-                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-2.5">Quick Info</p>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <QuickInfoCell
-                          icon={<Clock size={14} />}
-                          label="Prep time"
-                          value={formatDuration(prepMinutesTotal) ?? 'Not set'}
-                          empty={prepMinutesTotal <= 0}
-                          onClick={() => setPrepPickerOpen(true)}
-                        />
-                        <QuickInfoCell
-                          icon={<Flame size={14} />}
-                          label="Cook time"
-                          value={formatDuration(cookMinutesTotal) ?? 'Not set'}
-                          empty={cookMinutesTotal <= 0}
-                          onClick={() => setCookPickerOpen(true)}
-                        />
-                        <QuickInfoCell
-                          icon={<Users size={14} />}
-                          label="Servings"
-                          value={servings != null && servings > 0 ? String(servings) : 'Not set'}
-                          empty={servings == null || servings <= 0}
-                          onClick={() => setServingsPickerOpen(true)}
-                        />
-                        <QuickInfoCell
-                          icon={<Gauge size={14} />}
-                          label="Difficulty"
-                          value={difficulty}
-                          valueClassName={DIFFICULTY_TEXT[difficulty]}
-                          onClick={() => setDifficultyPickerOpen(true)}
-                        />
-                      </div>
-                    </section>
-
-                    {/* Your rating — standalone section with its own breathing room */}
-                    <section>
-                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-3 text-center">Your Rating</p>
-                      <div className="flex flex-col items-center">
-                        <div className="flex items-baseline gap-1 mb-3">
-                          <span className={cn(
-                            "text-5xl font-serif font-bold tabular-nums leading-none",
-                            score > 0 ? scoreColorLight(score) : 'text-on-surface/25',
-                          )}>
-                            {score > 0 ? score.toFixed(1) : '—'}
-                          </span>
-                          <span className="text-xs text-on-surface/35 font-medium">/ 10</span>
-                        </div>
-                        <div className="w-full max-w-[260px]">
-                          <input
-                            type="range" min="0" max="10" step="0.1"
-                            value={score}
-                            onChange={(e) => setScore(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
-                          />
-                          <p className="text-[11px] font-medium text-on-surface/45 text-center mt-2">
-                            {score === 0 ? 'Slide to rate' : score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                          </p>
-                        </div>
-                      </div>
-                    </section>
-
-                    {/* Details — single clean row-list. Dishes, ingredients, steps,
-                         photos, and tags all live in their own sub-pages rather
-                         than being crammed inline on this screen. */}
-                    <section>
-                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-2.5">Details</p>
-                      <div className="bg-white rounded-2xl border border-on-surface/[0.06] overflow-hidden">
-                        <DetailRow
-                          icon={<UtensilsCrossed size={15} />}
-                          label="Dishes"
-                          active={hasDishes}
-                          sub={hasDishes ? `${dishes.length} ${dishes.length === 1 ? 'dish' : 'dishes'}` : undefined}
-                          onClick={() => setPage('dishList')}
-                        />
-                        <DetailRow
-                          icon={<Hash size={15} />}
-                          label="Ingredients"
-                          active={hasIngredients}
-                          sub={hasIngredients ? `${ingredients.length} items` : undefined}
-                          onClick={() => setPage('ingredients')}
-                        />
-                        <DetailRow
-                          icon={<FileText size={15} />}
-                          label="Steps"
-                          active={hasSteps}
-                          sub={hasSteps ? `${steps.length} steps` : undefined}
-                          onClick={() => setPage('steps')}
-                        />
-                        <DetailRow
-                          icon={<Image size={15} />}
-                          label="Photos"
-                          active={hasPhotos}
-                          sub={hasPhotos ? `${photos.length} added` : undefined}
-                          onClick={handlePhotosClick}
-                        />
-                        <DetailRow
-                          icon={<Tag size={15} />}
-                          label="Tags"
-                          active={hasTags}
-                          sub={hasTags ? `${selectedTags.length} selected` : undefined}
-                          onClick={() => setPage('tags')}
-                          isLast
-                        />
-                      </div>
-                    </section>
-
-                    {/* Privacy */}
-                    <button
-                      onClick={() => setIsPublic(!isPublic)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border transition-all text-left",
-                        isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/[0.06] hover:border-on-surface/15",
-                      )}
-                    >
-                      <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/35")}>
-                        {isPublic ? <Globe size={16} /> : <Lock size={16} />}
-                      </span>
-                      <span className={cn("text-[13px] font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/75")}>
-                        {isPublic ? 'Public' : 'Private'}
-                      </span>
-                      <span className="text-[11px] text-on-surface/35">
-                        {isPublic ? 'Visible to friends' : 'Only you'}
-                      </span>
-                    </button>
-
-                    {existing && !confirmDelete && (
-                      <button
-                        onClick={() => setConfirmDelete(true)}
-                        className="w-full py-2 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors"
-                      >
-                        Delete Recipe
-                      </button>
-                    )}
-                    {existing && confirmDelete && (
-                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
-                        <p className="text-[12px] text-red-600 font-medium">Delete this recipe?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-[11px] font-semibold text-on-surface/60 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-3 py-1.5 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sticky save footer — pill button w/ drop shadow */}
-                  <div className="px-6 pt-3 pb-safe-5 flex-shrink-0 bg-surface">
-                    <button
-                      onClick={handleSave}
-                      disabled={!mealName.trim()}
-                      className="w-full py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
-                    >
-                      {existing ? 'Update Recipe' : 'Save Recipe'}
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* ═══════════ MAIN PAGE (desktop — editorial rail + pane) ═══════════ */}
-              {page === 'main' && !phoneMode && (
+              {/* ═══════════ MAIN PAGE (editorial rail + pane) ═══════════ */}
+              {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="advanced-recipe-builder">
-                    <button type="button" className="arb-pane-close" onClick={closeHomeMealModal} aria-label="Close">
-                      <X size={18} />
-                    </button>
+                  <div className={cn('advanced-recipe-builder', phoneMode && 'is-phone')}>
+                    {!phoneMode && (
+                      <button type="button" className="arb-pane-close" onClick={closeHomeMealModal} aria-label="Close">
+                        <X size={18} />
+                      </button>
+                    )}
+
+                    {/* Mobile sticky header — tab strip + title (replaces the rail). */}
+                    {phoneMode && (
+                      <header className="arb-m-header">
+                        <div className="arb-m-tabs">
+                          <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />
+                          <button type="button" className="arb-m-header-close" onClick={closeHomeMealModal} aria-label="Close">
+                            <X size={16} />
+                          </button>
+                        </div>
+                        <div className="arb-m-titleblock-left">
+                          <div className="arb-m-header-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
+                          <div className="arb-m-header-title">{existing ? 'Update recipe' : 'Add a recipe'}</div>
+                        </div>
+                      </header>
+                    )}
 
                     <div className="arb-shell">
-                      {/* Left rail — table of contents */}
+                      {/* Left rail — table of contents (desktop only) */}
+                      {!phoneMode && (
                       <nav className="arb-rail">
                         <div className="arb-rail-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
                         <div className="arb-rail-title">The quick <em>way</em>.</div>
@@ -1055,6 +842,7 @@ export const AddHomeMealModal: React.FC = () => {
                           </div>
                         </div>
                       </nav>
+                      )}
 
                       {/* Right pane */}
                       <div className="arb-pane">
@@ -1082,7 +870,7 @@ export const AddHomeMealModal: React.FC = () => {
                               value={mealName}
                               onChange={(e) => setMealName(e.target.value)}
                               placeholder="Recipe name"
-                              autoFocus
+                              autoFocus={!phoneMode}
                               className="arb-input is-title"
                             />
                             <textarea
@@ -1164,20 +952,31 @@ export const AddHomeMealModal: React.FC = () => {
                             </div>
                           )}
                         </div>
+
+                        {/* Mobile footer dock — single primary action. */}
+                        {phoneMode && (
+                          <div className="arb-m-foot is-single">
+                            <button type="button" className="arb-m-foot-primary" onClick={handleSave} disabled={!mealName.trim()}>
+                              <Check size={16} /> {existing ? 'Update recipe' : 'Save recipe'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Sticky footer */}
-                    <div className="arb-foot">
-                      <button type="button" className="arb-foot-back" onClick={closeHomeMealModal}>
-                        <ArrowLeft size={16} /> Cancel
-                      </button>
-                      <div className="arb-foot-right">
-                        <button type="button" className="arb-foot-publish" onClick={handleSave} disabled={!mealName.trim()}>
-                          <Check size={16} /> {existing ? 'Update recipe' : 'Save recipe'}
+                    {/* Desktop sticky footer */}
+                    {!phoneMode && (
+                      <div className="arb-foot">
+                        <button type="button" className="arb-foot-back" onClick={closeHomeMealModal}>
+                          <ArrowLeft size={16} /> Cancel
                         </button>
+                        <div className="arb-foot-right">
+                          <button type="button" className="arb-foot-publish" onClick={handleSave} disabled={!mealName.trim()}>
+                            <Check size={16} /> {existing ? 'Update recipe' : 'Save recipe'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -1902,37 +1701,8 @@ export const AddHomeMealModal: React.FC = () => {
 
 // A single cell in the Quick Info 2×2 grid. Renders icon + small label + the
 // current value in a serif display face. Tapping opens a dedicated picker.
-const QuickInfoCell: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  valueClassName?: string;
-  empty?: boolean;
-  onClick: () => void;
-}> = ({ icon, label, value, valueClassName, empty, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="rounded-2xl bg-on-surface/[0.03] border border-on-surface/[0.06] px-4 py-4 text-left hover:bg-on-surface/[0.05] hover:border-on-surface/[0.1] transition-colors flex flex-col gap-3 min-h-[88px]"
-  >
-    <div className="flex items-center gap-1.5 text-on-surface/45">
-      <span className="flex-shrink-0">{icon}</span>
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">{label}</span>
-    </div>
-    <span className={cn(
-      'font-serif leading-none truncate',
-      empty
-        ? 'text-[15px] font-medium text-on-surface/30'
-        : 'text-[22px] font-bold',
-      !empty && (valueClassName ?? 'text-on-surface'),
-    )}>
-      {value}
-    </span>
-  </button>
-);
-
-/* Desktop "Quick add" equivalents of QuickInfoCell / DetailRow, styled to
-   match the Advanced builder's warm card language (.arb-* classes). */
+/* "Quick add" cards/rows styled to match the Advanced builder's warm
+   card language (.arb-* classes), shared by phone + desktop. */
 const QuickInfoCard: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -2037,30 +1807,6 @@ const DifficultySheet: React.FC<{
       </motion.div>
     )}
   </AnimatePresence>
-);
-
-// Row used inside the Details list on the main page. Label on the left,
-// preview of current content in the middle, chevron on the right.
-const DetailRow: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
-}> = ({ icon, label, active, sub, onClick, isLast }) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-on-surface/[0.025] transition-colors",
-      !isLast && "border-b border-on-surface/[0.06]",
-    )}
-  >
-    <span className={cn(
-      "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0",
-      active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
-    )}>
-      {icon}
-    </span>
-    <span className={cn("text-[14px] font-semibold flex-1", active ? "text-on-surface" : "text-on-surface/75")}>{label}</span>
-    {sub && <span className="text-[11px] font-medium text-on-surface/40 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={15} className="text-on-surface/25 flex-shrink-0" />
-  </button>
 );
 
 const SubPage: React.FC<{

@@ -850,14 +850,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       {/* Mobile sticky header — replaces the desktop rail. */}
       {isPhone && (
         <header className="arb-m-header">
-          {onBackToDraft && (
-            <button type="button" className="arb-back-to-draft is-mobile" onClick={onBackToDraft}>
-              <ArrowLeft size={14} />
-              <Sparkles size={12} />
-              Back to AI draft
-            </button>
-          )}
-          <div className="arb-m-header-row">
+          {/* Tab strip — switch builder modes, with the close button. */}
+          <div className="arb-m-tabs">
+            {tabSlot}
             <button
               type="button"
               className="arb-m-header-close"
@@ -866,7 +861,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             >
               <X size={16} />
             </button>
-            <div className="arb-m-header-titleblock">
+          </div>
+          {onBackToDraft && (
+            <button type="button" className="arb-back-to-draft is-mobile" onClick={onBackToDraft}>
+              <ArrowLeft size={14} />
+              <Sparkles size={12} />
+              Back to AI draft
+            </button>
+          )}
+          <div className="arb-m-titlerow">
+            <div className="arb-m-titleblock-left">
               <div className="arb-m-header-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
               <div className="arb-m-header-title">{STEP_TITLES[currentStep]}</div>
             </div>
