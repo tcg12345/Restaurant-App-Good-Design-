@@ -1058,19 +1058,21 @@ export const RecipePage: React.FC = () => {
       {/* ── Stats strip ───────────────────────────────────────────── */}
       <section className="rd-stats">
         <div className="rd-stats-inner">
-          <div className="rd-stat">
-            <div className="rd-stat-label"><Clock /> Prep</div>
-            <div className="rd-stat-value">
-              {renderTimeValue(data.prepMinutes)}
+          {data.prepMinutes > 0 && (
+            <div className="rd-stat">
+              <div className="rd-stat-label"><Clock /> Prep</div>
+              <div className="rd-stat-value">
+                {renderTimeValue(data.prepMinutes)}
+              </div>
             </div>
-          </div>
+          )}
           <div className="rd-stat">
             <div className="rd-stat-label"><Flame /> Cook</div>
             <div className="rd-stat-value">
               {renderTimeValue(data.cookMinutes)}
             </div>
           </div>
-          {data.chillMinutes && data.chillMinutes > 0 && (
+          {(data.chillMinutes ?? 0) > 0 && (
             <div className="rd-stat">
               <div className="rd-stat-label"><Clock /> Rest</div>
               <div className="rd-stat-value">
@@ -2214,12 +2216,14 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         )}
 
         <div className="rdm-stats">
-          <div className="rdm-stat">
-            <div className="l">Prep</div>
-            <div className="v">
-              {renderTimeValue(data.prepMinutes)}
+          {data.prepMinutes > 0 && (
+            <div className="rdm-stat">
+              <div className="l">Prep</div>
+              <div className="v">
+                {renderTimeValue(data.prepMinutes)}
+              </div>
             </div>
-          </div>
+          )}
           <div className="rdm-stat">
             <div className="l">Cook</div>
             <div className="v">
