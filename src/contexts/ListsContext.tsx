@@ -715,6 +715,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // incomplete and would clobber the stored recipes. localStorage keeps the
   // change; the next successful load unions + backfills it.
   const cloudLoadFailedRef = useRef(false);
+  // True only AFTER the initial cloud load for the current user has SUCCEEDED.
+  // Until then — while the load is in flight, or after it failed — we must not
+  // push local state to the cloud: doing so races the load and overwrites the
+  // server copy with whatever incomplete snapshot this origin happens to have.
+  // That's how recipes vanished: every new Vercel preview URL is a fresh origin
+  // with EMPTY localStorage, so an early meta write (rating a place, caching
+  // restaurant meta, …) clobbered restaurant_meta — wiping the __home_meals__
+  // recipe stash — before loadUserData could read it. localStorage still saves
+  // locally; the next successful load unions local + cloud and backfills.
+  const cloudReadyRef = useRef(false);
 
   // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
@@ -724,6 +734,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
+    // Block all cloud writes until THIS user's data has been loaded once.
+    cloudReadyRef.current = false;
     if (!userId || !supabaseConfigured) {
       if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
       return;
@@ -911,10 +923,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         });
         const listsChanged = reconciledLists.some((l, i) => l !== cloudLists[i]);
 
+        // Carry the home-meals union inside the durable restaurant_meta stash
+        // (__home_meals__) so recipes persist even on schemas without a
+        // dedicated home_meals column — and so a device that still has them in
+        // localStorage unions them in here and backs them up to the cloud.
+        const cloudMetaWithMeals = { ...migrateMeta(cloudMeta), __home_meals__: cloudHomeMeals as unknown as RestaurantMeta };
+
         setRatings(cloudRatings);
         setLists(ensureDefaultRecipeList(listsChanged ? reconciledLists : cloudLists));
         setWishlist(cloudWishlist);
-        setRestaurantMeta(migrateMeta(cloudMeta));
+        setRestaurantMeta(cloudMetaWithMeals);
         setTrips(cloudTrips as Trip[]);
         setCustomOrderState(cloudCustomOrder);
         setHomeMeals(cloudHomeMeals);
@@ -923,7 +941,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
         saveToStorage(STORAGE_KEY_LISTS, listsChanged ? reconciledLists : cloudLists);
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
-        saveToStorage(STORAGE_KEY_META, cloudMeta);
+        saveToStorage(STORAGE_KEY_META, cloudMetaWithMeals);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
@@ -936,8 +954,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // cloud lists, push the union back so subsequent reloads see it
         // even if localStorage gets cleared.
         const finalLists = listsChanged ? reconciledLists : cloudLists;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback) {
-          await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
+        // Also re-persist when the durable __home_meals__ stash is out of sync
+        // with the resolved union, so recipes are backed up into a column that
+        // is always present (covers schemas missing the home_meals column).
+        const metaStashStale = metaHomeMeals.length !== cloudHomeMeals.length;
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale) {
+          await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
         // Sync all ratings to community_ratings (ensures they're visible on user profiles)
@@ -1003,6 +1025,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
       // Load succeeded (row found, or genuine no-row) — cloud writes are safe.
       cloudLoadFailedRef.current = false;
+      cloudReadyRef.current = true;
       setCloudLoaded(true);
     })();
 
@@ -1011,7 +1034,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // ── Helper to save to Supabase in the background ──
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
-    if (userIdRef.current && supabaseConfigured) {
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
       // Strip large base64 photos before syncing to avoid payload size issues
       const stripped = data.map((r) => ({
         ...r,
@@ -1025,16 +1048,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
   const syncListsToCloud = useCallback((data: CustomList[]) => {
-    if (userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
   }, []);
   const syncWishlistToCloud = useCallback((data: WishlistItem[]) => {
-    if (userIdRef.current && supabaseConfigured) saveWishlistData(userIdRef.current, data);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveWishlistData(userIdRef.current, data);
   }, []);
   const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
-    if (userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
   }, []);
   const syncTripsToCloud = useCallback((data: Trip[]) => {
-    if (userIdRef.current && supabaseConfigured) {
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
       // Save trips via the dedicated column (may fail if column doesn't exist)
       saveTrips(userIdRef.current, data);
       // Also save trips inside restaurant_meta as a fallback (always works)
@@ -1194,11 +1217,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // we already do for trips and custom_order.
   const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
     if (!userIdRef.current || !supabaseConfigured) return;
-    // If the cloud load failed this session, the in-memory set may be
-    // incomplete — writing it would clobber the stored recipes. Skip the
-    // cloud write (localStorage already has the change); the next successful
-    // load unions local + cloud and backfills.
-    if (cloudLoadFailedRef.current) return;
+    // Don't write until the initial cloud load has SUCCEEDED this session.
+    // While it's in flight (or after it failed) the in-memory set may be
+    // incomplete — writing it would clobber the stored recipes. localStorage
+    // already has the change; the next successful load unions + backfills.
+    if (!cloudReadyRef.current) return;
     saveHomeMeals(userIdRef.current, data);
     setRestaurantMeta((prev) => {
       const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
