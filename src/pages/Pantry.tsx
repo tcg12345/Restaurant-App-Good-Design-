@@ -18,12 +18,29 @@ import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { useMichelinMatch } from '../lib/useMichelinMatch';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
+
+/** Inline Michelin star marker for saved-restaurant rows/cards. Renders one
+ *  red star per award; nothing is shown for non-starred restaurants (callers
+ *  gate on a match). The full MICHELIN pill is reserved for the detail page. */
+const MichelinStarsInline: React.FC<{ stars: number }> = ({ stars }) => (
+  <span
+    className="inline-flex items-center align-middle mr-1"
+    style={{ color: '#a2191f' }}
+    aria-label={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
+    title={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
+  >
+    {Array.from({ length: stars }).map((_, i) => (
+      <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+    ))}
+  </span>
+);
 
 /** A recipe saved into a list from another user carries source-author
  *  attribution. Those copies are read-only — the original author owns the
@@ -583,6 +600,12 @@ const RestaurantRow: React.FC<{
   // parsing for older saved restaurants.
   const meta = restaurantMeta[restaurantId];
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  // Michelin override: starred restaurants show the Guide's cuisine + price
+  // (and a star marker). Falls back to the saved values otherwise. Skip hotels.
+  const mich = useMichelinMatch(
+    cuisine === 'Hotel Breakfast' ? '' : name,
+    meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
+  );
   const location = address || meta?.address
     ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
     : '';
@@ -692,7 +715,8 @@ const RestaurantRow: React.FC<{
                 <div className="min-w-0 flex-1">
                   <h3 className={cn("font-serif font-bold leading-tight truncate", phoneMode ? "text-[15px]" : "text-[16px]")}>{name}</h3>
                   <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
-                    {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+                    {mich.michelin && <MichelinStarsInline stars={mich.michelin.stars} />}
+                    {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
                   </p>
                   {location && (
                     <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
@@ -786,6 +810,10 @@ const WishlistRow: React.FC<{
   const wlMeta = restaurantMeta[restaurantId];
   useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && wlMeta?.hours !== undefined);
   const fullAddr = address || wlMeta?.address || '';
+  const mich = useMichelinMatch(
+    cuisine === 'Hotel Breakfast' ? '' : name,
+    wlMeta?.lat, wlMeta?.lng, fullAddr, cuisine, price,
+  );
   const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
 
   // Distance from the user's anchor location.
@@ -815,7 +843,8 @@ const WishlistRow: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
-            {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+            {mich.michelin && <MichelinStarsInline stars={mich.michelin.stars} />}
+            {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
           </p>
           {location && (
             <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
@@ -858,10 +887,15 @@ const WishlistGridCard: React.FC<{
 }> = ({ restaurantId, name, cuisine, price, address, onRemove }) => {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { restaurantMeta } = useLists();
-  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
-  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
-
   const meta = restaurantMeta[restaurantId];
+  const mich = useMichelinMatch(
+    cuisine === 'Hotel Breakfast' ? '' : name,
+    meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
+  );
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
+  const michStars = mich.michelin?.stars ?? 0;
+
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Beli-style hierarchical label using Google's address components plus
@@ -913,11 +947,12 @@ const WishlistGridCard: React.FC<{
         </div>
 
         {/* Cuisine · price */}
-        {(cuisineLabel || showPrice) && (
+        {(cuisineLabel || showPrice || michStars > 0) && (
           <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+            {michStars > 0 && <MichelinStarsInline stars={michStars} />}
             {cuisineLabel}
             {cuisineLabel && showPrice ? ' · ' : ''}
-            {showPrice && price}
+            {showPrice && mich.price}
           </p>
         )}
 
@@ -976,14 +1011,19 @@ const RestaurantGridCard: React.FC<{
   const trimmedNotes = notes?.trim() ?? '';
   const hasNotes = trimmedNotes.length > 0;
   const hasScore = score !== undefined && score > 0;
-  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
-  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
 
   // Resolve city/state for the footer line. Prefer the explicit address
   // prop (from the rating record) and fall back to whatever's cached on
   // the meta entry — that way we still show a location for restaurants
   // re-hydrated from cloud where the rating may not include an address.
   const meta = restaurantMeta[restaurantId];
+  const mich = useMichelinMatch(
+    cuisine === 'Hotel Breakfast' ? '' : name,
+    meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
+  );
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
+  const michStars = mich.michelin?.stars ?? 0;
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
@@ -1045,11 +1085,12 @@ const RestaurantGridCard: React.FC<{
           </div>
 
           {/* Cuisine · price */}
-          {(cuisineLabel || showPrice) && (
+          {(cuisineLabel || showPrice || michStars > 0) && (
             <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+              {michStars > 0 && <MichelinStarsInline stars={michStars} />}
               {cuisineLabel}
               {cuisineLabel && showPrice ? ' · ' : ''}
-              {showPrice && price}
+              {showPrice && mich.price}
             </p>
           )}
 
@@ -1227,7 +1268,8 @@ const RestaurantGridCard: React.FC<{
           </div>
         </div>
         <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-          {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && price}
+          {michStars > 0 && <MichelinStarsInline stars={michStars} />}
+          {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && mich.price}
         </p>
       </div>
       {confirmDelete && (

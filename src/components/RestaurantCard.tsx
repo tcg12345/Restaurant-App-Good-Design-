@@ -1,8 +1,9 @@
 import React from 'react';
-import { Heart, Plus, Building2, ImageOff } from 'lucide-react';
+import { Heart, Plus, Building2, ImageOff, Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './ScoreBadge';
+import { useMichelinMatch } from '../lib/useMichelinMatch';
 
 export { ScoreBadge } from './ScoreBadge';
 
@@ -58,6 +59,12 @@ interface RestaurantCardProps {
   rating: number;
   price: string;
   cuisine: string;
+  /** Coordinates — when provided, the card looks the restaurant up in the
+   *  Michelin dataset and overrides cuisine/price + shows a star marker. */
+  lat?: number;
+  lng?: number;
+  /** Address — used for the Michelin name-only fallback when no coordinates. */
+  address?: string;
   distance?: string;
   friendReviews?: number;
   expertReviews?: number;
@@ -69,14 +76,33 @@ interface RestaurantCardProps {
   className?: string;
 }
 
+// Compact inline "n stars" marker for cards/rows (the full pill badge with the
+// MICHELIN wordmark is reserved for the detail header). Renders nothing when
+// there's no match.
+const MichelinStars: React.FC<{ stars: number; className?: string }> = ({ stars, className }) => (
+  <span
+    className={cn('inline-flex items-center align-middle', className)}
+    style={{ color: '#a2191f' }}
+    aria-label={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
+    title={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
+  >
+    {Array.from({ length: stars }).map((_, i) => (
+      <Star key={i} size={11} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+    ))}
+  </span>
+);
+
 /* ── Component ────────────────────────────────────────────────────────────── */
 export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   id,
   name,
   image,
   rating,
-  price,
-  cuisine,
+  price: priceProp,
+  cuisine: cuisineProp,
+  lat,
+  lng,
+  address,
   onAdd,
   onHeart,
   isWishlisted = false,
@@ -84,6 +110,15 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   variant = 'card',
   className,
 }) => {
+  // Michelin override: starred restaurants show the Guide's cuisine + price
+  // (and a star marker) instead of the Google-derived values. No-op for
+  // non-starred places — falls back to the passed cuisine/price. Hotels keep
+  // their existing "Hotel" treatment, so skip the override for them.
+  const { michelin, cuisine, price } = useMichelinMatch(
+    isHotel ? '' : name, lat, lng, address, cuisineProp, priceProp,
+  );
+  const stars = michelin?.stars ?? 0;
+
   // Shared click-stopper for in-card buttons so they don't trigger the Link.
   const stop = (e: React.MouseEvent, fn?: () => void) => {
     e.preventDefault();
@@ -156,6 +191,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             {name}
           </h3>
           <p className="mt-0.5 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
+            {stars > 0 && <MichelinStars stars={stars} className="mr-1.5" />}
             {cuisine}
             {price && <span className="text-on-surface/25 mx-1.5">·</span>}
             {price}
@@ -213,6 +249,13 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
               {name}
             </h3>
             <p className="mt-1 text-xs text-white/85 font-medium uppercase tracking-wider truncate">
+              {stars > 0 && (
+                <span className="inline-flex items-center align-middle mr-1.5" aria-label={`${stars} Michelin stars`}>
+                  {Array.from({ length: stars }).map((_, i) => (
+                    <Star key={i} size={11} fill="#ef5350" color="#ef5350" strokeWidth={0} />
+                  ))}
+                </span>
+              )}
               {cuisine}
               {price && <span className="text-white/55 mx-1.5">·</span>}
               {price}
@@ -262,6 +305,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           {name}
         </h3>
         <p className="mt-1 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
+          {stars > 0 && <MichelinStars stars={stars} className="mr-1.5" />}
           {cuisine}
           {price && <span className="text-on-surface/25 mx-1.5">·</span>}
           {price}

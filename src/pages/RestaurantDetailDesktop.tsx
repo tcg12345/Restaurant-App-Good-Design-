@@ -337,7 +337,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               </h1>
               {michelin && (
                 <div className="mt-3">
-                  <MichelinBadge michelin={michelin} size="md" />
+                  <MichelinBadge michelin={michelin} size="md" href={michelin.guideUrl} />
                 </div>
               )}
               {(() => {

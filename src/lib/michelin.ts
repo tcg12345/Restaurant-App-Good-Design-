@@ -124,6 +124,9 @@ interface MichelinIndex {
 }
 
 let indexPromise: Promise<MichelinIndex> | null = null;
+// Set once the dynamic import resolves so the synchronous matcher (used by
+// cards, which can't await) can run against the in-memory index.
+let loadedIndex: MichelinIndex | null = null;
 
 function toInfo(r: RawRecord): MichelinInfo {
   return {
@@ -157,27 +160,44 @@ function loadIndex(): Promise<MichelinIndex> {
         const byName: Map<string, MichelinInfo[]> = new Map();
         for (const r of records) {
           const info = toInfo(r);
+          // Spatial grid for coordinate matching (every current record).
           if (Number.isFinite(info.lat) && Number.isFinite(info.lng)) {
             const key = cellKey(info.lat, info.lng);
             const bucket = grid.get(key);
             if (bucket) bucket.push(info);
             else grid.set(key, [info]);
-          } else {
-            const key = normalize(info.name);
-            if (!key) continue;
-            const bucket = byName.get(key);
+          }
+          // Name index for the coordinate-less fallback path (used by surfaces
+          // that only have name + address). Index ALL records, not just the
+          // coordinate-less ones, so the fallback works app-wide.
+          const nkey = normalize(info.name);
+          if (nkey) {
+            const bucket = byName.get(nkey);
             if (bucket) bucket.push(info);
-            else byName.set(key, [info]);
+            else byName.set(nkey, [info]);
           }
         }
-        return { grid, byName };
+        const built = { grid, byName };
+        loadedIndex = built;
+        return built;
       })
       .catch((err) => {
         console.error('[Michelin] failed to load dataset', err);
-        return { grid: new Map(), byName: new Map() } as MichelinIndex;
+        const empty = { grid: new Map(), byName: new Map() } as MichelinIndex;
+        loadedIndex = empty;
+        return empty;
       });
   }
   return indexPromise;
+}
+
+/**
+ * Kick off loading the dataset without blocking. Call this from a card-heavy
+ * screen so the index is warm by the time cards want to look themselves up.
+ * Safe to call repeatedly (the import is memoised).
+ */
+export function preloadMichelinIndex(): void {
+  void loadIndex();
 }
 
 // Collect candidate records within the 3x3 grid block around (lat,lng).
@@ -194,19 +214,71 @@ function candidatesNear(index: MichelinIndex, lat: number, lng: number): Micheli
   return out;
 }
 
+// Core matcher — runs synchronously against an already-built index.
+// Coordinate-primary:
+//   1. Gather Michelin records within ~190 m of the place.
+//   2. Score each by distance + name similarity.
+//   3. Accept the best when it's either very close to the same point, a decent
+//      name match in range, or a strong name match despite a small coordinate
+//      delta. This disambiguates multiple starred restaurants in one building
+//      (same coords -> name decides) while tolerating name drift (same name ->
+//      small coord delta is fine).
+// Falls back to exact-name + city-confirmation when there are no coordinates.
+function matchInIndex(
+  index: MichelinIndex,
+  name: string,
+  lat?: number,
+  lng?: number,
+  address?: string,
+): MichelinInfo | null {
+  const hasCoord = Number.isFinite(lat) && Number.isFinite(lng);
+
+  if (hasCoord) {
+    const candidates = candidatesNear(index, lat as number, lng as number);
+    let best: MichelinInfo | null = null;
+    let bestScore = -Infinity;
+    let bestDist = Infinity;
+    for (const cand of candidates) {
+      const dist = haversineDistanceMi(lat as number, lng as number, cand.lat, cand.lng);
+      if (dist > NEAR_RADIUS_MI) continue;
+      const sim = nameSimilarity(name, cand.name);
+      const accept =
+        dist <= STRONG_COORD_MI ||
+        sim >= NAME_ACCEPT ||
+        (sim >= NAME_STRONG && dist <= NEAR_RADIUS_MI);
+      if (!accept) continue;
+      const score = sim * 2 + (1 - dist / NEAR_RADIUS_MI);
+      if (score > bestScore || (score === bestScore && dist < bestDist)) {
+        best = cand;
+        bestScore = score;
+        bestDist = dist;
+      }
+    }
+    if (best) return best;
+  }
+
+  // ── Name-only fallback ──────────────────────────────────────────────────
+  const key = normalize(name);
+  if (!key) return null;
+  const normAddr = normalize(address || '');
+  const cityMatches = (info: MichelinInfo): boolean => {
+    if (!normAddr) return false;
+    const c = normalize(info.city);
+    if (!c) return false;
+    if (normAddr.includes(c)) return true;
+    const first = c.split(' ')[0];
+    return first.length >= 4 && normAddr.includes(first);
+  };
+  const byNameHits = index.byName.get(key) || [];
+  for (const cand of byNameHits) {
+    if (!normAddr || cityMatches(cand)) return cand;
+  }
+  return null;
+}
+
 /**
- * Find the Michelin record for a Google place. Coordinate-primary:
- *
- *  1. Gather Michelin records within ~190 m of the place.
- *  2. Score each by distance + name similarity.
- *  3. Accept the best when it's either very close to the same point, or a
- *     near-coincident point with a plausible name, or a strong name match
- *     anywhere in range. This disambiguates multiple starred restaurants in
- *     one building (same coords → name decides) while tolerating name drift
- *     between Google and Michelin (same name → small coord delta is fine).
- *
- * Falls back to name-only matching if the place has no usable coordinates
- * (or, defensively, for any coordinate-less dataset rows).
+ * Find the Michelin record for a Google place (async — awaits dataset load).
+ * Use on the detail page. See matchInIndex for the algorithm.
  *
  * @param name    Google place display name.
  * @param lat     Google place latitude (NaN/undefined when unknown).
@@ -220,63 +292,27 @@ export async function findMichelinMatch(
   address?: string,
 ): Promise<MichelinInfo | null> {
   const index = await loadIndex();
-  const hasCoord = Number.isFinite(lat) && Number.isFinite(lng);
+  return matchInIndex(index, name, lat, lng, address);
+}
 
-  if (hasCoord) {
-    const candidates = candidatesNear(index, lat as number, lng as number);
-    let best: MichelinInfo | null = null;
-    let bestScore = -Infinity;
-    let bestDist = Infinity;
-    for (const cand of candidates) {
-      const dist = haversineDistanceMi(lat as number, lng as number, cand.lat, cand.lng);
-      if (dist > NEAR_RADIUS_MI) continue;
-      const sim = nameSimilarity(name, cand.name);
-      // Acceptance: same physical point (name almost irrelevant — coords are
-      // authoritative), OR a decent name match within the wider radius, OR a
-      // very strong name match regardless of small coordinate disagreement.
-      const accept =
-        dist <= STRONG_COORD_MI ||
-        sim >= NAME_ACCEPT ||
-        (sim >= NAME_STRONG && dist <= NEAR_RADIUS_MI);
-      if (!accept) continue;
-      // Rank: prioritise name similarity, then proximity. (A 0–1 sim dominates;
-      // the small distance term only breaks ties between similar names.)
-      const score = sim * 2 + (1 - dist / NEAR_RADIUS_MI);
-      if (score > bestScore || (score === bestScore && dist < bestDist)) {
-        best = cand;
-        bestScore = score;
-        bestDist = dist;
-      }
-    }
-    if (best) return best;
-    // No coordinate match — fall through to name-only as a last resort. This
-    // catches cases where Google's coordinate is off by more than the search
-    // radius but the name is unambiguous.
-  }
+/**
+ * Synchronous variant for card/list render paths that can't await. Returns null
+ * until the dataset has loaded (call preloadMichelinIndex() and re-render once
+ * it's ready — see useMichelinMatch). Same matching logic as findMichelinMatch.
+ */
+export function findMichelinMatchSync(
+  name: string,
+  lat?: number,
+  lng?: number,
+  address?: string,
+): MichelinInfo | null {
+  if (!loadedIndex) return null;
+  return matchInIndex(loadedIndex, name, lat, lng, address);
+}
 
-  // ── Name-only fallback ──────────────────────────────────────────────────
-  const key = normalize(name);
-  if (!key) return null;
-
-  // Exact normalized-name hits live in two places: the rare coordinate-less
-  // byName bucket, and (more usefully) a scan over the grid for an exact name.
-  // We only accept a name-only match when the city/address agrees, to avoid
-  // tagging a same-name restaurant in a different city.
-  const normAddr = normalize(address || '');
-  const cityMatches = (info: MichelinInfo): boolean => {
-    if (!normAddr) return false;
-    const c = normalize(info.city);
-    if (!c) return false;
-    if (normAddr.includes(c)) return true;
-    const first = c.split(' ')[0];
-    return first.length >= 4 && normAddr.includes(first);
-  };
-
-  const byNameHits = index.byName.get(key) || [];
-  for (const cand of byNameHits) {
-    if (!normAddr || cityMatches(cand)) return cand;
-  }
-  return null;
+/** True once the dataset has loaded and the sync matcher is usable. */
+export function isMichelinIndexReady(): boolean {
+  return loadedIndex != null;
 }
 
 /** Render the Michelin price tier using the app's standard `$`-tier formatter. */

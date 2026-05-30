@@ -197,6 +197,8 @@ function placeToCardProps(place: PlaceResult) {
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
     address: place.fullAddress || place.address,
+    lat: place.lat,
+    lng: place.lng,
     friendReviews: 0,
     expertReviews: 0,
   };

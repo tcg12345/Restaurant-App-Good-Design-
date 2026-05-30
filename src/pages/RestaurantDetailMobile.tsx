@@ -353,7 +353,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   </h1>
                   {michelin && (
                     <div className="mt-2.5">
-                      <MichelinBadge michelin={michelin} size="sm" />
+                      <MichelinBadge michelin={michelin} size="sm" href={michelin.guideUrl} />
                     </div>
                   )}
                   {(() => {

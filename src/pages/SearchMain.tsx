@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
 import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -123,6 +125,20 @@ export const SearchMain: React.FC = () => {
   const [userLng, setUserLng] = useState(DEFAULT_LNG);
   const [locationKnown, setLocationKnown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Michelin overlay for search rows. Matches are resolved for the whole
+  // results array in one memo (hooks can't run per-row); michelinByPlaceId maps
+  // a Google place id to its Michelin record when starred.
+  const michelinReady = useMichelinIndexReady();
+  const michelinByPlaceId = useMemo(() => {
+    const m: Record<string, MichelinInfo> = {};
+    if (!michelinReady) return m;
+    for (const place of results) {
+      const hit = findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address);
+      if (hit) m[place.id] = hit;
+    }
+    return m;
+  }, [michelinReady, results]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastQueryRef = useRef<string>('');
 
@@ -341,10 +357,26 @@ export const SearchMain: React.FC = () => {
                       >
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
-                          <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                            {location || 'Restaurant'}
-                            {price && <><span className="text-on-surface/25 mx-1.5">·</span>{price}</>}
-                          </p>
+                          {(() => {
+                            const mich = michelinByPlaceId[place.id];
+                            // For Michelin matches, show the Guide's cuisine + $-tier price
+                            // and a star marker. Otherwise keep the existing location · price.
+                            const label = mich ? mich.cuisine : (location || 'Restaurant');
+                            const priceText = mich ? michelinPriceDisplay(mich) : price;
+                            return (
+                              <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                                {mich && (
+                                  <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={`${mich.stars} Michelin stars`}>
+                                    {Array.from({ length: mich.stars }).map((_, i) => (
+                                      <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+                                    ))}
+                                  </span>
+                                )}
+                                {label}
+                                {priceText && <><span className="text-on-surface/25 mx-1.5">·</span>{priceText}</>}
+                              </p>
+                            );
+                          })()}
                           <div className="mt-0.5 flex items-center gap-2 text-xs text-on-surface/50">
                             {place.rating > 0 && (
                               <span className="flex items-center gap-1 text-primary font-bold">
