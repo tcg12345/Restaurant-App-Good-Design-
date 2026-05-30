@@ -9,6 +9,7 @@ import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../conte
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
+import { findMichelinMatch, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
 mapboxgl.workerClass = MapboxWorker;
@@ -48,6 +49,7 @@ export function useRestaurantDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(null);
+  const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -141,6 +143,20 @@ export function useRestaurantDetail() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Michelin Guide overlay: once the place loads, look it up in the bundled
+  // 1/2/3-star dataset by name + address. A match drives the star badge, the
+  // "View on Michelin Guide" button, and the cuisine/price overrides below.
+  // Only the detail page consults this — search/lists/cards are unaffected.
+  useEffect(() => {
+    setMichelin(null);
+    if (!place?.name) return;
+    let cancelled = false;
+    findMichelinMatch(place.name, place.fullAddress || place.address)
+      .then((m) => { if (!cancelled) setMichelin(m); })
+      .catch(() => { if (!cancelled) setMichelin(null); });
+    return () => { cancelled = true; };
+  }, [place?.id, place?.name, place?.fullAddress, place?.address]);
 
   // Track recently viewed restaurants
   useEffect(() => {
@@ -280,10 +296,18 @@ export function useRestaurantDetail() {
     }
     return best;
   }, [communityStats.ratings]);
-  const priceStr = place
-    ? (priceLevelToString(place.priceLevel) || communityPrice || '')
-    : '';
-  const cuisine = place ? getCuisineLabel(place.types) : '';
+  // Michelin data takes priority over Google Places for cuisine + price on the
+  // detail page (falls back to Google/community values when there's no match).
+  const priceStr = michelin
+    ? michelinPriceDisplay(michelin)
+    : place
+      ? (priceLevelToString(place.priceLevel) || communityPrice || '')
+      : '';
+  const cuisine = michelin
+    ? michelin.cuisine
+    : place
+      ? getCuisineLabel(place.types)
+      : '';
 
   // Merge Google Places photos with community user-uploaded photos
   const photos = useMemo(() => {
@@ -302,6 +326,7 @@ export function useRestaurantDetail() {
 
   return {
     place,
+    michelin,
     loading,
     error,
     navigate,
