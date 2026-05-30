@@ -38,7 +38,9 @@ const MODEL = 'claude-opus-4-8';
 // a max_tokens cutoff truncates the JSON mid-object and the client's
 // JSON.parse fails — so we'd rather pay for the tokens than error out.
 // Simple recipes stay cheap (cost scales with tokens actually produced).
-const MAX_TOKENS = 10000;
+// Headroom raised so a fully detailed sectioned recipe with long,
+// descriptive steps doesn't truncate mid-JSON.
+const MAX_TOKENS = 12000;
 const MAX_PROMPT_CHARS = 2000;
 
 const SYSTEM_PROMPT = [
