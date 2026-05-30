@@ -1750,7 +1750,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
 }
 .arb-m-saved-pill {
@@ -1770,17 +1770,20 @@
   border-radius: 50%;
   background: var(--green, #2E7D5C);
 }
+/* Matches the "Saved" pill so the status + action read as one tidy set. */
 .arb-m-save-link {
-  background: transparent;
-  padding: 0;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--accent, #A8392A);
-  text-decoration: underline;
-  text-underline-offset: 2px;
   cursor: pointer;
 }
-.arb-m-save-link:hover { opacity: 0.85; }
+.arb-m-save-link:hover { background: color-mix(in srgb, var(--accent, #A8392A) 8%, #fff); }
 
 .arb-m-header-sub {
   display: flex;
@@ -1808,8 +1811,8 @@
 .arb-m-progress-row {
   display: flex;
   gap: 4px;
-  margin-top: 8px;
-  padding-bottom: 10px;
+  margin-top: 14px;
+  padding-bottom: 12px;
 }
 .arb-m-progress-seg {
   flex: 1;

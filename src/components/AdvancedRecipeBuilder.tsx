@@ -888,11 +888,6 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               </button>
             </div>
           </div>
-          <div className="arb-m-header-sub">
-            <span className="arb-m-header-counter">
-              Step <span className="strong">{currentStep + 1}</span> / {STEP_COUNT}
-            </span>
-          </div>
           <div className="arb-m-progress-row">
             {STEP_TITLES.map((_, i) => {
               const isDone = i < currentStep;
