@@ -431,14 +431,21 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 {draft.difficulty && (
                   <Chip icon={<Flame size={12} />}>{draft.difficulty}</Chip>
                 )}
-                {(draft.prepTime ?? 0) + (draft.cookTime ?? 0) > 0 && (
-                  <Chip icon={<Clock size={12} />}>
-                    {`${(draft.prepTime || 0) + (draft.cookTime || 0)} min`}
-                    {draft.prepTime && draft.cookTime
-                      ? ` (${draft.prepTime} prep + ${draft.cookTime} cook)`
-                      : ''}
-                  </Chip>
-                )}
+                {(() => {
+                  // Active = hands-on prep + cook; total also banks the passive
+                  // proof/chill/rest time. Showing both keeps long/overnight
+                  // projects honest instead of reading a tiny "108 min".
+                  const active = (draft.prepTime || 0) + (draft.cookTime || 0);
+                  const total = active + (draft.chillTime || 0);
+                  if (total <= 0) return null;
+                  const fmt = (m: number) =>
+                    m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m} min`;
+                  return (
+                    <Chip icon={<Clock size={12} />}>
+                      {draft.chillTime ? `Active ${fmt(active)} · Total ${fmt(total)}` : fmt(total)}
+                    </Chip>
+                  );
+                })()}
                 {draft.servings && (
                   <Chip icon={<Users size={12} />}>
                     {draft.yieldDescription || `${draft.servings} ${draft.servings === 1 ? 'serving' : 'servings'}`}
@@ -497,11 +504,9 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
               </Section>
 
               <Section title="Steps">
-                <ol className="space-y-4">
-                  {(draft.stepDetails && draft.stepDetails.length > 0
-                    ? draft.stepDetails
-                    : (draft.steps || []).map((s) => ({ body: s }))
-                  ).map((s, idx) => (
+                {(() => {
+                  type DraftStep = { title?: string; body: string; durationMin?: number; tip?: string };
+                  const renderStep = (s: DraftStep, idx: number) => (
                     <li key={idx} className="flex gap-3">
                       <div className="w-6 h-6 rounded-full bg-on-surface/[0.08] flex items-center justify-center flex-shrink-0 mt-0.5">
                         <span className="text-[11px] font-bold text-on-surface/70">{idx + 1}</span>
@@ -529,8 +534,45 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                         )}
                       </div>
                     </li>
-                  ))}
-                </ol>
+                  );
+
+                  // Grouped method (multi-component dishes): section labels
+                  // with continuously-numbered steps.
+                  const groups = draft.stepGroups;
+                  const meaningful = !!groups && (groups.length > 1 || !!(groups[0]?.name || '').trim());
+                  if (groups && meaningful) {
+                    let n = 0;
+                    return (
+                      <div className="space-y-5">
+                        {groups.map((g, gi) => {
+                          const steps = g.steps.filter((s) => (s.body || '').trim());
+                          if (steps.length === 0) return null;
+                          return (
+                            <div key={gi}>
+                              {g.name && (
+                                <h4 className="text-[12px] font-semibold uppercase tracking-wider text-on-surface/50 mb-2.5">
+                                  {g.name}
+                                </h4>
+                              )}
+                              <ol className="space-y-4">
+                                {steps.map((s) => renderStep(s, n++))}
+                              </ol>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+
+                  const flat: DraftStep[] = draft.stepDetails && draft.stepDetails.length > 0
+                    ? draft.stepDetails
+                    : (draft.steps || []).map((s) => ({ body: s }));
+                  return (
+                    <ol className="space-y-4">
+                      {flat.map((s, idx) => renderStep(s, idx))}
+                    </ol>
+                  );
+                })()}
               </Section>
 
               {draft.notes && draft.notes.length > 0 && (

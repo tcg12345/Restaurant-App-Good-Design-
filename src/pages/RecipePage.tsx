@@ -143,13 +143,27 @@ function extractStepMs(text: string): { label: string; ms: number } | null {
   return { label: parts.join(' '), ms };
 }
 
-// Format minute total ("12 min", "1 h", "1 h 25 min")
+// Format minute total. Stays in plain minutes up to 90 min; above that it
+// rolls into hours + minutes ("18 min", "90 min", "15 hr", "16 hr 48 min").
 function formatMinutes(mins: number): string {
   if (!Number.isFinite(mins) || mins <= 0) return '';
-  if (mins < 60) return `${mins} min`;
+  if (mins <= 90) return `${mins} min`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
+}
+
+// Same 90-min threshold as formatMinutes, but rendered as the stat-strip
+// value — big numbers with small `.unit` labels (e.g. "16 hr 48 min").
+// Returns the "—" placeholder when there's no time.
+function renderTimeValue(mins: number): React.ReactNode {
+  if (!Number.isFinite(mins) || mins <= 0) return '—';
+  if (mins <= 90) return <>{mins} <span className="unit">min</span></>;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0
+    ? <>{h} <span className="unit">hr</span></>
+    : <>{h} <span className="unit">hr</span> {m} <span className="unit">min</span></>;
 }
 
 // Normalize a rating to 5-point scale for display. Legacy formal-recipe
@@ -202,6 +216,10 @@ type UnifiedRecipe = {
   /** Per-step rich details (title, body, duration, tip). When present
    *  and non-empty, RecipePage uses these instead of the flat strings. */
   stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
+  /** Grouped method sections ("For the duxelles", "Assembly", …). When
+   *  present, the directions render section subheadings between the
+   *  continuously-numbered steps. */
+  stepGroups?: Array<{ name: string; steps: Array<{ title?: string; body: string; durationMin?: number; tip?: string }> }>;
   /** Labeled callouts (Chef's Tip / Make Ahead / etc.). */
   notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
   /** When this recipe is a copy saved from another user, the original
@@ -223,6 +241,31 @@ function splitIntro(description: string): string[] {
   const cleaned = (description || '').trim();
   if (!cleaned) return [];
   return cleaned.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean);
+}
+
+type MethodStep = { title?: string; body: string; durationMin?: number; tip?: string };
+interface MethodSection { name?: string; steps: Array<{ detail: MethodStep; index: number }>; }
+
+// Build the grouped render plan for the method, or null when the recipe
+// has no meaningful sections (no stepGroups, or a single unnamed one) and
+// should render as a flat list. Each step carries a GLOBAL index so
+// done-state, numbering and cook-mode all stay aligned with the flat
+// `steps` array.
+function methodSections(data: UnifiedRecipe): MethodSection[] | null {
+  const groups = data.stepGroups;
+  if (!groups || groups.length === 0) return null;
+  const meaningful = groups.length > 1 || !!(groups[0].name || '').trim();
+  if (!meaningful) return null;
+  let idx = 0;
+  const sections = groups
+    .map((g) => ({
+      name: (g.name || '').trim() || undefined,
+      steps: (g.steps || [])
+        .filter((s) => (s.body || '').trim())
+        .map((detail) => ({ detail, index: idx++ })),
+    }))
+    .filter((sec) => sec.steps.length > 0);
+  return sections.length > 0 ? sections : null;
 }
 
 function adaptRecipe(r: Recipe): UnifiedRecipe {
@@ -266,6 +309,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     ingredientGroups?: Array<{ name: string; ingredients: RecipeIngredient[] }>;
     equipment?: string[];
     stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
+    stepGroups?: Array<{ name: string; steps: Array<{ title?: string; body: string; durationMin?: number; tip?: string }> }>;
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
     createdWithAi?: boolean;
   };
@@ -306,6 +350,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     ingredientGroups: adv.ingredientGroups,
     equipment: adv.equipment,
     stepDetails: adv.stepDetails,
+    stepGroups: adv.stepGroups,
     notes: adv.notes,
     createdWithAi: adv.createdWithAi,
     sourceAuthorName: m.sourceAuthorName,
@@ -615,6 +660,7 @@ export const RecipePage: React.FC = () => {
       ingredientGroups: data.ingredientGroups,
       equipment: data.equipment,
       stepDetails: data.stepDetails,
+      stepGroups: data.stepGroups,
       notes: data.notes,
       createdWithAi: data.createdWithAi || undefined,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
@@ -1012,30 +1058,32 @@ export const RecipePage: React.FC = () => {
       {/* ── Stats strip ───────────────────────────────────────────── */}
       <section className="rd-stats">
         <div className="rd-stats-inner">
-          <div className="rd-stat">
-            <div className="rd-stat-label"><Clock /> Prep</div>
-            <div className="rd-stat-value">
-              {data.prepMinutes > 0 ? <>{data.prepMinutes} <span className="unit">min</span></> : '—'}
+          {data.prepMinutes > 0 && (
+            <div className="rd-stat">
+              <div className="rd-stat-label"><Clock /> Prep</div>
+              <div className="rd-stat-value">
+                {renderTimeValue(data.prepMinutes)}
+              </div>
             </div>
-          </div>
+          )}
           <div className="rd-stat">
             <div className="rd-stat-label"><Flame /> Cook</div>
             <div className="rd-stat-value">
-              {data.cookMinutes > 0 ? <>{data.cookMinutes} <span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.cookMinutes)}
             </div>
           </div>
-          {data.chillMinutes && data.chillMinutes > 0 && (
+          {(data.chillMinutes ?? 0) > 0 && (
             <div className="rd-stat">
               <div className="rd-stat-label"><Clock /> Rest</div>
               <div className="rd-stat-value">
-                {data.chillMinutes} <span className="unit">min</span>
+                {renderTimeValue(data.chillMinutes || 0)}
               </div>
             </div>
           )}
           <div className="rd-stat">
             <div className="rd-stat-label"><Clock /> Total</div>
             <div className="rd-stat-value">
-              {totalMinutes > 0 ? <>{totalMinutes} <span className="unit">min</span></> : '—'}
+              {renderTimeValue(totalMinutes)}
             </div>
           </div>
           <div className="rd-stat">
@@ -1196,10 +1244,68 @@ export const RecipePage: React.FC = () => {
           )}
 
           {(() => {
-            // Prefer rich stepDetails when present (Advanced builder).
-            // Otherwise derive the same shape from the flat string list
-            // so the rest of this branch can render uniformly.
-            const richSteps = (data.stepDetails && data.stepDetails.length > 0)
+            // One step row, keyed + numbered by its GLOBAL index so the
+            // grouped and flat paths render identically and stay in sync
+            // with done-state.
+            const renderStep = (step: MethodStep, i: number) => {
+              const isDone = doneSteps.has(i);
+              return (
+                <li key={i} className={cn('rd-step', isDone && 'done')}>
+                  <div className="rd-step-num-wrap">
+                    <div className="rd-step-num">{String(i + 1).padStart(2, '0')}</div>
+                    <button
+                      type="button"
+                      className="rd-step-check"
+                      onClick={() => toggleStep(i)}
+                      title={isDone ? 'Mark as not done' : 'Mark as done'}
+                      aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                    >
+                      <Check />
+                    </button>
+                  </div>
+                  <div className="rd-step-content">
+                    {step.title && <h3 className="rd-step-title">{step.title}</h3>}
+                    <p className="rd-step-body">{step.body}</p>
+                    {step.durationMin !== undefined && step.durationMin > 0 && (
+                      <div className="rd-step-meta">
+                        <StepTimerButton
+                          label={`${step.durationMin} min`}
+                          durationMs={step.durationMin * 60_000}
+                        />
+                      </div>
+                    )}
+                    {step.tip && (
+                      <div className="rd-step-tip">
+                        <span className="rd-step-tip-label">Tip</span>
+                        <span className="rd-step-tip-text">{step.tip}</span>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            };
+
+            // Grouped method (multi-component dishes): a subheading per
+            // section, steps numbered continuously across them.
+            const sections = methodSections(data);
+            if (sections) {
+              return (
+                <div className="rd-steps-sections">
+                  {sections.map((sec, si) => (
+                    <div className="rd-steps-group" key={si}>
+                      {sec.name && <h3 className="rd-steps-group-title">{sec.name}</h3>}
+                      <ol className="rd-steps">
+                        {sec.steps.map(({ detail, index }) => renderStep(detail, index))}
+                      </ol>
+                    </div>
+                  ))}
+                </div>
+              );
+            }
+
+            // Flat method. Prefer rich stepDetails; otherwise derive the
+            // same shape from the flat string list.
+            const richSteps: MethodStep[] = (data.stepDetails && data.stepDetails.length > 0)
               ? data.stepDetails
               : data.steps.map((s) => {
                   const split = splitStep(s);
@@ -1220,43 +1326,7 @@ export const RecipePage: React.FC = () => {
             }
             return (
               <ol className="rd-steps">
-                {richSteps.map((step, i) => {
-                  const isDone = doneSteps.has(i);
-                  return (
-                    <li key={i} className={cn('rd-step', isDone && 'done')}>
-                      <div className="rd-step-num-wrap">
-                        <div className="rd-step-num">{String(i + 1).padStart(2, '0')}</div>
-                        <button
-                          type="button"
-                          className="rd-step-check"
-                          onClick={() => toggleStep(i)}
-                          title={isDone ? 'Mark as not done' : 'Mark as done'}
-                          aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
-                        >
-                          <Check />
-                        </button>
-                      </div>
-                      <div className="rd-step-content">
-                        {step.title && <h3 className="rd-step-title">{step.title}</h3>}
-                        <p className="rd-step-body">{step.body}</p>
-                        {step.durationMin !== undefined && step.durationMin > 0 && (
-                          <div className="rd-step-meta">
-                            <StepTimerButton
-                              label={`${step.durationMin} min`}
-                              durationMs={step.durationMin * 60_000}
-                            />
-                          </div>
-                        )}
-                        {step.tip && (
-                          <div className="rd-step-tip">
-                            <span className="rd-step-tip-label">Tip</span>
-                            <span className="rd-step-tip-text">{step.tip}</span>
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
+                {richSteps.map((step, i) => renderStep(step, i))}
               </ol>
             );
           })()}
@@ -1584,8 +1654,8 @@ const RecipePrintView: React.FC<{ data: UnifiedRecipe; authorName: string }> = (
         {steps.length > 0 && (
           <section className="rd-print-section rd-print-steps">
             <h2>Method</h2>
-            <ol>
-              {steps.map((s, i) => (
+            {(() => {
+              const printStep = (s: MethodStep, i: number) => (
                 <li key={i}>
                   {s.title && <span className="rd-print-step-title">{s.title}. </span>}
                   {s.body}
@@ -1593,8 +1663,20 @@ const RecipePrintView: React.FC<{ data: UnifiedRecipe; authorName: string }> = (
                     <span className="rd-print-step-time"> ({s.durationMin} min)</span>
                   )}
                 </li>
-              ))}
-            </ol>
+              );
+              const sections = methodSections(data);
+              if (sections) {
+                return sections.map((sec, si) => (
+                  <div key={si} className="rd-print-group">
+                    {sec.name && <h3>{sec.name}</h3>}
+                    <ol start={sec.steps[0] ? sec.steps[0].index + 1 : 1}>
+                      {sec.steps.map(({ detail, index }) => printStep(detail, index))}
+                    </ol>
+                  </div>
+                ));
+              }
+              return <ol>{steps.map((s, i) => printStep(s, i))}</ol>;
+            })()}
           </section>
         )}
 
@@ -2134,22 +2216,24 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         )}
 
         <div className="rdm-stats">
-          <div className="rdm-stat">
-            <div className="l">Prep</div>
-            <div className="v">
-              {data.prepMinutes > 0 ? <>{data.prepMinutes}<span className="unit">min</span></> : '—'}
+          {data.prepMinutes > 0 && (
+            <div className="rdm-stat">
+              <div className="l">Prep</div>
+              <div className="v">
+                {renderTimeValue(data.prepMinutes)}
+              </div>
             </div>
-          </div>
+          )}
           <div className="rdm-stat">
             <div className="l">Cook</div>
             <div className="v">
-              {data.cookMinutes > 0 ? <>{data.cookMinutes}<span className="unit">min</span></> : '—'}
+              {renderTimeValue(data.cookMinutes)}
             </div>
           </div>
           <div className="rdm-stat">
             <div className="l">Total</div>
             <div className="v">
-              {totalMinutes > 0 ? <>{totalMinutes}<span className="unit">min</span></> : '—'}
+              {renderTimeValue(totalMinutes)}
             </div>
           </div>
           <div className="rdm-stat">
@@ -2264,43 +2348,90 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             </ul>
           </div>
         )}
-        {data.steps.length === 0 ? (
-          <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
-            No directions yet.
-          </p>
-        ) : (
-          <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-            {data.steps.map((step, i) => {
-              const split = splitStep(step);
-              const timer = extractStepMs(step);
-              const isDone = doneSteps.has(i);
-              return (
-                <li key={i} className={cn('rdm-step', isDone && 'done')}>
-                  <div className="rdm-step-num-wrap">
-                    <div className="rdm-step-num">{String(i + 1).padStart(2, '0')}</div>
-                    <button
-                      type="button"
-                      className="rdm-step-check"
-                      onClick={() => toggleStep(i)}
-                      aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
-                    >
-                      <Check />
-                    </button>
+        {(() => {
+          // One phone step row, keyed/numbered by GLOBAL index.
+          const renderRow = (
+            i: number,
+            title: string | undefined,
+            body: string,
+            timerNode: React.ReactNode,
+          ) => {
+            const isDone = doneSteps.has(i);
+            return (
+              <li key={i} className={cn('rdm-step', isDone && 'done')}>
+                <div className="rdm-step-num-wrap">
+                  <div className="rdm-step-num">{String(i + 1).padStart(2, '0')}</div>
+                  <button
+                    type="button"
+                    className="rdm-step-check"
+                    onClick={() => toggleStep(i)}
+                    aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                  >
+                    <Check />
+                  </button>
+                </div>
+                <div>
+                  {title && <h3 className="rdm-step-title">{title}</h3>}
+                  <p className="rdm-step-body">{body}</p>
+                  {timerNode}
+                </div>
+              </li>
+            );
+          };
+
+          // Grouped method (multi-component dishes): section subheadings
+          // with steps numbered continuously across them.
+          const sections = methodSections(data);
+          if (sections) {
+            return (
+              <div className="rdm-steps-sections">
+                {sections.map((sec, si) => (
+                  <div className="rdm-steps-group" key={si}>
+                    {sec.name && <h3 className="rdm-steps-group-title">{sec.name}</h3>}
+                    <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                      {sec.steps.map(({ detail, index }) => renderRow(
+                        index,
+                        detail.title || undefined,
+                        detail.body,
+                        detail.durationMin && detail.durationMin > 0 ? (
+                          <div className="rdm-step-meta">
+                            <MobileStepTimer label={`${detail.durationMin} min`} durationMs={detail.durationMin * 60_000} />
+                          </div>
+                        ) : null,
+                      ))}
+                    </ol>
                   </div>
-                  <div>
-                    {split.title && <h3 className="rdm-step-title">{split.title}</h3>}
-                    <p className="rdm-step-body">{split.body || step}</p>
-                    {timer && (
-                      <div className="rdm-step-meta">
-                        <MobileStepTimer label={timer.label} durationMs={timer.ms} />
-                      </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        )}
+                ))}
+              </div>
+            );
+          }
+
+          if (data.steps.length === 0) {
+            return (
+              <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
+                No directions yet.
+              </p>
+            );
+          }
+          return (
+            <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+              {data.steps.map((step, i) => {
+                const split = splitStep(step);
+                const timer = extractStepMs(step);
+                return renderRow(
+                  i,
+                  split.title || undefined,
+                  split.body || step,
+                  timer ? (
+                    <div className="rdm-step-meta">
+                      <MobileStepTimer label={timer.label} durationMs={timer.ms} />
+                    </div>
+                  ) : null,
+                );
+              })}
+            </ol>
+          );
+        })()}
       </section>
 
       {/* Author bio */}

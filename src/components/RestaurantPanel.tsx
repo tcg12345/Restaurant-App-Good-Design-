@@ -96,25 +96,27 @@ const ScorePill: React.FC<{
   const has = count > 0;
   return (
     <div className={cn(
-      'flex flex-col gap-2 rounded-2xl px-3 py-3.5 transition-colors',
+      'flex flex-col gap-1.5 rounded-2xl px-2.5 py-3 transition-colors',
       has ? 'bg-paper ring-1 ring-on-surface/[0.09]' : 'bg-on-surface/[0.03]',
     )}>
-      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55">
-        <span className="opacity-70">{icon}</span>
-        {label}
+      <div className="flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.06em] text-on-surface/55">
+        <span className="opacity-70 flex-shrink-0">{icon}</span>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
-      {has ? (
-        <div className="flex items-baseline gap-1">
-          <span className={cn('text-[24px] font-bold tabular-nums leading-none tracking-tight', scoreColor(score))}>
-            {score.toFixed(1)}
-          </span>
-          <span className="text-[11px] text-on-surface/45 tabular-nums">
-            · {count}
-          </span>
-        </div>
-      ) : (
-        <span className="text-[12px] text-on-surface/40 leading-none mt-0.5">No ratings</span>
-      )}
+      {/* Fixed-height value row so "No ratings" cells line up with scored
+          cells along a shared baseline. */}
+      <div className="flex items-end min-h-[24px]">
+        {has ? (
+          <div className="flex items-baseline gap-1">
+            <span className={cn('text-[23px] font-bold tabular-nums leading-none tracking-tight', scoreColor(score))}>
+              {score.toFixed(1)}
+            </span>
+            <span className="text-[11px] text-on-surface/45 tabular-nums">· {count}</span>
+          </div>
+        ) : (
+          <span className="text-[12px] text-on-surface/40 leading-none">No ratings</span>
+        )}
+      </div>
     </div>
   );
 };
@@ -1063,12 +1065,12 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
         <motion.div
           key={snapshot.id}
           initial={{ opacity: 0, x: 20, width: 0 }}
-          animate={{ opacity: 1, x: 0, width: 340 }}
+          animate={{ opacity: 1, x: 0, width: 388 }}
           exit={{ opacity: 0, x: 20, width: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 280 }}
           className="h-full bg-surface ring-1 ring-on-surface/[0.16] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0 shadow-md"
         >
-          <div className="w-[340px] h-full flex flex-col">
+          <div className="w-[388px] h-full flex flex-col">
             <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
           </div>
         </motion.div>

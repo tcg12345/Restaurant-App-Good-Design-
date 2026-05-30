@@ -15,6 +15,11 @@
 // The Anthropic API key lives here as a Vercel environment variable
 // (`ANTHROPIC_API_KEY`) and never reaches the browser bundle.
 
+// Recipe quality bar + tool input schema are shared with the chat's
+// build_recipe tool (api/location-chat.ts) so both paths author equally
+// thorough recipes.
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from './_recipe-spec';
+
 export const config = { runtime: 'edge' };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,29 +32,22 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
 // realistic timing) than Sonnet, and this is a one-shot call rather
 // than a high-volume chat, so the cost trade-off is worth it.
 const MODEL = 'claude-opus-4-8';
-const MAX_TOKENS = 6000;
+// Headroom so a fully detailed complex recipe (a laminated dough with
+// 15–20 richly-written steps, grouped ingredients, equipment, and a
+// make-ahead timeline note) isn't truncated. Because the tool is forced,
+// a max_tokens cutoff truncates the JSON mid-object and the client's
+// JSON.parse fails — so we'd rather pay for the tokens than error out.
+// Simple recipes stay cheap (cost scales with tokens actually produced).
+// Headroom raised so a fully detailed sectioned recipe with long,
+// descriptive steps doesn't truncate mid-JSON.
+const MAX_TOKENS = 12000;
 const MAX_PROMPT_CHARS = 2000;
-
-const CUISINE_HINT =
-  'Afghan, African, American, Argentinian, Australian, Austrian, BBQ, Bakery, Belgian, Brazilian, British, Cajun, Caribbean, Chinese, Cuban, Dessert, Ethiopian, Filipino, French, Fusion, German, Greek, Hawaiian, Indian, Indonesian, Irish, Israeli, Italian, Jamaican, Japanese, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nordic, Pakistani, Peruvian, Polish, Portuguese, Russian, Scandinavian, Seafood, Soul Food, Southern, Spanish, Sri Lankan, Swedish, Tex-Mex, Thai, Turkish, Ukrainian, Vegan, Vegetarian, Vietnamese';
-
-const COURSE_HINT = 'Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side';
-
-const QUALITY_BAR = [
-  '- Real, accurate measurements with units. Use mass (g) for baking when precision matters.',
-  '- Sensible step ordering; one clear action per step. Add a short `title` to each step.',
-  '- Realistic prep/cook/chill timing in minutes.',
-  '- Group ingredients by stage with `ingredientGroups` ONLY when the recipe truly has distinct stages ("For the batter", "For the glaze"); otherwise use the flat `ingredients` list.',
-  '- Include `equipment` the cook needs and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead).',
-  '- Write BOTH a `summary` (one punchy line, the byline under the title) AND a longer `introParagraph` (2–4 sentences of prose for the top of the recipe page). They MUST be different: the intro describes what the dish actually is — its flavor and texture, where it comes from or when to serve it, and why it is worth cooking. Do NOT just restate the summary.',
-  `- Set a sensible \`cuisine\` (examples: ${CUISINE_HINT}) and \`course\` (one or more of: ${COURSE_HINT}).`,
-].join('\n');
 
 const SYSTEM_PROMPT = [
   'You are a meticulous recipe developer. Given a short description, you author ONE complete, REAL, testable recipe and return it by calling the `build_recipe` tool. You do not chat, ask questions, or add commentary — you always call the tool exactly once.',
   '',
   'Quality bar:',
-  QUALITY_BAR,
+  RECIPE_QUALITY_BAR,
   '- Honor every constraint in the user\'s prompt (servings, dietary restrictions, time budget, equipment, flavor direction). If the prompt is vague, make reasonable, appealing choices rather than asking.',
 ].join('\n');
 
@@ -64,92 +62,13 @@ const EDIT_SYSTEM_PROMPT = [
   '- It is the SAME dish unless the instruction explicitly asks for a different one. Keep the name unless the change warrants a new one.',
   '',
   'Quality bar (maintain it):',
-  QUALITY_BAR,
+  RECIPE_QUALITY_BAR,
 ].join('\n');
 
 const TOOL_BUILD_RECIPE = {
   name: 'build_recipe',
   description: 'Return one complete recipe. Call this exactly once with every relevant field filled.',
-  input_schema: {
-    type: 'object',
-    required: ['name'],
-    properties: {
-      name: { type: 'string', description: 'Recipe title.' },
-      summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
-      introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`.' },
-      cuisine: { type: 'string' },
-      course: { type: 'array', items: { type: 'string' }, description: 'E.g. ["Dessert"] or ["Lunch", "Dinner"].' },
-      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
-      prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
-      cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
-      chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
-      servings: { type: 'integer', minimum: 1 },
-      yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
-      ingredients: {
-        type: 'array',
-        description: 'Flat list of ingredients for single-stage recipes.',
-        items: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name: { type: 'string' },
-            amount: { type: 'string', description: 'Number or fraction as a string. Blank when "to taste".' },
-            unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
-          },
-        },
-      },
-      ingredientGroups: {
-        type: 'array',
-        description: 'Grouped ingredients for multi-stage recipes. Use either this OR ingredients.',
-        items: {
-          type: 'object',
-          required: ['name', 'ingredients'],
-          properties: {
-            name: { type: 'string', description: 'Section name.' },
-            ingredients: {
-              type: 'array',
-              items: {
-                type: 'object',
-                required: ['name'],
-                properties: {
-                  name: { type: 'string' },
-                  amount: { type: 'string' },
-                  unit: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-      steps: {
-        type: 'array',
-        description: 'Ordered cooking steps.',
-        items: {
-          type: 'object',
-          required: ['body'],
-          properties: {
-            title: { type: 'string', description: 'Short imperative, e.g. "Brown the butter".' },
-            body: { type: 'string', description: 'One action per step, named clearly.' },
-            durationMin: { type: 'integer', minimum: 0 },
-            tip: { type: 'string', description: 'Optional inline tip for this step.' },
-          },
-        },
-      },
-      equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
-      tags: { type: 'array', items: { type: 'string' } },
-      notes: {
-        type: 'array',
-        items: {
-          type: 'object',
-          required: ['type', 'text'],
-          properties: {
-            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
-            text: { type: 'string' },
-          },
-        },
-      },
-    },
-  },
+  input_schema: RECIPE_INPUT_SCHEMA,
 };
 
 function jsonError(status: number, message: string): Response {
@@ -176,7 +95,7 @@ export default async function handler(req: Request): Promise<Response> {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
 
-  let body: { prompt?: string; instruction?: string; current?: unknown };
+  let body: { prompt?: string; difficulty?: string; instruction?: string; current?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -206,14 +125,23 @@ export default async function handler(req: Request): Promise<Response> {
     if (!prompt) {
       return jsonError(400, 'Tell me what recipe you want to create.');
     }
-    messages = [{ role: 'user', content: prompt }];
+    // Surface the chosen difficulty as a top-level directive (not buried in
+    // the prompt prose) so the model reliably calibrates depth to it. When
+    // absent, tell it to give the best/ideal version and self-label.
+    const difficulty = ['Easy', 'Medium', 'Hard'].includes(body.difficulty as string)
+      ? (body.difficulty as string)
+      : '';
+    const difficultyLine = difficulty
+      ? `\n\nTarget difficulty: ${difficulty}. Follow the DIFFICULTY CALIBRATION for ${difficulty} in the quality bar, and set the difficulty field to "${difficulty}".`
+      : '\n\nNo difficulty was specified — do NOT simplify. Produce the best, most authentic version of this dish, scaled to its true complexity, then set the difficulty field to whatever the recipe actually is.';
+    messages = [{ role: 'user', content: prompt + difficultyLine }];
   }
 
   const anthropicBody = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    // Stream the response. A full ~6000-token Opus recipe can take
-    // 30s+ to finish; a non-streaming call would block until then and
+    // Stream the response. A long Opus recipe can take 30s+ to finish;
+    // a non-streaming call would block until then and
     // trip the platform's time-to-first-byte limit (gateway 504).
     // Streaming sends bytes immediately, so we just proxy Anthropic's
     // SSE straight through and let the client assemble the tool input.

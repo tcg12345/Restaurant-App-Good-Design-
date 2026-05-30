@@ -1268,7 +1268,17 @@ export const LocationPage: React.FC = () => {
   // never trigger a refetch — they shrink what's shown from the pool we
   // already have, so as infinite-scroll pulls more pages any matching
   // results trickle in without a round-trip.
+  // AI-chat override: when the assistant recommends a set of restaurants
+  // (e.g. "best italian in Port Chester"), it hands them here. While set,
+  // the sidebar list + map markers show exactly these places and the map
+  // flies to frame them — independent of the normal area pool/filters.
+  // Cleared by re-searching the area or moving to a new city.
+  const [assistantPlaces, setAssistantPlaces] = useState<ScoredPlace[] | null>(null);
+
   const visible: ScoredPlace[] = useMemo(() => {
+    // AI-chat override takes over the list + markers wholesale, bypassing
+    // the normal area pool and filters.
+    if (assistantPlaces) return assistantPlaces;
     const out: ScoredPlace[] = [];
     const cuisineSet = new Set(selectedCuisines);
     for (const p of ranked) {
@@ -1352,6 +1362,7 @@ export const LocationPage: React.FC = () => {
     }
     return sorted;
   }, [
+    assistantPlaces,
     ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng,
     selectedRadius, friendsOnly, expertsOnly,
     friendRestaurantIds, expertRestaurantIds, debouncedSearch,
@@ -1528,6 +1539,9 @@ export const LocationPage: React.FC = () => {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !hasCoords) return;
+    // Moving to a new city ends any AI-chat override so the area's own
+    // results take back over.
+    setAssistantPlaces(null);
     map.setMaxBounds(null as unknown as mapboxgl.LngLatBoundsLike);
     map.jumpTo({ center: [lng, lat], zoom: 12 });
     map.setMaxBounds(buildMiniMapBounds(lat, lng));
@@ -1609,6 +1623,32 @@ export const LocationPage: React.FC = () => {
       markersRef.current[place.id] = marker;
     }
   }, [visible, mapReady, navigate]);
+
+  // ── AI chat → map ──────────────────────────────────────────────────
+  // The assistant calls this with the restaurants it just recommended.
+  // We swap the list + markers to exactly those (via `assistantPlaces`,
+  // which the `visible` memo short-circuits on) and fly to frame them —
+  // lifting the city bbox cap first so we can pan to another town. An
+  // empty array clears the override and returns to the area results.
+  const handleAssistantPlaces = useCallback((places: ScoredPlace[]) => {
+    const valid = (places || []).filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (valid.length === 0) {
+      setAssistantPlaces(null);
+      return;
+    }
+    setAssistantPlaces(valid);
+    setSelectedMarkerPlace(null);
+    const map = mapRef.current;
+    if (!map) return;
+    map.setMaxBounds(null as unknown as mapboxgl.LngLatBoundsLike);
+    if (valid.length === 1) {
+      map.flyTo({ center: [valid[0].lng, valid[0].lat], zoom: 14, duration: 900 });
+    } else {
+      const bounds = new mapboxgl.LngLatBounds();
+      for (const p of valid) bounds.extend([p.lng, p.lat]);
+      map.fitBounds(bounds, { padding: 64, maxZoom: 15, duration: 900 });
+    }
+  }, []);
 
   // ── Mini-map: city-centre marker (distinct from restaurants) ───────
   useEffect(() => {
@@ -2015,6 +2055,8 @@ export const LocationPage: React.FC = () => {
   const handleSearchHere = useCallback(async () => {
     const map = mapRef.current;
     if (!map || searchingHere) return;
+    // Re-searching the visible area replaces any AI-chat override.
+    setAssistantPlaces(null);
     setSearchingHere(true);
     try {
       const c = map.getCenter();
@@ -2978,6 +3020,7 @@ export const LocationPage: React.FC = () => {
         onSearchRestaurants={handleChatSearch}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
+        onAssistantPlaces={handleAssistantPlaces}
       />
     </div>
   );
@@ -3006,6 +3049,7 @@ interface LocationPageAssistantPublisherProps {
   onSearchRestaurants: (query: string, city?: string) => Promise<ScoredPlace[]>;
   onLookupUser: (query: string) => Promise<Array<{ username: string; displayName?: string; bio?: string; isExpert?: boolean; homeCity?: string }>>;
   onGetCircleRatings: (restaurantId: string) => Promise<Array<{ username: string; displayName?: string; isExpert?: boolean; isFriend?: boolean; score?: number; notes?: string }>>;
+  onAssistantPlaces: (places: ScoredPlace[]) => void;
 }
 
 const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherProps> = (props) => {
@@ -3019,6 +3063,7 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     onSearchRestaurants: props.onSearchRestaurants,
     onLookupUser: props.onLookupUser,
     onGetCircleRatings: props.onGetCircleRatings,
+    onAssistantPlaces: props.onAssistantPlaces,
   }), [
     props.visible,
     props.restaurantMeta,
@@ -3029,6 +3074,7 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     props.onSearchRestaurants,
     props.onLookupUser,
     props.onGetCircleRatings,
+    props.onAssistantPlaces,
   ]);
   useSetAssistantPageContext(ctx);
   return null;

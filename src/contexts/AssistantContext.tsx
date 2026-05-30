@@ -44,6 +44,13 @@ export interface AssistantPageContext {
   /** Circle-rating lookup. Falls back to empty results when not
    *  published (only LocationPage has the rich signals map). */
   onGetCircleRatings?: (restaurantId: string) => Promise<AssistantCircleRating[]>;
+  /** Plot a set of AI-recommended restaurants on the map: the map page
+   *  swaps the sidebar list + markers to exactly these places and flies
+   *  to frame them. Only published by the map page (LocationPage), so the
+   *  chat calling it is a no-op everywhere else — i.e. the map only reacts
+   *  to the chat when you're actually on the map page. Pass `null`/`[]` to
+   *  clear the override and return to the normal area results. */
+  onAssistantPlaces?: (places: ScoredPlace[]) => void;
 }
 
 interface AssistantContextValue {

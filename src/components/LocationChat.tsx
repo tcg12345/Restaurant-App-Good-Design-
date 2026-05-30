@@ -20,6 +20,7 @@ import {
   MapPin,
   Plus,
   RotateCw,
+  Search,
   Send,
   Sparkles,
   Trash2,
@@ -210,6 +211,11 @@ interface LocationChatProps {
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
   onGetCircleRatings: (restaurantId: string) => Promise<AssistantUser[] | AssistantCircleRating[]>;
+  /** Plot the restaurants the assistant just recommended onto the map
+   *  page (markers + sidebar) and fly there. Only provided when the chat
+   *  is open on the map page, so on every other page it's undefined and
+   *  the map is never touched. */
+  onAssistantPlaces?: (places: ScoredPlace[]) => void;
 
   /* ── ACTION handlers — wire up new in-app capabilities. All are
        optional so this component still works standalone (the bot
@@ -591,6 +597,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onFindExperts,
   onSearchCommunityRecipes,
   onGetCircleRatings,
+  onAssistantPlaces,
   recipes,
   knownPlaces,
   currentPath,
@@ -698,7 +705,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // sync); this component just reads it and upserts/deletes entries.
   const [view, setView] = useState<'chat' | 'history'>('chat');
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  // Free-text filter for the saved-chats list (history view).
+  const [historyQuery, setHistoryQuery] = useState('');
   const { savedChats, upsertChat, deleteChat } = useAiChatHistory();
+  // Saved chats narrowed by the history search box (matches the title —
+  // which is the user's opening prompt, so it covers what's on screen).
+  const filteredChats = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    if (!q) return savedChats;
+    return savedChats.filter((c) => (c.title || '').toLowerCase().includes(q));
+  }, [savedChats, historyQuery]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirror the latest conversation into refs so we can persist it on unmount
   // / panel-close even if the debounce hasn't fired. AppAssistant unmounts
@@ -898,6 +914,46 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
     return m;
   }, [visible, chatPlaces, knownPlaces]);
+
+  // ── Drive the map page when the assistant recommends restaurants ──
+  // On the map page (where `onAssistantPlaces` is wired) we hand the
+  // latest recommend_restaurants result to the page so it can swap the
+  // markers + sidebar to exactly those places and fly there. We wait for
+  // the turn to finish streaming so search_restaurants results have
+  // settled into chatPlaces (and thus placeById). A ref de-dupes so the
+  // same block isn't re-plotted; the first settle just adopts whatever
+  // history is already loaded without moving the map.
+  const lastPlottedCardsRef = useRef<string | null>(null);
+  const plotInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!onAssistantPlaces || streaming) return;
+    let latest: { toolUseId: string; placeIds: string[] } | null = null;
+    for (let i = messages.length - 1; i >= 0 && !latest; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+      for (let j = msg.blocks.length - 1; j >= 0; j--) {
+        const b = msg.blocks[j];
+        if (b.type === 'cards' && b.placeIds.length > 0) {
+          latest = { toolUseId: b.toolUseId, placeIds: b.placeIds };
+          break;
+        }
+      }
+    }
+    if (!latest) { plotInitializedRef.current = true; return; }
+    if (!plotInitializedRef.current) {
+      // First settle — adopt any restored history without moving the map.
+      lastPlottedCardsRef.current = latest.toolUseId;
+      plotInitializedRef.current = true;
+      return;
+    }
+    if (lastPlottedCardsRef.current === latest.toolUseId) return;
+    const places = latest.placeIds
+      .map((id) => placeById.get(id))
+      .filter((p): p is ScoredPlace => !!p);
+    if (places.length === 0) return;
+    lastPlottedCardsRef.current = latest.toolUseId;
+    onAssistantPlaces(places);
+  }, [streaming, messages, placeById, onAssistantPlaces]);
 
   /** Recipe lookup for card rendering. The user's own recipes come
    *  through `recipes` (typed Recipe[]); community recipes surfaced
@@ -2097,7 +2153,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   <button
                     type="button"
                     className="lp-chat-head-action"
-                    onClick={() => setView('history')}
+                    onClick={() => { setHistoryQuery(''); setView('history'); }}
                     aria-label="Prior chats"
                     title="Prior chats"
                   >
@@ -2124,7 +2180,36 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       <p className="sub">Conversations save automatically — they'll appear here after you send your first message.</p>
                     </div>
                   ) : (
-                    savedChats.map((chat) => (
+                    <>
+                    <div className="lp-chat-history-search">
+                      <Search size={15} className="lp-chat-history-search-icon" />
+                      <input
+                        type="text"
+                        value={historyQuery}
+                        onChange={(e) => setHistoryQuery(e.target.value)}
+                        placeholder="Search chats…"
+                        aria-label="Search chats"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      {historyQuery && (
+                        <button
+                          type="button"
+                          className="lp-chat-history-search-clear"
+                          onClick={() => setHistoryQuery('')}
+                          aria-label="Clear search"
+                          title="Clear search"
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {filteredChats.length === 0 ? (
+                      <div className="lp-chat-history-empty">
+                        <p>No chats match “{historyQuery.trim()}”.</p>
+                      </div>
+                    ) : (
+                    filteredChats.map((chat) => (
                       <div
                         key={chat.id}
                         className={cn('lp-chat-history-item', chat.id === currentChatId && 'is-current')}
@@ -2157,6 +2242,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         </button>
                       </div>
                     ))
+                    )}
+                    </>
                   )}
                 </div>
               ) : (

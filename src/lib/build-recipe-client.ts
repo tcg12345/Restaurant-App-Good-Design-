@@ -133,8 +133,12 @@ async function postRecipe(
 export async function generateRecipe(
   prompt: string,
   signal?: AbortSignal,
+  difficulty?: 'Easy' | 'Medium' | 'Hard',
 ): Promise<GenerateRecipeResult> {
-  const { recipe, error } = await postRecipe({ prompt }, signal);
+  const { recipe, error } = await postRecipe(
+    difficulty ? { prompt, difficulty } : { prompt },
+    signal,
+  );
   if (error) return { ok: false, error };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't generate that recipe. Try rephrasing your request." };
@@ -158,9 +162,15 @@ function homeMealToInput(meal: HomeMeal): BuildRecipeInput {
     yieldDescription: meal.yieldDescription,
     ingredientGroups: meal.ingredientGroups && meal.ingredientGroups.length > 0 ? meal.ingredientGroups : undefined,
     ingredients: (!meal.ingredientGroups || meal.ingredientGroups.length === 0) ? meal.ingredients : undefined,
-    steps: meal.stepDetails && meal.stepDetails.length > 0
-      ? meal.stepDetails
-      : (meal.steps || []).map((body) => ({ body })),
+    // Hand the model grouped sections when the recipe has them so an AI
+    // refine preserves (and can extend) the section structure; otherwise
+    // send the flat step list.
+    stepGroups: meal.stepGroups && meal.stepGroups.length > 0 ? meal.stepGroups : undefined,
+    steps: (!meal.stepGroups || meal.stepGroups.length === 0)
+      ? (meal.stepDetails && meal.stepDetails.length > 0
+          ? meal.stepDetails
+          : (meal.steps || []).map((body) => ({ body })))
+      : undefined,
     equipment: meal.equipment,
     tags: meal.tags,
     notes: meal.notes,

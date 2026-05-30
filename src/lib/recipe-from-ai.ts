@@ -12,6 +12,7 @@ import type {
   RecipeIngredientGroup,
   RecipeNote,
   RecipeStepDetail,
+  RecipeStepGroup,
 } from '../contexts/ListsContext';
 
 /** Shape the `build_recipe` tool emits — mirrors AdvancedRecipeState
@@ -34,10 +35,59 @@ export interface BuildRecipeInput {
   /** Flat list — model may emit either this or ingredientGroups. */
   ingredients?: RecipeIngredient[];
   ingredientGroups?: RecipeIngredientGroup[];
+  /** Flat method — model may emit either this or stepGroups. */
   steps?: RecipeStepDetail[];
+  stepGroups?: RecipeStepGroup[];
   equipment?: string[];
   tags?: string[];
   notes?: RecipeNote[];
+}
+
+/** Clean one raw AI step into a RecipeStepDetail, or null if it's empty. */
+function normalizeStep(s: RecipeStepDetail | undefined): RecipeStepDetail | null {
+  if (!s || !(s.body || '').trim()) return null;
+  return {
+    title: s.title?.trim() || undefined,
+    body: s.body.trim(),
+    durationMin: typeof s.durationMin === 'number' && s.durationMin > 0 ? s.durationMin : undefined,
+    tip: s.tip?.trim() || undefined,
+  };
+}
+
+/** Normalize the method into rich grouped sections + the flat fallbacks.
+ *  Prefers `stepGroups` (multi-component dishes); otherwise wraps the flat
+ *  `steps` list. `groups` is left empty for a simple single-flow recipe
+ *  (no real sections) so renderers fall back to the flat list cleanly. */
+function normalizeMethod(input: BuildRecipeInput): {
+  stepGroups: RecipeStepGroup[];
+  stepDetails: RecipeStepDetail[];
+  steps: string[];
+} {
+  let groups: RecipeStepGroup[] = [];
+  if (Array.isArray(input.stepGroups) && input.stepGroups.length > 0) {
+    groups = input.stepGroups
+      .filter((g) => g && Array.isArray(g.steps))
+      .map((g) => ({
+        name: (g.name || '').trim(),
+        steps: g.steps.map(normalizeStep).filter((s): s is RecipeStepDetail => s !== null),
+      }))
+      .filter((g) => g.steps.length > 0);
+  }
+  // A lone unnamed section isn't a real grouping — treat it as flat.
+  const isMeaningfulGrouping =
+    groups.length > 1 || (groups.length === 1 && !!groups[0].name);
+
+  const flatDetails: RecipeStepDetail[] = isMeaningfulGrouping
+    ? groups.flatMap((g) => g.steps)
+    : (Array.isArray(input.steps)
+        ? input.steps.map(normalizeStep).filter((s): s is RecipeStepDetail => s !== null)
+        : groups.flatMap((g) => g.steps));
+
+  return {
+    stepGroups: isMeaningfulGrouping ? groups : [],
+    stepDetails: flatDetails,
+    steps: flatDetails.map((s) => s.body),
+  };
 }
 
 /** Turn the tool's structured input into a complete HomeMeal that the
@@ -76,17 +126,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
   }
   const flatIngredients: RecipeIngredient[] = groups.flatMap((g) => g.ingredients);
 
-  const stepDetails: RecipeStepDetail[] = Array.isArray(input.steps)
-    ? input.steps
-        .filter((s) => s && (s.body || '').trim())
-        .map((s) => ({
-          title: s.title?.trim() || undefined,
-          body: s.body.trim(),
-          durationMin: typeof s.durationMin === 'number' && s.durationMin > 0 ? s.durationMin : undefined,
-          tip: s.tip?.trim() || undefined,
-        }))
-    : [];
-  const flatSteps = stepDetails.map((s) => s.body);
+  const { stepGroups, stepDetails, steps: flatSteps } = normalizeMethod(input);
 
   const summary = (input.summary || '').trim();
   const introParagraph = (input.introParagraph || '').trim();
@@ -115,6 +155,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
     yieldDescription: input.yieldDescription?.trim() || undefined,
     ingredientGroups: groups,
     ingredients: flatIngredients,
+    stepGroups: stepGroups.length > 0 ? stepGroups : undefined,
     stepDetails,
     steps: flatSteps,
     equipment: Array.isArray(input.equipment) ? input.equipment.filter((e) => typeof e === 'string' && e.trim()) : [],
@@ -212,19 +253,11 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
     out.ingredients = groups.flatMap((g) => g.ingredients);
   }
 
-  if (has('steps')) {
-    const stepDetails: RecipeStepDetail[] = Array.isArray(input.steps)
-      ? input.steps
-          .filter((s) => s && (s.body || '').trim())
-          .map((s) => ({
-            title: s.title?.trim() || undefined,
-            body: s.body.trim(),
-            durationMin: typeof s.durationMin === 'number' && s.durationMin > 0 ? s.durationMin : undefined,
-            tip: s.tip?.trim() || undefined,
-          }))
-      : [];
+  if (has('steps') || has('stepGroups')) {
+    const { stepGroups, stepDetails, steps } = normalizeMethod(input);
+    out.stepGroups = stepGroups.length > 0 ? stepGroups : undefined;
     out.stepDetails = stepDetails;
-    out.steps = stepDetails.map((s) => s.body);
+    out.steps = steps;
   }
 
   if (has('equipment')) {
@@ -253,7 +286,7 @@ export function changedFieldsInEdit(input: BuildRecipeInput): string[] {
   const order: Array<keyof BuildRecipeInput> = [
     'name', 'summary', 'introParagraph', 'cuisine', 'course', 'difficulty',
     'prepTime', 'cookTime', 'chillTime', 'servings', 'yieldDescription',
-    'ingredients', 'ingredientGroups', 'steps', 'equipment', 'tags', 'notes',
+    'ingredients', 'ingredientGroups', 'steps', 'stepGroups', 'equipment', 'tags', 'notes',
   ];
   return order.filter((k) =>
     Object.prototype.hasOwnProperty.call(input, k) && input[k] !== undefined,

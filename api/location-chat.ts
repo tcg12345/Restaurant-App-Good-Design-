@@ -19,6 +19,12 @@
 // Vercel Edge runtime: standard Web APIs (fetch / Request / Response /
 // ReadableStream). Edge is the right choice for chat: faster cold
 // starts than Node serverless and native support for streaming bodies.
+
+// The chat's build_recipe tool shares its quality bar + input schema with
+// the dedicated "Create with AI" modal generator (api/build-recipe.ts) so
+// recipes authored in chat are just as thorough and precise.
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from './_recipe-spec';
+
 export const config = { runtime: 'edge' };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -88,47 +94,64 @@ function pickAutoModel(messages: ChatRequest['messages']): string {
  *  for X", "best <food> recipe", etc. Also catches the second turn of an
  *  AI clarification loop: prior assistant message ended in '?' and the
  *  user is now answering (so the recipe build is still in flight). */
+// Pull plain text out of a message's content (a string, or a block array —
+// concatenating only the text blocks). Shared by the recipe-intent checks.
+function extractMessageText(msg: ChatRequest['messages'][number]): string {
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.content)) {
+    let acc = '';
+    for (const block of msg.content) {
+      if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
+        acc += (block as { text?: string }).text || '';
+      }
+    }
+    return acc;
+  }
+  return '';
+}
+
+// The user is directly asking the assistant to AUTHOR a recipe (as opposed
+// to asking about restaurants, or refining an existing draft). Broad on
+// purpose — a miss silently drops the turn to Sonnet + 1024 tokens with no
+// quality bar. Also the strict signal used to FORCE the build_recipe tool.
+const RECIPE_CREATE_PATTERNS: RegExp[] = [
+  /\b(create|build|make|bake|cook|prepare|generate|write|draft|whip up|put together|come up with)\b[^.?!]{0,80}\brecipes?\b/,
+  /\brecipes?\s+for\b/,
+  /\bbest\b[^.?!]{0,40}\brecipes?\b/,
+  /\b(give|send|share)\b[^.?!]{0,30}\b(me\s+)?(a|the|some)\s+recipes?\b/,
+  /\bhow\s+(do|can|would|should)\s+i\s+(make|cook|bake|prepare)\b/,
+  /\bteach\s+me\s+(to|how\s+to)\s+(make|cook|bake)\b/,
+  /\b(make|cook|bake|prepare)\b[^.?!]{0,60}\bfrom\s+scratch\b/,
+];
+
+/** True when the LAST user message is itself a direct recipe-authoring
+ *  request. Strict (latest message only) — used to force the build_recipe
+ *  tool so the chat commits to one complete recipe like the modal. */
+function lastUserCreateRequest(messages: ChatRequest['messages']): boolean {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const text = lastUser ? extractMessageText(lastUser).toLowerCase() : '';
+  return RECIPE_CREATE_PATTERNS.some((re) => re.test(text));
+}
+
 function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
   if (!messages.length) return false;
 
-  const extractText = (msg: ChatRequest['messages'][number]): string => {
-    if (typeof msg.content === 'string') return msg.content;
-    if (Array.isArray(msg.content)) {
-      let acc = '';
-      for (const block of msg.content) {
-        if (block && typeof block === 'object' && (block as { type?: string }).type === 'text') {
-          acc += (block as { text?: string }).text || '';
-        }
-      }
-      return acc;
-    }
-    return '';
-  };
+  // (a) A fresh, direct authoring request in the latest user message.
+  if (lastUserCreateRequest(messages)) return true;
 
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-  const lastUserText = lastUser ? extractText(lastUser).toLowerCase() : '';
-
-  const directHit = [
-    /\b(create|build|make|generate|write|draft)\b[^.?!]{0,80}\brecipe\b/,
-    /\brecipe\s+for\b/,
-    /\bbest\b[^.?!]{0,40}\brecipe\b/,
-    /\b(give|send|share)\b[^.?!]{0,30}\b(me\s+)?(a|the)\s+recipe\b/,
-  ].some((re) => re.test(lastUserText));
-  if (directHit) return true;
-
-  // Mid-clarification continuation: the assistant just asked a recipe-
+  // (b) Mid-clarification continuation: the assistant just asked a recipe-
   // related question and the user is replying. Only check the LAST
   // assistant turn so we don't escalate forever.
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   if (lastAssistant) {
-    const txt = extractText(lastAssistant).toLowerCase();
+    const txt = extractMessageText(lastAssistant).toLowerCase();
     if (/\brecipe\b/.test(txt) && /\?/.test(txt)) return true;
   }
 
-  // Follow-up tweak to an existing draft. If the conversation already
+  // (c) Follow-up tweak to an existing draft. If the conversation already
   // contains a build_recipe or edit_recipe_draft tool_use, the user's
   // next short message is likely a refinement ("less salt", "swap to
-  // pecans", "make it spicier"). Keep Opus + 6000-token budget so the
+  // pecans", "make it spicier"). Keep Opus + the large token budget so the
   // edit_recipe_draft call has room for a full revised ingredient or
   // step list.
   const hasPriorDraft = messages.some((m) => {
@@ -479,90 +502,7 @@ const TOOL_BUILD_RECIPE = {
   name: 'build_recipe',
   description:
     "Author a complete recipe and render it as a draft card in the chat for the user to review. Use this when the user asks you to create / build / make / generate / write / draft a recipe. The card shows a preview; tapping it opens a full read-only sheet with Publish and Edit actions. Do NOT paste the recipe text in your reply — the card IS the deliverable. After calling this tool, reply with ONE short sentence pointing the user at the card (e.g. 'Drafted a brown-butter banana bread — open the card to review.').",
-  input_schema: {
-    type: 'object',
-    required: ['name'],
-    properties: {
-      name: { type: 'string', description: 'Recipe title.' },
-      summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
-      introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`. Always include it.' },
-      cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
-      course: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Pick items from COURSE_OPTIONS. E.g. ["Dessert"] or ["Lunch", "Dinner"].',
-      },
-      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
-      prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
-      cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
-      chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
-      servings: { type: 'integer', minimum: 1 },
-      yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
-      ingredients: {
-        type: 'array',
-        description: 'Flat list of ingredients. Use this for simple recipes; for multi-stage recipes prefer ingredientGroups instead. Either field is fine.',
-        items: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name: { type: 'string' },
-            amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
-            unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
-          },
-        },
-      },
-      ingredientGroups: {
-        type: 'array',
-        description: 'Grouped ingredients for multi-stage recipes ("For the batter", "For the streusel"). Use either this OR ingredients — not both.',
-        items: {
-          type: 'object',
-          required: ['name', 'ingredients'],
-          properties: {
-            name: { type: 'string', description: 'Section name.' },
-            ingredients: {
-              type: 'array',
-              items: {
-                type: 'object',
-                required: ['name'],
-                properties: {
-                  name: { type: 'string' },
-                  amount: { type: 'string' },
-                  unit: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-      steps: {
-        type: 'array',
-        description: 'Ordered cooking steps. Each step is an object with a `body` (the action) and optional title / durationMin / tip.',
-        items: {
-          type: 'object',
-          required: ['body'],
-          properties: {
-            title: { type: 'string', description: 'Optional short imperative, e.g. "Brown the butter".' },
-            body: { type: 'string', description: 'One action per step, named clearly.' },
-            durationMin: { type: 'integer', minimum: 0 },
-            tip: { type: 'string', description: 'Optional inline tip for this step.' },
-          },
-        },
-      },
-      equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Free-text tags.' },
-      notes: {
-        type: 'array',
-        items: {
-          type: 'object',
-          required: ['type', 'text'],
-          properties: {
-            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
-            text: { type: 'string' },
-          },
-        },
-      },
-    },
-  },
+  input_schema: RECIPE_INPUT_SCHEMA,
 };
 
 /** Edit the most recent AI-built recipe draft IN PLACE. Use this for
@@ -1003,6 +943,20 @@ function buildSystemPrompt(body: ChatRequest): string {
     "  R6. NEW DISH entirely (\"now do me a savory carbonara\", \"forget the bread, make me a Thai curry\") → call `build_recipe`, which spawns a brand-new draft card. Rule of thumb: same dish being adjusted → `edit_recipe_draft`. Different dish → `build_recipe`.",
   );
 
+  // When this turn is authoring/editing a recipe, hold to the SAME standard
+  // the dedicated "Create with AI" modal generator uses, so chat recipes are
+  // equally thorough (scaled depth, honest timing, precise measurements).
+  // Gated so ordinary chats don't carry the extra tokens.
+  if (looksLikeRecipeBuild(body.messages)) {
+    lines.push('');
+    lines.push('YOU ARE NOW A METICULOUS RECIPE DEVELOPER. For this turn, author ONE complete, REAL, testable recipe with the `build_recipe` tool, filled to the SAME exhaustive standard as the dedicated "Create with AI" recipe generator — NEVER a thinner recipe in chat than you would write standalone. Fill every relevant field. IMPORTANT: the "keep replies short / one short sentence" rule governs your CHAT prose ONLY, NOT the recipe you author — the recipe itself must be as detailed and thorough as the dish demands (long, descriptive steps; many fine-grained steps within each section). Give your one short pointer sentence AFTER the tool call.');
+    lines.push('');
+    lines.push('RECIPE QUALITY BAR — when you call build_recipe or edit_recipe_draft, author the recipe to this exact standard:');
+    lines.push(RECIPE_QUALITY_BAR);
+    lines.push('');
+    lines.push('Produce the best, most authentic version of the dish, scaled to its true complexity (simple dishes stay simple; demanding dishes get the full rigorous treatment). Set the `difficulty` field to whatever the recipe actually is.');
+  }
+
   return lines.join('\n');
 }
 
@@ -1051,7 +1005,21 @@ export default async function handler(req: Request): Promise<Response> {
   // empty / malformed JSON, and from the user's perspective the chat
   // just goes silent. Everything else fits easily in 1024.
   const recipeBuild = looksLikeRecipeBuild(body.messages);
-  const maxTokens = recipeBuild ? 6000 : 1024;
+  // Matches the dedicated generator's headroom so a fully detailed complex
+  // recipe (sectioned method, long descriptive steps) isn't truncated
+  // mid-stream. Non-recipe turns stay tiny.
+  const maxTokens = recipeBuild ? 12000 : 1024;
+
+  // Force the build_recipe tool on a FRESH authoring request so the chat
+  // commits to one complete, exhaustive recipe — exactly like the dedicated
+  // modal, which forces the same tool. Strictly gated so it never fires on:
+  //   • a post-tool follow-up turn (the model must reply with its "open the
+  //     card" sentence — that turn ends in a tool_result), or
+  //   • a refinement of an existing draft (handled by edit_recipe_draft).
+  const lastMsg = body.messages[body.messages.length - 1];
+  const lastIsToolResult = !!lastMsg && lastMsg.role === 'user' && Array.isArray(lastMsg.content)
+    && lastMsg.content.some((b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result');
+  const forceRecipeTool = !lastIsToolResult && lastUserCreateRequest(body.messages);
 
   const anthropicBody = {
     model: resolveModel(body),
@@ -1090,6 +1058,9 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_OPEN_GUIDE_CREATOR,
       TOOL_WEB_SEARCH,
     ],
+    // On a fresh recipe request, compel the model to author the recipe now
+    // (one build_recipe call, no chatter) — full parity with the modal.
+    ...(forceRecipeTool ? { tool_choice: { type: 'tool', name: 'build_recipe' } } : {}),
     messages: body.messages,
   };
 

@@ -17,7 +17,7 @@ import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
   buildCandidateQueries,
@@ -25,8 +25,11 @@ import {
   haversineKm,
   type TasteProfile,
   type CandidateSignals,
+  type ScoredPlace,
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { geocodePlace } from '../components/HomeLocationBar';
+import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { SocialFeed } from '../components/SocialFeed';
@@ -389,7 +392,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [mapPanelWidth]);
-  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals, restaurantMeta } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -530,6 +533,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
+    // An explicit tab switch ends any AI-chat map takeover.
+    assistantPlotActiveRef.current = false;
     // Any explicit mode change exits focus-only view so the user can see
     // the full set of markers for that mode.
     setIsFocusOnly(false);
@@ -679,6 +684,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // the focus-deep-link handler) know the map is ready to receive flyTo.
   const [mapReady, setMapReady] = useState(false);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
+  // True while the AI chat has taken over the discover map with its own
+  // recommended places — suppresses the expert overlay so only those pins
+  // show. Reset by any explicit user re-search / area / tab change.
+  const assistantPlotActiveRef = useRef(false);
   const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1669,6 +1678,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
+    // An explicit area re-search ends any AI-chat map takeover.
+    assistantPlotActiveRef.current = false;
     // NB: callers that represent an explicit user re-search (the
     // "Search this area" pill, the panel empty-state button, etc.) clear
     // the typed-location distance anchor themselves. fetchNearby itself
@@ -1717,6 +1728,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Clear previous expert overlay markers
     expertOverlayMarkersRef.current.forEach((m) => m.remove());
     expertOverlayMarkersRef.current = [];
+
+    // When the AI chat has plotted its own recommendations, show ONLY those
+    // pins — no expert overlay stars layered on top.
+    if (assistantPlotActiveRef.current) return;
 
     if (expertRatings.length === 0) return;
 
@@ -1787,6 +1802,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const map = mapRef.current;
     if (!map || !query.trim()) return;
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
+    // An explicit text search ends any AI-chat map takeover.
+    assistantPlotActiveRef.current = false;
     setIsSearching(true);
     setSelectedMarker(null);
     setShowSearchHere(false);
@@ -1822,6 +1839,124 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, searchLocationBias]);
+
+  // ── AI chat → map integration (only when mounted as the /map page) ──────
+  // Discover is the app's real map surface (route /map). It publishes its
+  // pool + city + a city-search callback + a "plot these" callback to the
+  // global assistant so the chat can drive the map: ask for "the best
+  // mediterranean spots in Boston" and the chat searches Boston, then hands
+  // the picks back here to swap the list + markers and fly there.
+
+  // Current discover pool as ScoredPlace[] (the chat's on-screen context).
+  const assistantVisible = useMemo<ScoredPlace[]>(
+    () => places.map((p) => ({ ...p, recScore: p.rating > 0 ? p.rating * 2 : 0, sources: ['google'] as ScoredPlace['sources'] })),
+    [places],
+  );
+  const assistantCityLabel = referenceLocation?.name || homeLocation?.label || '';
+  const assistantShortCity = (assistantCityLabel.split(',')[0] || '').trim();
+
+  // Bound to the chat's search_restaurants tool. Geocodes the target city
+  // (when different from the page's) and runs a Google text search there so
+  // the results carry real coordinates — the chat stores them and can then
+  // recommend (and plot) them. Mirrors LocationPage.handleChatSearch.
+  const handleAssistantSearch = useCallback(async (query: string, city?: string): Promise<ScoredPlace[]> => {
+    const q = query.trim();
+    if (!q) return [];
+    try {
+      const price = filtersRef.current.selectedPrice;
+      const priceLevels = price > 0 ? [price] : undefined;
+      const targetCity = city?.trim();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== assistantShortCity.toLowerCase();
+      let anchor: { lat: number; lng: number; radiusMeters: number } | null = null;
+      if (isOtherCity) {
+        try {
+          const geocoded = await geocodePlace(targetCity!);
+          if (geocoded) anchor = { lat: geocoded.lat, lng: geocoded.lng, radiusMeters: 19312 };
+        } catch { /* fall through to current map center */ }
+      }
+      if (!anchor) {
+        const c = mapRef.current?.getCenter();
+        const base = referenceLocationRef.current || (c ? { lat: c.lat, lng: c.lng } : null);
+        if (!base) return [];
+        anchor = { lat: base.lat, lng: base.lng, radiusMeters: 16000 };
+      }
+      const finalQuery = isOtherCity ? `${q} in ${targetCity}` : q;
+      const res = await searchPlacesByTextPaged(finalQuery, {
+        lat: anchor.lat,
+        lng: anchor.lng,
+        radiusMeters: anchor.radiusMeters,
+        useRestriction: true,
+        priceLevels,
+      });
+      return res.places.map<ScoredPlace>((p) => ({
+        ...p,
+        recScore: p.rating > 0 ? p.rating * 2 : 0,
+        sources: ['google'],
+      }));
+    } catch (err) {
+      console.error('[Discover] handleAssistantSearch error:', err);
+      return [];
+    }
+  }, [assistantShortCity]);
+
+  // Bound to the chat's onAssistantPlaces. The assistant just recommended a
+  // set of restaurants — take over the discover overlay with exactly those
+  // (list + markers) and fly to frame them.
+  const handleAssistantPlaces = useCallback((incoming: ScoredPlace[]) => {
+    const valid = (incoming || []).filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (valid.length === 0) return;
+    const plain: PlaceResult[] = valid.map((p) => ({ ...p }));
+    assistantPlotActiveRef.current = true;
+    // The assistant plots into the discover overlay; make sure we're on it.
+    if (mapModeRef.current !== 'discover') {
+      setMapModeRaw('discover');
+      sessionStorage.setItem('map-mode', 'discover');
+    }
+    setIsFocusOnly(false);
+    setShowSearchHere(false);
+    setSelectedPlace(null);
+    setSelectedMarker(null);
+    setReferenceLocation(null);
+    setPlaces(plain);
+    tabDataCache.discoverPlaces = plain;
+    syncMarkers(plain);
+    // Drop any expert overlay stars so only the recommended pins show.
+    expertOverlayMarkersRef.current.forEach((m) => m.remove());
+    expertOverlayMarkersRef.current = [];
+    const map = mapRef.current;
+    if (!map) return;
+    map.setMaxBounds(null as unknown as mapboxgl.LngLatBoundsLike);
+    if (valid.length === 1) {
+      map.flyTo({ center: [valid[0].lng, valid[0].lat], zoom: 14, duration: 900 });
+    } else {
+      const bounds = new mapboxgl.LngLatBounds();
+      for (const p of valid) bounds.extend([p.lng, p.lat]);
+      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 900 });
+    }
+  }, [syncMarkers]);
+
+  // Publish the page context to the global assistant — only on the map page.
+  const assistantPageContext = useMemo<AssistantPageContext | null>(() => {
+    if (mode !== 'map') return null;
+    return {
+      visible: assistantVisible,
+      restaurantMeta,
+      cityDisplay: assistantCityLabel || 'your area',
+      shortCityName: assistantShortCity || 'your area',
+      filters: {
+        cuisines: selectedCuisines.length > 0 ? selectedCuisines : undefined,
+        price: selectedPrice > 0 ? selectedPrice : undefined,
+        sort: sortBy !== 'popularity' ? sortBy : undefined,
+        radius: discoverRadius,
+      },
+      origin: referenceLocation
+        ? { lat: referenceLocation.lat, lng: referenceLocation.lng }
+        : (mapCenter || null),
+      onSearchRestaurants: handleAssistantSearch,
+      onAssistantPlaces: handleAssistantPlaces,
+    };
+  }, [mode, assistantVisible, restaurantMeta, assistantCityLabel, assistantShortCity, selectedCuisines, selectedPrice, sortBy, discoverRadius, referenceLocation, mapCenter, handleAssistantSearch, handleAssistantPlaces]);
+  useSetAssistantPageContext(assistantPageContext);
 
   // Initialize Mapbox — skip entirely when running as the Home page (no map)
   useEffect(() => {

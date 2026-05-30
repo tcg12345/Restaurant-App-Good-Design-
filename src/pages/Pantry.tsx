@@ -656,11 +656,18 @@ const RestaurantRow: React.FC<{
         animate={{ x: swiped ? -revealWidth : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         style={{ touchAction: 'pan-y' }}
-        className="relative z-10 bg-surface"
+        className={cn("relative z-10", phoneMode && "bg-surface")}
       >
         <Link
           to={`/restaurant/${restaurantId}`}
-          className="block group"
+          className={cn(
+            "block group",
+            // Desktop list view: render each row as a card that matches the
+            // grid tiles — white surface, hairline border, rounded corners,
+            // and a subtle lift on hover. Phone keeps the flat, divided rows.
+            !phoneMode &&
+              "rounded-2xl bg-white border border-on-surface/[0.07] transition-all duration-200 hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px",
+          )}
           onClick={(e) => {
             if (isDragging || swiped) {
               e.preventDefault();
@@ -668,7 +675,10 @@ const RestaurantRow: React.FC<{
             }
           }}
         >
-          <div className="flex items-start gap-3 py-3 active:scale-[0.99] transition-transform">
+          <div className={cn(
+            "flex gap-3 transition-transform",
+            phoneMode ? "items-start py-3 active:scale-[0.99]" : "items-center gap-4 px-4 py-3.5",
+          )}>
             {/* Image thumbnail — only when there's an actual photo. The
                 no-image monogram tile is intentionally gone so the row
                 stays clean and lets the location read as its own line. */}
@@ -680,7 +690,7 @@ const RestaurantRow: React.FC<{
             <div className="flex-1 min-w-0 flex flex-col justify-center">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-serif font-bold text-[15px] leading-tight truncate">{name}</h3>
+                  <h3 className={cn("font-serif font-bold leading-tight truncate", phoneMode ? "text-[15px]" : "text-[16px]")}>{name}</h3>
                   <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
                     {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
                   </p>
@@ -690,12 +700,17 @@ const RestaurantRow: React.FC<{
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {score !== undefined && <ScoreBadge rating={score} size="sm" />}
+                <div className={cn("flex items-center flex-shrink-0", phoneMode ? "gap-2" : "gap-1")}>
+                  {score !== undefined && <ScoreBadge rating={score} size={phoneMode ? "sm" : "md"} />}
                   {onEdit && (
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                      className="p-1.5 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"
+                      className={cn(
+                        "p-1.5 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-all",
+                        // On desktop the action controls stay hidden until the
+                        // card is hovered so the resting state reads clean.
+                        !phoneMode && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                      )}
                     >
                       <Edit3 size={14} />
                     </button>
@@ -703,7 +718,10 @@ const RestaurantRow: React.FC<{
                   {onRemove && (
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); phoneMode ? handleDelete() : setConfirmDelete(true); }}
-                      className="p-1.5 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      className={cn(
+                        "p-1.5 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all",
+                        !phoneMode && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                      )}
                     >
                       <Trash2 size={13} />
                     </button>
@@ -2579,7 +2597,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                 {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -7694,7 +7712,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
