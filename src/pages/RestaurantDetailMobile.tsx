@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
-  Car, Footprints,
+  Car, Footprints, Award,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -82,7 +82,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine,
+    priceStr, cuisine, michelin,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
@@ -351,6 +351,11 @@ export const RestaurantDetailMobile: React.FC = () => {
                   >
                     {place.name}
                   </h1>
+                  {michelin && (
+                    <div className="mt-2.5">
+                      <MichelinBadge michelin={michelin} size="sm" />
+                    </div>
+                  )}
                   {(() => {
                     const dist = homeLocationForDistance && destForDistance
                       ? formatDistance(haversineDistanceMi(homeLocationForDistance.lat, homeLocationForDistance.lng, destForDistance.lat, destForDistance.lng))
@@ -555,6 +560,19 @@ export const RestaurantDetailMobile: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Michelin Guide link — only for starred restaurants */}
+        {michelin && (
+          <a
+            href={michelin.guideUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 py-3 mb-6 rounded-[12px] bg-paper border border-line text-ink-2 active:opacity-70 transition-opacity"
+          >
+            <Award size={18} />
+            <span style={{ fontSize: '13px', fontWeight: 600 }}>View on Michelin Guide</span>
+          </a>
+        )}
 
         {/* ── The Community Says — three clean score boxes side-by-side:
             EVERYONE, FRIENDS, EXPERTS. Paper fill, subtle line border,

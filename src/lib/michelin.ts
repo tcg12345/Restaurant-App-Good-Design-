@@ -8,8 +8,8 @@
 // The dataset has NO Google place id and NO coordinates — only name/city/country/
 // address. Matching is therefore name + city based. `(name, city)` is unique
 // across the sheet, so confirming the city disambiguates same-name restaurants in
-// different cities (e.g. "Jamavar" in London vs Bengaluru) and keeps matching
-// strict (no false positives on a same-name non-starred place elsewhere).
+// different cities (e.g. "Jamavar" in London vs Dubai) and keeps matching strict
+// (no false positives on a same-name non-starred place elsewhere).
 
 import { priceLevelToString } from './places';
 
@@ -42,12 +42,12 @@ interface RawRecord {
 }
 
 // Lowercase, strip diacritics, drop punctuation, collapse whitespace. Used for
-// both restaurant-name and city comparisons so accents ("Kruså", "L'Atelier")
+// both restaurant-name and city comparisons so accents ("Krusa", "L'Atelier")
 // and punctuation differences between Google and Michelin don't block a match.
 export function normalize(s: string): string {
   return (s || '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // combining marks
+    .replace(/[̀-ͯ]/g, '') // combining diacritical marks
     .toLowerCase()
     .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]+/g, ' ')
@@ -78,7 +78,8 @@ function loadIndex(): Promise<Index> {
   if (!indexPromise) {
     indexPromise = import('../data/michelin.json')
       .then((mod) => {
-        const records = (mod.default || mod) as RawRecord[];
+        const records = ((mod as { default?: RawRecord[] }).default
+          || (mod as unknown as RawRecord[])) as RawRecord[];
         const index: Index = new Map();
         for (const r of records) {
           const key = normalize(r.n);
@@ -100,14 +101,14 @@ function loadIndex(): Promise<Index> {
 
 // True when the candidate's city is present in the place's address. We compare
 // against a normalized address so "New York" matches "...New York, NY, USA" and
-// "Paris" matches "...Paris, France". Tokenized containment keeps multi-word
-// cities ("San Sebastián", "Hong Kong") intact.
+// "Paris" matches "...Paris, France". Substring containment keeps multi-word
+// cities ("San Sebastian", "Hong Kong") intact.
 function cityMatchesAddress(city: string, normalizedAddress: string): boolean {
   const c = normalize(city);
   if (!c) return false;
   if (normalizedAddress.includes(c)) return true;
   // Some Michelin "City" values are districts/areas; fall back to matching the
-  // first token (e.g. "Kruså" → "kruså") if the whole string isn't present.
+  // first token (e.g. "Krusa") if the whole string isn't present.
   const first = c.split(' ')[0];
   return first.length >= 4 && normalizedAddress.includes(first);
 }
@@ -117,7 +118,7 @@ function cityMatchesAddress(city: string, normalizedAddress: string): boolean {
  * name must match (normalized) AND the record's city must appear in the place's
  * address. Returns null when there's no confident match.
  *
- * @param name   Google place display name.
+ * @param name    Google place display name.
  * @param address Best available address (prefer fullAddress over short address).
  */
 export async function findMichelinMatch(
