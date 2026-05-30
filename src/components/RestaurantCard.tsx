@@ -1,10 +1,9 @@
 import React from 'react';
-import { Heart, Plus, Building2, ImageOff, Star, Soup } from 'lucide-react';
+import { Heart, Plus, Building2, ImageOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './ScoreBadge';
 import { useMichelinMatch } from '../lib/useMichelinMatch';
-import type { MichelinInfo } from '../lib/michelin';
 
 export { ScoreBadge } from './ScoreBadge';
 
@@ -77,35 +76,6 @@ interface RestaurantCardProps {
   className?: string;
 }
 
-// Compact inline Michelin marker for cards/rows: a star per award for starred
-// restaurants, or a bib/soup glyph for Bib Gourmand. (The full pill badge with
-// the MICHELIN / BIB GOURMAND wordmark is reserved for the detail header.)
-// Renders nothing when there's no match. `tint` overrides the color for use on
-// dark backgrounds (hero variant).
-const MichelinMark: React.FC<{ michelin: MichelinInfo; className?: string; tint?: string }> = ({
-  michelin, className, tint = '#a2191f',
-}) => {
-  const label = michelin.bibGourmand
-    ? 'Bib Gourmand'
-    : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'star' : 'stars'}`;
-  return (
-    <span
-      className={cn('inline-flex items-center align-middle', className)}
-      style={{ color: tint }}
-      aria-label={label}
-      title={label}
-    >
-      {michelin.bibGourmand ? (
-        <Soup size={11} color={tint} strokeWidth={2.2} />
-      ) : (
-        Array.from({ length: michelin.stars }).map((_, i) => (
-          <Star key={i} size={11} fill={tint} color={tint} strokeWidth={0} />
-        ))
-      )}
-    </span>
-  );
-};
-
 /* ── Component ────────────────────────────────────────────────────────────── */
 export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   id,
@@ -125,10 +95,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   className,
 }) => {
   // Michelin override: starred / Bib Gourmand restaurants show the Guide's
-  // cuisine + price (and a star or bib marker) instead of the Google-derived
-  // values. No-op for unlisted places — falls back to the passed cuisine/price.
-  // Hotels keep their existing "Hotel" treatment, so skip the override for them.
-  const { michelin, cuisine, price } = useMichelinMatch(
+  // cuisine + price instead of the Google-derived values (the star/bib marker
+  // itself is only shown on the detail page, not on cards). No-op for unlisted
+  // places — falls back to the passed cuisine/price. Hotels keep their existing
+  // "Hotel" treatment, so skip the override for them.
+  const { cuisine, price } = useMichelinMatch(
     isHotel ? '' : name, lat, lng, address, cuisineProp, priceProp,
   );
 
@@ -204,7 +175,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             {name}
           </h3>
           <p className="mt-0.5 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
-            {michelin && <MichelinMark michelin={michelin} className="mr-1.5" />}
             {cuisine}
             {price && <span className="text-on-surface/25 mx-1.5">·</span>}
             {price}
@@ -262,7 +232,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
               {name}
             </h3>
             <p className="mt-1 text-xs text-white/85 font-medium uppercase tracking-wider truncate">
-              {michelin && <MichelinMark michelin={michelin} className="mr-1.5" tint="#ef5350" />}
               {cuisine}
               {price && <span className="text-white/55 mx-1.5">·</span>}
               {price}
@@ -312,7 +281,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           {name}
         </h3>
         <p className="mt-1 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
-          {michelin && <MichelinMark michelin={michelin} className="mr-1.5" />}
           {cuisine}
           {price && <span className="text-on-surface/25 mx-1.5">·</span>}
           {price}

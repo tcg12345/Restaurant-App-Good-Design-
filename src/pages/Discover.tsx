@@ -28,6 +28,8 @@ import {
   type ScoredPlace,
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -297,6 +299,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
+  // Michelin dataset readiness. michCuisinePrice() overrides a place's
+  // cuisine/price from the Guide data when matched (no marker on cards — that's
+  // detail-page only); falls back to the supplied Google-derived values.
+  const michelinReady = useMichelinIndexReady();
+  const michCuisinePrice = useCallback(
+    (place: { name: string; lat?: number; lng?: number; fullAddress?: string; address?: string }, cuisine: string, price: string) => {
+      const hit = michelinReady
+        ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+        : null;
+      return hit ? { cuisine: hit.cuisine, price: michelinPriceDisplay(hit) } : { cuisine, price };
+    },
+    [michelinReady],
+  );
   // Wide viewport (>= lg): the global DesktopHeader provides the
   // search input + actions, so Discover's own TopBar / inline search
   // bar are redundant and would stack on top of it.
@@ -2941,8 +2956,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   };
 
   const renderPlaceCard = (p: PlaceResult) => {
-    const cuisine = getCuisineLabel(p.types);
-    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const { cuisine, price } = michCuisinePrice(p, getCuisineLabel(p.types), p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '');
     const city = extractCityState(p.fullAddress || '', p.address || '');
     const myScore = userRatingMap[p.id];
     const expertR = expertRatings.find((r) => r.restaurant_id === p.id);
@@ -3118,8 +3132,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // page's distance + driving + walking strip is injected as the
   // headSlot so it sits above the popup's standard action row.
   const renderPanelDetail = (place: PlaceResult) => {
-    const cuisine = getCuisineLabel(place.types);
-    const price = place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '';
+    const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '');
     const fav = isWishlisted(place.id);
     const restData = {
       id: place.id,
@@ -6232,7 +6245,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <div className="divide-y divide-on-surface/[0.06]">
                           {places.map((place) => {
                             const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
-                            const cuisine = getCuisineLabel(place.types);
+                            const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                             const wishlisted = isWishlisted(place.id);
                             return (
                               <div key={place.id} className={cn("flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors", selectedMarker === place.id && "bg-primary/[0.04]")} onClick={() => navigate(`/restaurant/${place.id}`)}>
@@ -6242,12 +6255,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                                   <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
                                   <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
+                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{price && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {price}</span>}</div>}
                                   <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             );
@@ -6367,7 +6380,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </div>
                       <div className="space-y-3">
                         {places.map((place) => {
-                          const cuisine = getCuisineLabel(place.types);
+                          const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                           const wishlisted = isWishlisted(place.id);
                           return (
                             <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
@@ -6381,12 +6394,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   <div className="flex items-center gap-1 mt-1">
                                     <Star size={10} className="fill-primary text-primary" />
                                     <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                    {place.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}
+                                    {price && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {price}</span>}
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5 mt-2">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             </div>

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart, Soup } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -359,23 +359,13 @@ export const SearchMain: React.FC = () => {
                           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
                           {(() => {
                             const mich = michelinByPlaceId[place.id];
-                            // For Michelin matches, show the Guide's cuisine + $-tier price
-                            // and a star marker. Otherwise keep the existing location · price.
+                            // For Michelin matches show the Guide's cuisine + $-tier
+                            // price; otherwise keep the existing location · price. The
+                            // star/bib marker is reserved for the detail page.
                             const label = mich ? mich.cuisine : (location || 'Restaurant');
                             const priceText = mich ? michelinPriceDisplay(mich) : price;
                             return (
                               <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                                {mich && (
-                                  <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={mich.bibGourmand ? 'Bib Gourmand' : `${mich.stars} Michelin stars`}>
-                                    {mich.bibGourmand ? (
-                                      <Soup size={10} color="#a2191f" strokeWidth={2.2} />
-                                    ) : (
-                                      Array.from({ length: mich.stars }).map((_, i) => (
-                                        <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-                                      ))
-                                    )}
-                                  </span>
-                                )}
                                 {label}
                                 {priceText && <><span className="text-on-surface/25 mx-1.5">·</span>{priceText}</>}
                               </p>

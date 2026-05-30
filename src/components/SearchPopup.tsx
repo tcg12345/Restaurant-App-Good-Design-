@@ -7,7 +7,6 @@ import { searchPlacesByText, priceLevelToString, formatLocationLabel, type Place
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
-import { Star, Soup } from 'lucide-react';
 import type { RestaurantRating } from '../contexts/ListsContext';
 
 /**
@@ -314,7 +313,6 @@ export const SearchPopup: React.FC<Props> = ({
                             key={p.id}
                             name={p.name}
                             sub={sub}
-                            michelin={mich}
                             disabled={already}
                             statusLabel={already ? 'Added' : undefined}
                             onClick={() => {
@@ -387,9 +385,8 @@ const PopupRow: React.FC<{
   statusLabel?: string;
   multiSelect?: boolean;
   selected?: boolean;
-  michelin?: MichelinInfo | null;
   onClick: () => void;
-}> = ({ name, sub, score, disabled, statusLabel, multiSelect, selected, michelin, onClick }) => (
+}> = ({ name, sub, score, disabled, statusLabel, multiSelect, selected, onClick }) => (
   <li>
     <button
       type="button"
@@ -418,20 +415,7 @@ const PopupRow: React.FC<{
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-bold text-on-surface leading-tight truncate">{name}</p>
         {sub && (
-          <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">
-            {michelin ? (
-              <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={michelin.bibGourmand ? 'Bib Gourmand' : `${michelin.stars} Michelin stars`}>
-                {michelin.bibGourmand ? (
-                  <Soup size={10} color="#a2191f" strokeWidth={2.2} />
-                ) : (
-                  Array.from({ length: michelin.stars }).map((_, i) => (
-                    <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-                  ))
-                )}
-              </span>
-            ) : null}
-            {sub}
-          </p>
+          <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{sub}</p>
         )}
       </div>
       {score !== undefined && score > 0 && (

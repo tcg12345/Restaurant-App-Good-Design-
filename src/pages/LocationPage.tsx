@@ -79,6 +79,8 @@ import {
   type QueryCursor,
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -509,6 +511,9 @@ export const LocationPage: React.FC = () => {
   const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
+  // Michelin dataset readiness — gates the sync matcher used by the map-marker
+  // popup below (overrides cuisine/price for starred/Bib restaurants).
+  const michelinReady = useMichelinIndexReady();
   // The canonical source of the user's saved recipes — same store
   // the Pantry's home-cooking section reads from. Prior version was
   // pulling from `lists[].recipes` (a legacy attach point that's
@@ -2439,8 +2444,11 @@ export const LocationPage: React.FC = () => {
               const p = selectedMarkerPlace;
               const score = p.rating > 0 ? p.rating * 2 : 0;
               const scoreClass = score >= 8 ? 'is-good' : score >= 5 ? 'is-mid' : 'is-low';
-              const cuisine = inferCuisineLabel(p.types);
-              const priceLabel = priceLevelToString(p.priceLevel);
+              const michHit = michelinReady
+                ? findMichelinMatchSync(p.name, p.lat, p.lng, p.address)
+                : null;
+              const cuisine = michHit ? michHit.cuisine : inferCuisineLabel(p.types);
+              const priceLabel = michHit ? michelinPriceDisplay(michHit) : priceLevelToString(p.priceLevel);
               const meta = restaurantMeta[p.id];
               const areaLabel = formatLocationLabel(
                 meta?.addressComponents,
@@ -3126,6 +3134,12 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
       ? { lat: place.lat, lng: place.lng }
       : null,
   );
+  // Michelin override for cuisine + price (no marker on cards). Hook must run
+  // before the early returns below to satisfy Rules of Hooks.
+  const mich = useMichelinMatch(
+    place.name, place.lat, place.lng, place.fullAddress || place.address,
+    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
+  );
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
@@ -3142,8 +3156,8 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
     if (driveMin > driveMinCap) return null;
   }
 
-  const priceLabel = priceLevelToString(place.priceLevel);
-  const cuisine = inferCuisineLabel(place.types);
+  const priceLabel = mich.price;
+  const cuisine = mich.cuisine;
 
   const friendLabel = friendCount > 1
     ? `${friendCount} friends rated`
@@ -3259,10 +3273,16 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
   onFollow,
   onAddFriend,
 }) => {
+  // Subscribe to the Michelin dataset (re-renders when it loads); the sync
+  // matcher below then overrides cuisine/price for matched restaurants.
+  const michelinReady = useMichelinIndexReady();
   if (card.kind === 'restaurant') {
     const place = card.place;
-    const cuisine = inferCuisineLabel(place.types);
-    const priceLabel = priceLevelToString(place.priceLevel);
+    const mich = michelinReady
+      ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+      : null;
+    const cuisine = mich ? mich.cuisine : inferCuisineLabel(place.types);
+    const priceLabel = mich ? michelinPriceDisplay(mich) : priceLevelToString(place.priceLevel);
     return (
       <Link
         to={`/restaurant/${place.id}`}
@@ -3827,6 +3847,12 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
       ? { lat: place.lat, lng: place.lng }
       : null,
   );
+  // Michelin override for cuisine + price (no star/bib marker on cards).
+  // Hook must run before the early returns below to satisfy Rules of Hooks.
+  const mich = useMichelinMatch(
+    place.name, place.lat, place.lng, place.fullAddress || place.address,
+    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
+  );
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
@@ -3840,8 +3866,8 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   }
 
   const score = place.rating > 0 ? place.rating * 2 : 0;
-  const cuisine = inferCuisineLabel(place.types);
-  const priceLabel = priceLevelToString(place.priceLevel);
+  const cuisine = mich.cuisine;
+  const priceLabel = mich.price;
   const distMi = origin
     ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
     : null;
