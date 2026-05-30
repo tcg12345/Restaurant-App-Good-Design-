@@ -7,7 +7,7 @@ import { searchPlacesByText, priceLevelToString, formatLocationLabel, type Place
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
-import { Star } from 'lucide-react';
+import { Star, Soup } from 'lucide-react';
 import type { RestaurantRating } from '../contexts/ListsContext';
 
 /**
@@ -314,7 +314,7 @@ export const SearchPopup: React.FC<Props> = ({
                             key={p.id}
                             name={p.name}
                             sub={sub}
-                            michelinStars={mich?.stars}
+                            michelin={mich}
                             disabled={already}
                             statusLabel={already ? 'Added' : undefined}
                             onClick={() => {
@@ -387,9 +387,9 @@ const PopupRow: React.FC<{
   statusLabel?: string;
   multiSelect?: boolean;
   selected?: boolean;
-  michelinStars?: number;
+  michelin?: MichelinInfo | null;
   onClick: () => void;
-}> = ({ name, sub, score, disabled, statusLabel, multiSelect, selected, michelinStars, onClick }) => (
+}> = ({ name, sub, score, disabled, statusLabel, multiSelect, selected, michelin, onClick }) => (
   <li>
     <button
       type="button"
@@ -419,11 +419,15 @@ const PopupRow: React.FC<{
         <p className="text-[14px] font-bold text-on-surface leading-tight truncate">{name}</p>
         {sub && (
           <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">
-            {michelinStars ? (
-              <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={`${michelinStars} Michelin stars`}>
-                {Array.from({ length: michelinStars }).map((_, i) => (
-                  <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-                ))}
+            {michelin ? (
+              <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={michelin.bibGourmand ? 'Bib Gourmand' : `${michelin.stars} Michelin stars`}>
+                {michelin.bibGourmand ? (
+                  <Soup size={10} color="#a2191f" strokeWidth={2.2} />
+                ) : (
+                  Array.from({ length: michelin.stars }).map((_, i) => (
+                    <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+                  ))
+                )}
               </span>
             ) : null}
             {sub}

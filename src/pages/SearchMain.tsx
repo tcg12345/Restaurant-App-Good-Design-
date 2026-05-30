@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart, Soup } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -366,10 +366,14 @@ export const SearchMain: React.FC = () => {
                             return (
                               <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                                 {mich && (
-                                  <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={`${mich.stars} Michelin stars`}>
-                                    {Array.from({ length: mich.stars }).map((_, i) => (
-                                      <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-                                    ))}
+                                  <span className="inline-flex items-center align-middle mr-1" style={{ color: '#a2191f' }} aria-label={mich.bibGourmand ? 'Bib Gourmand' : `${mich.stars} Michelin stars`}>
+                                    {mich.bibGourmand ? (
+                                      <Soup size={10} color="#a2191f" strokeWidth={2.2} />
+                                    ) : (
+                                      Array.from({ length: mich.stars }).map((_, i) => (
+                                        <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+                                      ))
+                                    )}
                                   </span>
                                 )}
                                 {label}

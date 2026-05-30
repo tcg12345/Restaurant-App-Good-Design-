@@ -19,8 +19,10 @@ export interface MichelinInfo {
   name: string;
   city: string;
   country: string;
-  /** 1, 2, or 3 Michelin stars. */
-  stars: 1 | 2 | 3;
+  /** Michelin stars: 1, 2, or 3 for starred restaurants; 0 for Bib Gourmand. */
+  stars: 0 | 1 | 2 | 3;
+  /** True for Bib Gourmand entries (good value, no stars). */
+  bibGourmand: boolean;
   /** Price tier 1-4 (count of currency symbols in the source). */
   priceTier: number;
   /** Cuisine string, possibly comma-separated ("Modern Cuisine, Creative"). */
@@ -39,7 +41,9 @@ interface RawRecord {
   n: string;
   c: string;
   co: string;
-  s: 1 | 2 | 3;
+  s: 0 | 1 | 2 | 3;
+  /** 1 when this is a Bib Gourmand entry. */
+  b?: 1;
   pt: number;
   cu: string;
   u: string;
@@ -134,6 +138,7 @@ function toInfo(r: RawRecord): MichelinInfo {
     city: r.c,
     country: r.co,
     stars: r.s,
+    bibGourmand: r.b === 1,
     priceTier: r.pt,
     cuisine: r.cu,
     guideUrl: r.u,
@@ -318,4 +323,10 @@ export function isMichelinIndexReady(): boolean {
 /** Render the Michelin price tier using the app's standard `$`-tier formatter. */
 export function michelinPriceDisplay(info: MichelinInfo): string {
   return priceLevelToString(info.priceTier);
+}
+
+/** Short distinction label: "1 Star" / "2 Stars" / "3 Stars" / "Bib Gourmand". */
+export function michelinDistinctionLabel(info: MichelinInfo): string {
+  if (info.bibGourmand) return 'Bib Gourmand';
+  return `${info.stars} ${info.stars === 1 ? 'Star' : 'Stars'}`;
 }

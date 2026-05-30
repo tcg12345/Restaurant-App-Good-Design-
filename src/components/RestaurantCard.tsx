@@ -1,9 +1,10 @@
 import React from 'react';
-import { Heart, Plus, Building2, ImageOff, Star } from 'lucide-react';
+import { Heart, Plus, Building2, ImageOff, Star, Soup } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './ScoreBadge';
 import { useMichelinMatch } from '../lib/useMichelinMatch';
+import type { MichelinInfo } from '../lib/michelin';
 
 export { ScoreBadge } from './ScoreBadge';
 
@@ -76,21 +77,34 @@ interface RestaurantCardProps {
   className?: string;
 }
 
-// Compact inline "n stars" marker for cards/rows (the full pill badge with the
-// MICHELIN wordmark is reserved for the detail header). Renders nothing when
-// there's no match.
-const MichelinStars: React.FC<{ stars: number; className?: string }> = ({ stars, className }) => (
-  <span
-    className={cn('inline-flex items-center align-middle', className)}
-    style={{ color: '#a2191f' }}
-    aria-label={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
-    title={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
-  >
-    {Array.from({ length: stars }).map((_, i) => (
-      <Star key={i} size={11} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-    ))}
-  </span>
-);
+// Compact inline Michelin marker for cards/rows: a star per award for starred
+// restaurants, or a bib/soup glyph for Bib Gourmand. (The full pill badge with
+// the MICHELIN / BIB GOURMAND wordmark is reserved for the detail header.)
+// Renders nothing when there's no match. `tint` overrides the color for use on
+// dark backgrounds (hero variant).
+const MichelinMark: React.FC<{ michelin: MichelinInfo; className?: string; tint?: string }> = ({
+  michelin, className, tint = '#a2191f',
+}) => {
+  const label = michelin.bibGourmand
+    ? 'Bib Gourmand'
+    : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'star' : 'stars'}`;
+  return (
+    <span
+      className={cn('inline-flex items-center align-middle', className)}
+      style={{ color: tint }}
+      aria-label={label}
+      title={label}
+    >
+      {michelin.bibGourmand ? (
+        <Soup size={11} color={tint} strokeWidth={2.2} />
+      ) : (
+        Array.from({ length: michelin.stars }).map((_, i) => (
+          <Star key={i} size={11} fill={tint} color={tint} strokeWidth={0} />
+        ))
+      )}
+    </span>
+  );
+};
 
 /* ── Component ────────────────────────────────────────────────────────────── */
 export const RestaurantCard: React.FC<RestaurantCardProps> = ({
@@ -110,14 +124,13 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   variant = 'card',
   className,
 }) => {
-  // Michelin override: starred restaurants show the Guide's cuisine + price
-  // (and a star marker) instead of the Google-derived values. No-op for
-  // non-starred places — falls back to the passed cuisine/price. Hotels keep
-  // their existing "Hotel" treatment, so skip the override for them.
+  // Michelin override: starred / Bib Gourmand restaurants show the Guide's
+  // cuisine + price (and a star or bib marker) instead of the Google-derived
+  // values. No-op for unlisted places — falls back to the passed cuisine/price.
+  // Hotels keep their existing "Hotel" treatment, so skip the override for them.
   const { michelin, cuisine, price } = useMichelinMatch(
     isHotel ? '' : name, lat, lng, address, cuisineProp, priceProp,
   );
-  const stars = michelin?.stars ?? 0;
 
   // Shared click-stopper for in-card buttons so they don't trigger the Link.
   const stop = (e: React.MouseEvent, fn?: () => void) => {
@@ -191,7 +204,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             {name}
           </h3>
           <p className="mt-0.5 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
-            {stars > 0 && <MichelinStars stars={stars} className="mr-1.5" />}
+            {michelin && <MichelinMark michelin={michelin} className="mr-1.5" />}
             {cuisine}
             {price && <span className="text-on-surface/25 mx-1.5">·</span>}
             {price}
@@ -249,13 +262,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
               {name}
             </h3>
             <p className="mt-1 text-xs text-white/85 font-medium uppercase tracking-wider truncate">
-              {stars > 0 && (
-                <span className="inline-flex items-center align-middle mr-1.5" aria-label={`${stars} Michelin stars`}>
-                  {Array.from({ length: stars }).map((_, i) => (
-                    <Star key={i} size={11} fill="#ef5350" color="#ef5350" strokeWidth={0} />
-                  ))}
-                </span>
-              )}
+              {michelin && <MichelinMark michelin={michelin} className="mr-1.5" tint="#ef5350" />}
               {cuisine}
               {price && <span className="text-white/55 mx-1.5">·</span>}
               {price}
@@ -305,7 +312,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           {name}
         </h3>
         <p className="mt-1 text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
-          {stars > 0 && <MichelinStars stars={stars} className="mr-1.5" />}
+          {michelin && <MichelinMark michelin={michelin} className="mr-1.5" />}
           {cuisine}
           {price && <span className="text-on-surface/25 mx-1.5">·</span>}
           {price}

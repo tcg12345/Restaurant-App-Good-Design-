@@ -1,14 +1,16 @@
-// Build script: converts the "Michelin Starred Restaurants Worldwide" export
-// into a compact JSON dataset bundled at src/data/michelin.json.
+// Build script: converts the Michelin Guide exports (Starred + Bib Gourmand)
+// into one compact JSON dataset bundled at src/data/michelin.json.
 //
-// The source spreadsheet/CSV is an uploaded artifact (NOT committed). Re-run
-// this only when a refreshed sheet is provided:
+// The source spreadsheets/CSVs are uploaded artifacts (NOT committed). Re-run
+// this when refreshed sheets are provided. Pass the starred source first and
+// the Bib Gourmand source second (either order works — distinction is detected
+// from the presence of a "Stars" column):
 //
-//   node scripts/build-michelin-data.mjs <path-to.csv|.xlsx>
+//   node scripts/build-michelin-data.mjs <starred.csv> <bib.csv>
 //
-// Accepts either a CSV (preferred — the current source includes Latitude /
-// Longitude columns) or the original .xlsx (inline-string worksheet). Depends
-// only on Node's stdlib so it works in CI without extra packages.
+// With no args it falls back to the known uploaded paths. Accepts CSV
+// (preferred — includes Latitude/Longitude) or the original .xlsx
+// (inline-string worksheet). Stdlib-only so it works in CI.
 //
 // Output record shape (keys kept short to shrink the bundle):
 //   n   = restaurant name
@@ -16,7 +18,8 @@
 //   co  = country
 //   la  = latitude (number)
 //   lng = longitude (number)
-//   s   = stars (1 | 2 | 3)
+//   s   = stars (1 | 2 | 3) for starred restaurants; 0 for Bib Gourmand
+//   b   = 1 when this is a Bib Gourmand entry (omitted otherwise)
 //   pt  = price tier (1-4), derived from the count of currency symbols
 //   cu  = cuisine string (verbatim, may be comma-separated)
 //   u   = Michelin Guide URL
@@ -126,7 +129,9 @@ function parseSheet(xml) {
 // Read source into a rows array (header + data), from CSV or XLSX.
 function loadRows(srcPath) {
   if (/\.csv$/i.test(srcPath)) {
-    return parseCSV(readFileSync(srcPath, 'utf8'));
+    let text = readFileSync(srcPath, 'utf8');
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM
+    return parseCSV(text);
   }
   const entries = readZipEntries(readFileSync(srcPath));
   const sheetXml = entries.get('xl/worksheets/sheet1.xml');
@@ -135,66 +140,92 @@ function loadRows(srcPath) {
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
-const srcPath = process.argv[2]
-  || '/root/.claude/uploads/c1007693-b945-40a2-aad8-fe85135ec6fa/175b29ca-Michelin_StarredTable_1.csv';
+const STARRED_DEFAULT = '/root/.claude/uploads/c1007693-b945-40a2-aad8-fe85135ec6fa/175b29ca-Michelin_StarredTable_1.csv';
+const BIB_DEFAULT = '/root/.claude/uploads/c1007693-b945-40a2-aad8-fe85135ec6fa/1b328080-Michelin_Bib_Gourmand_Worldwide.csv';
 const outPath = resolve(__dirname, '..', 'src', 'data', 'michelin.json');
-
-const rows = loadRows(srcPath);
-const header = rows[0].map((h) => h.trim());
-const idx = (name) => header.indexOf(name);
-const iName = idx('Restaurant');
-const iStars = idx('Stars');
-const iCity = idx('City');
-const iCountry = idx('Country');
-const iLat = idx('Latitude');
-const iLng = idx('Longitude');
-const iCuisine = idx('Cuisine');
-const iPrice = idx('Price');
-const iGreen = idx('Green Star');
-const iUrl = idx('Michelin Guide URL');
-
-for (const [label, i] of [
-  ['Restaurant', iName], ['Stars', iStars], ['City', iCity], ['Country', iCountry],
-  ['Latitude', iLat], ['Longitude', iLng],
-  ['Cuisine', iCuisine], ['Price', iPrice], ['Michelin Guide URL', iUrl],
-]) {
-  if (i < 0) throw new Error(`Expected column "${label}" not found. Header: ${header.join(', ')}`);
-}
 
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 
+// Parse one source file into normalized records. `kind` ('starred' | 'bib') is
+// auto-detected from the presence of a Stars column; Bib rows carry no stars.
+function processSource(srcPath) {
+  const rows = loadRows(srcPath);
+  const header = rows[0].map((h) => h.trim());
+  const idx = (name) => header.indexOf(name);
+  const iName = idx('Restaurant');
+  const iStars = idx('Stars'); // -1 for Bib Gourmand sheets
+  const iCity = idx('City');
+  const iCountry = idx('Country');
+  const iLat = idx('Latitude');
+  const iLng = idx('Longitude');
+  const iCuisine = idx('Cuisine');
+  const iPrice = idx('Price');
+  const iGreen = idx('Green Star');
+  const iUrl = idx('Michelin Guide URL');
+
+  for (const [label, i] of [
+    ['Restaurant', iName], ['City', iCity], ['Country', iCountry],
+    ['Latitude', iLat], ['Longitude', iLng],
+    ['Cuisine', iCuisine], ['Price', iPrice], ['Michelin Guide URL', iUrl],
+  ]) {
+    if (i < 0) throw new Error(`Expected column "${label}" not found in ${srcPath}. Header: ${header.join(', ')}`);
+  }
+  const isBib = iStars < 0;
+
+  const recs = [];
+  let skippedNoCoord = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length <= 1) continue;
+    const name = (row[iName] || '').trim();
+    if (!name) continue;
+    let stars = 0;
+    if (!isBib) {
+      stars = parseInt((row[iStars] || '').trim(), 10);
+      if (!(stars >= 1 && stars <= 3)) continue; // starred sheet is 1/2/3-star only
+    }
+    const la = parseFloat(row[iLat]);
+    const lng = parseFloat(row[iLng]);
+    const hasCoord = Number.isFinite(la) && Number.isFinite(lng)
+      && !(la === 0 && lng === 0) && la >= -90 && la <= 90 && lng >= -180 && lng <= 180;
+    if (!hasCoord) skippedNoCoord++;
+    const priceStr = (row[iPrice] || '').trim();
+    const priceTier = Math.min(4, [...priceStr].length) || 0;
+    const rec = {
+      n: name,
+      c: (row[iCity] || '').trim(),
+      co: (row[iCountry] || '').trim(),
+      s: isBib ? 0 : stars,
+      pt: priceTier,
+      cu: (row[iCuisine] || '').trim(),
+      u: (row[iUrl] || '').trim(),
+    };
+    if (isBib) rec.b = 1;
+    if (hasCoord) { rec.la = round6(la); rec.lng = round6(lng); }
+    if (iGreen >= 0 && (row[iGreen] || '').trim()) rec.g = true;
+    recs.push(rec);
+  }
+  return { recs, isBib, skippedNoCoord };
+}
+
+// Collect sources: explicit args, else the known defaults. Either order works.
+const sources = process.argv.length > 2 ? process.argv.slice(2) : [STARRED_DEFAULT, BIB_DEFAULT];
+
 const out = [];
-let skippedNoCoord = 0;
-for (let r = 1; r < rows.length; r++) {
-  const row = rows[r];
-  if (!row || row.length <= 1) continue;
-  const name = (row[iName] || '').trim();
-  if (!name) continue;
-  const stars = parseInt((row[iStars] || '').trim(), 10);
-  if (!(stars >= 1 && stars <= 3)) continue; // dataset is 1/2/3-star only
-  const la = parseFloat(row[iLat]);
-  const lng = parseFloat(row[iLng]);
-  const hasCoord = Number.isFinite(la) && Number.isFinite(lng)
-    && !(la === 0 && lng === 0) && la >= -90 && la <= 90 && lng >= -180 && lng <= 180;
-  if (!hasCoord) skippedNoCoord++;
-  const priceStr = (row[iPrice] || '').trim();
-  const priceTier = Math.min(4, [...priceStr].length) || 0;
-  const rec = {
-    n: name,
-    c: (row[iCity] || '').trim(),
-    co: (row[iCountry] || '').trim(),
-    s: stars,
-    pt: priceTier,
-    cu: (row[iCuisine] || '').trim(),
-    u: (row[iUrl] || '').trim(),
-  };
-  if (hasCoord) { rec.la = round6(la); rec.lng = round6(lng); }
-  if (iGreen >= 0 && (row[iGreen] || '').trim()) rec.g = true;
-  out.push(rec);
+let totalNoCoord = 0;
+for (const src of sources) {
+  const { recs, isBib, skippedNoCoord } = processSource(src);
+  totalNoCoord += skippedNoCoord;
+  out.push(...recs);
+  console.log(`  ${isBib ? 'Bib Gourmand' : 'Starred'} (${src.split('/').pop()}): ${recs.length} records`);
 }
 
 writeFileSync(outPath, JSON.stringify(out));
 console.log(`Wrote ${out.length} records to ${outPath}`);
-const byStars = out.reduce((acc, r) => ((acc[r.s] = (acc[r.s] || 0) + 1), acc), {});
-console.log('Stars distribution:', byStars);
-console.log('With coordinates:', out.filter((r) => r.la != null).length, '/ rows missing coords:', skippedNoCoord);
+const dist = out.reduce((acc, r) => {
+  const k = r.b ? 'bib' : `${r.s}-star`;
+  acc[k] = (acc[k] || 0) + 1;
+  return acc;
+}, {});
+console.log('Distribution:', dist);
+console.log('With coordinates:', out.filter((r) => r.la != null).length, '/ rows missing coords:', totalNoCoord);

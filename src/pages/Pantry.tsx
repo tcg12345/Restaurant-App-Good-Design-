@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2, Soup } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -19,6 +19,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch } from '../lib/useMichelinMatch';
+import type { MichelinInfo } from '../lib/michelin';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
@@ -26,21 +27,31 @@ import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
-/** Inline Michelin star marker for saved-restaurant rows/cards. Renders one
- *  red star per award; nothing is shown for non-starred restaurants (callers
- *  gate on a match). The full MICHELIN pill is reserved for the detail page. */
-const MichelinStarsInline: React.FC<{ stars: number }> = ({ stars }) => (
-  <span
-    className="inline-flex items-center align-middle mr-1"
-    style={{ color: '#a2191f' }}
-    aria-label={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
-    title={`${stars} Michelin ${stars === 1 ? 'star' : 'stars'}`}
-  >
-    {Array.from({ length: stars }).map((_, i) => (
-      <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
-    ))}
-  </span>
-);
+/** Inline Michelin marker for saved-restaurant rows/cards: one red star per
+ *  award for starred restaurants, or a bib/soup glyph for Bib Gourmand. Callers
+ *  gate on a match. The full MICHELIN / BIB GOURMAND pill is reserved for the
+ *  detail page. */
+const MichelinMarkInline: React.FC<{ michelin: MichelinInfo }> = ({ michelin }) => {
+  const label = michelin.bibGourmand
+    ? 'Bib Gourmand'
+    : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'star' : 'stars'}`;
+  return (
+    <span
+      className="inline-flex items-center align-middle mr-1"
+      style={{ color: '#a2191f' }}
+      aria-label={label}
+      title={label}
+    >
+      {michelin.bibGourmand ? (
+        <Soup size={10} color="#a2191f" strokeWidth={2.2} />
+      ) : (
+        Array.from({ length: michelin.stars }).map((_, i) => (
+          <Star key={i} size={10} fill="#a2191f" color="#a2191f" strokeWidth={0} />
+        ))
+      )}
+    </span>
+  );
+};
 
 /** A recipe saved into a list from another user carries source-author
  *  attribution. Those copies are read-only — the original author owns the
@@ -715,7 +726,7 @@ const RestaurantRow: React.FC<{
                 <div className="min-w-0 flex-1">
                   <h3 className={cn("font-serif font-bold leading-tight truncate", phoneMode ? "text-[15px]" : "text-[16px]")}>{name}</h3>
                   <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
-                    {mich.michelin && <MichelinStarsInline stars={mich.michelin.stars} />}
+                    {mich.michelin && <MichelinMarkInline michelin={mich.michelin} />}
                     {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
                   </p>
                   {location && (
@@ -843,7 +854,7 @@ const WishlistRow: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
-            {mich.michelin && <MichelinStarsInline stars={mich.michelin.stars} />}
+            {mich.michelin && <MichelinMarkInline michelin={mich.michelin} />}
             {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
           </p>
           {location && (
@@ -894,7 +905,7 @@ const WishlistGridCard: React.FC<{
   );
   const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
   const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
-  const michStars = mich.michelin?.stars ?? 0;
+  const michMatch = mich.michelin;
 
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
@@ -947,9 +958,9 @@ const WishlistGridCard: React.FC<{
         </div>
 
         {/* Cuisine · price */}
-        {(cuisineLabel || showPrice || michStars > 0) && (
+        {(cuisineLabel || showPrice || michMatch) && (
           <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
-            {michStars > 0 && <MichelinStarsInline stars={michStars} />}
+            {michMatch && <MichelinMarkInline michelin={michMatch} />}
             {cuisineLabel}
             {cuisineLabel && showPrice ? ' · ' : ''}
             {showPrice && mich.price}
@@ -1023,7 +1034,7 @@ const RestaurantGridCard: React.FC<{
   );
   const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
   const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
-  const michStars = mich.michelin?.stars ?? 0;
+  const michMatch = mich.michelin;
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
@@ -1085,9 +1096,9 @@ const RestaurantGridCard: React.FC<{
           </div>
 
           {/* Cuisine · price */}
-          {(cuisineLabel || showPrice || michStars > 0) && (
+          {(cuisineLabel || showPrice || michMatch) && (
             <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
-              {michStars > 0 && <MichelinStarsInline stars={michStars} />}
+              {michMatch && <MichelinMarkInline michelin={michMatch} />}
               {cuisineLabel}
               {cuisineLabel && showPrice ? ' · ' : ''}
               {showPrice && mich.price}
@@ -1268,7 +1279,7 @@ const RestaurantGridCard: React.FC<{
           </div>
         </div>
         <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-          {michStars > 0 && <MichelinStarsInline stars={michStars} />}
+          {michMatch && <MichelinMarkInline michelin={michMatch} />}
           {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && mich.price}
         </p>
       </div>
