@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp, Sparkles } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp, Sparkles, ArrowLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient, type HomeMeal } from '../contexts/ListsContext';
@@ -116,6 +116,14 @@ const DIFFICULTY_TEXT: Record<'Easy' | 'Medium' | 'Hard', string> = {
   Easy: 'text-green-600',
   Medium: 'text-amber-600',
   Hard: 'text-red-500',
+};
+
+// Raw hex equivalents used by the desktop "Quick add" cards, which live in
+// the .advanced-recipe-builder shell (warm palette, no Tailwind tokens).
+const DIFFICULTY_HEX: Record<'Easy' | 'Medium' | 'Hard', string> = {
+  Easy: '#2E7D5C',
+  Medium: '#E8A33C',
+  Hard: '#C0473A',
 };
 
 // Formats a minute total into a short, glanceable string like "1h 30m".
@@ -329,6 +337,22 @@ export const AddHomeMealModal: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dishPhotoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  // Desktop "Quick add" rail acts as a table of contents that scrolls the
+  // pane body to each section. Refs target the section wrappers; the active
+  // entry highlights as the matching section is clicked / scrolled into view.
+  const basicPaneRef = useRef<HTMLDivElement>(null);
+  const basicSectionRefs = {
+    cover: useRef<HTMLDivElement>(null),
+    quick: useRef<HTMLDivElement>(null),
+    rating: useRef<HTMLDivElement>(null),
+    details: useRef<HTMLDivElement>(null),
+  };
+  const [activeBasicSection, setActiveBasicSection] = useState<'cover' | 'quick' | 'rating' | 'details'>('cover');
+  const scrollToBasicSection = (key: 'cover' | 'quick' | 'rating' | 'details') => {
+    setActiveBasicSection(key);
+    basicSectionRefs[key].current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     if (homeMealModalOpen) {
@@ -712,14 +736,15 @@ export const AddHomeMealModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            {...(mode === 'advanced' ? {} : dragProps)}
+            {...((mode === 'advanced' || !phoneMode) ? {} : dragProps)}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
-                : mode === 'advanced'
-                  // Advanced builder needs a wide canvas for the
-                  // left-rail layout. Cap at 1200px to match the mockup.
+                // The editorial rail layout needs a wide canvas. Advanced,
+                // AI, and the Basic main page all use it on desktop; the
+                // Basic sub-pages (dishes, ingredients, …) stay narrow.
+                : (mode === 'advanced' || mode === 'ai' || (mode === 'basic' && page === 'main'))
                   ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
                   : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
@@ -747,8 +772,8 @@ export const AddHomeMealModal: React.FC = () => {
             <input ref={dishPhotoInputRef} type="file" accept="image/*" onChange={handleDishPhotoUpload} className="hidden" />
             <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
             <AnimatePresence mode="wait">
-              {/* ═══════════ MAIN PAGE ═══════════ */}
-              {page === 'main' && (
+              {/* ═══════════ MAIN PAGE (phone) ═══════════ */}
+              {page === 'main' && phoneMode && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
                   {/* Basic / Advanced / AI tab strip — sits above the
@@ -975,6 +1000,184 @@ export const AddHomeMealModal: React.FC = () => {
                     >
                       {existing ? 'Update Recipe' : 'Save Recipe'}
                     </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ═══════════ MAIN PAGE (desktop — editorial rail + pane) ═══════════ */}
+              {page === 'main' && !phoneMode && (
+                <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+                  className="flex flex-col flex-1 min-h-0">
+                  <div className="advanced-recipe-builder">
+                    <button type="button" className="arb-pane-close" onClick={closeHomeMealModal} aria-label="Close">
+                      <X size={18} />
+                    </button>
+
+                    <div className="arb-shell">
+                      {/* Left rail — table of contents */}
+                      <nav className="arb-rail">
+                        <div className="arb-rail-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
+                        <div className="arb-rail-title">The quick <em>way</em>.</div>
+                        <div style={{ marginTop: 16 }}>
+                          <TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />
+                        </div>
+                        {!existing && (
+                          <button type="button" className="arb-rail-import" onClick={() => setImportRecipesOpen(true)}>
+                            <FileUp size={13} /> Import recipes
+                          </button>
+                        )}
+                        <ol className="arb-rail-steps is-toc">
+                          {([
+                            { key: 'cover', title: 'Cover & name', sub: 'Photo, title, description', icon: <Camera size={14} /> },
+                            { key: 'quick', title: 'Quick info', sub: 'Time, servings, difficulty', icon: <Clock size={14} /> },
+                            { key: 'rating', title: 'Your rating', sub: 'How it turned out', icon: <Star size={14} /> },
+                            { key: 'details', title: 'Details', sub: 'Ingredients, steps, tags', icon: <Tag size={14} /> },
+                          ] as const).map((s) => (
+                            <button
+                              key={s.key}
+                              type="button"
+                              className={`arb-rail-step is-toc${activeBasicSection === s.key ? ' is-current' : ''}`}
+                              onClick={() => scrollToBasicSection(s.key)}
+                            >
+                              <span className="arb-rail-step-circle">{s.icon}</span>
+                              <span className="arb-rail-step-text">
+                                <span className="arb-rail-step-title">{s.title}</span>
+                                <span className="arb-rail-step-sub">{s.sub}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </ol>
+                        <div className="arb-rail-foot">
+                          <div className="arb-rail-foot-status">
+                            <span className="dot" />
+                            <span>{existing ? 'Editing recipe' : 'Draft saved'}</span>
+                            <span style={{ marginLeft: 'auto' }}>Fill in what you know</span>
+                          </div>
+                        </div>
+                      </nav>
+
+                      {/* Right pane */}
+                      <div className="arb-pane">
+                        <div className="arb-pane-head">
+                          <div className="arb-pane-eyebrow">Quick add</div>
+                          <h2 className="arb-pane-title">
+                            {existing ? 'Update' : 'Add a'} <span className="arb-pane-title-accent">recipe</span>.
+                          </h2>
+                        </div>
+                        <div className="arb-pane-body" ref={basicPaneRef}>
+                          {/* Cover & name */}
+                          <section className="arb-sec" ref={basicSectionRefs.cover}>
+                            <button type="button" className="arb-cover-drop" onClick={() => coverInputRef.current?.click()}>
+                              {coverPhoto ? (
+                                <>
+                                  <img src={coverPhoto} alt="Cover" />
+                                  <span className="arb-cover-drop-edit"><Camera size={20} /></span>
+                                </>
+                              ) : (
+                                <><Camera size={18} /> Add cover photo</>
+                              )}
+                            </button>
+                            <input
+                              type="text"
+                              value={mealName}
+                              onChange={(e) => setMealName(e.target.value)}
+                              placeholder="Recipe name"
+                              autoFocus
+                              className="arb-input is-title"
+                            />
+                            <textarea
+                              value={notes}
+                              onChange={(e) => setNotes(e.target.value)}
+                              placeholder="A brief description…"
+                              className="arb-textarea"
+                              style={{ minHeight: 72 }}
+                            />
+                          </section>
+
+                          {/* Quick info */}
+                          <section className="arb-sec" ref={basicSectionRefs.quick}>
+                            <div className="arb-sec-label">Quick info</div>
+                            <div className="arb-qi-grid">
+                              <QuickInfoCard icon={<Clock size={13} />} label="Prep time" value={formatDuration(prepMinutesTotal) ?? 'Not set'} empty={prepMinutesTotal <= 0} onClick={() => setPrepPickerOpen(true)} />
+                              <QuickInfoCard icon={<Flame size={13} />} label="Cook time" value={formatDuration(cookMinutesTotal) ?? 'Not set'} empty={cookMinutesTotal <= 0} onClick={() => setCookPickerOpen(true)} />
+                              <QuickInfoCard icon={<Users size={13} />} label="Servings" value={servings != null && servings > 0 ? String(servings) : 'Not set'} empty={servings == null || servings <= 0} onClick={() => setServingsPickerOpen(true)} />
+                              <QuickInfoCard icon={<Gauge size={13} />} label="Difficulty" value={difficulty} valueColor={DIFFICULTY_HEX[difficulty]} onClick={() => setDifficultyPickerOpen(true)} />
+                            </div>
+                          </section>
+
+                          {/* Your rating */}
+                          <section className="arb-sec" ref={basicSectionRefs.rating}>
+                            <div className="arb-sec-label">Your rating <span className="opt">optional</span></div>
+                            <div className="arb-rating-card">
+                              <div className="arb-rating-top">
+                                <span className={cn('arb-rating-value', score <= 0 && 'is-empty')}>
+                                  {score > 0 ? score.toFixed(1) : '—'}<span className="denom">/ 10</span>
+                                </span>
+                                <span className="arb-rating-hint">
+                                  {score === 0 ? 'Slide to rate' : score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below average' : score >= 3 ? 'Poor' : 'Terrible'}
+                                </span>
+                              </div>
+                              <input
+                                type="range" min="0" max="10" step="0.1"
+                                value={score}
+                                onChange={(e) => setScore(parseFloat(e.target.value))}
+                                className="arb-rating-slider"
+                              />
+                            </div>
+                          </section>
+
+                          {/* Details */}
+                          <section className="arb-sec" ref={basicSectionRefs.details}>
+                            <div className="arb-sec-label">Details</div>
+                            <div className="arb-detail-list">
+                              <DetailListRow icon={<UtensilsCrossed size={16} />} label="Dishes" active={hasDishes} sub={hasDishes ? `${dishes.length} ${dishes.length === 1 ? 'dish' : 'dishes'}` : 'None yet'} onClick={() => setPage('dishList')} />
+                              <DetailListRow icon={<Hash size={16} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : 'None yet'} onClick={() => setPage('ingredients')} />
+                              <DetailListRow icon={<FileText size={16} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : 'None yet'} onClick={() => setPage('steps')} />
+                              <DetailListRow icon={<Image size={16} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : 'None yet'} onClick={handlePhotosClick} />
+                              <DetailListRow icon={<Tag size={16} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : 'None yet'} onClick={() => setPage('tags')} />
+                            </div>
+                          </section>
+
+                          {/* Visibility */}
+                          <section className="arb-sec">
+                            <div className="arb-sec-label">Visibility</div>
+                            <button type="button" className={cn('arb-visibility', isPublic && 'is-public')} onClick={() => setIsPublic(!isPublic)}>
+                              <span className="arb-visibility-icon">{isPublic ? <Globe size={16} /> : <Lock size={16} />}</span>
+                              <span className="arb-visibility-text">
+                                <div className="arb-visibility-title">{isPublic ? 'Public' : 'Private'}</div>
+                                <div className="arb-visibility-sub">{isPublic ? 'Friends can see this recipe' : 'Only you can see this recipe'}</div>
+                              </span>
+                              <span className="arb-visibility-side">{isPublic ? 'Friends' : 'Only you'}</span>
+                            </button>
+                          </section>
+
+                          {existing && !confirmDelete && (
+                            <button type="button" className="arb-basic-delete" onClick={() => setConfirmDelete(true)}>Delete recipe</button>
+                          )}
+                          {existing && confirmDelete && (
+                            <div className="arb-basic-delete-confirm">
+                              <p>Delete this recipe?</p>
+                              <div className="row">
+                                <button className="cancel" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                                <button className="confirm" onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }}>Delete</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sticky footer */}
+                    <div className="arb-foot">
+                      <button type="button" className="arb-foot-back" onClick={closeHomeMealModal}>
+                        <ArrowLeft size={16} /> Cancel
+                      </button>
+                      <div className="arb-foot-right">
+                        <button type="button" className="arb-foot-publish" onClick={handleSave} disabled={!mealName.trim()}>
+                          <Check size={16} /> {existing ? 'Update recipe' : 'Save recipe'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -1725,6 +1928,38 @@ const QuickInfoCell: React.FC<{
     )}>
       {value}
     </span>
+  </button>
+);
+
+/* Desktop "Quick add" equivalents of QuickInfoCell / DetailRow, styled to
+   match the Advanced builder's warm card language (.arb-* classes). */
+const QuickInfoCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  valueColor?: string;
+  empty?: boolean;
+  onClick: () => void;
+}> = ({ icon, label, value, valueColor, empty, onClick }) => (
+  <button type="button" onClick={onClick} className="arb-qi-card">
+    <span className="arb-qi-head">
+      {icon}
+      {label}
+    </span>
+    <span className={cn('arb-qi-value', empty && 'is-empty')} style={!empty && valueColor ? { color: valueColor } : undefined}>
+      {value}
+    </span>
+  </button>
+);
+
+const DetailListRow: React.FC<{
+  icon: React.ReactNode; label: string; active: boolean; sub: string; onClick: () => void;
+}> = ({ icon, label, active, sub, onClick }) => (
+  <button type="button" onClick={onClick} className={cn('arb-detail-row', active && 'is-active')}>
+    <span className="arb-detail-icon">{icon}</span>
+    <span className="arb-detail-label">{label}</span>
+    <span className="arb-detail-sub">{sub}</span>
+    <ChevronRight size={16} className="arb-detail-chev" />
   </button>
 );
 
