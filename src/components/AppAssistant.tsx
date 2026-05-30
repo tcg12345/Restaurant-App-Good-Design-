@@ -68,6 +68,9 @@ function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
   // video and the FAB clashes with the page's own chrome. Desktop
   // keeps it because the reels lane is much narrower than the screen.
   if (isPhone && pathname === '/reels') return true;
+  // On mobile, hide on the Create page — the FAB overlaps the page's own
+  // POST / REEL / GUIDE tabs and its primary action button.
+  if (isPhone && pathname === '/create') return true;
   return false;
 }
 
