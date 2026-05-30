@@ -55,12 +55,12 @@ interface RawRecord {
 // ── Tuning constants ────────────────────────────────────────────────────────
 // Google and Michelin coordinates for the same venue are usually within a few
 // tens of metres, but can differ more for places inside hotels/malls or when
-// one geocodes to a building entrance. We search a generous radius and lean on
-// the name check to reject coincidental neighbours.
+// one geocodes to a building entrance. We search a generous radius and ALWAYS
+// require a real name match — proximity alone is never enough, because two
+// different restaurants can sit metres apart (e.g. Tamarind next door to the
+// starred Murano in London). Coordinates only narrow candidates and break ties.
 const NEAR_RADIUS_MI = 0.12;          // ~190 m: candidate search radius
-const STRONG_COORD_MI = 0.03;         // ~48 m: "basically the same point"
-const NAME_ACCEPT = 0.6;              // min token-overlap similarity to accept
-const NAME_STRONG = 0.84;             // similarity that accepts on its own
+const NAME_ACCEPT = 0.6;              // min name similarity required to accept
 // Grid cell size in degrees for the spatial index. 0.1deg ~ 11 km lat, so a
 // candidate within NEAR_RADIUS_MI always lies in the cell or an immediate
 // neighbour — we scan the 3x3 block around the query cell.
@@ -220,14 +220,16 @@ function candidatesNear(index: MichelinIndex, lat: number, lng: number): Micheli
 }
 
 // Core matcher — runs synchronously against an already-built index.
-// Coordinate-primary:
-//   1. Gather Michelin records within ~190 m of the place.
-//   2. Score each by distance + name similarity.
-//   3. Accept the best when it's either very close to the same point, a decent
-//      name match in range, or a strong name match despite a small coordinate
-//      delta. This disambiguates multiple starred restaurants in one building
-//      (same coords -> name decides) while tolerating name drift (same name ->
-//      small coord delta is fine).
+//
+// Coordinates NARROW the candidate set and break ties; the NAME decides the
+// match. A name match (similarity >= NAME_ACCEPT) is always required — proximity
+// alone is never accepted, because two different restaurants can sit metres
+// apart (e.g. the unstarred Tamarind next to the starred Murano in London).
+// Among name-matching candidates within ~190 m we pick the best by similarity,
+// then proximity. This still disambiguates multiple starred restaurants in one
+// building (all share the name check; closest/most-similar wins) and tolerates
+// name drift between Google and Michelin ("Restaurant Le X" vs "Le X").
+//
 // Falls back to exact-name + city-confirmation when there are no coordinates.
 function matchInIndex(
   index: MichelinIndex,
@@ -247,11 +249,8 @@ function matchInIndex(
       const dist = haversineDistanceMi(lat as number, lng as number, cand.lat, cand.lng);
       if (dist > NEAR_RADIUS_MI) continue;
       const sim = nameSimilarity(name, cand.name);
-      const accept =
-        dist <= STRONG_COORD_MI ||
-        sim >= NAME_ACCEPT ||
-        (sim >= NAME_STRONG && dist <= NEAR_RADIUS_MI);
-      if (!accept) continue;
+      // Name match is mandatory — coordinates alone never qualify.
+      if (sim < NAME_ACCEPT) continue;
       const score = sim * 2 + (1 - dist / NEAR_RADIUS_MI);
       if (score > bestScore || (score === bestScore && dist < bestDist)) {
         best = cand;
