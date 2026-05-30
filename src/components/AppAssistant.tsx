@@ -891,6 +891,7 @@ export const AppAssistant: React.FC = () => {
       onFindExperts={handleFindExperts}
       onSearchCommunityRecipes={handleSearchCommunityRecipes}
       onGetCircleRatings={handleGetCircleRatings}
+      onAssistantPlaces={pageContext?.onAssistantPlaces}
       userContext={userContext}
       recipes={chatRecipesAll}
       knownPlaces={knownPlaces}

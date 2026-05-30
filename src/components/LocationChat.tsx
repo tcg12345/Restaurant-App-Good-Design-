@@ -210,6 +210,11 @@ interface LocationChatProps {
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
   onGetCircleRatings: (restaurantId: string) => Promise<AssistantUser[] | AssistantCircleRating[]>;
+  /** Plot the restaurants the assistant just recommended onto the map
+   *  page (markers + sidebar) and fly there. Only provided when the chat
+   *  is open on the map page, so on every other page it's undefined and
+   *  the map is never touched. */
+  onAssistantPlaces?: (places: ScoredPlace[]) => void;
 
   /* ── ACTION handlers — wire up new in-app capabilities. All are
        optional so this component still works standalone (the bot
@@ -591,6 +596,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onFindExperts,
   onSearchCommunityRecipes,
   onGetCircleRatings,
+  onAssistantPlaces,
   recipes,
   knownPlaces,
   currentPath,
@@ -898,6 +904,46 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
     return m;
   }, [visible, chatPlaces, knownPlaces]);
+
+  // ── Drive the map page when the assistant recommends restaurants ──
+  // On the map page (where `onAssistantPlaces` is wired) we hand the
+  // latest recommend_restaurants result to the page so it can swap the
+  // markers + sidebar to exactly those places and fly there. We wait for
+  // the turn to finish streaming so search_restaurants results have
+  // settled into chatPlaces (and thus placeById). A ref de-dupes so the
+  // same block isn't re-plotted; the first settle just adopts whatever
+  // history is already loaded without moving the map.
+  const lastPlottedCardsRef = useRef<string | null>(null);
+  const plotInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!onAssistantPlaces || streaming) return;
+    let latest: { toolUseId: string; placeIds: string[] } | null = null;
+    for (let i = messages.length - 1; i >= 0 && !latest; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+      for (let j = msg.blocks.length - 1; j >= 0; j--) {
+        const b = msg.blocks[j];
+        if (b.type === 'cards' && b.placeIds.length > 0) {
+          latest = { toolUseId: b.toolUseId, placeIds: b.placeIds };
+          break;
+        }
+      }
+    }
+    if (!latest) { plotInitializedRef.current = true; return; }
+    if (!plotInitializedRef.current) {
+      // First settle — adopt any restored history without moving the map.
+      lastPlottedCardsRef.current = latest.toolUseId;
+      plotInitializedRef.current = true;
+      return;
+    }
+    if (lastPlottedCardsRef.current === latest.toolUseId) return;
+    const places = latest.placeIds
+      .map((id) => placeById.get(id))
+      .filter((p): p is ScoredPlace => !!p);
+    if (places.length === 0) return;
+    lastPlottedCardsRef.current = latest.toolUseId;
+    onAssistantPlaces(places);
+  }, [streaming, messages, placeById, onAssistantPlaces]);
 
   /** Recipe lookup for card rendering. The user's own recipes come
    *  through `recipes` (typed Recipe[]); community recipes surfaced
