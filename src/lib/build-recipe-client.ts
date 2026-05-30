@@ -133,8 +133,12 @@ async function postRecipe(
 export async function generateRecipe(
   prompt: string,
   signal?: AbortSignal,
+  difficulty?: 'Easy' | 'Medium' | 'Hard',
 ): Promise<GenerateRecipeResult> {
-  const { recipe, error } = await postRecipe({ prompt }, signal);
+  const { recipe, error } = await postRecipe(
+    difficulty ? { prompt, difficulty } : { prompt },
+    signal,
+  );
   if (error) return { ok: false, error };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't generate that recipe. Try rephrasing your request." };

@@ -431,14 +431,21 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 {draft.difficulty && (
                   <Chip icon={<Flame size={12} />}>{draft.difficulty}</Chip>
                 )}
-                {(draft.prepTime ?? 0) + (draft.cookTime ?? 0) > 0 && (
-                  <Chip icon={<Clock size={12} />}>
-                    {`${(draft.prepTime || 0) + (draft.cookTime || 0)} min`}
-                    {draft.prepTime && draft.cookTime
-                      ? ` (${draft.prepTime} prep + ${draft.cookTime} cook)`
-                      : ''}
-                  </Chip>
-                )}
+                {(() => {
+                  // Active = hands-on prep + cook; total also banks the passive
+                  // proof/chill/rest time. Showing both keeps long/overnight
+                  // projects honest instead of reading a tiny "108 min".
+                  const active = (draft.prepTime || 0) + (draft.cookTime || 0);
+                  const total = active + (draft.chillTime || 0);
+                  if (total <= 0) return null;
+                  const fmt = (m: number) =>
+                    m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m} min`;
+                  return (
+                    <Chip icon={<Clock size={12} />}>
+                      {draft.chillTime ? `Active ${fmt(active)} · Total ${fmt(total)}` : fmt(total)}
+                    </Chip>
+                  );
+                })()}
                 {draft.servings && (
                   <Chip icon={<Users size={12} />}>
                     {draft.yieldDescription || `${draft.servings} ${draft.servings === 1 ? 'serving' : 'servings'}`}

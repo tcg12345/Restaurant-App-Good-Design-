@@ -133,8 +133,10 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     if (dietary.length) reqs.push(dietary.map((d) => d.toLowerCase()).join(', '));
     if (servings) reqs.push(`serves ${servings}`);
     if (timeBudget) reqs.push(`ready in ${(TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? `${timeBudget} min`).toLowerCase()}`);
-    if (difficulty) reqs.push(`${difficulty.toLowerCase()} difficulty`);
-    if (!base && reqs.length === 0) return '';
+    // Difficulty is passed to the server as a structured field (see
+    // handleGenerate) rather than blended into the prose, so the model
+    // calibrates depth to it reliably.
+    if (!base && reqs.length === 0 && !difficulty) return '';
     const head = base || 'A recipe';
     return reqs.length ? `${head}. Requirements: ${reqs.join('; ')}.` : head;
   };
@@ -146,7 +148,11 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const result = await generateRecipe(finalPrompt, controller.signal);
+    const result = await generateRecipe(
+      finalPrompt,
+      controller.signal,
+      (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
+    );
     abortRef.current = null;
     setLoading(false);
     if (result.ok && result.meal) {
