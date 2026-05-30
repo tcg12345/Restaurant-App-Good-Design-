@@ -2840,10 +2840,12 @@ const FilterSheet: React.FC<{
   onCuisineFilter: (v: string[]) => void;
   priceFilter: string | null;
   onPriceFilter: (v: string | null) => void;
+  michelinFilter: string[];
+  onMichelinToggle: (d: string) => void;
   allCities: string[];
   allCuisines: string[];
   onReset: () => void;
-}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, allCities, allCuisines, onReset }) => {
+}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, onReset }) => {
   const { phoneMode } = useSettings();
   const [citySearch, setCitySearch] = useState('');
   const [cuisineSearch, setCuisineSearch] = useState('');
@@ -2956,6 +2958,12 @@ const FilterSheet: React.FC<{
                         priceFilter === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{p}</button>
                   ))}
                 </div>
+              </div>
+
+              {/* Michelin */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
+                <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
               </div>
 
               {/* Cuisine — collapsible dropdown */}
@@ -6760,6 +6768,10 @@ export const Pantry: React.FC = () => {
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
+  const [michelinFilter, setMichelinFilter] = useState<string[]>([]);
+  const toggleMichelinFilter = (d: string) =>
+    setMichelinFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  const michelinReady = useMichelinIndexReady();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added' | 'custom'>('highest');
@@ -6893,7 +6905,7 @@ export const Pantry: React.FC = () => {
   const {
     lists, createList,
     ratings, openAddRestaurantModal, removeRating,
-    wishlist,
+    wishlist, restaurantMeta,
     getListsForRestaurant,
     trips, createTrip, updateTrip, deleteTrip,
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
@@ -7035,6 +7047,12 @@ export const Pantry: React.FC = () => {
     }
     if (cuisineFilter.length > 0) result = result.filter((r) => cuisineFilter.includes(r.cuisine));
     if (priceFilter) result = result.filter((r) => r.price === priceFilter);
+    if (michelinFilter.length > 0) {
+      result = result.filter((r) => {
+        const meta = restaurantMeta[r.restaurantId];
+        return passesMichelinFilter(michelinFilter, r.name, meta?.lat, meta?.lng, r.address || meta?.address);
+      });
+    }
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
 
     if (sortBy === 'custom') {
@@ -7049,7 +7067,7 @@ export const Pantry: React.FC = () => {
     else if (sortBy === 'added') result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy, customOrder]);
+  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, michelinFilter, michelinReady, restaurantMeta, scoreRange, sortBy, customOrder]);
 
   // Drag-to-reorder for custom sort
   const moveRating = useCallback((from: number, to: number) => {
@@ -7064,7 +7082,7 @@ export const Pantry: React.FC = () => {
   const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
   const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   // Seed custom order from current sort if empty when switching to custom
@@ -7077,7 +7095,7 @@ export const Pantry: React.FC = () => {
   }, [customOrder, ratings, setCustomOrder]);
 
   const handleResetFilters = () => {
-    setCityFilter([]); setCuisineFilter([]); setPriceFilter(null);
+    setCityFilter([]); setCuisineFilter([]); setPriceFilter(null); setMichelinFilter([]);
     setScoreRange([0, 10]); setSortBy('highest');
   };
 
@@ -7710,6 +7728,20 @@ export const Pantry: React.FC = () => {
                   </AnchoredPill>
                   <AnchoredPill
                     pill={{
+                      label: michelinFilter.length > 0 ? `Michelin (${michelinFilter.length})` : 'Michelin',
+                      active: michelinFilter.length > 0,
+                      onClear: michelinFilter.length > 0 ? () => setMichelinFilter([]) : undefined,
+                    }}
+                    popoverWidth="w-[260px]"
+                  >
+                    {() => (
+                      <div className="p-1">
+                        <MichelinDistinctionFilter selected={michelinFilter} onToggle={toggleMichelinFilter} />
+                      </div>
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
                       icon: <ArrowUpDown size={11} />,
                       label: sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort',
                       active: sortBy !== 'highest' && sortBy !== 'recent',
@@ -7873,6 +7905,8 @@ export const Pantry: React.FC = () => {
         onCuisineFilter={setCuisineFilter}
         priceFilter={priceFilter}
         onPriceFilter={setPriceFilter}
+        michelinFilter={michelinFilter}
+        onMichelinToggle={toggleMichelinFilter}
         allCities={allCities}
         allCuisines={allCuisines}
         onReset={handleResetFilters}
