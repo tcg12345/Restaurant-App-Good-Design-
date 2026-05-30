@@ -19,6 +19,12 @@
 // Vercel Edge runtime: standard Web APIs (fetch / Request / Response /
 // ReadableStream). Edge is the right choice for chat: faster cold
 // starts than Node serverless and native support for streaming bodies.
+
+// The chat's build_recipe tool shares its quality bar + input schema with
+// the dedicated "Create with AI" modal generator (api/build-recipe.ts) so
+// recipes authored in chat are just as thorough and precise.
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from './_recipe-spec';
+
 export const config = { runtime: 'edge' };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -479,90 +485,7 @@ const TOOL_BUILD_RECIPE = {
   name: 'build_recipe',
   description:
     "Author a complete recipe and render it as a draft card in the chat for the user to review. Use this when the user asks you to create / build / make / generate / write / draft a recipe. The card shows a preview; tapping it opens a full read-only sheet with Publish and Edit actions. Do NOT paste the recipe text in your reply — the card IS the deliverable. After calling this tool, reply with ONE short sentence pointing the user at the card (e.g. 'Drafted a brown-butter banana bread — open the card to review.').",
-  input_schema: {
-    type: 'object',
-    required: ['name'],
-    properties: {
-      name: { type: 'string', description: 'Recipe title.' },
-      summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
-      introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`. Always include it.' },
-      cuisine: { type: 'string', description: 'Pick from CUISINE_OPTIONS when sensible.' },
-      course: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Pick items from COURSE_OPTIONS. E.g. ["Dessert"] or ["Lunch", "Dinner"].',
-      },
-      difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
-      prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
-      cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
-      chillTime: { type: 'integer', minimum: 0, description: 'Optional rest / chill / proof minutes.' },
-      servings: { type: 'integer', minimum: 1 },
-      yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
-      ingredients: {
-        type: 'array',
-        description: 'Flat list of ingredients. Use this for simple recipes; for multi-stage recipes prefer ingredientGroups instead. Either field is fine.',
-        items: {
-          type: 'object',
-          required: ['name'],
-          properties: {
-            name: { type: 'string' },
-            amount: { type: 'string', description: 'Number or fraction as a string. Leave blank when "to taste".' },
-            unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
-          },
-        },
-      },
-      ingredientGroups: {
-        type: 'array',
-        description: 'Grouped ingredients for multi-stage recipes ("For the batter", "For the streusel"). Use either this OR ingredients — not both.',
-        items: {
-          type: 'object',
-          required: ['name', 'ingredients'],
-          properties: {
-            name: { type: 'string', description: 'Section name.' },
-            ingredients: {
-              type: 'array',
-              items: {
-                type: 'object',
-                required: ['name'],
-                properties: {
-                  name: { type: 'string' },
-                  amount: { type: 'string' },
-                  unit: { type: 'string' },
-                },
-              },
-            },
-          },
-        },
-      },
-      steps: {
-        type: 'array',
-        description: 'Ordered cooking steps. Each step is an object with a `body` (the action) and optional title / durationMin / tip.',
-        items: {
-          type: 'object',
-          required: ['body'],
-          properties: {
-            title: { type: 'string', description: 'Optional short imperative, e.g. "Brown the butter".' },
-            body: { type: 'string', description: 'One action per step, named clearly.' },
-            durationMin: { type: 'integer', minimum: 0 },
-            tip: { type: 'string', description: 'Optional inline tip for this step.' },
-          },
-        },
-      },
-      equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Free-text tags.' },
-      notes: {
-        type: 'array',
-        items: {
-          type: 'object',
-          required: ['type', 'text'],
-          properties: {
-            type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
-            text: { type: 'string' },
-          },
-        },
-      },
-    },
-  },
+  input_schema: RECIPE_INPUT_SCHEMA,
 };
 
 /** Edit the most recent AI-built recipe draft IN PLACE. Use this for
@@ -1003,6 +926,16 @@ function buildSystemPrompt(body: ChatRequest): string {
     "  R6. NEW DISH entirely (\"now do me a savory carbonara\", \"forget the bread, make me a Thai curry\") → call `build_recipe`, which spawns a brand-new draft card. Rule of thumb: same dish being adjusted → `edit_recipe_draft`. Different dish → `build_recipe`.",
   );
 
+  // When this turn is authoring/editing a recipe, hold to the SAME quality
+  // bar the dedicated "Create with AI" modal generator uses, so chat recipes
+  // are equally thorough (scaled depth, honest timing, precise measurements).
+  // Gated so ordinary chats don't carry the extra tokens.
+  if (looksLikeRecipeBuild(body.messages)) {
+    lines.push('');
+    lines.push('RECIPE QUALITY BAR — when you call build_recipe or edit_recipe_draft, author the recipe to this exact standard:');
+    lines.push(RECIPE_QUALITY_BAR);
+  }
+
   return lines.join('\n');
 }
 
@@ -1051,7 +984,10 @@ export default async function handler(req: Request): Promise<Response> {
   // empty / malformed JSON, and from the user's perspective the chat
   // just goes silent. Everything else fits easily in 1024.
   const recipeBuild = looksLikeRecipeBuild(body.messages);
-  const maxTokens = recipeBuild ? 6000 : 1024;
+  // Matches the dedicated generator's headroom so a fully detailed complex
+  // recipe (laminated dough, long ingredient + step lists) isn't truncated
+  // mid-stream. Non-recipe turns stay tiny.
+  const maxTokens = recipeBuild ? 10000 : 1024;
 
   const anthropicBody = {
     model: resolveModel(body),
