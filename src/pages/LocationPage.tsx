@@ -27,8 +27,10 @@ import {
   SlidersHorizontal,
   Sparkles,
   Soup,
+  Star,
   UserCheck,
   Users,
+  Utensils,
   X,
 } from 'lucide-react';
 import './LocationPage.css';
@@ -81,7 +83,6 @@ import {
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
-import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import type { MichelinChatHit } from '../components/LocationChat';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -3890,7 +3891,33 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
               {/* ── Michelin distinction ────────────────────────────── */}
               <section className="lp-filter-section">
                 <div className="lp-filter-label">Michelin</div>
-                <MichelinDistinctionFilter selected={selectedMichelin} onToggle={onMichelinToggle} />
+                <p className="lp-filter-sub">
+                  Show only restaurants in the Michelin Guide.
+                </p>
+                <div className="lp-michelin-grid">
+                  {([
+                    { key: '3 Stars', label: '3 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /><Star /></span> },
+                    { key: '2 Stars', label: '2 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /></span> },
+                    { key: '1 Star', label: '1 Star', mark: <span className="lp-michelin-stars"><Star /></span> },
+                    { key: 'Bib Gourmand', label: 'Bib Gourmand', mark: <Soup className="lp-michelin-glyph" /> },
+                    { key: 'Selected', label: 'Selected', mark: <Utensils className="lp-michelin-glyph" /> },
+                  ] as const).map(({ key, label, mark }) => {
+                    const active = selectedMichelin.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => onMichelinToggle(key)}
+                        aria-pressed={active}
+                        className={cn('lp-michelin-card', active && 'is-active')}
+                      >
+                        <span className="lp-michelin-mark">{mark}</span>
+                        <span className="lp-michelin-label">{label}</span>
+                        <span className={cn('lp-michelin-check', active && 'is-on')} />
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
             </div>
 

@@ -1592,6 +1592,84 @@
   box-shadow: inset 0 0 0 3px var(--surface);
 }
 
+/* Michelin distinction — card toggles matching the circle cards, with a
+   Michelin-red accent when active. Two columns; the wide "Bib Gourmand" /
+   "Selected" labels get room to breathe instead of cramming into a pill row. */
+.location-page-root .lp-michelin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+/* Odd count (5 options): let the last card span the full width so it isn't
+   stranded half-width on its own row. */
+.location-page-root .lp-michelin-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.location-page-root .lp-michelin-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.location-page-root .lp-michelin-card:hover {
+  border-color: #a2191f80;
+}
+.location-page-root .lp-michelin-card.is-active {
+  border-color: #a2191f;
+  background: #a2191f0d;
+  box-shadow: 0 0 0 1px #a2191f inset;
+}
+.location-page-root .lp-michelin-mark {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: #a2191f;
+}
+.location-page-root .lp-michelin-stars {
+  display: inline-flex;
+  align-items: center;
+}
+.location-page-root .lp-michelin-stars svg {
+  width: 14px;
+  height: 14px;
+  fill: #a2191f;
+  stroke: none;
+}
+.location-page-root .lp-michelin-glyph {
+  width: 15px;
+  height: 15px;
+  stroke: #a2191f;
+  stroke-width: 2.2;
+}
+.location-page-root .lp-michelin-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.location-page-root .lp-michelin-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.location-page-root .lp-michelin-check.is-on {
+  background: #a2191f;
+  border-color: #a2191f;
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+
 /* Cuisine dropdown */
 .location-page-root .lp-cuisine-trigger {
   display: flex;
