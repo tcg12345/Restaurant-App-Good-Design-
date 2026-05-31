@@ -1,4 +1,4 @@
-import { Star, Leaf, ExternalLink, Soup } from 'lucide-react';
+import { Star, Leaf, ExternalLink, Soup, Utensils } from 'lucide-react';
 import type { MichelinInfo } from '../lib/michelin';
 
 interface MichelinBadgeProps {
@@ -20,19 +20,23 @@ const MICHELIN_RED = '#a2191f';
 /**
  * Distinction badge for a Michelin-recognised restaurant. Starred restaurants
  * show one filled star per award plus the "MICHELIN" wordmark; Bib Gourmand
- * restaurants show a bib/soup glyph plus the "BIB GOURMAND" wordmark. A
- * green-star leaf is appended when awarded. When `href` is set it becomes a
- * tappable link to the restaurant's Michelin Guide page (with an external-link
- * glyph); otherwise it's a static pill.
+ * shows a bib/soup glyph plus "BIB GOURMAND"; Selected (in the Guide, no
+ * star/bib) shows a utensils glyph plus "MICHELIN SELECTED". A green-star leaf
+ * is appended when awarded. When `href` is set it becomes a tappable link to
+ * the restaurant's Michelin Guide page (with an external-link glyph); otherwise
+ * it's a static pill.
  */
 export function MichelinBadge({ michelin, size = 'sm', href, className = '' }: MichelinBadgeProps) {
   const iconPx = size === 'sm' ? 13 : 15;
   const labelCls = size === 'sm' ? 'text-[10px]' : 'text-[11px]';
   const gapCls = size === 'sm' ? 'gap-1.5' : 'gap-2';
   const isBib = michelin.bibGourmand;
+  const isSelected = michelin.selected;
   const distinction = isBib
     ? 'Bib Gourmand'
-    : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'Star' : 'Stars'}`;
+    : isSelected
+      ? 'Michelin Selected'
+      : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'Star' : 'Stars'}`;
   const ariaLabel = distinction + (michelin.greenStar ? ', Michelin Green Star' : '');
 
   const inner = (
@@ -40,6 +44,8 @@ export function MichelinBadge({ michelin, size = 'sm', href, className = '' }: M
       <span className="inline-flex items-center" aria-hidden="true">
         {isBib ? (
           <Soup size={iconPx} color={MICHELIN_RED} strokeWidth={2.2} />
+        ) : isSelected ? (
+          <Utensils size={iconPx} color={MICHELIN_RED} strokeWidth={2.2} />
         ) : (
           Array.from({ length: michelin.stars }).map((_, i) => (
             <Star key={i} size={iconPx} fill={MICHELIN_RED} color={MICHELIN_RED} strokeWidth={0} />
@@ -50,7 +56,7 @@ export function MichelinBadge({ michelin, size = 'sm', href, className = '' }: M
         className={`${labelCls} font-semibold uppercase tracking-[0.12em]`}
         style={{ color: MICHELIN_RED }}
       >
-        {isBib ? 'Bib Gourmand' : 'Michelin'}
+        {isBib ? 'Bib Gourmand' : isSelected ? 'Michelin Selected' : 'Michelin'}
       </span>
       {michelin.greenStar && (
         <Leaf

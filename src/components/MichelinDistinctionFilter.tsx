@@ -1,4 +1,4 @@
-import { Star, Soup } from 'lucide-react';
+import { Star, Soup, Utensils } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MICHELIN_DISTINCTIONS, type MichelinDistinction } from '../lib/michelin';
 
@@ -13,10 +13,13 @@ interface MichelinDistinctionFilterProps {
 }
 
 // Visual for a single option: filled stars for the star tiers, a bib/soup glyph
-// for Bib Gourmand.
+// for Bib Gourmand, a utensils glyph for Selected.
 function OptionMark({ value }: { value: MichelinDistinction }) {
   if (value === 'Bib Gourmand') {
     return <Soup size={13} color={MICHELIN_RED} strokeWidth={2.2} className="shrink-0" />;
+  }
+  if (value === 'Selected') {
+    return <Utensils size={12} color={MICHELIN_RED} strokeWidth={2.2} className="shrink-0" />;
   }
   const n = value === '3 Stars' ? 3 : value === '2 Stars' ? 2 : 1;
   return (
@@ -30,9 +33,9 @@ function OptionMark({ value }: { value: MichelinDistinction }) {
 
 /**
  * Multi-select control for filtering restaurants by Michelin distinction
- * (3 Stars / 2 Stars / 1 Star / Bib Gourmand). Shared by the Pantry, Location,
- * Map, and public-profile filter UIs so the control looks and behaves the same
- * everywhere. Renders as a row of toggle pills.
+ * (3 Stars / 2 Stars / 1 Star / Bib Gourmand / Selected). Shared by the Pantry,
+ * Location, Map, and public-profile filter UIs so the control looks and behaves
+ * the same everywhere. Renders as a row of toggle pills.
  */
 export function MichelinDistinctionFilter({ selected, onToggle, className }: MichelinDistinctionFilterProps) {
   return (

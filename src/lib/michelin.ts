@@ -19,10 +19,12 @@ export interface MichelinInfo {
   name: string;
   city: string;
   country: string;
-  /** Michelin stars: 1, 2, or 3 for starred restaurants; 0 for Bib Gourmand. */
+  /** Michelin stars: 1, 2, or 3 for starred restaurants; 0 otherwise. */
   stars: 0 | 1 | 2 | 3;
   /** True for Bib Gourmand entries (good value, no stars). */
   bibGourmand: boolean;
+  /** True for "Selected" entries (in the Guide, no star/bib distinction). */
+  selected: boolean;
   /** Price tier 1-4 (count of currency symbols in the source). */
   priceTier: number;
   /** Cuisine string, possibly comma-separated ("Modern Cuisine, Creative"). */
@@ -44,6 +46,8 @@ interface RawRecord {
   s: 0 | 1 | 2 | 3;
   /** 1 when this is a Bib Gourmand entry. */
   b?: 1;
+  /** 1 when this is a Selected (Guide-listed, no star/bib) entry. */
+  sel?: 1;
   pt: number;
   cu: string;
   u: string;
@@ -139,6 +143,7 @@ function toInfo(r: RawRecord): MichelinInfo {
     country: r.co,
     stars: r.s,
     bibGourmand: r.b === 1,
+    selected: r.sel === 1,
     priceTier: r.pt,
     cuisine: r.cu,
     guideUrl: r.u,
@@ -324,9 +329,11 @@ export function michelinPriceDisplay(info: MichelinInfo): string {
   return priceLevelToString(info.priceTier);
 }
 
-/** Short distinction label: "1 Star" / "2 Stars" / "3 Stars" / "Bib Gourmand". */
+/** Short distinction label: "1 Star" / "2 Stars" / "3 Stars" / "Bib Gourmand" /
+ *  "Michelin Selected". */
 export function michelinDistinctionLabel(info: MichelinInfo): string {
   if (info.bibGourmand) return 'Bib Gourmand';
+  if (info.selected) return 'Michelin Selected';
   return `${info.stars} ${info.stars === 1 ? 'Star' : 'Stars'}`;
 }
 
@@ -334,16 +341,17 @@ export function michelinDistinctionLabel(info: MichelinInfo): string {
 // Canonical option keys for the cross-page "filter by Michelin distinction"
 // control. The label of each option is the key itself (so the UI can render the
 // array directly). Order is the display order.
-export type MichelinDistinction = '1 Star' | '2 Stars' | '3 Stars' | 'Bib Gourmand';
+export type MichelinDistinction = '1 Star' | '2 Stars' | '3 Stars' | 'Bib Gourmand' | 'Selected';
 
 export const MICHELIN_DISTINCTIONS: readonly MichelinDistinction[] = [
-  '3 Stars', '2 Stars', '1 Star', 'Bib Gourmand',
+  '3 Stars', '2 Stars', '1 Star', 'Bib Gourmand', 'Selected',
 ];
 
 /** Map a matched record to its distinction key (null when no match). */
 export function michelinDistinction(info: MichelinInfo | null): MichelinDistinction | null {
   if (!info) return null;
   if (info.bibGourmand) return 'Bib Gourmand';
+  if (info.selected) return 'Selected';
   if (info.stars === 1) return '1 Star';
   if (info.stars === 2) return '2 Stars';
   if (info.stars === 3) return '3 Stars';

@@ -1,12 +1,13 @@
-// Build script: converts the Michelin Guide exports (Starred + Bib Gourmand)
-// into one compact JSON dataset bundled at src/data/michelin.json.
+// Build script: converts the Michelin Guide exports (Starred + Bib Gourmand +
+// Selected) into one compact JSON dataset bundled at src/data/michelin.json.
 //
 // The source spreadsheets/CSVs are uploaded artifacts (NOT committed). Re-run
-// this when refreshed sheets are provided. Pass the starred source first and
-// the Bib Gourmand source second (either order works — distinction is detected
-// from the presence of a "Stars" column):
+// this when refreshed sheets are provided. Pass the sources in any order; the
+// tier (starred / bib / selected) is detected from the filename keyword
+// ("star", "bib", "selected") and, for starred sheets, the presence of a
+// "Stars" column:
 //
-//   node scripts/build-michelin-data.mjs <starred.csv> <bib.csv>
+//   node scripts/build-michelin-data.mjs <starred.csv> <bib.csv> <selected.csv>
 //
 // With no args it falls back to the known uploaded paths. Accepts CSV
 // (preferred — includes Latitude/Longitude) or the original .xlsx
@@ -18,8 +19,9 @@
 //   co  = country
 //   la  = latitude (number)
 //   lng = longitude (number)
-//   s   = stars (1 | 2 | 3) for starred restaurants; 0 for Bib Gourmand
+//   s   = stars (1 | 2 | 3) for starred restaurants; 0 otherwise
 //   b   = 1 when this is a Bib Gourmand entry (omitted otherwise)
+//   sel = 1 when this is a Selected (Guide-listed, no star/bib) entry
 //   pt  = price tier (1-4), derived from the count of currency symbols
 //   cu  = cuisine string (verbatim, may be comma-separated)
 //   u   = Michelin Guide URL
@@ -142,18 +144,29 @@ function loadRows(srcPath) {
 // ── Main ───────────────────────────────────────────────────────────────────
 const STARRED_DEFAULT = '/root/.claude/uploads/c1007693-b945-40a2-aad8-fe85135ec6fa/175b29ca-Michelin_StarredTable_1.csv';
 const BIB_DEFAULT = '/root/.claude/uploads/c1007693-b945-40a2-aad8-fe85135ec6fa/1b328080-Michelin_Bib_Gourmand_Worldwide.csv';
+const SELECTED_DEFAULT = '/root/.claude/uploads/30acac38-2273-4d77-84a1-8f5c83be4297/2d116184-Michelin_Selected_Restaurants_Worldwide.csv';
 const outPath = resolve(__dirname, '..', 'src', 'data', 'michelin.json');
 
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 
-// Parse one source file into normalized records. `kind` ('starred' | 'bib') is
-// auto-detected from the presence of a Stars column; Bib rows carry no stars.
+// Detect the tier from the filename ('bib' | 'selected' | 'starred'). Bib and
+// Selected sheets are structurally identical (no Stars column), so the keyword
+// in the filename is the discriminator. Starred is the default / confirmed by a
+// Stars column.
+function detectKind(srcPath) {
+  const f = srcPath.toLowerCase();
+  if (f.includes('bib')) return 'bib';
+  if (f.includes('selected')) return 'selected';
+  return 'starred';
+}
+
+// Parse one source file into normalized records.
 function processSource(srcPath) {
   const rows = loadRows(srcPath);
   const header = rows[0].map((h) => h.trim());
   const idx = (name) => header.indexOf(name);
   const iName = idx('Restaurant');
-  const iStars = idx('Stars'); // -1 for Bib Gourmand sheets
+  const iStars = idx('Stars'); // -1 for Bib / Selected sheets
   const iCity = idx('City');
   const iCountry = idx('Country');
   const iLat = idx('Latitude');
@@ -170,7 +183,8 @@ function processSource(srcPath) {
   ]) {
     if (i < 0) throw new Error(`Expected column "${label}" not found in ${srcPath}. Header: ${header.join(', ')}`);
   }
-  const isBib = iStars < 0;
+  // A Stars column forces 'starred' regardless of filename.
+  const kind = iStars >= 0 ? 'starred' : detectKind(srcPath);
 
   const recs = [];
   let skippedNoCoord = 0;
@@ -180,7 +194,7 @@ function processSource(srcPath) {
     const name = (row[iName] || '').trim();
     if (!name) continue;
     let stars = 0;
-    if (!isBib) {
+    if (kind === 'starred') {
       stars = parseInt((row[iStars] || '').trim(), 10);
       if (!(stars >= 1 && stars <= 3)) continue; // starred sheet is 1/2/3-star only
     }
@@ -195,35 +209,38 @@ function processSource(srcPath) {
       n: name,
       c: (row[iCity] || '').trim(),
       co: (row[iCountry] || '').trim(),
-      s: isBib ? 0 : stars,
+      s: kind === 'starred' ? stars : 0,
       pt: priceTier,
       cu: (row[iCuisine] || '').trim(),
       u: (row[iUrl] || '').trim(),
     };
-    if (isBib) rec.b = 1;
+    if (kind === 'bib') rec.b = 1;
+    if (kind === 'selected') rec.sel = 1;
     if (hasCoord) { rec.la = round6(la); rec.lng = round6(lng); }
     if (iGreen >= 0 && (row[iGreen] || '').trim()) rec.g = true;
     recs.push(rec);
   }
-  return { recs, isBib, skippedNoCoord };
+  return { recs, kind, skippedNoCoord };
 }
 
-// Collect sources: explicit args, else the known defaults. Either order works.
-const sources = process.argv.length > 2 ? process.argv.slice(2) : [STARRED_DEFAULT, BIB_DEFAULT];
+// Collect sources: explicit args, else the known defaults. Any order works.
+const sources = process.argv.length > 2 ? process.argv.slice(2) : [STARRED_DEFAULT, BIB_DEFAULT, SELECTED_DEFAULT];
+
+const KIND_LABEL = { starred: 'Starred', bib: 'Bib Gourmand', selected: 'Selected' };
 
 const out = [];
 let totalNoCoord = 0;
 for (const src of sources) {
-  const { recs, isBib, skippedNoCoord } = processSource(src);
+  const { recs, kind, skippedNoCoord } = processSource(src);
   totalNoCoord += skippedNoCoord;
   out.push(...recs);
-  console.log(`  ${isBib ? 'Bib Gourmand' : 'Starred'} (${src.split('/').pop()}): ${recs.length} records`);
+  console.log(`  ${KIND_LABEL[kind]} (${src.split('/').pop()}): ${recs.length} records`);
 }
 
 writeFileSync(outPath, JSON.stringify(out));
 console.log(`Wrote ${out.length} records to ${outPath}`);
 const dist = out.reduce((acc, r) => {
-  const k = r.b ? 'bib' : `${r.s}-star`;
+  const k = r.b ? 'bib' : r.sel ? 'selected' : `${r.s}-star`;
   acc[k] = (acc[k] || 0) + 1;
   return acc;
 }, {});
