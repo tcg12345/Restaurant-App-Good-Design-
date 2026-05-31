@@ -25,6 +25,8 @@ import {
   type PlaceResult,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
 
 /**
  * Map view of the city-explore restaurants. Shares the per-city
@@ -88,6 +90,9 @@ const scoreBg = (rating: number): string => {
 export const LocationMap: React.FC = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  // Michelin dataset readiness — the sidebar rows below override cuisine/price
+  // for matched starred/Bib restaurants once it's loaded.
+  const michelinReady = useMichelinIndexReady();
   const label = params.get('label') || 'Location';
   const lat = Number(params.get('lat'));
   const lng = Number(params.get('lng'));
@@ -433,8 +438,11 @@ export const LocationMap: React.FC = () => {
             >
               <ul className="divide-y divide-on-surface/[0.06]">
                 {sortedPlaces.map((place) => {
-                  const cuisine = inferCuisineLabel(place.types);
-                  const priceLabel = priceLevelToString(place.priceLevel);
+                  const mich = michelinReady
+                    ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+                    : null;
+                  const cuisine = mich ? mich.cuisine : inferCuisineLabel(place.types);
+                  const priceLabel = mich ? michelinPriceDisplay(mich) : priceLevelToString(place.priceLevel);
                   const distMi = hasCoords
                     ? haversineDistanceMi(lat, lng, place.lat, place.lng)
                     : 0;

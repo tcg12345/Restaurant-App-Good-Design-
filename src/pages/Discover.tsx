@@ -28,13 +28,19 @@ import {
   type ScoredPlace,
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinBySyntheticId } from '../lib/michelin';
+import { MichelinBadge } from '../components/MichelinBadge';
+import { haversineDistanceMi as havMi } from '../lib/distance';
+import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   HomeLocationBar,
   loadLastSelectedLocation,
@@ -197,6 +203,8 @@ function placeToCardProps(place: PlaceResult) {
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
     address: place.fullAddress || place.address,
+    lat: place.lat,
+    lng: place.lng,
     friendReviews: 0,
     expertReviews: 0,
   };
@@ -295,6 +303,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
+  // Michelin dataset readiness. michCuisinePrice() overrides a place's
+  // cuisine/price from the Guide data when matched (no marker on cards — that's
+  // detail-page only); falls back to the supplied Google-derived values.
+  const michelinReady = useMichelinIndexReady();
+  const michCuisinePrice = useCallback(
+    (place: { name: string; lat?: number; lng?: number; fullAddress?: string; address?: string }, cuisine: string, price: string) => {
+      const hit = michelinReady
+        ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+        : null;
+      return hit ? { cuisine: hit.cuisine, price: michelinPriceDisplay(hit) } : { cuisine, price };
+    },
+    [michelinReady],
+  );
   // Wide viewport (>= lg): the global DesktopHeader provides the
   // search input + actions, so Discover's own TopBar / inline search
   // bar are redundant and would stack on top of it.
@@ -586,15 +607,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const setFilterSheetOpen = useCallback((show: boolean) => {
     setFilterSheetOpenRaw(show);
     setHideBottomNav(show);
-    if (!show) { setFilterCuisineOpen(false); setFilterCuisineSearch(''); setFilterCityOpen(false); setFilterCitySearch(''); setFilterFriendOpen(false); setFilterFriendSearch(''); }
   }, [setHideBottomNav]);
-  const { dragProps: filterSheetDragProps } = useBottomSheet(filterSheetOpen, () => setFilterSheetOpen(false));
 
   // Filter state — discover
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
+  // Michelin distinction filter (multi-select, OR). Empty = off. Applied
+  // client-side to the rendered place list (Discover's cuisine/price filters
+  // are server-side, but Michelin matching is local-only).
+  const [selectedMichelin, setSelectedMichelin] = useState<string[]>([]);
+  const toggleMichelin = useCallback((d: string) => {
+    setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  }, []);
 
   // Hero chip filter — narrows the Recommended rail to a single cuisine.
   // `null` = "All". When set, an effect below keeps pulling more recs from
@@ -621,14 +647,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
   const [hotelPriceFilter, setHotelPriceFilter] = useState(0);
   const [hotelSortBy, setHotelSortBy] = useState<'popularity' | 'rating' | 'price_low'>('popularity');
-
-  // Filter sheet dropdown search state
-  const [filterCuisineOpen, setFilterCuisineOpen] = useState(false);
-  const [filterCuisineSearch, setFilterCuisineSearch] = useState('');
-  const [filterCityOpen, setFilterCityOpen] = useState(false);
-  const [filterCitySearch, setFilterCitySearch] = useState('');
-  const [filterFriendOpen, setFilterFriendOpen] = useState(false);
-  const [filterFriendSearch, setFilterFriendSearch] = useState('');
 
   const [showSearchHere, setShowSearchHere] = useState(false);
   // Dismissible first-time hint that explains the map-mode tabs. State-only —
@@ -695,12 +713,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
   const expertOverlayMarkersRef = useRef<mapboxgl.Marker[]>([]); // expert markers shown in discover mode
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[] });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
-    filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
-  }, [sortBy, selectedCuisines, selectedPrice]);
+    filtersRef.current = { sortBy, selectedCuisines, selectedPrice, selectedMichelin };
+  }, [sortBy, selectedCuisines, selectedPrice, selectedMichelin]);
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
   // Home mode forces 'full' (no map); Map mode starts at 'half' and cannot reach 'full'.
@@ -1526,6 +1544,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       filtered = filtered.filter((p) => p.priceLevel === price);
     }
 
+    // Filter by Michelin distinction (client-side; read from the ref so this
+    // stays a stable callback). No-op until the dataset is loaded.
+    const mich = filtersRef.current.selectedMichelin;
+    if (mich.length > 0) {
+      filtered = filtered.filter((p) =>
+        passesMichelinFilter(mich, p.name, p.lat, p.lng, p.fullAddress || p.address));
+    }
+
     // Sort
     const sorted = [...filtered];
     switch (sort) {
@@ -1545,6 +1571,36 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
 
     return sorted;
+  }, []);
+
+  // When a Michelin distinction filter is active, Google's popularity search
+  // rarely overlaps the Michelin set — so source matching restaurants from the
+  // bundled dataset directly and merge them into the result list (deduped by
+  // name+proximity). Awaits the dataset load so it works on the first search.
+  const mergeMichelinResults = useCallback(async (
+    googlePlaces: PlaceResult[],
+    centerLat: number,
+    centerLng: number,
+    radiusMeters: number,
+  ): Promise<PlaceResult[]> => {
+    const sel = filtersRef.current.selectedMichelin;
+    if (sel.length === 0) return googlePlaces;
+    await ensureMichelinIndex();
+    // Keep only Google places that themselves match (so the list is coherent),
+    // then add dataset entries we don't already have.
+    const kept = googlePlaces.filter((p) =>
+      passesMichelinFilter(sel, p.name, p.lat, p.lng, p.fullAddress || p.address));
+    const radiusMi = Math.min(radiusMeters / 1609.34, 31); // cap ~50 km
+    const price = filtersRef.current.selectedPrice;
+    for (const m of michelinNearbySync(centerLat, centerLng, radiusMi, sel)) {
+      if (price > 0 && m.priceTier !== price) continue;
+      const dup = kept.some((p) =>
+        p.name.toLowerCase() === m.name.toLowerCase()
+        && havMi(p.lat, p.lng, m.lat, m.lng) < 0.12);
+      if (dup) continue;
+      kept.push(michelinToPlaceResult(m));
+    }
+    return kept;
   }, []);
 
   // Build a lookup of user's own ratings by restaurant ID
@@ -1702,7 +1758,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
-      const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -1714,7 +1771,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces]);
+  }, [syncMarkers, getFilteredPlaces, mergeMichelinResults]);
 
   // Keep refs in sync for use in quick filter handler
   fetchNearbyRef.current = fetchNearby;
@@ -1822,13 +1879,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
-      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
       setPlaces(filtered);
       syncMarkers(filtered);
 
-      if (results.length > 0) {
+      if (filtered.length > 0) {
         const bounds = new mapboxgl.LngLatBounds();
-        results.forEach((p) => bounds.extend([p.lng, p.lat]));
+        filtered.forEach((p) => bounds.extend([p.lng, p.lat]));
         map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
       }
       // Add expert overlay markers in the visible area
@@ -1838,7 +1896,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces, searchLocationBias]);
+  }, [syncMarkers, getFilteredPlaces, searchLocationBias, mergeMichelinResults]);
 
   // ── AI chat → map integration (only when mounted as the /map page) ──────
   // Discover is the app's real map surface (route /map). It publishes its
@@ -2328,10 +2386,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
     }
     if (mapMode === 'myratings') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
     }
     if (mapMode === 'friends') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0);
@@ -2343,7 +2401,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0);
     }
     return 0;
-  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy, selectedMichelin]);
 
   // Helper: filter and sort a CommunityRating array by the active rating-mode filters
   const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
@@ -2369,6 +2427,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         return citySet.has(city);
       });
     }
+    // Michelin distinction
+    if (selectedMichelin.length > 0) {
+      filtered = filtered.filter((r) =>
+        passesMichelinFilter(selectedMichelin, r.restaurant_name, r.lat ?? undefined, r.lng ?? undefined, r.address));
+    }
     // Sort
     const sorted = [...filtered];
     switch (ratingSortBy) {
@@ -2378,7 +2441,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       case 'recent': default: sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
     }
     return sorted;
-  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy]);
+  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy, selectedMichelin, michelinReady]);
 
   // Filtered ratings for each mode
   const filteredMyRatings = useMemo(() => {
@@ -2939,8 +3002,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   };
 
   const renderPlaceCard = (p: PlaceResult) => {
-    const cuisine = getCuisineLabel(p.types);
-    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const { cuisine, price } = michCuisinePrice(p, getCuisineLabel(p.types), p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '');
     const city = extractCityState(p.fullAddress || '', p.address || '');
     const myScore = userRatingMap[p.id];
     const expertR = expertRatings.find((r) => r.restaurant_id === p.id);
@@ -3116,8 +3178,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // page's distance + driving + walking strip is injected as the
   // headSlot so it sits above the popup's standard action row.
   const renderPanelDetail = (place: PlaceResult) => {
-    const cuisine = getCuisineLabel(place.types);
-    const price = place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '';
+    const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '');
+    // Michelin distinction for the badge: dataset-sourced rows carry a synthetic
+    // id (look up directly); real Google places match by name + coords.
+    const michelin = michelinReady
+      ? (isMichelinSyntheticId(place.id)
+          ? michelinBySyntheticId(place.id)
+          : findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address))
+      : null;
     const fav = isWishlisted(place.id);
     const restData = {
       id: place.id,
@@ -3185,6 +3253,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
           {place.name}
         </h1>
+        {michelin && (
+          <div className="mt-2">
+            <MichelinBadge michelin={michelin} size="sm" href={michelin.guideUrl} />
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[12.5px] text-on-surface/65">
           {cuisine && <span className="font-semibold text-primary tracking-tight">{cuisine}</span>}
           {cuisine && price && <span className="text-on-surface/25">·</span>}
@@ -3714,455 +3787,208 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       </div>
       )}
 
-      {/* Filter Sheet — context-aware per map mode, matching Pantry FilterSheet design */}
-      <AnimatePresence>
-        {filterSheetOpen && (() => {
-          const thumbCls = "absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer";
-          const sectionLabel = "text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5";
-          const sortActive = "bg-primary text-white";
-          const sortInactive = "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10";
-          const sortCls = "px-3.5 py-2 rounded-full text-xs font-semibold transition-all";
-          const chipActive = "border-primary bg-primary text-white";
-          const chipInactive = "bg-transparent border-on-surface/10 text-on-surface/70 hover:border-on-surface/25";
-          const chipCls = "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border";
+      {/* Filter Sheet — shared design (matches the Location page), context-aware per map mode */}
+      <FilterSheetShell
+        open={filterSheetOpen}
+        onClose={() => setFilterSheetOpen(false)}
+        title="Filters"
+        onReset={() => {
+          if (mapMode === 'discover') {
+            setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
+          } else if (mapMode === 'hotels') {
+            setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
+          } else {
+            setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setSelectedMichelin([]);
+            if (mapMode === 'friends') setSelectedFriendIds(new Set());
+            if (mapMode === 'myratings') setSelectedListId(null);
+          }
+        }}
+        onApply={() => {
+          setFilterSheetOpen(false);
+          if (mapMode === 'discover') fetchNearby(selectedCuisines);
+        }}
+      >
+        {/* ─── DISCOVER ─── */}
+        {mapMode === 'discover' && (
+          <>
+            <FilterSection label="Sort by">
+              <PillRow>
+                {SORT_OPTIONS.map((opt) => (
+                  <Pill key={opt.value} active={sortBy === opt.value} onClick={() => setSortBy(opt.value)}>{opt.label}</Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+            <FilterSection label="Price">
+              <Segment>
+                {PRICE_LEVELS.map((p) => (
+                  <SegmentItem key={p.value} active={selectedPrice === p.value} onClick={() => setSelectedPrice(p.value)}>{p.label}</SegmentItem>
+                ))}
+              </Segment>
+            </FilterSection>
+            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
+              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
+            </FilterSection>
+            <FilterSection label="Cuisine">
+              <FilterDropdown
+                options={CUISINE_TYPES.filter((c) => c.type !== '').map((c) => ({ value: c.type, label: c.label }))}
+                selected={selectedCuisines}
+                onToggle={(t) => setSelectedCuisines((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
+                placeholder="All cuisines"
+                searchPlaceholder="Search cuisines"
+              />
+            </FilterSection>
+          </>
+        )}
 
-          const handleReset = () => {
-            if (mapMode === 'discover') {
-              setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5);
-            } else if (mapMode === 'hotels') {
-              setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
-            } else {
-              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]);
-              if (mapMode === 'friends') setSelectedFriendIds(new Set());
-              if (mapMode === 'myratings') setSelectedListId(null);
-            }
-          };
-
-          const handleApply = () => {
-            setFilterSheetOpen(false);
-            if (mapMode === 'discover') fetchNearby(selectedCuisines);
-          };
-
-          // Score range slider (reused)
-          const scoreSlider = (
-            <div>
-              <p className={sectionLabel}>Score: {scoreRange[0]} &ndash; {scoreRange[1]}</p>
-              <div className="relative h-6 flex items-center">
-                <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                <div className="absolute h-1 bg-primary rounded-full" style={{ left: `${scoreRange[0] * 10}%`, right: `${100 - scoreRange[1] * 10}%` }} />
-                <input type="range" min={0} max={10} step={0.5} value={scoreRange[0]} onChange={(e) => setScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])} className={thumbCls} />
-                <input type="range" min={0} max={10} step={0.5} value={scoreRange[1]} onChange={(e) => setScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])} className={thumbCls} />
-              </div>
-              <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0</span><span className="text-[10px] text-on-surface/30">10</span></div>
-            </div>
-          );
-
-          // Collapsible cuisine dropdown with search (matching Pantry design)
-          const cuisineDropdown = (cuisines: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
-            const filtered = filterCuisineSearch.trim() ? cuisines.filter((c) => c.toLowerCase().includes(filterCuisineSearch.toLowerCase())) : cuisines;
-            return (
-              <div>
-                <button onClick={() => setFilterCuisineOpen(!filterCuisineOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                    {selected.length > 0 && <span className="text-[10px] font-semibold text-primary">{selected.join(', ')}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selected.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelected([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCuisineOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {filterCuisineOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input type="text" value={filterCuisineSearch} onChange={(e) => setFilterCuisineSearch(e.target.value)} placeholder="Search cuisines..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filtered.map((c) => (
-                          <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
-                            className={cn(chipCls, selected.includes(c) ? chipActive : chipInactive)}>{c}</button>
-                        ))}
-                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          };
-
-          // Collapsible city dropdown with search (matching Pantry design)
-          const cityDropdown = (cities: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
-            const filtered = filterCitySearch.trim() ? cities.filter((c) => c.toLowerCase().includes(filterCitySearch.toLowerCase())) : cities;
-            return (
-              <div>
-                <button onClick={() => setFilterCityOpen(!filterCityOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
-                    {selected.length > 0 && <span className="text-[10px] font-semibold text-primary">{selected.join(', ')}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selected.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelected([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCityOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {filterCityOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input type="text" value={filterCitySearch} onChange={(e) => setFilterCitySearch(e.target.value)} placeholder="Search locations..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filtered.map((c) => (
-                          <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
-                            className={cn(chipCls, selected.includes(c) ? chipActive : chipInactive)}>{c}</button>
-                        ))}
-                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          };
-
-          // Discover cuisine dropdown (uses CUISINE_TYPES labels)
-          const discoverCuisineDropdown = (() => {
-            const allLabels = CUISINE_TYPES.filter((c) => c.type !== '').map((c) => c.label);
-            const filtered = filterCuisineSearch.trim() ? allLabels.filter((c) => c.toLowerCase().includes(filterCuisineSearch.toLowerCase())) : allLabels;
-            const labelToType = Object.fromEntries(CUISINE_TYPES.map((c) => [c.label, c.type]));
-            const typeToLabel = Object.fromEntries(CUISINE_TYPES.map((c) => [c.type, c.label]));
-            const selectedLabels = selectedCuisines.map((t) => typeToLabel[t] || t);
-            return (
-              <div>
-                <button onClick={() => setFilterCuisineOpen(!filterCuisineOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                    {selectedCuisines.length > 0 && <span className="text-[10px] font-semibold text-primary">{selectedLabels.join(', ')}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedCuisines.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelectedCuisines([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCuisineOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {filterCuisineOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input type="text" value={filterCuisineSearch} onChange={(e) => setFilterCuisineSearch(e.target.value)} placeholder="Search cuisines..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filtered.map((label) => {
-                          const type = labelToType[label] || '';
-                          const isActive = selectedCuisines.includes(type);
-                          return (
-                            <button key={label} onClick={() => setSelectedCuisines((prev) => prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type])}
-                              className={cn(chipCls, isActive ? chipActive : chipInactive)}>{label}</button>
-                          );
-                        })}
-                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })();
-
-          // Friend filter dropdown with search
-          const friendDropdown = (() => {
-            const allFriends = Object.values(friendProfiles);
-            const filtered = filterFriendSearch.trim() ? allFriends.filter((p) => (p.display_name || p.username).toLowerCase().includes(filterFriendSearch.toLowerCase())) : allFriends;
-            const selectedNames = allFriends.filter((p) => selectedFriendIds.has(p.user_id)).map((p) => p.display_name || `@${p.username}`);
-            return (
-              <div>
-                <button onClick={() => setFilterFriendOpen(!filterFriendOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Filter by Friend</p>
-                    {selectedFriendIds.size > 0 && <span className="text-[10px] font-semibold text-primary">{selectedNames.join(', ')}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedFriendIds.size > 0 && <button onClick={(e) => { e.stopPropagation(); setSelectedFriendIds(new Set()); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterFriendOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {filterFriendOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      {allFriends.length > 5 && (
-                        <div className="relative mb-2">
-                          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input type="text" value={filterFriendSearch} onChange={(e) => setFilterFriendSearch(e.target.value)} placeholder="Search friends..."
-                            className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filtered.map((p) => {
-                          const sel = selectedFriendIds.has(p.user_id);
-                          return (
-                            <button key={p.user_id} onClick={() => setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; })}
-                              className={cn(chipCls, sel ? chipActive : chipInactive)}>{p.display_name || `@${p.username}`}</button>
-                          );
-                        })}
-                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No friends match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })();
-
-          return (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-            className={cn(
-              'fixed inset-0 z-50',
-              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+        {/* ─── MY RATINGS ─── */}
+        {mapMode === 'myratings' && (
+          <>
+            <FilterSection label="Sort by">
+              <PillRow>
+                {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['visited', 'Date Visited']] as const).map(([key, label]) => (
+                  <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+            <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
+              <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
+              <div className="fs-slider-range"><span>0</span><span>10</span></div>
+            </FilterSection>
+            <FilterSection label="Price">
+              <Segment>
+                <SegmentItem active={ratingPrice === null} onClick={() => setRatingPrice(null)}>Any</SegmentItem>
+                {['$', '$$', '$$$', '$$$$'].map((p) => (
+                  <SegmentItem key={p} active={ratingPrice === p} onClick={() => setRatingPrice(ratingPrice === p ? null : p)}>{p}</SegmentItem>
+                ))}
+              </Segment>
+            </FilterSection>
+            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
+              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
+            </FilterSection>
+            <FilterSection label="Cuisine">
+              <FilterDropdown
+                options={uniqueMyRatingCuisines.map((c) => ({ value: c, label: c }))}
+                selected={ratingCuisines}
+                onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
+                placeholder="All cuisines"
+                searchPlaceholder="Search cuisines"
+              />
+            </FilterSection>
+            {uniqueMyRatingCities.length > 0 && (
+              <FilterSection label="City / Location">
+                <FilterDropdown
+                  options={uniqueMyRatingCities.map((c) => ({ value: c, label: c }))}
+                  selected={ratingCities}
+                  onToggle={(v) => setRatingCities((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
+                  placeholder="All locations"
+                  searchPlaceholder="Search locations"
+                />
+              </FilterSection>
             )}
-            onClick={() => setFilterSheetOpen(false)}
-          >
-            <motion.div
-              {...(phoneMode
-                ? {
-                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    ...filterSheetDragProps,
-                  }
-                : {
-                    initial: { opacity: 0, scale: 0.94, y: -12 },
-                    animate: { opacity: 1, scale: 1, y: 0 },
-                    exit: { opacity: 0, scale: 0.96, y: -8 },
-                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                  })}
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              className={cn(
-                'flex flex-col overflow-hidden bg-surface',
-                phoneMode
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
-                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-              )}
-            >
-              {/* Drag handle */}
-              {phoneMode && (
-                <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
-                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-                </div>
-              )}
+            {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
+              <FilterSection label="List">
+                <PillRow>
+                  <Pill active={!selectedListId} onClick={() => setSelectedListId(null)}>All Ratings</Pill>
+                  {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
+                    <Pill key={l.id} active={selectedListId === l.id} onClick={() => setSelectedListId(selectedListId === l.id ? null : l.id)}>{l.emoji} {l.name}</Pill>
+                  ))}
+                </PillRow>
+              </FilterSection>
+            )}
+          </>
+        )}
 
-              {/* Header */}
-              <div
-                className={cn(
-                  "flex items-center justify-between flex-shrink-0",
-                  phoneMode
-                    ? "px-5 pt-3 pb-3 border-b border-on-surface/6"
-                    : "px-7 pt-6 pb-5"
-                )}
-              >
-                <div className="min-w-0">
-                  <h3 className={cn("font-serif font-bold", phoneMode ? "text-lg" : "text-[22px] leading-tight tracking-tight")}>Filters</h3>
-                  {!phoneMode && (
-                    <p className="text-[11px] text-on-surface/40 mt-1">Refine your results</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => setFilterSheetOpen(false)}
-                  className={cn(
-                    "rounded-full flex items-center justify-center transition-all",
-                    phoneMode
-                      ? "w-8 h-8 bg-on-surface/5 hover:bg-on-surface/10"
-                      : "w-9 h-9 bg-on-surface/5 hover:bg-on-surface/10 hover:rotate-90"
-                  )}
-                  aria-label="Close"
-                >
-                  <X size={phoneMode ? 16 : 18} className="text-on-surface/60" />
-                </button>
-              </div>
+        {/* ─── FRIENDS ─── */}
+        {mapMode === 'friends' && (
+          <>
+            {Object.keys(friendProfiles).length > 0 && (
+              <FilterSection label="Filter by friend">
+                <FilterDropdown
+                  options={Object.values(friendProfiles).map((p: UserProfile) => ({ value: p.user_id, label: p.display_name || `@${p.username}` }))}
+                  selected={Array.from(selectedFriendIds)}
+                  onToggle={(id) => setSelectedFriendIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; })}
+                  searchable={Object.keys(friendProfiles).length > 5}
+                  placeholder="All friends"
+                  searchPlaceholder="Search friends"
+                />
+              </FilterSection>
+            )}
+            <FilterSection label="Sort by">
+              <PillRow>
+                {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
+                  <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+            <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
+              <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
+              <div className="fs-slider-range"><span>0</span><span>10</span></div>
+            </FilterSection>
+            <FilterSection label="Cuisine">
+              <FilterDropdown
+                options={uniqueFriendCuisines.map((c) => ({ value: c, label: c }))}
+                selected={ratingCuisines}
+                onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
+                placeholder="All cuisines"
+                searchPlaceholder="Search cuisines"
+              />
+            </FilterSection>
+          </>
+        )}
 
-              {/* Scrollable content */}
-              <div
-                className={cn(
-                  "flex-1 overflow-y-auto",
-                  phoneMode ? "px-5 py-4 space-y-5" : "px-7 py-2 pb-6 space-y-6"
-                )}
-              >
+        {/* ─── EXPERTS ─── */}
+        {mapMode === 'experts' && (
+          <>
+            <FilterSection label="Sort by">
+              <PillRow>
+                {([['recent', 'Recent'], ['highest', 'Highest Score']] as const).map(([key, label]) => (
+                  <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+            <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
+              <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
+              <div className="fs-slider-range"><span>0</span><span>10</span></div>
+            </FilterSection>
+            <FilterSection label="Cuisine">
+              <FilterDropdown
+                options={uniqueExpertCuisines.map((c) => ({ value: c, label: c }))}
+                selected={ratingCuisines}
+                onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
+                placeholder="All cuisines"
+                searchPlaceholder="Search cuisines"
+              />
+            </FilterSection>
+          </>
+        )}
 
-                {/* ─── DISCOVER MODE ─── */}
-                {mapMode === 'discover' && (
-                  <>
-                    <div>
-                      <p className={sectionLabel}>Sort by</p>
-                      <div className="flex flex-wrap gap-2">
-                        {SORT_OPTIONS.map((opt) => (
-                          <button key={opt.value} onClick={() => setSortBy(opt.value)}
-                            className={cn(sortCls, sortBy === opt.value ? sortActive : sortInactive)}>{opt.label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className={sectionLabel}>Price Range</p>
-                      <div className="flex gap-2">
-                        {PRICE_LEVELS.map((p) => (
-                          <button key={p.value} onClick={() => setSelectedPrice(p.value)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", selectedPrice === p.value ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{p.label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    {discoverCuisineDropdown}
-                  </>
-                )}
-
-                {/* ─── MY RATINGS MODE ─── */}
-                {mapMode === 'myratings' && (
-                  <>
-                    <div>
-                      <p className={sectionLabel}>Sort by</p>
-                      <div className="flex flex-wrap gap-2">
-                        {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['visited', 'Date Visited']] as const).map(([key, label]) => (
-                          <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    {scoreSlider}
-                    <div>
-                      <p className={sectionLabel}>Price</p>
-                      <div className="flex gap-2">
-                        {['$', '$$', '$$$', '$$$$'].map((p) => (
-                          <button key={p} onClick={() => setRatingPrice(ratingPrice === p ? null : p)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", ratingPrice === p ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{p}</button>
-                        ))}
-                      </div>
-                    </div>
-                    {cuisineDropdown(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
-                    {uniqueMyRatingCities.length > 0 && cityDropdown(uniqueMyRatingCities, ratingCities, setRatingCities)}
-                    {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
-                      <div>
-                        <p className={sectionLabel}>List</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          <button onClick={() => setSelectedListId(null)}
-                            className={cn(chipCls, !selectedListId ? chipActive : chipInactive)}>All Ratings</button>
-                          {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
-                            <button key={l.id} onClick={() => setSelectedListId(selectedListId === l.id ? null : l.id)}
-                              className={cn(chipCls, selectedListId === l.id ? chipActive : chipInactive)}>{l.emoji} {l.name}</button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* ─── FRIENDS MODE ─── */}
-                {mapMode === 'friends' && (
-                  <>
-                    {Object.keys(friendProfiles).length > 0 && friendDropdown}
-                    <div>
-                      <p className={sectionLabel}>Sort by</p>
-                      <div className="flex flex-wrap gap-2">
-                        {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
-                          <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    {scoreSlider}
-                    {cuisineDropdown(uniqueFriendCuisines, ratingCuisines, setRatingCuisines)}
-                  </>
-                )}
-
-                {/* ─── EXPERTS MODE ─── */}
-                {mapMode === 'experts' && (
-                  <>
-                    <div>
-                      <p className={sectionLabel}>Sort by</p>
-                      <div className="flex flex-wrap gap-2">
-                        {([['recent', 'Recent'], ['highest', 'Highest Score']] as const).map(([key, label]) => (
-                          <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    {scoreSlider}
-                    {cuisineDropdown(uniqueExpertCuisines, ratingCuisines, setRatingCuisines)}
-                  </>
-                )}
-
-                {/* ─── HOTELS MODE ─── */}
-                {mapMode === 'hotels' && (
-                  <>
-                    <div>
-                      <p className={sectionLabel}>Hotel Star Rating</p>
-                      <div className="flex gap-2">
-                        {[{ v: 0, l: 'Any' }, { v: 3, l: '3\u2605+' }, { v: 4, l: '4\u2605+' }, { v: 5, l: '5\u2605' }].map(({ v, l }) => (
-                          <button key={v} onClick={() => setHotelStarFilter(v)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelStarFilter === v ? "border-teal-600 bg-teal-50 text-teal-700" : chipInactive)}>{l}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className={sectionLabel}>Price Range</p>
-                      <div className="flex gap-2">
-                        {PRICE_LEVELS.map((p) => (
-                          <button key={p.value} onClick={() => setHotelPriceFilter(p.value)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelPriceFilter === p.value ? "border-teal-600 bg-teal-50 text-teal-700" : chipInactive)}>{p.label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className={sectionLabel}>Sort by</p>
-                      <div className="flex flex-wrap gap-2">
-                        {([['popularity', 'Most Popular'], ['rating', 'Highest Rated'], ['price_low', 'Price: Low to High']] as const).map(([key, label]) => (
-                          <button key={key} onClick={() => setHotelSortBy(key as any)}
-                            className={cn(sortCls, hotelSortBy === key ? "bg-teal-600 text-white" : sortInactive)}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Footer — Reset + Apply */}
-              <div
-                className={cn(
-                  "flex-shrink-0 flex gap-3",
-                  phoneMode
-                    ? "border-t border-on-surface/6 px-5 py-4"
-                    : "border-t border-on-surface/6 px-7 py-5 bg-surface"
-                )}
-              >
-                <button
-                  onClick={handleReset}
-                  className={cn(
-                    "flex-1 rounded-2xl border border-on-surface/12 font-semibold text-on-surface/60 hover:bg-on-surface/5 hover:border-on-surface/20 transition-all",
-                    phoneMode ? "py-3 text-sm" : "py-3 text-[13px]"
-                  )}
-                >
-                  Reset
-                </button>
-                <button
-                  onClick={handleApply}
-                  className={cn(
-                    "flex-[2] rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:brightness-110 transition-all",
-                    phoneMode ? "py-3 text-sm" : "py-3 text-[13px]"
-                  )}
-                >
-                  Apply
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-          );
-        })()}
-      </AnimatePresence>
+        {/* ─── HOTELS ─── */}
+        {mapMode === 'hotels' && (
+          <>
+            <FilterSection label="Hotel star rating">
+              <Segment tone="teal">
+                {[{ v: 0, l: 'Any' }, { v: 3, l: '3★+' }, { v: 4, l: '4★+' }, { v: 5, l: '5★' }].map(({ v, l }) => (
+                  <SegmentItem key={v} active={hotelStarFilter === v} onClick={() => setHotelStarFilter(v)}>{l}</SegmentItem>
+                ))}
+              </Segment>
+            </FilterSection>
+            <FilterSection label="Price">
+              <Segment tone="teal">
+                {PRICE_LEVELS.map((p) => (
+                  <SegmentItem key={p.value} active={hotelPriceFilter === p.value} onClick={() => setHotelPriceFilter(p.value)}>{p.label}</SegmentItem>
+                ))}
+              </Segment>
+            </FilterSection>
+            <FilterSection label="Sort by">
+              <PillRow>
+                {([['popularity', 'Most Popular'], ['rating', 'Highest Rated'], ['price_low', 'Price: Low to High']] as const).map(([key, label]) => (
+                  <Pill key={key} tone="teal" active={hotelSortBy === key} onClick={() => setHotelSortBy(key as any)}>{label}</Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+          </>
+        )}
+      </FilterSheetShell>
 
       {/* Selected Place Card — above the bottom sheet. On the desktop
           map page the side panel renders an inline detail view instead,
@@ -6230,7 +6056,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <div className="divide-y divide-on-surface/[0.06]">
                           {places.map((place) => {
                             const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
-                            const cuisine = getCuisineLabel(place.types);
+                            const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                             const wishlisted = isWishlisted(place.id);
                             return (
                               <div key={place.id} className={cn("flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors", selectedMarker === place.id && "bg-primary/[0.04]")} onClick={() => navigate(`/restaurant/${place.id}`)}>
@@ -6240,12 +6066,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                                   <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
                                   <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
+                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{price && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {price}</span>}</div>}
                                   <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             );
@@ -6365,7 +6191,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </div>
                       <div className="space-y-3">
                         {places.map((place) => {
-                          const cuisine = getCuisineLabel(place.types);
+                          const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                           const wishlisted = isWishlisted(place.id);
                           return (
                             <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
@@ -6379,12 +6205,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   <div className="flex items-center gap-1 mt-1">
                                     <Star size={10} className="fill-primary text-primary" />
                                     <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                    {place.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}
+                                    {price && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {price}</span>}
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5 mt-2">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             </div>

@@ -120,6 +120,16 @@ export interface AssistantCircleRating {
   notes?: string;
 }
 
+/** A Michelin dataset hit for the AI chat: a renderable ScoredPlace (synthetic
+ *  id) enriched with its distinction label + Guide URL so the bot can both
+ *  render a card and state the distinction accurately in prose. */
+export type MichelinChatHit = ScoredPlace & {
+  michelinDistinction: string;
+  guideUrl: string;
+  cuisineText: string;
+  priceText: string;
+};
+
 /** Result envelope for any action tool. `ok` controls how the tool
  *  result string reads to Claude; `detail` becomes the human-readable
  *  message so the model can confirm it back to the user accurately. */
@@ -207,6 +217,11 @@ interface LocationChatProps {
    *  tool. Returns hits with author metadata so cards can show
    *  "by @username" and the bot can mention attribution. */
   onSearchCommunityRecipes?: (opts: { query?: string; cuisine?: string; source?: 'friends' | 'experts' | 'public' | 'all' }) => Promise<CommunityRecipeHit[]>;
+  /** Query the bundled Michelin dataset (stars / Bib / Selected) for the AI
+   *  chat. Returns enriched ScoredPlaces (synthetic ids) so cards render, each
+   *  carrying its distinction + Guide URL. Wired to Claude's search_michelin
+   *  tool. Resolved locally — no Google/web calls. */
+  onSearchMichelin?: (opts: { distinctions?: string[]; city?: string; name?: string; limit?: number }) => Promise<MichelinChatHit[]>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
@@ -592,6 +607,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   filters,
   origin,
   onSearchRestaurants,
+  onSearchMichelin,
   userContext,
   onLookupUser,
   onFindExperts,
@@ -1586,6 +1602,41 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 }
               } catch (err) {
                 content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
+              }
+            }
+          } else if (tu.name === 'search_michelin') {
+            const input = (tu.input || {}) as { distinctions?: string[]; city?: string; name?: string; limit?: number };
+            if (!onSearchMichelin) {
+              content = 'search_michelin is not available in this context. Fall back to general knowledge or web_search.';
+            } else {
+              try {
+                const hits = await onSearchMichelin({
+                  distinctions: Array.isArray(input.distinctions) ? input.distinctions : undefined,
+                  city: (input.city || '').trim() || undefined,
+                  name: (input.name || '').trim() || undefined,
+                  limit: typeof input.limit === 'number' ? input.limit : undefined,
+                });
+                if (!hits || hits.length === 0) {
+                  const what = input.name
+                    ? `"${input.name}"`
+                    : [(input.distinctions || []).join('/'), input.city].filter(Boolean).join(' in ');
+                  content = `No Michelin Guide restaurants matched ${what || 'that query'}. If the user asked whether a specific place has a distinction and it's not in the dataset, tell them it isn't currently in the Michelin Guide (the dataset is complete/authoritative).`;
+                } else {
+                  // Stash as renderable places so recommend_restaurants cards
+                  // resolve via placeById.
+                  setChatPlaces((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) next[h.id] = h;
+                    return next;
+                  });
+                  const lines = hits.map((h, i) => {
+                    const meta = [h.michelinDistinction, h.cuisineText, h.priceText].filter(Boolean).join(' · ');
+                    return `${i + 1}. ${h.name}  (id: ${h.id})  ${meta}`;
+                  }).join('\n');
+                  content = `Michelin Guide dataset returned ${hits.length} restaurant(s):\n${lines}\n\nThis is the complete, authoritative list — present ALL of them to the user (don't trim) and render cards via recommend_restaurants using these ids. Their distinction is shown above; state it accurately. Only use web_search if you need extra detail not in this data.`;
+                }
+              } catch (err) {
+                content = `search_michelin failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
               }
             }
           } else if (tu.name === 'search_community_recipes') {

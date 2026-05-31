@@ -27,8 +27,10 @@ import {
   SlidersHorizontal,
   Sparkles,
   Soup,
+  Star,
   UserCheck,
   Users,
+  Utensils,
   X,
 } from 'lucide-react';
 import './LocationPage.css';
@@ -79,6 +81,9 @@ import {
   type QueryCursor,
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
+import type { MichelinChatHit } from '../components/LocationChat';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -509,6 +514,9 @@ export const LocationPage: React.FC = () => {
   const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
+  // Michelin dataset readiness — gates the sync matcher used by the map-marker
+  // popup below (overrides cuisine/price for starred/Bib restaurants).
+  const michelinReady = useMichelinIndexReady();
   // The canonical source of the user's saved recipes — same store
   // the Pantry's home-cooking section reads from. Prior version was
   // pulling from `lists[].recipes` (a legacy attach point that's
@@ -797,6 +805,11 @@ export const LocationPage: React.FC = () => {
   // intersection with no extra network work.
   const [friendsOnly, setFriendsOnly] = useState(false);
   const [expertsOnly, setExpertsOnly] = useState(false);
+  // Michelin distinction filter (multi-select, OR). Empty = off.
+  const [selectedMichelin, setSelectedMichelin] = useState<string[]>([]);
+  const toggleMichelin = useCallback((d: string) => {
+    setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  }, []);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const activeFilterCount =
     (selectedPrice > 0 ? 1 : 0) +
@@ -806,7 +819,8 @@ export const LocationPage: React.FC = () => {
     (selectedWalkMin > 0 ? 1 : 0) +
     (selectedDriveMin > 0 ? 1 : 0) +
     (friendsOnly ? 1 : 0) +
-    (expertsOnly ? 1 : 0);
+    (expertsOnly ? 1 : 0) +
+    (selectedMichelin.length > 0 ? 1 : 0);
 
   // User's saved home, read once and kept stable across re-renders. When
   // this is a precise street address (leading-digit heuristic), the rows'
@@ -1296,7 +1310,29 @@ export const LocationPage: React.FC = () => {
       }
       if (friendsOnly && !friendRestaurantIds.has(p.id)) continue;
       if (expertsOnly && !expertRestaurantIds.has(p.id)) continue;
+      // Michelin distinction filter (depends on the dataset being loaded;
+      // michelinReady is in the deps so the list re-filters once it lands).
+      if (selectedMichelin.length > 0
+        && !passesMichelinFilter(selectedMichelin, p.name, p.lat, p.lng, p.fullAddress || p.address)) continue;
       out.push(p);
+    }
+
+    // Michelin filter active: Google's popularity pool rarely overlaps the
+    // Michelin set, so source matching restaurants from the bundled dataset
+    // directly and merge them in (deduping against any Google places already
+    // matched, by name+proximity). michelinReady is in the deps so this fills
+    // in as soon as the dataset loads.
+    if (selectedMichelin.length > 0 && hasCoords && michelinReady) {
+      const radiusMi = selectedRadius > 0 ? selectedRadius : radiusMeters / 1609.34;
+      const haveNames = out.map((p) => ({ n: p.name.toLowerCase(), lat: p.lat, lng: p.lng }));
+      for (const m of michelinNearbySync(lat, lng, radiusMi, selectedMichelin)) {
+        const dup = haveNames.some((h) =>
+          h.n === m.name.toLowerCase()
+          && haversineDistanceMi(h.lat, h.lng, m.lat, m.lng) < 0.12);
+        if (dup) continue;
+        if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
+        out.push({ ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] });
+      }
     }
     // When the user is searching, Google's text search returns a mix of
     // literal name matches and broad "related" results (e.g. "aux delices"
@@ -1366,6 +1402,7 @@ export const LocationPage: React.FC = () => {
     ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng,
     selectedRadius, friendsOnly, expertsOnly,
     friendRestaurantIds, expertRestaurantIds, debouncedSearch,
+    selectedMichelin, michelinReady,
   ]);
 
 
@@ -2043,6 +2080,51 @@ export const LocationPage: React.FC = () => {
     }
   }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
 
+  // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
+  // Local-only (no Google/web). Resolves the city to coords (geocoding a
+  // different city than the current page when Claude passes one), then either
+  // looks up a specific name or pulls everything nearby for the distinctions.
+  const handleChatMichelin = useCallback(async (opts: {
+    distinctions?: string[]; city?: string; name?: string; limit?: number;
+  }): Promise<MichelinChatHit[]> => {
+    const toHit = (m: MichelinInfo): MichelinChatHit => ({
+      ...michelinToPlaceResult(m),
+      recScore: 0,
+      sources: ['google'],
+      michelinDistinction: michelinDistinctionLabel(m),
+      guideUrl: m.guideUrl,
+      cuisineText: m.cuisine,
+      priceText: michelinPriceDisplay(m),
+    });
+    try {
+      // Name lookup: bias toward the resolved city/current coords.
+      let anchorLat = hasCoords ? lat : undefined;
+      let anchorLng = hasCoords ? lng : undefined;
+      const targetCity = opts.city?.trim();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== shortCityName.toLowerCase();
+      if (isOtherCity) {
+        try {
+          const geo = await geocodePlace(targetCity!);
+          if (geo) { anchorLat = geo.lat; anchorLng = geo.lng; }
+        } catch { /* fall back to current coords */ }
+      }
+
+      if (opts.name) {
+        const found = await michelinByName(opts.name, anchorLat, anchorLng, Math.min(opts.limit ?? 5, 10));
+        return found.map(toHit);
+      }
+
+      if (anchorLat == null || anchorLng == null) return [];
+      // Generous radius so "Michelin in NYC" covers the whole metro.
+      const results = await michelinNearby(anchorLat, anchorLng, 12, opts.distinctions ?? []);
+      const cap = Math.min(opts.limit ?? 40, 80);
+      return results.slice(0, cap).map(toHit);
+    } catch (err) {
+      console.error('[LocationPage] handleChatMichelin error:', err);
+      return [];
+    }
+  }, [hasCoords, lat, lng, shortCityName]);
+
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
   // tight radius, zoom out = wider) and runs a broad query mix at the
@@ -2439,8 +2521,11 @@ export const LocationPage: React.FC = () => {
               const p = selectedMarkerPlace;
               const score = p.rating > 0 ? p.rating * 2 : 0;
               const scoreClass = score >= 8 ? 'is-good' : score >= 5 ? 'is-mid' : 'is-low';
-              const cuisine = inferCuisineLabel(p.types);
-              const priceLabel = priceLevelToString(p.priceLevel);
+              const michHit = michelinReady
+                ? findMichelinMatchSync(p.name, p.lat, p.lng, p.address)
+                : null;
+              const cuisine = michHit ? michHit.cuisine : inferCuisineLabel(p.types);
+              const priceLabel = michHit ? michelinPriceDisplay(michHit) : priceLevelToString(p.priceLevel);
               const meta = restaurantMeta[p.id];
               const areaLabel = formatLocationLabel(
                 meta?.addressComponents,
@@ -2984,6 +3069,9 @@ export const LocationPage: React.FC = () => {
         onPriceChange={setSelectedPrice}
         selectedCuisines={selectedCuisines}
         onCuisinesChange={setSelectedCuisines}
+        selectedMichelin={selectedMichelin}
+        onMichelinToggle={toggleMichelin}
+        onMichelinClear={() => setSelectedMichelin([])}
         selectedRadius={selectedRadius}
         onRadiusChange={setSelectedRadius}
         friendsOnly={friendsOnly}
@@ -3018,6 +3106,7 @@ export const LocationPage: React.FC = () => {
         }}
         origin={origin}
         onSearchRestaurants={handleChatSearch}
+        onSearchMichelin={handleChatMichelin}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
         onAssistantPlaces={handleAssistantPlaces}
@@ -3126,6 +3215,12 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
       ? { lat: place.lat, lng: place.lng }
       : null,
   );
+  // Michelin override for cuisine + price (no marker on cards). Hook must run
+  // before the early returns below to satisfy Rules of Hooks.
+  const mich = useMichelinMatch(
+    place.name, place.lat, place.lng, place.fullAddress || place.address,
+    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
+  );
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
@@ -3142,8 +3237,8 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
     if (driveMin > driveMinCap) return null;
   }
 
-  const priceLabel = priceLevelToString(place.priceLevel);
-  const cuisine = inferCuisineLabel(place.types);
+  const priceLabel = mich.price;
+  const cuisine = mich.cuisine;
 
   const friendLabel = friendCount > 1
     ? `${friendCount} friends rated`
@@ -3259,10 +3354,16 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
   onFollow,
   onAddFriend,
 }) => {
+  // Subscribe to the Michelin dataset (re-renders when it loads); the sync
+  // matcher below then overrides cuisine/price for matched restaurants.
+  const michelinReady = useMichelinIndexReady();
   if (card.kind === 'restaurant') {
     const place = card.place;
-    const cuisine = inferCuisineLabel(place.types);
-    const priceLabel = priceLevelToString(place.priceLevel);
+    const mich = michelinReady
+      ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+      : null;
+    const cuisine = mich ? mich.cuisine : inferCuisineLabel(place.types);
+    const priceLabel = mich ? michelinPriceDisplay(mich) : priceLevelToString(place.priceLevel);
     return (
       <Link
         to={`/restaurant/${place.id}`}
@@ -3417,6 +3518,9 @@ interface FilterSheetProps {
   onPriceChange: (p: number) => void;
   selectedCuisines: string[];
   onCuisinesChange: (next: string[]) => void;
+  selectedMichelin: string[];
+  onMichelinToggle: (d: string) => void;
+  onMichelinClear: () => void;
   selectedRadius: number;
   onRadiusChange: (mi: number) => void;
   friendsOnly: boolean;
@@ -3481,6 +3585,9 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onPriceChange,
   selectedCuisines,
   onCuisinesChange,
+  selectedMichelin,
+  onMichelinToggle,
+  onMichelinClear,
   selectedRadius,
   onRadiusChange,
   friendsOnly,
@@ -3519,6 +3626,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onSortChange('recommended');
     onPriceChange(0);
     onCuisinesChange([]);
+    onMichelinClear();
     onRadiusChange(0);
     onFriendsOnlyChange(false);
     onExpertsOnlyChange(false);
@@ -3779,6 +3887,38 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                   </div>
                 )}
               </section>
+
+              {/* ── Michelin distinction ────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">Michelin</div>
+                <p className="lp-filter-sub">
+                  Show only restaurants in the Michelin Guide.
+                </p>
+                <div className="lp-michelin-grid">
+                  {([
+                    { key: '3 Stars', label: '3 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /><Star /></span> },
+                    { key: '2 Stars', label: '2 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /></span> },
+                    { key: '1 Star', label: '1 Star', mark: <span className="lp-michelin-stars"><Star /></span> },
+                    { key: 'Bib Gourmand', label: 'Bib Gourmand', mark: <Soup className="lp-michelin-glyph" /> },
+                    { key: 'Selected', label: 'Selected', mark: <Utensils className="lp-michelin-glyph" /> },
+                  ] as const).map(({ key, label, mark }) => {
+                    const active = selectedMichelin.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => onMichelinToggle(key)}
+                        aria-pressed={active}
+                        className={cn('lp-michelin-card', active && 'is-active')}
+                      >
+                        <span className="lp-michelin-mark">{mark}</span>
+                        <span className="lp-michelin-label">{label}</span>
+                        <span className={cn('lp-michelin-check', active && 'is-on')} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
 
             <div className="lp-filter-foot">
@@ -3827,6 +3967,12 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
       ? { lat: place.lat, lng: place.lng }
       : null,
   );
+  // Michelin override for cuisine + price (no star/bib marker on cards).
+  // Hook must run before the early returns below to satisfy Rules of Hooks.
+  const mich = useMichelinMatch(
+    place.name, place.lat, place.lng, place.fullAddress || place.address,
+    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
+  );
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
@@ -3840,8 +3986,8 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   }
 
   const score = place.rating > 0 ? place.rating * 2 : 0;
-  const cuisine = inferCuisineLabel(place.types);
-  const priceLabel = priceLevelToString(place.priceLevel);
+  const cuisine = mich.cuisine;
+  const priceLabel = mich.price;
   const distMi = origin
     ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
     : null;
@@ -3860,6 +4006,11 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     !!meta?.addressComponents && meta?.neighborhood !== undefined;
   useEffect(() => {
     if (!place.id || hasFullLocationData) return;
+    // Michelin dataset rows carry a synthetic id (no Google place id), so the
+    // backfill (a Google Places detail call) would just fail. Skip it — these
+    // rows already show city/country from the dataset. The real place id is
+    // resolved lazily when the detail page opens.
+    if (isMichelinSyntheticId(place.id)) return;
     let cancelled = false;
     fetchLocationDataForPlace(place.id).then(
       ({ addressComponents, neighborhood, lat: ll, lng: lg, hours }) => {

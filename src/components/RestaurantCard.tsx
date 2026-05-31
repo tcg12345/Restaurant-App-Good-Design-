@@ -3,6 +3,7 @@ import { Heart, Plus, Building2, ImageOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './ScoreBadge';
+import { useMichelinMatch } from '../lib/useMichelinMatch';
 
 export { ScoreBadge } from './ScoreBadge';
 
@@ -58,6 +59,12 @@ interface RestaurantCardProps {
   rating: number;
   price: string;
   cuisine: string;
+  /** Coordinates — when provided, the card looks the restaurant up in the
+   *  Michelin dataset and overrides cuisine/price + shows a star marker. */
+  lat?: number;
+  lng?: number;
+  /** Address — used for the Michelin name-only fallback when no coordinates. */
+  address?: string;
   distance?: string;
   friendReviews?: number;
   expertReviews?: number;
@@ -75,8 +82,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   name,
   image,
   rating,
-  price,
-  cuisine,
+  price: priceProp,
+  cuisine: cuisineProp,
+  lat,
+  lng,
+  address,
   onAdd,
   onHeart,
   isWishlisted = false,
@@ -84,6 +94,15 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   variant = 'card',
   className,
 }) => {
+  // Michelin override: starred / Bib Gourmand restaurants show the Guide's
+  // cuisine + price instead of the Google-derived values (the star/bib marker
+  // itself is only shown on the detail page, not on cards). No-op for unlisted
+  // places — falls back to the passed cuisine/price. Hotels keep their existing
+  // "Hotel" treatment, so skip the override for them.
+  const { cuisine, price } = useMichelinMatch(
+    isHotel ? '' : name, lat, lng, address, cuisineProp, priceProp,
+  );
+
   // Shared click-stopper for in-card buttons so they don't trigger the Link.
   const stop = (e: React.MouseEvent, fn?: () => void) => {
     e.preventDefault();

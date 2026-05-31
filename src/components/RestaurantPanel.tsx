@@ -49,7 +49,8 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import type { ReelRestaurantSnapshot } from '../lib/supabase-reels';
-import { getPlaceDetails, type PlaceDetails } from '../lib/places';
+import { getPlaceDetails, resolvePlaceIdByNameCoords, type PlaceDetails } from '../lib/places';
+import { isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
 import { MAPBOX_TOKEN, getTodayHours } from '../pages/useRestaurantDetail';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
@@ -265,9 +266,23 @@ export const RestaurantPanelBody: React.FC<{
   useEffect(() => {
     let cancelled = false;
     setDetails(null);
-    getPlaceDetails(snapshot.id)
-      .then((d) => { if (!cancelled) setDetails(d); })
-      .catch(() => { /* falls back to snapshot fields */ });
+    // Michelin dataset rows carry a synthetic id (no Google place id). Resolve
+    // it to the real Google place (by name + coords) before fetching details.
+    (async () => {
+      try {
+        let placeId = snapshot.id;
+        if (isMichelinSyntheticId(snapshot.id)) {
+          const parsed = parseMichelinSyntheticId(snapshot.id);
+          const resolved = parsed
+            ? await resolvePlaceIdByNameCoords(parsed.name, parsed.lat, parsed.lng)
+            : null;
+          if (!resolved) return; // fall back to snapshot fields
+          placeId = resolved;
+        }
+        const d = await getPlaceDetails(placeId);
+        if (!cancelled) setDetails(d);
+      } catch { /* falls back to snapshot fields */ }
+    })();
     return () => { cancelled = true; };
   }, [snapshot.id]);
 

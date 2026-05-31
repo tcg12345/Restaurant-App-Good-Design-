@@ -5,6 +5,8 @@ import { Search, X, Loader2, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
 import type { RestaurantRating } from '../contexts/ListsContext';
 
 /**
@@ -77,6 +79,19 @@ export const SearchPopup: React.FC<Props> = ({
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+
+  // Michelin overlay: resolve matches for the whole results array once the
+  // dataset is loaded (hooks can't run per-row inside the map below).
+  const michelinReady = useMichelinIndexReady();
+  const michelinByPlaceId = useMemo(() => {
+    const m: Record<string, MichelinInfo> = {};
+    if (!michelinReady) return m;
+    for (const p of results) {
+      const hit = findMichelinMatchSync(p.name, p.lat, p.lng, p.fullAddress || p.address);
+      if (hit) m[p.id] = hit;
+    }
+    return m;
+  }, [michelinReady, results]);
   // Multi-select mode: rated rows toggle into this set instead of
   // immediately calling onPickRated. Reset whenever the popup re-opens.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -287,15 +302,17 @@ export const SearchPopup: React.FC<Props> = ({
                     <ul className="pb-2">
                       {results.map((p) => {
                         const already = excludeIds?.has(p.id);
+                        const mich = michelinByPlaceId[p.id];
+                        // Michelin matches show the Guide's cuisine + $-tier price
+                        // (location kept for context); else the usual derived sub.
+                        const sub = mich
+                          ? [mich.cuisine, michelinPriceDisplay(mich), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ')
+                          : [getCuisineLabel(p.types || []), priceLevelToString(p.priceLevel), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ');
                         return (
                           <PopupRow
                             key={p.id}
                             name={p.name}
-                            sub={[
-                              getCuisineLabel(p.types || []),
-                              priceLevelToString(p.priceLevel),
-                              formatLocationLabel(p.addressComponents, p.fullAddress || p.address),
-                            ].filter(Boolean).join(' · ')}
+                            sub={sub}
                             disabled={already}
                             statusLabel={already ? 'Added' : undefined}
                             onClick={() => {
@@ -397,7 +414,9 @@ const PopupRow: React.FC<{
       )}
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-bold text-on-surface leading-tight truncate">{name}</p>
-        {sub && <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{sub}</p>}
+        {sub && (
+          <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{sub}</p>
+        )}
       </div>
       {score !== undefined && score > 0 && (
         <span className="flex-shrink-0 text-[12px] font-bold tabular-nums text-on-surface/70">

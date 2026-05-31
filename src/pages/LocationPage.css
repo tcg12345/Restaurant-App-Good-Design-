@@ -63,6 +63,52 @@
 .location-page-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 .location-page-root a { color: inherit; text-decoration: none; }
 
+/* ============ DARK MODE ============
+   The Location page ships its own warm LIGHT palette above. When the app's
+   global `.dark` class is set, re-point those same tokens to dark values so
+   the whole page — cards, lists, chips, hero, its own filter sheet, and the
+   globally-mounted chat island — follows dark mode. Because almost everything
+   here consumes the tokens via var(), flipping the tokens flips the page.
+   The bare `.dark` block covers the hoisted :root subset the chat island uses
+   on non-/location routes; `.dark .location-page-root` overrides the page's
+   local token block (which otherwise wins by specificity). */
+.dark {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+}
+.dark .location-page-root {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-2: #d4664e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+/* Hardcoded light surfaces that don't ride a token — flip explicitly. */
+.dark .location-page-root .minimap-expand:hover { background: var(--surface); }
+.dark .lp-chat-history-search input:focus { background: var(--surface); }
+
 /* ============ PAGE CONTAINER ============ */
 .location-page-root .lp-page {
   max-width: none;
@@ -1589,6 +1635,84 @@
 .location-page-root .lp-radio-dot.is-on {
   background: var(--ink);
   border-color: var(--ink);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+
+/* Michelin distinction — card toggles matching the circle cards, with a
+   Michelin-red accent when active. Two columns; the wide "Bib Gourmand" /
+   "Selected" labels get room to breathe instead of cramming into a pill row. */
+.location-page-root .lp-michelin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+/* Odd count (5 options): let the last card span the full width so it isn't
+   stranded half-width on its own row. */
+.location-page-root .lp-michelin-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.location-page-root .lp-michelin-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.location-page-root .lp-michelin-card:hover {
+  border-color: #a2191f80;
+}
+.location-page-root .lp-michelin-card.is-active {
+  border-color: #a2191f;
+  background: #a2191f0d;
+  box-shadow: 0 0 0 1px #a2191f inset;
+}
+.location-page-root .lp-michelin-mark {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: #a2191f;
+}
+.location-page-root .lp-michelin-stars {
+  display: inline-flex;
+  align-items: center;
+}
+.location-page-root .lp-michelin-stars svg {
+  width: 14px;
+  height: 14px;
+  fill: #a2191f;
+  stroke: none;
+}
+.location-page-root .lp-michelin-glyph {
+  width: 15px;
+  height: 15px;
+  stroke: #a2191f;
+  stroke-width: 2.2;
+}
+.location-page-root .lp-michelin-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.location-page-root .lp-michelin-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.location-page-root .lp-michelin-check.is-on {
+  background: #a2191f;
+  border-color: #a2191f;
   box-shadow: inset 0 0 0 3px var(--surface);
 }
 

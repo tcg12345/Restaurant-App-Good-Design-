@@ -5,11 +5,12 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark, MoreHorizontal,
   Edit3, Send, Building2, TrendingUp, TrendingDown,
-  Car, Footprints, Trash2, RotateCw,
+  Car, Footprints, Trash2, RotateCw, Award,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
+import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
 import { type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
@@ -70,7 +71,7 @@ function timeAgo(date: string): string {
 
 export const RestaurantDetailDesktop: React.FC = () => {
   const {
-    place, loading, error, navigate,
+    place, michelin, loading, error, navigate,
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
@@ -334,6 +335,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
               <h1 className="font-serif font-bold text-on-surface text-5xl lg:text-6xl leading-[0.98] tracking-[-0.035em]">
                 {place.name}
               </h1>
+              {michelin && (
+                <div className="mt-3">
+                  <MichelinBadge michelin={michelin} size="md" href={michelin.guideUrl} />
+                </div>
+              )}
               {(() => {
                 const dist = homeLocationForDistance && destForDistance
                   ? formatDistance(haversineDistanceMi(homeLocationForDistance.lat, homeLocationForDistance.lng, destForDistance.lat, destForDistance.lng))
@@ -537,6 +543,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
               </span>
               <span className="text-[13px] font-semibold text-on-surface">Share</span>
             </button>
+            {michelin && (
+              <a
+                href={michelin.guideUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center gap-2 group"
+              >
+                <span className="w-[52px] h-[52px] rounded-full border border-on-surface/10 grid place-items-center transition-all group-hover:bg-on-surface/[0.05] group-hover:border-on-surface/20 group-hover:-translate-y-px">
+                  <Award size={20} className="text-on-surface" />
+                </span>
+                <span className="text-[13px] font-semibold text-on-surface">Guide</span>
+              </a>
+            )}
           </div>
         </section>
 

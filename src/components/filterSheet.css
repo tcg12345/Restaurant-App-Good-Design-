@@ -1,0 +1,667 @@
+/* ============ SHARED FILTER SHEET ============
+   One design system for every filter popup in the app (Discover, Pantry,
+   wishlist, recipes, public profile). Lifted from the Location page's
+   `.lp-filter-*` rules (the agreed reference look) but globally scoped and
+   re-pointed at the app's THEME tokens (--color-*), which already flip in
+   dark mode via `.dark` in index.css. So these popups match the Location
+   page in light mode AND follow dark mode — unlike the Location page's own
+   light-only `lp-*` palette.
+
+   All tokens consumed here are aliased to --fs-* on .fs-overlay so the look
+   can be tuned in one place. Class names mirror the reference: fs-pill,
+   fs-segment, fs-circle-card, fs-michelin-*, fs-cuisine-*, fs-range, … */
+
+/* Tokens live on :root (not just .fs-overlay) so the fs-* primitives —
+   especially the Michelin cards — also render correctly when used OUTSIDE a
+   sheet, e.g. inside the desktop toolbar's anchored pill popovers. They alias
+   the app's --color-* theme tokens, which already flip in dark mode. */
+:root {
+  --fs-bg: var(--color-cream);
+  --fs-bg-2: var(--color-cream-2);
+  --fs-surface: var(--color-paper);
+  --fs-surface-2: var(--color-paper);
+  --fs-border: var(--color-line);
+  --fs-border-strong: var(--color-line-2);
+  --fs-ink: var(--color-ink);
+  --fs-ink-2: var(--color-ink-2);
+  --fs-muted: var(--color-ink-3);
+  --fs-accent: var(--color-primary);
+  --fs-michelin: #a2191f;
+  --fs-serif: var(--font-serif);
+  --fs-sans: var(--font-sans);
+}
+
+.fs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(28, 24, 22, 0.42);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 9vh 20px 20px;
+}
+/* Replicates the `.location-page-root button {…}` reset the reference markup
+   leans on, scoped to anything rendered inside a filter sheet. */
+.fs-overlay button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.fs-sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  max-width: 560px;
+  max-height: 82vh;
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+  font-family: var(--fs-sans);
+  border-radius: 24px;
+  box-shadow:
+    0 30px 80px -16px rgba(28, 24, 22, 0.42),
+    0 12px 24px -10px rgba(28, 24, 22, 0.18),
+    0 0 0 1px rgba(28, 24, 22, 0.06);
+}
+.fs-sheet.is-phone {
+  max-width: none;
+  width: 100%;
+  max-height: 88vh;
+  border-radius: 22px 22px 0 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.fs-drag-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.fs-drag-handle:active { cursor: grabbing; }
+.fs-drag-handle > span {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fs-border-strong);
+}
+
+/* Header */
+.fs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--fs-border);
+  flex-shrink: 0;
+}
+.fs-head-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.fs-head-text { min-width: 0; }
+.fs-title {
+  font-family: var(--fs-serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fs-ink);
+  margin: 0;
+}
+.fs-subtitle {
+  font-size: 12.5px;
+  color: var(--fs-muted);
+  margin: 2px 0 0;
+}
+.fs-title-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--fs-bg-2);
+  color: var(--fs-accent);
+}
+.fs-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--fs-muted);
+  flex-shrink: 0;
+  transition: background .15s, color .15s;
+}
+.fs-close:hover {
+  background: rgba(28, 24, 22, 0.06);
+  color: var(--fs-ink);
+}
+.dark .fs-close:hover { background: rgba(255, 255, 255, 0.08); }
+
+/* Body */
+.fs-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 22px 12px;
+}
+.fs-section {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--fs-border);
+}
+.fs-section:last-child { border-bottom: 0; }
+.fs-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fs-muted);
+  margin-bottom: 12px;
+}
+.fs-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.fs-label-row .fs-label { margin-bottom: 0; }
+.fs-value {
+  font-family: var(--fs-serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--fs-muted);
+  letter-spacing: -0.01em;
+}
+.fs-value.is-set {
+  color: var(--fs-accent);
+  font-style: normal;
+  font-family: var(--fs-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+.fs-sub {
+  font-size: 12.5px;
+  color: var(--fs-muted);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+/* Pill row (sort, walk, drive, difficulty, list chips) */
+.fs-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fs-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-border-strong);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fs-ink-2);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .12s;
+}
+.fs-pill:hover {
+  border-color: var(--fs-ink);
+  color: var(--fs-ink);
+}
+.fs-pill.is-active {
+  background: var(--fs-ink);
+  border-color: var(--fs-ink);
+  color: var(--fs-surface);
+}
+.fs-pill.is-active:hover { background: var(--fs-ink); }
+.fs-pill.is-sm {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+/* Teal tone for Discover hotels mode (keeps that mode visually distinct). */
+.fs-pill.is-teal.is-active,
+.fs-pill.is-teal.is-active:hover {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+/* Segmented control (price, total-time, hotel star/price) */
+.fs-segment {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--fs-bg-2);
+  border-radius: 999px;
+  border: 1px solid var(--fs-border);
+}
+.fs-segment-item {
+  flex: 1;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fs-ink-2);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.fs-segment-item:hover:not(.is-active) { color: var(--fs-ink); }
+.fs-segment-item.is-active {
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  box-shadow: 0 1px 2px rgba(28, 24, 22, 0.06), 0 0 0 1px rgba(28, 24, 22, 0.05);
+}
+/* Teal tone for Discover hotels mode (preserves its mode-distinct accent). */
+.fs-segment.is-teal .fs-segment-item.is-active { color: #0f766e; }
+.dark .fs-segment.is-teal .fs-segment-item.is-active { color: #5eead4; }
+
+/* Single-thumb slider (distance) */
+.fs-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--fs-border-strong);
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  margin: 6px 0 0;
+}
+.fs-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fs-surface);
+  border: 2px solid var(--fs-accent);
+  box-shadow: 0 2px 6px rgba(159, 48, 18, 0.25);
+  cursor: pointer;
+  transition: transform .15s;
+}
+.fs-slider::-webkit-slider-thumb:hover { transform: scale(1.1); }
+.fs-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fs-surface);
+  border: 2px solid var(--fs-accent);
+  box-shadow: 0 2px 6px rgba(159, 48, 18, 0.25);
+  cursor: pointer;
+}
+.fs-slider-range {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fs-muted);
+}
+
+/* Dual-thumb range (score 0–10) — two stacked transparent inputs over a
+   shared track + accent fill. Mirrors the single .fs-slider thumb look. */
+.fs-range {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.fs-range__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fs-border-strong);
+}
+.fs-range__fill {
+  position: absolute;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fs-accent);
+}
+.fs-range input[type="range"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  margin: 0;
+  height: 24px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+.fs-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fs-surface);
+  border: 2px solid var(--fs-accent);
+  box-shadow: 0 2px 6px rgba(159, 48, 18, 0.25);
+  cursor: pointer;
+  transition: transform .15s;
+}
+.fs-range input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.1); }
+.fs-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--fs-accent);
+  border-radius: 50%;
+  background: var(--fs-surface);
+  box-shadow: 0 2px 6px rgba(159, 48, 18, 0.25);
+  cursor: pointer;
+}
+.fs-range input[type="range"]::-moz-range-track { background: transparent; }
+
+/* Card toggles (Friends / Experts and any 2-up card pair) */
+.fs-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.fs-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-border-strong);
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.fs-card:hover { border-color: var(--fs-ink); }
+.fs-card.is-active {
+  border-color: var(--fs-ink);
+  box-shadow: 0 0 0 1px var(--fs-ink) inset;
+}
+.fs-card-icon { color: var(--fs-ink-2); flex-shrink: 0; }
+.fs-card.is-active .fs-card-icon { color: var(--fs-ink); }
+.fs-card-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+.fs-radio-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fs-bg-2);
+  border: 1px solid var(--fs-border-strong);
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.fs-radio-dot.is-on {
+  background: var(--fs-ink);
+  border-color: var(--fs-ink);
+  box-shadow: inset 0 0 0 3px var(--fs-surface);
+}
+
+/* Michelin distinction cards (red accent). Responsive: two columns in the
+   wide filter sheet, one column when dropped into a narrow anchored popover —
+   `minmax(200px, …)` collapses to a single column below ~410px so the wide
+   "Bib Gourmand" / "Selected" labels never overflow. */
+.fs-michelin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.fs-michelin-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.fs-michelin-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-border-strong);
+  border-radius: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.fs-michelin-card:hover { border-color: #a2191f80; }
+.fs-michelin-card.is-active {
+  border-color: var(--fs-michelin);
+  background: #a2191f0d;
+  box-shadow: 0 0 0 1px var(--fs-michelin) inset;
+}
+.dark .fs-michelin-card.is-active { background: #a2191f24; }
+.fs-michelin-mark {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--fs-michelin);
+}
+.fs-michelin-stars { display: inline-flex; align-items: center; }
+.fs-michelin-stars svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--fs-michelin);
+  stroke: none;
+}
+.fs-michelin-glyph {
+  width: 15px;
+  height: 15px;
+  stroke: var(--fs-michelin);
+  stroke-width: 2.2;
+}
+.fs-michelin-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fs-ink);
+  white-space: nowrap;
+}
+.fs-michelin-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fs-bg-2);
+  border: 1px solid var(--fs-border-strong);
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.fs-michelin-check.is-on {
+  background: var(--fs-michelin);
+  border-color: var(--fs-michelin);
+  box-shadow: inset 0 0 0 3px var(--fs-surface);
+}
+
+/* Searchable dropdown (cuisine / city / friends) */
+.fs-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 46px;
+  padding: 0 16px;
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-border-strong);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fs-ink);
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.fs-dropdown-trigger:hover { border-color: var(--fs-ink); }
+.fs-dropdown-trigger.is-open {
+  border-color: var(--fs-accent);
+  box-shadow: 0 0 0 3px rgba(159, 48, 18, 0.10);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.fs-dropdown-trigger.is-set { color: var(--fs-ink); font-weight: 600; }
+.fs-dropdown-chev {
+  width: 16px;
+  height: 16px;
+  color: var(--fs-muted);
+  flex-shrink: 0;
+  transition: transform .2s cubic-bezier(.22, 1, .36, 1);
+}
+.fs-dropdown-chev.is-open { transform: rotate(180deg); color: var(--fs-accent); }
+.fs-dropdown-panel {
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-accent);
+  border-top: 0;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  box-shadow: 0 0 0 3px rgba(159, 48, 18, 0.10), 0 4px 12px rgba(28, 24, 22, 0.08);
+  overflow: hidden;
+  margin-top: -1px;
+}
+.fs-dropdown-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--fs-border);
+}
+.fs-dropdown-search svg {
+  width: 14px;
+  height: 14px;
+  color: var(--fs-muted);
+  flex-shrink: 0;
+}
+.fs-dropdown-search input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--fs-ink);
+}
+.fs-dropdown-search input::placeholder { color: var(--fs-muted); }
+.fs-dropdown-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.fs-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--fs-ink);
+  cursor: pointer;
+  transition: background .12s;
+}
+.fs-dropdown-row:hover { background: var(--fs-bg-2); }
+.fs-dropdown-row.is-active {
+  background: rgba(159, 48, 18, 0.08);
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+.fs-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--fs-border-strong);
+  background: var(--fs-surface);
+  display: grid;
+  place-items: center;
+  color: var(--fs-surface);
+  flex-shrink: 0;
+  transition: background .12s, border-color .12s;
+}
+.fs-checkbox.is-on {
+  background: var(--fs-accent);
+  border-color: var(--fs-accent);
+}
+.fs-checkbox.is-radio { border-radius: 50%; }
+.fs-dropdown-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fs-muted);
+}
+
+/* Footer */
+.fs-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 22px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--fs-surface-2);
+  border-top: 1px solid var(--fs-border);
+  flex-shrink: 0;
+}
+.fs-reset {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fs-ink-2);
+  cursor: pointer;
+  transition: color .15s;
+}
+.fs-reset:hover { color: var(--fs-ink); }
+.fs-apply {
+  flex: 1;
+  height: 48px;
+  background: var(--fs-ink);
+  color: var(--fs-surface);
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, transform .12s;
+}
+.fs-apply:hover {
+  background: var(--fs-accent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 600px) {
+  .fs-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .fs-sheet.is-desktop {
+    border-radius: 22px 22px 0 0;
+    max-height: 88vh;
+  }
+  .fs-segment-item {
+    font-size: 13px;
+    padding: 0 8px;
+  }
+  .fs-card-grid { grid-template-columns: 1fr; }
+}
