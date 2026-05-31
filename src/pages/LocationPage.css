@@ -63,6 +63,52 @@
 .location-page-root button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 .location-page-root a { color: inherit; text-decoration: none; }
 
+/* ============ DARK MODE ============
+   The Location page ships its own warm LIGHT palette above. When the app's
+   global `.dark` class is set, re-point those same tokens to dark values so
+   the whole page — cards, lists, chips, hero, its own filter sheet, and the
+   globally-mounted chat island — follows dark mode. Because almost everything
+   here consumes the tokens via var(), flipping the tokens flips the page.
+   The bare `.dark` block covers the hoisted :root subset the chat island uses
+   on non-/location routes; `.dark .location-page-root` overrides the page's
+   local token block (which otherwise wins by specificity). */
+.dark {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+}
+.dark .location-page-root {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-2: #d4664e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+/* Hardcoded light surfaces that don't ride a token — flip explicitly. */
+.dark .location-page-root .minimap-expand:hover { background: var(--surface); }
+.dark .lp-chat-history-search input:focus { background: var(--surface); }
+
 /* ============ PAGE CONTAINER ============ */
 .location-page-root .lp-page {
   max-width: none;

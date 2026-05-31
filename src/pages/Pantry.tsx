@@ -21,6 +21,8 @@ import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
@@ -2846,207 +2848,58 @@ const FilterSheet: React.FC<{
   allCuisines: string[];
   onReset: () => void;
 }> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, onReset }) => {
-  const { phoneMode } = useSettings();
-  const [citySearch, setCitySearch] = useState('');
-  const [cuisineSearch, setCuisineSearch] = useState('');
-  const [cuisineOpen, setCuisineOpen] = useState(false);
-  const [cityOpen, setCityOpen] = useState(false);
-  const { dragProps } = useBottomSheet(open, onClose);
-
-  const filteredCities = citySearch.trim() ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase())) : allCities;
-  const filteredCuisines = cuisineSearch.trim() ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase())) : allCuisines;
-
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop. Desktop gets a richer blur — same Spotlight feel
-              as the SearchPopup. Phone keeps the lighter blur so the
-              underlying page is still subtly visible behind the sheet. */}
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: phoneMode ? 0.14 : 0.16 }}
-            className={cn(
-              'fixed inset-0 z-50',
-              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
-            )}
-            onClick={onClose}
-          >
-            <motion.div
-              {...(phoneMode
-                ? {
-                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    ...dragProps,
-                  }
-                : {
-                    initial: { opacity: 0, scale: 0.94, y: -12 },
-                    animate: { opacity: 1, scale: 1, y: 0 },
-                    exit: { opacity: 0, scale: 0.96, y: -8 },
-                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                  })}
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              className={cn(
-                'flex flex-col overflow-hidden bg-surface',
-                phoneMode
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
-                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-              )}
-            >
-            {/* Drag handle (phone only — desktop has no draggable affordance) */}
-            {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
+    <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset}>
+      <FilterSection label="Sort by">
+        <PillRow>
+          {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
+            <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
 
-            {/* Header */}
-            <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-            )}>
-              <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
+      <FilterSection
+        label="Score"
+        value={`${scoreRange[0]} – ${scoreRange[1]}`}
+        isSet={scoreRange[0] > 0 || scoreRange[1] < 10}
+      >
+        <RangeSlider min={0} max={10} value={scoreRange} onChange={onScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
+        <div className="fs-slider-range"><span>0</span><span>10</span></div>
+      </FilterSection>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
-              {/* Sort */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
-                <div className="flex flex-wrap gap-2">
-                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
-                    <button key={key} onClick={() => onSortBy(key)}
-                      className={cn("px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
-                        sortBy === key ? "bg-primary text-white" : "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10")}>{label}</button>
-                  ))}
-                </div>
-              </div>
+      <FilterSection label="Price">
+        <Segment>
+          <SegmentItem active={priceFilter === null} onClick={() => onPriceFilter(null)}>Any</SegmentItem>
+          {['$', '$$', '$$$', '$$$$'].map((p) => (
+            <SegmentItem key={p} active={priceFilter === p} onClick={() => onPriceFilter(priceFilter === p ? null : p)}>{p}</SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
 
-              {/* Score range — single track with two thumbs via stacked inputs */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
-                  Score: {scoreRange[0]} – {scoreRange[1]}
-                </p>
-                <div className="relative h-6 flex items-center">
-                  <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                  <div className="absolute h-1 bg-primary rounded-full" style={{ left: `${scoreRange[0] * 10}%`, right: `${100 - scoreRange[1] * 10}%` }} />
-                  <input type="range" min={0} max={10} step={1} value={scoreRange[0]}
-                    onChange={(e) => onScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])}
-                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer" />
-                  <input type="range" min={0} max={10} step={1} value={scoreRange[1]}
-                    onChange={(e) => onScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])}
-                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer" />
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-on-surface/30">0</span>
-                  <span className="text-[10px] text-on-surface/30">10</span>
-                </div>
-              </div>
+      <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
+        <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
+      </FilterSection>
 
-              {/* Price */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
-                <div className="flex gap-2">
-                  {['$', '$$', '$$$', '$$$$'].map((p) => (
-                    <button key={p} onClick={() => onPriceFilter(priceFilter === p ? null : p)}
-                      className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2",
-                        priceFilter === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{p}</button>
-                  ))}
-                </div>
-              </div>
+      <FilterSection label="Cuisine">
+        <FilterDropdown
+          options={allCuisines.map((c) => ({ value: c, label: c }))}
+          selected={cuisineFilter}
+          onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
+          placeholder="All cuisines"
+          searchPlaceholder="Search cuisines"
+        />
+      </FilterSection>
 
-              {/* Michelin */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
-                <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
-              </div>
-
-              {/* Cuisine — collapsible dropdown */}
-              <div>
-                <button onClick={() => setCuisineOpen(!cuisineOpen)}
-                  className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                    {cuisineFilter.length > 0 && <span className="text-[10px] font-semibold text-primary">{cuisineFilter.join(", ")}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cuisineFilter.length > 0 && <button onClick={(e) => { e.stopPropagation(); onCuisineFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {cuisineOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCuisines.map((c) => (
-                          <button key={c} onClick={() => onCuisineFilter(cuisineFilter.includes(c) ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
-                            className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                              cuisineFilter.includes(c) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
-                        ))}
-                        {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* City — collapsible dropdown */}
-              <div>
-                <button onClick={() => setCityOpen(!cityOpen)}
-                  className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
-                    {cityFilter.length > 0 && <span className="text-[10px] font-semibold text-primary">{cityFilter.join(", ")}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cityFilter.length > 0 && <button onClick={(e) => { e.stopPropagation(); onCityFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence>
-                  {cityOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)} placeholder="Search locations..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCities.map((c) => (
-                          <button key={c} onClick={() => onCityFilter(cityFilter.includes(c) ? cityFilter.filter((x) => x !== c) : [...cityFilter, c])}
-                            className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                              cityFilter.includes(c) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
-                        ))}
-                        {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
-              <button onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
-              <button onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">Apply</button>
-            </div>
-            </motion.div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+      <FilterSection label="City / Location">
+        <FilterDropdown
+          options={allCities.map((c) => ({ value: c, label: c }))}
+          selected={cityFilter}
+          onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
+          placeholder="All locations"
+          searchPlaceholder="Search locations"
+        />
+      </FilterSection>
+    </FilterSheetShell>
   );
 };
 
@@ -3076,275 +2929,63 @@ const WishlistFilterSheet: React.FC<{
   onReset: () => void;
   activeCount: number;
 }> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, onReset, activeCount }) => {
-  const { phoneMode } = useSettings();
-  const [cuisineOpen, setCuisineOpen] = useState(false);
-  const [cityOpen, setCityOpen] = useState(false);
-  const [cuisineSearch, setCuisineSearch] = useState('');
-  const [citySearch, setCitySearch] = useState('');
-
-  const filteredCuisines = cuisineSearch.trim()
-    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
-    : allCuisines;
-  const filteredCities = citySearch.trim()
-    ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase()))
-    : allCities;
-
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className={cn(
-            'fixed inset-0 z-[120]',
-            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
-            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
-          )}
-          onClick={onClose}
-        >
-          <motion.div
-            {...(phoneMode
-              ? {
-                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
-                  drag: 'y' as const,
-                  dragConstraints: { top: 0 },
-                  dragElastic: { top: 0, bottom: 0.4 },
-                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
-                  },
-                }
-              : {
-                  initial: { opacity: 0, scale: 0.94, y: -12 },
-                  animate: { opacity: 1, scale: 1, y: 0 },
-                  exit: { opacity: 0, scale: 0.96, y: -8 },
-                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                })}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn(
-              'flex flex-col overflow-hidden bg-surface',
-              phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
-                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-            )}
-          >
-            {/* Drag handle (phone only) */}
-            {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
+    <FilterSheetShell
+      open={open}
+      onClose={onClose}
+      title="Filter wishlist"
+      titleIcon={<SlidersHorizontal size={15} />}
+      subtitle={activeCount > 0 ? `${activeCount} active filter${activeCount === 1 ? '' : 's'}` : undefined}
+      onReset={onReset}
+      applyLabel={activeCount > 0 ? 'Show results' : 'Done'}
+      zIndex={120}
+    >
+      <FilterSection label="Sort by">
+        <PillRow>
+          {([
+            ['recent', 'Recently Added'],
+            ['oldest', 'Oldest First'],
+            ['name-asc', 'Name A–Z'],
+            ['name-desc', 'Name Z–A'],
+          ] as const).map(([key, label]) => (
+            <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
 
-            {/* Header */}
-            <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-            )}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
-                  <SlidersHorizontal size={15} />
-                </div>
-                <div>
-                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter wishlist</h3>
-                  {activeCount > 0 && (
-                    <p className="text-[11px] text-on-surface/45 font-medium">
-                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
-              >
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
+      <FilterSection label="Price">
+        <Segment>
+          <SegmentItem active={priceFilter === null} onClick={() => onPriceFilter(null)}>Any</SegmentItem>
+          {['$', '$$', '$$$', '$$$$'].map((p) => (
+            <SegmentItem key={p} active={priceFilter === p} onClick={() => onPriceFilter(priceFilter === p ? null : p)}>{p}</SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
 
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
-              {/* Sort */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    ['recent', 'Recently Added'],
-                    ['oldest', 'Oldest First'],
-                    ['name-asc', 'Name A–Z'],
-                    ['name-desc', 'Name Z–A'],
-                  ] as const).map(([key, label]) => (
-                    <button
-                      key={key}
-                      onClick={() => onSortBy(key)}
-                      className={cn(
-                        "px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
-                        sortBy === key
-                          ? "bg-primary text-white shadow-sm shadow-primary/20"
-                          : "bg-on-surface/5 text-on-surface/55 hover:bg-on-surface/10",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
+        <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
+      </FilterSection>
 
-              {/* Price */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
-                <div className="flex gap-2">
-                  {['$', '$$', '$$$', '$$$$'].map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => onPriceFilter(priceFilter === p ? null : p)}
-                      className={cn(
-                        "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border-2",
-                        priceFilter === p
-                          ? "border-primary bg-primary/5 text-primary"
-                          : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20",
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
+      <FilterSection label="Cuisine">
+        <FilterDropdown
+          options={allCuisines.map((c) => ({ value: c, label: c }))}
+          selected={cuisineFilter}
+          onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
+          placeholder="All cuisines"
+          searchPlaceholder="Search cuisines"
+        />
+      </FilterSection>
 
-              {/* Michelin */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
-                <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
-              </div>
-
-              {/* Cuisine */}
-              <div>
-                <button onClick={() => setCuisineOpen(!cuisineOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                    {cuisineFilter.length > 0 && (
-                      <span className="text-[10px] font-semibold text-primary truncate">{cuisineFilter.join(', ')}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {cuisineFilter.length > 0 && (
-                      <button onClick={(e) => { e.stopPropagation(); onCuisineFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
-                    )}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence initial={false}>
-                  {cuisineOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input
-                          type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)}
-                          placeholder="Search cuisines..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCuisines.map((c) => {
-                          const on = cuisineFilter.includes(c);
-                          return (
-                            <button
-                              key={c}
-                              onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
-                              className={cn(
-                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
-                              )}
-                            >
-                              {c}
-                            </button>
-                          );
-                        })}
-                        {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* City */}
-              <div>
-                <button onClick={() => setCityOpen(!cityOpen)} className="flex items-center justify-between w-full mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
-                    {cityFilter.length > 0 && (
-                      <span className="text-[10px] font-semibold text-primary truncate">{cityFilter.join(', ')}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {cityFilter.length > 0 && (
-                      <button onClick={(e) => { e.stopPropagation(); onCityFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
-                    )}
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
-                  </div>
-                </button>
-                <AnimatePresence initial={false}>
-                  {cityOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="relative mb-2">
-                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                        <input
-                          type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)}
-                          placeholder="Search locations..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCities.map((c) => {
-                          const on = cityFilter.includes(c);
-                          return (
-                            <button
-                              key={c}
-                              onClick={() => onCityFilter(on ? cityFilter.filter((x) => x !== c) : [...cityFilter, c])}
-                              className={cn(
-                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
-                              )}
-                            >
-                              {c}
-                            </button>
-                          );
-                        })}
-                        {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3 bg-surface">
-              <button
-                onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.03] transition-colors"
-              >
-                Reset
-              </button>
-              <button
-                onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
-              >
-                {activeCount > 0 ? `Show results` : 'Done'}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      <FilterSection label="City / Location">
+        <FilterDropdown
+          options={allCities.map((c) => ({ value: c, label: c }))}
+          selected={cityFilter}
+          onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
+          placeholder="All locations"
+          searchPlaceholder="Search locations"
+        />
+      </FilterSection>
+    </FilterSheetShell>
   );
 };
 
@@ -6069,164 +5710,60 @@ const RecipeFilterSheet: React.FC<{
   onReset: () => void;
   activeCount: number;
 }> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, difficultyFilter, onDifficultyFilter, timeFilter, onTimeFilter, allCuisines, onReset, activeCount }) => {
-  const { phoneMode } = useSettings();
-  const [cuisineSearch, setCuisineSearch] = useState('');
-  useEffect(() => { if (!open) setCuisineSearch(''); }, [open]);
-  const filteredCuisines = cuisineSearch.trim()
-    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
-    : allCuisines;
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className={cn(
-            'fixed inset-0 z-[120]',
-            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
-            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
-          )}
-          onClick={onClose}
-        >
-          <motion.div
-            {...(phoneMode
-              ? {
-                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
-                  drag: 'y' as const,
-                  dragConstraints: { top: 0 },
-                  dragElastic: { top: 0, bottom: 0.4 },
-                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
-                  },
-                }
-              : {
-                  initial: { opacity: 0, scale: 0.94, y: -12 },
-                  animate: { opacity: 1, scale: 1, y: 0 },
-                  exit: { opacity: 0, scale: 0.96, y: -8 },
-                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                })}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn(
-              'flex flex-col overflow-hidden bg-surface',
-              phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
-                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-            )}
-          >
-            {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
-            <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-            )}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <SlidersHorizontal size={15} />
-                </div>
-                <div>
-                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter recipes</h3>
-                  {activeCount > 0 && (
-                    <p className="text-[11px] text-on-surface/45 font-medium">
-                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
+    <FilterSheetShell
+      open={open}
+      onClose={onClose}
+      title="Filter recipes"
+      titleIcon={<SlidersHorizontal size={15} />}
+      subtitle={activeCount > 0 ? `${activeCount} active filter${activeCount === 1 ? '' : 's'}` : undefined}
+      onReset={onReset}
+      applyLabel={activeCount > 0 ? 'Show recipes' : 'Done'}
+      zIndex={120}
+    >
+      <FilterSection label="Sort by">
+        <PillRow>
+          {([['recent', 'Recent'], ['highest', 'Highest score'], ['lowest', 'Lowest score'], ['quickest', 'Quickest']] as const).map(([key, label]) => (
+            <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
 
-            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
-              {/* Sort */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
-                <div className="flex flex-wrap gap-2">
-                  {([['recent', 'Recent'], ['highest', 'Highest score'], ['lowest', 'Lowest score'], ['quickest', 'Quickest']] as const).map(([key, label]) => (
-                    <button key={key} onClick={() => onSortBy(key)}
-                      className={cn('px-3.5 py-2 rounded-full text-xs font-semibold transition-all',
-                        sortBy === key ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55 hover:bg-on-surface/[0.10]')}>{label}</button>
-                  ))}
-                </div>
-              </div>
+      <FilterSection label="Difficulty">
+        <PillRow>
+          {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+            const isSelected = difficultyFilter.includes(d);
+            return (
+              <Pill
+                key={d}
+                active={isSelected}
+                onClick={() => onDifficultyFilter(isSelected ? difficultyFilter.filter((x) => x !== d) : [...difficultyFilter, d])}
+              >
+                {d}
+              </Pill>
+            );
+          })}
+        </PillRow>
+      </FilterSection>
 
-              {/* Difficulty */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Difficulty</p>
-                <div className="flex gap-2">
-                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
-                    const isSelected = difficultyFilter.includes(d);
-                    return (
-                      <button key={d}
-                        onClick={() => onDifficultyFilter(isSelected ? difficultyFilter.filter((x) => x !== d) : [...difficultyFilter, d])}
-                        className={cn('flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
-                          isSelected ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
-                      >{d}</button>
-                    );
-                  })}
-                </div>
-              </div>
+      <FilterSection label="Total time">
+        <Segment>
+          {([['fast', 'Under 30 min'], ['medium', '30–60 min'], ['slow', 'Over 60 min']] as const).map(([key, label]) => (
+            <SegmentItem key={key} active={timeFilter === key} onClick={() => onTimeFilter(timeFilter === key ? null : key)}>{label}</SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
 
-              {/* Time */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Total time</p>
-                <div className="flex gap-2">
-                  {([['fast', 'Under 30 min'], ['medium', '30 to 60 min'], ['slow', 'Over 60 min']] as const).map(([key, label]) => (
-                    <button key={key}
-                      onClick={() => onTimeFilter(timeFilter === key ? null : key)}
-                      className={cn('flex-1 py-2 rounded-xl text-[11px] font-bold transition-all border-2',
-                        timeFilter === key ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
-                    >{label}</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cuisine */}
-              <div>
-                <div className="flex items-center justify-between mb-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                  {cuisineFilter.length > 0 && (
-                    <button onClick={() => onCuisineFilter([])} className="text-[11px] text-primary font-semibold">Clear</button>
-                  )}
-                </div>
-                <div className="relative mb-2">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                  <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
-                    className="w-full bg-on-surface/[0.05] rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pb-1">
-                  {filteredCuisines.length === 0 ? (
-                    <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
-                  ) : filteredCuisines.map((c) => {
-                    const on = cuisineFilter.includes(c);
-                    return (
-                      <button key={c}
-                        onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
-                        className={cn('px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border',
-                          on ? 'border-primary bg-primary/10 text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}>{c}</button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
-              <button onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
-              <button onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">
-                {activeCount > 0 ? 'Show recipes' : 'Done'}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      <FilterSection label="Cuisine">
+        <FilterDropdown
+          options={allCuisines.map((c) => ({ value: c, label: c }))}
+          selected={cuisineFilter}
+          onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
+          placeholder="All cuisines"
+          searchPlaceholder="Search cuisines"
+        />
+      </FilterSection>
+    </FilterSheetShell>
   );
 };
 

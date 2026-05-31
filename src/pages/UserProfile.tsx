@@ -25,7 +25,8 @@ import { searchPlacesByText } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { FilterSheet } from '../components/FilterSheet';
+import { FilterSection, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
 import { ProfilePostCard } from '../components/profile/ProfilePostCard';
@@ -88,10 +89,7 @@ export const UserProfile: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortBy>('recent');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [cuisineOpen, setCuisineOpen] = useState(false);
-  const [cityOpen, setCityOpen] = useState(false);
   const [showMapPage, setShowMapPage] = useState(false);
-  const { dragProps: filtersDragProps } = useBottomSheet(filtersOpen, () => setFiltersOpen(false));
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -893,130 +891,70 @@ export const UserProfile: React.FC = () => {
         )}
       </div>
 
-      {/* Filters sheet — Spotlight popup on desktop, bottom sheet on phone */}
-      <AnimatePresence>
-        {filtersOpen && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-            className={cn(
-              'fixed inset-0 z-50',
-              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
-            )}
-            onClick={() => setFiltersOpen(false)}
-          >
-            <motion.div
-              {...(phoneMode
-                ? {
-                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    ...filtersDragProps,
-                  }
-                : {
-                    initial: { opacity: 0, scale: 0.94, y: -12 },
-                    animate: { opacity: 1, scale: 1, y: 0 },
-                    exit: { opacity: 0, scale: 0.96, y: -8 },
-                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                  })}
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              className={cn(
-                'flex flex-col overflow-hidden bg-surface',
-                phoneMode
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
-                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-              )}
-            >
-              {phoneMode && (
-                <div className="flex justify-center pt-3 pb-1 flex-shrink-0"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
-              )}
-              <div className={cn(
-                'flex items-center justify-between flex-shrink-0',
-                phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-              )}>
-                <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
-                <button onClick={() => setFiltersOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"><X size={16} className="text-on-surface/60" /></button>
-              </div>
-              {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                {/* Score range */}
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Score: {scoreRange[0]} – {scoreRange[1]}</p>
-                  <div className="relative h-6 flex items-center">
-                    <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                    <div className="absolute h-1 bg-primary rounded-full" style={{ left: `${scoreRange[0] * 10}%`, right: `${100 - scoreRange[1] * 10}%` }} />
-                    <input type="range" min={0} max={10} step={1} value={scoreRange[0]}
-                      onChange={(e) => setScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])}
-                      className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer" />
-                    <input type="range" min={0} max={10} step={1} value={scoreRange[1]}
-                      onChange={(e) => setScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])}
-                      className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer" />
-                  </div>
-                  <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0</span><span className="text-[10px] text-on-surface/30">10</span></div>
-                </div>
+      {/* Filters sheet — shared design (matches the Location page) */}
+      <FilterSheet
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title="Filters"
+        onReset={() => { handleResetFilters(); setFiltersOpen(false); }}
+      >
+        <FilterSection
+          label="Score"
+          value={`${scoreRange[0]} – ${scoreRange[1]}`}
+          isSet={scoreRange[0] > 0 || scoreRange[1] < 10}
+        >
+          <RangeSlider
+            min={0}
+            max={10}
+            value={scoreRange}
+            onChange={setScoreRange}
+            ariaLabelMin="Minimum score"
+            ariaLabelMax="Maximum score"
+          />
+          <div className="fs-slider-range"><span>0</span><span>10</span></div>
+        </FilterSection>
 
-                {/* Price */}
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
-                  <div className="flex gap-2">
-                    {['$', '$$', '$$$', '$$$$'].map((p) => (
-                      <button key={p} onClick={() => setFilterPrice(filterPrice === p ? null : p)}
-                        className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2",
-                          filterPrice === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50")}>{p}</button>
-                    ))}
-                  </div>
-                </div>
+        <FilterSection label="Price">
+          <Segment>
+            <SegmentItem active={filterPrice === null} onClick={() => setFilterPrice(null)}>Any</SegmentItem>
+            {['$', '$$', '$$$', '$$$$'].map((p) => (
+              <SegmentItem
+                key={p}
+                active={filterPrice === p}
+                onClick={() => setFilterPrice(filterPrice === p ? null : p)}
+              >
+                {p}
+              </SegmentItem>
+            ))}
+          </Segment>
+        </FilterSection>
 
-                {/* Michelin */}
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Michelin</p>
-                  <MichelinDistinctionFilter selected={filterMichelin} onToggle={toggleFilterMichelin} />
-                </div>
+        <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
+          <MichelinDistinctionFilter selected={filterMichelin} onToggle={toggleFilterMichelin} />
+        </FilterSection>
 
-                {/* Cuisine — collapsible */}
-                <div>
-                  <button onClick={() => setCuisineOpen(!cuisineOpen)} className="flex items-center justify-between w-full mb-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine {filterCuisine && <span className="text-primary ml-1">{filterCuisine}</span>}</p>
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
-                  </button>
-                  {cuisineOpen && (
-                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                      {allCuisines.map((c) => (
-                        <button key={c} onClick={() => setFilterCuisine(filterCuisine === c ? null : c)}
-                          className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                            filterCuisine === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>{c}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+        <FilterSection label="Cuisine">
+          <FilterDropdown
+            options={allCuisines.map((c) => ({ value: c, label: c }))}
+            selected={filterCuisine ? [filterCuisine] : []}
+            onToggle={(v) => setFilterCuisine(filterCuisine === v ? null : v)}
+            multiple={false}
+            placeholder="All cuisines"
+            searchPlaceholder="Search cuisines"
+          />
+        </FilterSection>
 
-                {/* City — collapsible */}
-                <div>
-                  <button onClick={() => setCityOpen(!cityOpen)} className="flex items-center justify-between w-full mb-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location {filterCity && <span className="text-primary ml-1">{filterCity}</span>}</p>
-                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
-                  </button>
-                  {cityOpen && (
-                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                      {allCities.map((c) => (
-                        <button key={c} onClick={() => setFilterCity(filterCity === c ? null : c)}
-                          className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                            filterCity === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>{c}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
-                <button onClick={() => { handleResetFilters(); setFiltersOpen(false); }}
-                  className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
-                <button onClick={() => setFiltersOpen(false)}
-                  className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">Apply</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <FilterSection label="City / Location">
+          <FilterDropdown
+            options={allCities.map((c) => ({ value: c, label: c }))}
+            selected={filterCity ? [filterCity] : []}
+            onToggle={(v) => setFilterCity(filterCity === v ? null : v)}
+            multiple={false}
+            placeholder="All locations"
+            searchPlaceholder="Search locations"
+          />
+        </FilterSection>
+      </FilterSheet>
 
       {/* Full-screen map page */}
       <AnimatePresence>
