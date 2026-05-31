@@ -29,7 +29,8 @@ import {
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinBySyntheticId } from '../lib/michelin';
+import { MichelinBadge } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -3187,6 +3188,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // headSlot so it sits above the popup's standard action row.
   const renderPanelDetail = (place: PlaceResult) => {
     const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '');
+    // Michelin distinction for the badge: dataset-sourced rows carry a synthetic
+    // id (look up directly); real Google places match by name + coords.
+    const michelin = michelinReady
+      ? (isMichelinSyntheticId(place.id)
+          ? michelinBySyntheticId(place.id)
+          : findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address))
+      : null;
     const fav = isWishlisted(place.id);
     const restData = {
       id: place.id,
@@ -3254,6 +3262,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
           {place.name}
         </h1>
+        {michelin && (
+          <div className="mt-2">
+            <MichelinBadge michelin={michelin} size="sm" href={michelin.guideUrl} />
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[12.5px] text-on-surface/65">
           {cuisine && <span className="font-semibold text-primary tracking-tight">{cuisine}</span>}
           {cuisine && price && <span className="text-on-surface/25">·</span>}
