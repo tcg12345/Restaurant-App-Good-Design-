@@ -80,7 +80,7 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -3932,6 +3932,11 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     !!meta?.addressComponents && meta?.neighborhood !== undefined;
   useEffect(() => {
     if (!place.id || hasFullLocationData) return;
+    // Michelin dataset rows carry a synthetic id (no Google place id), so the
+    // backfill (a Google Places detail call) would just fail. Skip it — these
+    // rows already show city/country from the dataset. The real place id is
+    // resolved lazily when the detail page opens.
+    if (isMichelinSyntheticId(place.id)) return;
     let cancelled = false;
     fetchLocationDataForPlace(place.id).then(
       ({ addressComponents, neighborhood, lat: ll, lng: lg, hours }) => {
