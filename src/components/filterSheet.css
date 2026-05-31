@@ -18,7 +18,9 @@
 :root {
   --fs-bg: var(--color-cream);
   --fs-bg-2: var(--color-cream-2);
-  --fs-surface: var(--color-paper);
+  /* Cards / pills / inputs are pure white so they pop against the warm
+     paper sheet, exactly like the Location page reference. */
+  --fs-surface: #ffffff;
   --fs-surface-2: var(--color-paper);
   --fs-border: var(--color-line);
   --fs-border-strong: var(--color-line-2);
@@ -29,6 +31,11 @@
   --fs-michelin: #a2191f;
   --fs-serif: var(--font-serif);
   --fs-sans: var(--font-sans);
+}
+/* Dark mode: elevate cards above the sheet (the white above would glare).
+   ink / borders / accent already flip via the app's --color-* tokens. */
+.dark {
+  --fs-surface: #242428;
 }
 
 .fs-overlay {
@@ -43,9 +50,12 @@
   justify-content: center;
   padding: 9vh 20px 20px;
 }
-/* Replicates the `.location-page-root button {…}` reset the reference markup
-   leans on, scoped to anything rendered inside a filter sheet. */
-.fs-overlay button {
+/* Reset bare buttons inside a sheet. Wrapped in :where() so it carries ZERO
+   specificity — otherwise `.fs-overlay button` (0,1,1) would override the
+   single-class `.fs-pill` / `.fs-michelin-card` / `.fs-apply` rules (0,1,0)
+   and strip their background/border (the reference avoids this because its
+   rules are `.location-page-root .lp-pill`, i.e. two classes). */
+:where(.fs-overlay button) {
   font: inherit;
   color: inherit;
   background: none;
