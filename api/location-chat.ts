@@ -241,6 +241,38 @@ const TOOL_SEARCH = {
   },
 };
 
+const TOOL_SEARCH_MICHELIN = {
+  name: 'search_michelin',
+  description:
+    "Query the app's COMPLETE, bundled Michelin Guide dataset — every starred (1/2/3 Star), Bib Gourmand, and Selected restaurant worldwide, with cuisine, price, city, and the official Guide URL. This is LOCAL data: instant and authoritative. ALWAYS use this tool (before web_search) for ANY question about Michelin restaurants — e.g. 'Michelin stars in NYC', '3-star restaurants in Paris', 'Bib Gourmand near me', 'does X have a Michelin star?'. It returns the full, accurate list (don't rely on memory — memory misses recent additions). Each result includes a real id you can pass to recommend_restaurants to render a clickable card. Only use web_search afterward if you need extra detail the dataset doesn't have (recent news, a closure, a tasting-menu price).",
+  input_schema: {
+    type: 'object',
+    properties: {
+      distinctions: {
+        type: 'array',
+        items: { type: 'string', enum: ['3 Stars', '2 Stars', '1 Star', 'Bib Gourmand', 'Selected'] },
+        description:
+          "Filter to these Michelin distinctions (OR). Omit for all tiers. E.g. ['3 Stars'] for three-star only, ['1 Star','2 Stars','3 Stars'] for any starred restaurant, ['Bib Gourmand'] for Bib only.",
+      },
+      city: {
+        type: 'string',
+        description:
+          "City/area to search, e.g. 'New York', 'Paris', 'Tokyo'. Omit to use the user's CURRENT city. Matching is by proximity to the city centre.",
+      },
+      name: {
+        type: 'string',
+        description:
+          "Optional. A specific restaurant name to look up (e.g. 'does Carbone have a star?'). Returns that restaurant's distinction if it's in the Guide.",
+      },
+      limit: {
+        type: 'number',
+        description: 'Optional max results to return (default 40, max 80). Use a higher limit when the user wants the full list.',
+      },
+    },
+    required: [],
+  },
+};
+
 const TOOL_RECOMMEND_RECIPES = {
   name: 'recommend_recipes',
   description:
@@ -719,6 +751,9 @@ function buildSystemPrompt(body: ChatRequest): string {
   lines.push(
     `The user can ask about restaurants anywhere in the world — "best pizza in Naples", "where to eat in Tokyo", "is X still open in LA". Answer those normally; use web_search for current info (closures, recent openings, press) and answer from general knowledge for established places. The search_restaurants tool defaults to ${city} but accepts a city override.`,
   );
+  lines.push(
+    'MICHELIN QUESTIONS: for anything about Michelin stars, Bib Gourmand, or the Michelin Guide ("3-star restaurants in NYC", "Bib Gourmand near me", "does X have a star?"), ALWAYS call search_michelin FIRST. It queries the app\'s complete bundled Michelin dataset — instant and authoritative — so you get the full, accurate list without guessing from memory (which misses recent additions) and without a slow web_search. Render the results as cards via recommend_restaurants using the ids it returns. Only use web_search afterward for extra detail the dataset lacks (recent press, a closure, a tasting-menu price).',
+  );
   lines.push('');
 
   const filterParts: string[] = [];
@@ -1039,6 +1074,7 @@ export default async function handler(req: Request): Promise<Response> {
       TOOL_RECOMMEND,
       TOOL_RECOMMEND_RECIPES,
       TOOL_SEARCH,
+      TOOL_SEARCH_MICHELIN,
       TOOL_SEARCH_COMMUNITY_RECIPES,
       TOOL_LOOKUP_USER,
       TOOL_FIND_EXPERTS,

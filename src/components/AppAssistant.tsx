@@ -28,6 +28,8 @@ import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useAssistantContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { searchPlacesByTextPaged } from '../lib/places';
+import { michelinNearby, michelinByName, michelinToPlaceResult, michelinDistinctionLabel, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
+import type { MichelinChatHit } from './LocationChat';
 import { geocodePlace } from './HomeLocationBar';
 import {
   searchUsersByUsername,
@@ -728,6 +730,46 @@ export const AppAssistant: React.FC = () => {
     return fallbackSearchRestaurants(query, city, homeLoc);
   }, [pageContext, homeLoc]);
 
+  // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
+  // Local-only — no Google/web calls. Resolves the requested city (or the
+  // user's current/home coords) and pulls matching restaurants.
+  const handleSearchMichelin = useCallback(async (opts: {
+    distinctions?: string[]; city?: string; name?: string; limit?: number;
+  }): Promise<MichelinChatHit[]> => {
+    const toHit = (m: MichelinInfo): MichelinChatHit => ({
+      ...michelinToPlaceResult(m),
+      recScore: 0,
+      sources: ['google'],
+      michelinDistinction: michelinDistinctionLabel(m),
+      guideUrl: m.guideUrl,
+      cuisineText: m.cuisine,
+      priceText: michelinPriceDisplay(m),
+    });
+    try {
+      let anchorLat = origin?.lat;
+      let anchorLng = origin?.lng;
+      const targetCity = opts.city?.trim();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== shortCityName.toLowerCase();
+      if (isOtherCity) {
+        try {
+          const geo = await geocodePlace(targetCity!);
+          if (geo) { anchorLat = geo.lat; anchorLng = geo.lng; }
+        } catch { /* fall back to current coords */ }
+      }
+      if (opts.name) {
+        const found = await michelinByName(opts.name, anchorLat, anchorLng, Math.min(opts.limit ?? 5, 10));
+        return found.map(toHit);
+      }
+      if (anchorLat == null || anchorLng == null) return [];
+      const results = await michelinNearby(anchorLat, anchorLng, 12, opts.distinctions ?? []);
+      const cap = Math.min(opts.limit ?? 40, 80);
+      return results.slice(0, cap).map(toHit);
+    } catch (err) {
+      console.error('[AppAssistant] handleSearchMichelin error:', err);
+      return [];
+    }
+  }, [origin, shortCityName]);
+
   const handleLookupUser = useCallback(async (query: string): Promise<AssistantUser[]> => {
     if (pageContext?.onLookupUser) return pageContext.onLookupUser(query);
     try {
@@ -887,6 +929,7 @@ export const AppAssistant: React.FC = () => {
       filters={filters}
       origin={origin}
       onSearchRestaurants={handleSearchRestaurants}
+      onSearchMichelin={handleSearchMichelin}
       onLookupUser={handleLookupUser}
       onFindExperts={handleFindExperts}
       onSearchCommunityRecipes={handleSearchCommunityRecipes}

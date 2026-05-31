@@ -458,6 +458,44 @@ export async function michelinNearby(
   return michelinNearbySync(lat, lng, radiusMi, distinctions);
 }
 
+/**
+ * Find Michelin records by (fuzzy) name, optionally biased toward a point.
+ * Used by the AI chat's "does X have a star?" path. Awaits the dataset load.
+ * Returns up to `limit` matches, closest-to-(lat,lng) first when coords given.
+ */
+export async function michelinByName(
+  name: string,
+  lat?: number,
+  lng?: number,
+  limit = 5,
+): Promise<MichelinInfo[]> {
+  await ensureMichelinIndex();
+  if (!loadedIndex) return [];
+  const key = normalize(name);
+  if (!key) return [];
+  // Exact normalized-name hits first, then names that contain the query.
+  const exact = loadedIndex.byName.get(key) || [];
+  const seen = new Set(exact.map((r) => r.guideUrl));
+  const partial: MichelinInfo[] = [];
+  if (exact.length < limit) {
+    for (const [k, bucket] of loadedIndex.byName) {
+      if (k === key) continue;
+      if (k.includes(key) || key.includes(k)) {
+        for (const r of bucket) {
+          if (!seen.has(r.guideUrl)) { seen.add(r.guideUrl); partial.push(r); }
+        }
+      }
+    }
+  }
+  const all = [...exact, ...partial];
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    all.sort((a, b) =>
+      haversineDistanceMi(lat as number, lng as number, a.lat, a.lng)
+      - haversineDistanceMi(lat as number, lng as number, b.lat, b.lng));
+  }
+  return all.slice(0, limit);
+}
+
 // ── Synthetic place ids for dataset-sourced results ──────────────────────────
 // Dataset entries have no Google place id, but list rows + the detail route are
 // keyed by one. We mint a synthetic id that carries the name + coordinates so

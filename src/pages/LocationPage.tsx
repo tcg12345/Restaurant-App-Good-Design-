@@ -80,8 +80,9 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import type { MichelinChatHit } from '../components/LocationChat';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -2078,6 +2079,51 @@ export const LocationPage: React.FC = () => {
     }
   }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
 
+  // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
+  // Local-only (no Google/web). Resolves the city to coords (geocoding a
+  // different city than the current page when Claude passes one), then either
+  // looks up a specific name or pulls everything nearby for the distinctions.
+  const handleChatMichelin = useCallback(async (opts: {
+    distinctions?: string[]; city?: string; name?: string; limit?: number;
+  }): Promise<MichelinChatHit[]> => {
+    const toHit = (m: MichelinInfo): MichelinChatHit => ({
+      ...michelinToPlaceResult(m),
+      recScore: 0,
+      sources: ['google'],
+      michelinDistinction: michelinDistinctionLabel(m),
+      guideUrl: m.guideUrl,
+      cuisineText: m.cuisine,
+      priceText: michelinPriceDisplay(m),
+    });
+    try {
+      // Name lookup: bias toward the resolved city/current coords.
+      let anchorLat = hasCoords ? lat : undefined;
+      let anchorLng = hasCoords ? lng : undefined;
+      const targetCity = opts.city?.trim();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== shortCityName.toLowerCase();
+      if (isOtherCity) {
+        try {
+          const geo = await geocodePlace(targetCity!);
+          if (geo) { anchorLat = geo.lat; anchorLng = geo.lng; }
+        } catch { /* fall back to current coords */ }
+      }
+
+      if (opts.name) {
+        const found = await michelinByName(opts.name, anchorLat, anchorLng, Math.min(opts.limit ?? 5, 10));
+        return found.map(toHit);
+      }
+
+      if (anchorLat == null || anchorLng == null) return [];
+      // Generous radius so "Michelin in NYC" covers the whole metro.
+      const results = await michelinNearby(anchorLat, anchorLng, 12, opts.distinctions ?? []);
+      const cap = Math.min(opts.limit ?? 40, 80);
+      return results.slice(0, cap).map(toHit);
+    } catch (err) {
+      console.error('[LocationPage] handleChatMichelin error:', err);
+      return [];
+    }
+  }, [hasCoords, lat, lng, shortCityName]);
+
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
   // tight radius, zoom out = wider) and runs a broad query mix at the
@@ -3059,6 +3105,7 @@ export const LocationPage: React.FC = () => {
         }}
         origin={origin}
         onSearchRestaurants={handleChatSearch}
+        onSearchMichelin={handleChatMichelin}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
         onAssistantPlaces={handleAssistantPlaces}
