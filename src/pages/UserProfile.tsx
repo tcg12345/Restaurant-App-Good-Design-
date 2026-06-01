@@ -457,7 +457,7 @@ export const UserProfile: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface pb-24">
-      <div className="max-w-[1280px] mx-auto px-4 md:px-9 pt-6 md:pt-7">
+      <div className="max-w-[1280px] mx-auto px-4 md:px-9 pt-safe-5 md:pt-7">
 
         {/* TOP NAV STRIP */}
         <div className="flex items-center justify-between gap-3 pb-5">
@@ -590,7 +590,7 @@ export const UserProfile: React.FC = () => {
 
         {/* CUISINE STRIP — "Most rated" */}
         {topCuisines.length > 0 && (
-          <div className="flex items-center gap-3.5 py-4 border-b border-[var(--color-line)] overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-3.5 py-4 border-b border-[var(--color-line)] overflow-x-auto scrollbar-hide touch-pan-x">
             <span className="text-[11.5px] font-bold tracking-[0.1em] uppercase text-[var(--color-ink-3)] flex-shrink-0">
               Most rated
             </span>
@@ -613,7 +613,7 @@ export const UserProfile: React.FC = () => {
         )}
 
         {/* TAB BAR */}
-        <div className="flex items-end gap-5 md:gap-7 pt-5 border-b border-[var(--color-line)] mb-5 sticky top-0 bg-surface z-10 overflow-x-auto scrollbar-hide">
+        <div className="flex items-end gap-5 md:gap-7 pt-5 border-b border-[var(--color-line)] mb-5 overflow-x-auto scrollbar-hide touch-pan-x">
           {tabs.map((t) => {
             const active = viewTab === t.key;
             return (
@@ -653,9 +653,10 @@ export const UserProfile: React.FC = () => {
           <>
             {viewTab === 'restaurants' && (
               <>
-                {/* Filter bar */}
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2.5 mb-2">
-                  <div className="relative flex items-center">
+                {/* Filter bar — search on its own row; Sort + Filter share a
+                    compact second row on phones (single row on ≥sm). */}
+                <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center mb-2">
+                  <div className="relative flex items-center sm:flex-1">
                     <Search size={16} className="absolute left-4 text-[var(--color-ink-3)]" />
                     <input
                       type="text"
@@ -671,6 +672,7 @@ export const UserProfile: React.FC = () => {
                     )}
                   </div>
 
+                  <div className="flex items-center gap-2.5">
                   {/* Sort dropdown */}
                   <div className="relative" ref={sortBtnRef}>
                     <button
@@ -717,11 +719,12 @@ export const UserProfile: React.FC = () => {
                       </span>
                     )}
                   </button>
+                  </div>
                 </div>
 
                 {/* Cuisine chips */}
                 {allCuisines.length > 0 && (
-                  <div className="flex gap-1.5 pt-3 pb-4 overflow-x-auto scrollbar-hide">
+                  <div className="flex gap-1.5 pt-3 pb-4 overflow-x-auto scrollbar-hide touch-pan-x">
                     <button
                       onClick={() => setFilterCuisine(null)}
                       className={cn(
