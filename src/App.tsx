@@ -126,7 +126,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
   // `phoneMode` does two jobs: gate the mobile UI everywhere, and (only
