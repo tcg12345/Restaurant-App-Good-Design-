@@ -736,11 +736,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // On the map page the sheet's tallest state is 'half' — capped so the map
   // always stays visible above it (the user can't drag it fully up). Home keeps
   // the taller sheet since it has no map underneath.
-  const HALF_HEIGHT = (typeof window !== 'undefined' ? window.innerHeight : 800) * (mode === 'map' ? 0.58 : 0.85);
+  const HALF_HEIGHT = (typeof window !== 'undefined' ? window.innerHeight : 800) * (mode === 'map' ? 0.55 : 0.85);
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
-    if (state === 'full') return 0;
-    if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
-    return FULL_HEIGHT - PEEK_HEIGHT;
+    let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
+    // Hard cap on the map page: the sheet can never rise above its 'half'
+    // position, so the map underneath is always visible — no matter what
+    // state it's in or how far it's dragged.
+    if (mode === 'map') y = Math.max(y, FULL_HEIGHT - HALF_HEIGHT);
+    return y;
   };
 
   // ── Discover feed state ──
