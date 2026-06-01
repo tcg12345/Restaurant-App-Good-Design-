@@ -5607,7 +5607,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <span className="inline-flex items-center gap-1"><Star size={12} className="fill-[#c1881f] text-[#c1881f]" />You rated {s.toFixed(1)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0 font-serif font-bold text-[19px] text-[#c1881f] tabular-nums"><Star size={13} className="fill-[#c1881f] text-[#c1881f]" />{s.toFixed(1)}</div>
+                  <ScoreBadge rating={s} size="md" className="self-center" />
                 </div>
                 );
               })}
@@ -5646,7 +5646,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0 font-serif font-bold text-[19px] text-[#c1881f] tabular-nums"><Star size={13} className="fill-[#c1881f] text-[#c1881f]" />{s.toFixed(1)}</div>
+                    <ScoreBadge rating={s} size="md" className="self-center" />
                   </div>
                 );
               })}
@@ -5681,7 +5681,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <span className="inline-flex items-center gap-1 min-w-0"><Star size={12} className="fill-amber-500 text-amber-500 flex-shrink-0" /><span className="truncate text-amber-600">{expName}</span></span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0 font-serif font-bold text-[19px] text-[#c1881f] tabular-nums"><Star size={13} className="fill-[#c1881f] text-[#c1881f]" />{s.toFixed(1)}</div>
+                  <ScoreBadge rating={s} size="md" className="self-center" />
                 </div>
                 );
               })}
@@ -5861,7 +5861,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   )}
                                 </div>
                                 {place.rating > 0 && (
-                                  <div className="flex items-center gap-1 flex-shrink-0 font-serif font-bold text-[19px] text-[#c1881f] tabular-nums"><Star size={13} className="fill-[#c1881f] text-[#c1881f]" />{place.rating.toFixed(1)}</div>
+                                  <ScoreBadge rating={place.rating} size="md" className="self-center" />
                                 )}
                               </div>
                             );
@@ -5910,7 +5910,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 )}
                               </div>
                               {place.rating > 0 && (
-                                <div className="flex items-center gap-1 flex-shrink-0 font-serif font-bold text-[19px] text-[#c1881f] tabular-nums"><Star size={13} className="fill-[#c1881f] text-[#c1881f]" />{place.rating.toFixed(1)}</div>
+                                <ScoreBadge rating={place.rating} size="md" className="self-center" />
                               )}
                             </div>
                           );
