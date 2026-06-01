@@ -1,7 +1,15 @@
 /**
- * Capacitor keyboard integration: hide the iOS input accessory bar at
- * launch, and surface keyboard show/hide events so UI chrome (the bottom
- * nav, primarily) can react.
+ * Capacitor keyboard integration. Makes the on-screen keyboard feel like
+ * the standard iOS one and easy to dismiss:
+ *
+ *   - Shows the native input accessory bar (the toolbar with prev/next
+ *     field arrows and a "Done" button) so there's an obvious, familiar
+ *     way to collapse the keyboard — the same bar Safari shows on forms.
+ *   - Dismisses the keyboard when the user taps (or starts scrolling on)
+ *     anything that isn't a text field, which is what people expect on
+ *     iOS but a web view doesn't do on its own.
+ *   - Surfaces keyboard show/hide events so UI chrome (the bottom nav,
+ *     chat island, etc.) can react.
  *
  * Uses the typed @capacitor/keyboard API. The imports tree-shake to nothing
  * on the web — Capacitor's web stubs are tiny — and the
@@ -22,22 +30,53 @@ export interface NativeKeyboardOptions {
   onKeyboardChange?: (open: boolean) => void;
 }
 
+/** Is this node (or one of its ancestors) a text-editing field? */
+function isEditableTarget(node: EventTarget | null): boolean {
+  let el = node instanceof HTMLElement ? node : null;
+  while (el) {
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
 export async function configureNativeKeyboard(
   options: NativeKeyboardOptions = {},
 ): Promise<NativeKeyboardHandle> {
   const noop: NativeKeyboardHandle = { destroy() {} };
   if (!Capacitor.isNativePlatform()) return noop;
 
-  // Hide the iOS input accessory view (the bar with up/down chevrons and
-  // a check button that sits between the keyboard and the page). Has no
-  // effect on Android, where the plugin's implementation is a no-op.
+  // Show the iOS input accessory bar — the toolbar with up/down chevrons
+  // and a "Done" button between the keyboard and the page. It's the
+  // standard iOS form affordance and gives a one-tap way to dismiss the
+  // keyboard (the plugin hides it by default, which is what made the
+  // keyboard feel bare and hard to collapse).
   try {
-    await Keyboard.setAccessoryBarVisible({ isVisible: false });
+    await Keyboard.setAccessoryBarVisible({ isVisible: true });
   } catch (err) {
     // Log but don't throw — the rest of the app shouldn't care if the
     // plugin happens to be missing on this build.
     console.warn('[native-keyboard] setAccessoryBarVisible failed:', err);
   }
+
+  // Tap / scroll outside a field to dismiss the keyboard. A web view won't
+  // blur the focused input when you tap a plain element, so the keyboard
+  // gets "stuck"; this restores the native feel. Runs in the capture phase
+  // so the field blurs before the tapped element's own handlers fire — a
+  // tapped button still receives its click, the keyboard just slides away.
+  const onPointerDown = (e: PointerEvent) => {
+    const active = document.activeElement as HTMLElement | null;
+    if (!active) return;
+    const activeIsField =
+      active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
+    if (!activeIsField) return;
+    // Tapping another field: let focus move there instead of dismissing.
+    if (isEditableTarget(e.target)) return;
+    active.blur();
+  };
+  document.addEventListener('pointerdown', onPointerDown, true);
 
   const handles = await Promise.all([
     Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
@@ -46,6 +85,7 @@ export async function configureNativeKeyboard(
 
   return {
     destroy() {
+      document.removeEventListener('pointerdown', onPointerDown, true);
       handles.forEach((h) => h.remove());
     },
   };
