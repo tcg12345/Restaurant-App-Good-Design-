@@ -723,7 +723,7 @@ const RecipePanelBody: React.FC<{
     <>
       {/* Compact static header — no hero image, no scroll-collapse. Two
           rows: title + close, then a small meta line. */}
-      <div className="flex-shrink-0 border-b border-on-surface/[0.07] bg-surface/95 backdrop-blur sticky top-0 z-10 px-5 pt-5 pb-3">
+      <div className="flex-shrink-0 border-b border-on-surface/[0.07] bg-surface/95 backdrop-blur sticky top-0 z-10 px-5 pt-safe-5 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="font-serif font-bold text-on-surface text-[18px] leading-[1.15] tracking-tight line-clamp-2">

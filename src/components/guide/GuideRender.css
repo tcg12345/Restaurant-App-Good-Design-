@@ -39,7 +39,9 @@
   position: absolute;
   inset: 0 0 auto 0;
   z-index: 5;
-  padding: 16px 24px;
+  /* Push the floating back / share controls below the iPhone status-bar
+     safe area so they don't sit under the notch / Dynamic Island. */
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 24px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
