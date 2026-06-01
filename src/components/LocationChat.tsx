@@ -789,12 +789,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     el.scrollTop = el.scrollHeight;
   }, [messages, streaming]);
 
-  // Focus the input when the chat opens.
+  // Focus the input when the chat opens — desktop only. On phones we
+  // deliberately DON'T auto-focus: doing so pops the on-screen keyboard up
+  // while the panel is still sliding in, and the keyboard resize fights the
+  // slide animation, making the whole thing glitch. The user taps the field
+  // to type when they're ready.
   useEffect(() => {
-    if (!open) return;
+    if (!open || phoneMode) return;
     const t = setTimeout(() => inputRef.current?.focus(), 220);
     return () => clearTimeout(t);
-  }, [open]);
+  }, [open, phoneMode]);
 
   // Abort any in-flight request when the component unmounts.
   useEffect(() => () => {
