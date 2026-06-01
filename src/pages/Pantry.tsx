@@ -3589,7 +3589,7 @@ const TripsTab: React.FC<{
     const tonightDinner = selectedTrip.restaurants.find((r) => r.night === currentNight && r.mealType === 'dinner' && r.status === 'planned');
 
     return (
-      <div className="pb-8">
+      <div className={cn('pb-8', phoneMode && 'pt-safe-4')}>
         {/* ── Header ── */}
         <div className="mb-6">
           {selectedTrip.coverImage ? (
@@ -3872,7 +3872,7 @@ const TripsTab: React.FC<{
 
   // ── Index view ──
   return (
-    <div className="relative">
+    <div className={cn('relative', phoneMode && 'pt-safe-4')}>
       {/* Back to lists */}
       <div className="flex items-center gap-3 mb-4">
         <button onClick={onBack} className="p-1.5 rounded-full hover:bg-on-surface/5">
@@ -6826,7 +6826,11 @@ export const Pantry: React.FC = () => {
           stays consistent — opening Wishlist or a custom list keeps
           the same chrome and just swaps the list content below.
           Hidden on phone (card landing handles it) and in trips. */}
-      {!hideTopBar && (
+      {/* Desktop-only top bar (Restaurants/Recipes tab switcher + page ⋯).
+          On phone every view below renders its own safe-area header
+          (back · Add · ⋯), so this would just stack an empty, status-bar-
+          overlapping row on top of them — hence phone is excluded. */}
+      {!hideTopBar && !phoneMode && (
         <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-5">
           {!phoneMode && !showTrips ? (
             <div className="relative" ref={listSwitcherRef}>
@@ -7100,7 +7104,12 @@ export const Pantry: React.FC = () => {
                     <span>Add Rating</span>
                   </button>
                   <ListMoreMenu
-                    items={[{ label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') }]}
+                    items={[
+                      { label: 'Import', icon: <Upload size={14} />, onClick: () => navigate('/import') },
+                      { label: 'Export CSV', icon: <Download size={14} />, onClick: () => handleExport('csv') },
+                      { label: 'Export JSON', icon: <Download size={14} />, onClick: () => handleExport('json') },
+                      { label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') },
+                    ]}
                   />
                 </div>
 
