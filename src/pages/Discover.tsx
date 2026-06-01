@@ -39,6 +39,7 @@ import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
 import {
@@ -732,7 +733,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // first result, matching the reference's map-prominent layout.
   const PEEK_HEIGHT = 300;
   const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 680;
+  // On the map page the sheet's tallest state is 'half' — capped so the map
+  // always stays visible above it (the user can't drag it fully up). Home keeps
+  // the taller sheet since it has no map underneath.
+  const HALF_HEIGHT = (typeof window !== 'undefined' ? window.innerHeight : 800) * (mode === 'map' ? 0.58 : 0.85);
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     if (state === 'full') return 0;
     if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
@@ -2896,6 +2900,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     isMarkerSelectedRef.current = false;
   }, []);
 
+  // Drag-to-dismiss for the mobile detail sheet (swipe down to close).
+  // Drag only fires from the handle (startDetailDrag) so the body scrolls.
+  const detailSheetOpen = !!selectedPlace && mode === 'map' && !isDesktopMapMode;
+  const { dragProps: detailDragProps, startDrag: startDetailDrag } = useBottomSheet(detailSheetOpen, closePanelDetail);
+
   // Tiny <ItemMeta /> piece used inside every card so cuisine · price ·
   // city reads consistently across modes. Cuisine is the visual accent —
   // rendered in a vivid red so it lifts off the rest of the muted meta.
@@ -3228,14 +3237,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             visible whether or not the place is saved (the fill carries
             the state). */}
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={closePanelDetail}
-            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
-          >
-            <ChevronLeft size={14} />
-            Back to {activePanelMode.label}
-          </button>
+          {isDesktopMapMode ? (
+            <button
+              type="button"
+              onClick={closePanelDetail}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
+            >
+              <ChevronLeft size={14} />
+              Back to {activePanelMode.label}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={closePanelDetail}
+              aria-label="Close"
+              className="w-9 h-9 -ml-1 rounded-full border border-on-surface/10 flex items-center justify-center text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => toggleWishlist(restData)}
@@ -4015,10 +4035,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+            {...detailDragProps}
             className="absolute left-0 right-0 bottom-0 z-[61] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
             style={{ height: '92%' }}
           >
-            {renderPanelDetail(selectedPlace)}
+            {/* Grab strip — swipe down anywhere on it to dismiss the sheet. */}
+            <div
+              className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onPointerDown={startDetailDrag}
+            >
+              <div className="w-10 h-1.5 rounded-full bg-on-surface/15" />
+            </div>
+            <div className="flex-1 min-h-0">
+              {renderPanelDetail(selectedPlace)}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4062,7 +4093,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const el = sheetRef.current;
             if (!el) return;
             const baseY = getSheetY(sheetState);
-            const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
+            const minY = mode === 'map' ? getSheetY('half') : 0;
+            const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
             el.style.transform = `translateY(${clamped}px)`;
             el.style.transition = 'none';
           }}
@@ -4094,7 +4126,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               const el = sheetRef.current;
               if (!el) return;
               const baseY = getSheetY(sheetState);
-              const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
+              const minY = mode === 'map' ? getSheetY('half') : 0;
+              const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
               el.style.transform = `translateY(${clamped}px)`;
               el.style.transition = 'none';
             };
@@ -5840,99 +5873,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <>
                   {/* ── Feed mode: Recommendations first, then Nearby ── */}
 
-                  {/* Recommendations */}
-                  {recsLoading ? (
-                    <section>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <Sparkles size={13} className="text-primary/60" />
-                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center py-6">
-                        <Loader2 size={18} className="text-primary/40 animate-spin" />
-                        <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                      </div>
-                    </section>
-                  ) : recommendations.length > 0 ? (
-                    <section>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <Sparkles size={13} className="text-primary/60" />
-                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                        </div>
-                      </div>
-                      <div
-                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
-                        onScroll={(e) => {
-                          const el = e.currentTarget;
-                          if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
-                        }}
-                      >
-                        {recommendations.map((place) => {
-                          const cuisine = getCuisineLabel((place as any).types || []);
-                          const wishlisted = isWishlisted(place.id);
-                          const recMeta = {
-                            id: place.id,
-                            name: place.name,
-                            image: (place as any).photoUrl || '',
-                            cuisine,
-                            price: priceLevelToString((place as any).priceLevel || 0),
-                            address: (place as any).address || '',
-                          };
-                          return (
-                            <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer snap-start" onClick={() => focusPanelPlace(place)}>
-                              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                                {(place as any).photoUrl ? (
-                                  <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center"><MapPinned size={22} className="text-on-surface/15" /></div>
-                                )}
-                                <div className="absolute top-2 right-2 flex items-center gap-1">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
-                                    className={cn(
-                                      "w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
-                                      wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
-                                    )}
-                                    aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                                  >
-                                    <Heart size={14} className={wishlisted ? "fill-primary" : ""} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(recMeta); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
-                                    aria-label="Add to list"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="pt-2 pb-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <h3 className="font-serif text-[12px] font-bold leading-snug line-clamp-2 flex-1">{place.name}</h3>
-                                  {(place as any).rating > 0 && (
-                                    <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5 text-primary">
-                                      <Star size={10} className="fill-primary" />
-                                      <span className="text-[10px] font-bold">{(place as any).rating.toFixed(1)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                                <p className="mt-0.5 text-[9px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                                  {cuisine}{cuisine && <span className="text-on-surface/25 mx-1">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {recsLoadingMore && (
-                          <div className="flex-shrink-0 w-40 flex items-center justify-center">
-                            <Loader2 size={16} className="text-primary/40 animate-spin" />
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  ) : null}
 
                   {/* Nearby Restaurants — vertical list */}
                   {isSearching && places.length === 0 ? (
