@@ -2770,14 +2770,14 @@ export const LocationPage: React.FC = () => {
           // out Tailwind's border class otherwise.
           const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors';
           const idleStyle: React.CSSProperties = {
-            background: '#FFFFFF',
-            color: 'rgba(28, 24, 22, 0.75)',
-            border: '1px solid rgba(28, 24, 22, 0.12)',
+            background: 'var(--surface)',
+            color: 'var(--ink-2)',
+            border: '1px solid var(--border-strong)',
           };
           const activeStyle: React.CSSProperties = {
-            background: '#1C1816',
-            color: '#FFFFFF',
-            border: '1px solid #1C1816',
+            background: 'var(--ink)',
+            color: 'var(--cream)',
+            border: '1px solid var(--ink)',
           };
           return (
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">

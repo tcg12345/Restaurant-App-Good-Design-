@@ -76,6 +76,7 @@
 .dark .recipe-detail-page .rd-nav { background: rgba(19, 19, 20, 0.85); }
 .dark .recipe-detail-page .rdm-nav { background: rgba(19, 19, 20, 0.92); }
 .dark .recipe-detail-page .rd-equipment-card { background: var(--surface); }
+.dark .recipe-detail-page .ph-fallback { color: rgba(255, 255, 255, 0.18); }
 
 /* ============ TOP NAV (sticky, slim) ============ */
 .recipe-detail-page .rd-nav {
