@@ -370,7 +370,7 @@ export const DesktopHeader: React.FC = () => {
               'transition-all',
               isScoped
                 ? 'bg-primary/[0.06] border border-primary/20 focus:border-primary/40 placeholder:text-primary/60'
-                : 'bg-paper border border-on-surface/[0.08] hover:border-on-surface/15 focus:border-on-surface/25 focus:bg-white shadow-[0_1px_2px_rgba(30,27,26,0.04)]',
+                : 'bg-paper border border-on-surface/[0.08] hover:border-on-surface/15 focus:border-on-surface/25 shadow-[0_1px_2px_rgba(30,27,26,0.04)]',
             )}
             aria-label={isScoped && scopedSearch ? `Search ${scopedSearch.scopeName}` : 'Search restaurants'}
             aria-haspopup={isScoped ? undefined : 'listbox'}

@@ -68,6 +68,7 @@
    same warm family. Dark mode override below still wins. */
 .bg-white,
 .bg-white\/95,
+.bg-white\/92,
 .bg-white\/90,
 .bg-white\/85,
 .bg-white\/80,
@@ -78,10 +79,25 @@
 /* In dark mode the same selectors fall back to the dark paper tone. */
 .dark .bg-white,
 .dark .bg-white\/95,
+.dark .bg-white\/92,
 .dark .bg-white\/90,
 .dark .bg-white\/85,
 .dark .bg-white\/80,
 .dark .bg-white\/70 {
+  background-color: var(--color-paper) !important;
+}
+/* The hover / focus / active variants of bg-white are *separate* utility
+   classes the base remap above doesn't catch, so without this they flash to
+   a harsh literal white on interaction — most visibly the focused desktop
+   search bar and card hovers, which look broken in dark mode. Remap those to
+   paper as well (applies in both themes; --color-paper flips). Low-alpha
+   bg-white/10../50 glass used over photos is intentional and left alone. */
+.hover\:bg-white:hover,
+.hover\:bg-white\/95:hover,
+.hover\:bg-white\/92:hover,
+.hover\:bg-white\/90:hover,
+.focus\:bg-white:focus,
+.active\:bg-white:active {
   background-color: var(--color-paper) !important;
 }
 /* Glass / pill backgrounds defined as `bg-on-surface/X` already adapt

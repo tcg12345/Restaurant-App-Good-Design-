@@ -2228,7 +2228,7 @@ export const LocationPage: React.FC = () => {
           global top bar (DesktopHeader). Keeps the route navigable.
           On mobile we render a richer header with a centered LOCATION
           eyebrow + "{city} ▾" dropdown trigger and a share button. */}
-      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)' }}>
         {isMobile ? (
           <div className="flex items-center justify-between gap-3">
             <button
