@@ -2,9 +2,11 @@
  * Capacitor keyboard integration. Makes the on-screen keyboard feel like
  * the standard iOS one and easy to dismiss:
  *
- *   - Shows the native input accessory bar (the toolbar with prev/next
- *     field arrows and a "Done" button) so there's an obvious, familiar
- *     way to collapse the keyboard — the same bar Safari shows on forms.
+ *   - Keeps the bare native keyboard (no extra input-accessory toolbar) so it
+ *     looks like the system keyboard — just the predictive-text bar and keys.
+ *     The toolbar (prev/next chevrons + Done) rendered as a dark band above
+ *     the keyboard that didn't match iOS and looked broken; tap-outside
+ *     (below) is how the keyboard is dismissed instead.
  *   - Dismisses the keyboard when the user taps (or starts scrolling on)
  *     anything that isn't a text field, which is what people expect on
  *     iOS but a web view doesn't do on its own.
@@ -48,13 +50,12 @@ export async function configureNativeKeyboard(
   const noop: NativeKeyboardHandle = { destroy() {} };
   if (!Capacitor.isNativePlatform()) return noop;
 
-  // Show the iOS input accessory bar — the toolbar with up/down chevrons
-  // and a "Done" button between the keyboard and the page. It's the
-  // standard iOS form affordance and gives a one-tap way to dismiss the
-  // keyboard (the plugin hides it by default, which is what made the
-  // keyboard feel bare and hard to collapse).
+  // Hide the WebView input accessory bar (the dark toolbar with prev/next
+  // chevrons + Done). It rendered as a black band above the keyboard that
+  // looked nothing like the system keyboard; without it we get the bare
+  // iOS keyboard (predictive bar + keys). Tap-outside (below) dismisses it.
   try {
-    await Keyboard.setAccessoryBarVisible({ isVisible: true });
+    await Keyboard.setAccessoryBarVisible({ isVisible: false });
   } catch (err) {
     // Log but don't throw — the rest of the app shouldn't care if the
     // plugin happens to be missing on this build.
