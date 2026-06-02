@@ -99,14 +99,14 @@ const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ 
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Featured place</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.name}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Featured place</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.name}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>
           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
         </p>
       </div>
       <ScoreBadge rating={score} size="sm" />
-      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-stone-400')} />
+      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-on-surface/40')} />
     </button>
   );
 };
@@ -133,13 +133,13 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Recipe</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.title}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Recipe</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.title}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        phoneMode ? 'bg-white text-stone-900' : 'bg-stone-900 text-white',
+        phoneMode ? 'bg-white text-stone-900' : 'bg-on-surface text-surface',
       )}>View</span>
     </button>
   );
@@ -534,7 +534,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                     'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
                     isFollowing
                       ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
-                      : 'bg-white text-stone-900 hover:bg-white/90',
+                      : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
                   )}
                 >
                   {isFollowing ? 'Unfollow' : 'Follow'}

@@ -596,9 +596,9 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                         <div className="text-red-600 font-bold text-lg">{stats.errors}</div>
                         <div className="text-red-600">Errors</div>
                       </div>
-                      <div className="bg-gray-50 rounded-lg p-2">
-                        <div className="text-gray-600 font-bold text-lg">{stats.pending}</div>
-                        <div className="text-gray-600">Pending</div>
+                      <div className="bg-on-surface/[0.05] rounded-lg p-2">
+                        <div className="text-on-surface/60 font-bold text-lg">{stats.pending}</div>
+                        <div className="text-on-surface/60">Pending</div>
                       </div>
                     </div>
                   )}
@@ -641,7 +641,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                   </div>
 
                   {isRunning && stats.total > 0 && (
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-on-surface/15 rounded-full h-2">
                       <div
                         className="bg-primary h-2 rounded-full transition-all duration-300"
                         style={{
@@ -663,12 +663,12 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                             ? 'bg-red-50 border-red-200'
                             : item.status === 'creating'
                             ? 'bg-blue-50 border-blue-200'
-                            : 'bg-white border-gray-200',
+                            : 'bg-white border-on-surface/10',
                         )}
                       >
                         <div className="flex-shrink-0">
                           {item.status === 'pending' && (
-                            <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
+                            <div className="w-5 h-5 rounded-full border-2 border-on-surface/25" />
                           )}
                           {item.status === 'creating' && (
                             <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />

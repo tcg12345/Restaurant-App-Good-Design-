@@ -22,6 +22,17 @@
   --accent: #A8392A;
   --accent-soft: #F3E0D7;
   --green: #2E7D5C;
+  /* Shared editorial surface tokens consumed by the Advanced Recipe Builder
+     and Guide Creator modals (their CSS reads --cream / --cream-2 from here).
+     Hoisted to :root so those full-page modals get them even when the user
+     hasn't visited /location yet, and so they flip in the .dark block below. */
+  --cream: #EDE7D9;
+  --cream-2: #E6DFCE;
+  --green-soft: #DCEEDE;
+  /* RGB triplet for the low-alpha "ink" overlays (hover fills, hairline
+     borders, slider/switch tracks) the modals paint as rgba(var(--overlay-ink),a).
+     Flips to a light triplet in dark mode so those overlays stay visible. */
+  --overlay-ink: 31, 26, 23;
   --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
 }
 
@@ -85,6 +96,12 @@
   --muted-2: #5d5d5d;
   --accent: #c2543e;
   --accent-soft: rgba(194, 84, 62, 0.16);
+  /* Dark surfaces for the shared editorial tokens (recipe builder / guide
+     creator). Page bg goes near-black; cards ride --surface above. */
+  --cream: #131314;
+  --cream-2: #1c1c1e;
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --overlay-ink: 235, 235, 235;
 }
 .dark .location-page-root {
   --bg: #131314;

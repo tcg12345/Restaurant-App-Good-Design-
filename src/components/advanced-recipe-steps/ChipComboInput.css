@@ -18,7 +18,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--surface);
   border: 1.5px solid transparent;
   border-radius: 14px;
   min-height: 50px;
@@ -97,7 +97,7 @@
   left: 0;
   right: 0;
   z-index: 30;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border, rgba(31, 26, 23, 0.08));
   border-radius: 14px;
   overflow: hidden;

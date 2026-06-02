@@ -44,6 +44,39 @@
 .recipe-detail-page a { color: inherit; text-decoration: none; }
 .recipe-detail-page img { display: block; max-width: 100%; }
 
+/* ============ DARK MODE ============
+   The recipe detail page ships its own warm LIGHT palette above. When the
+   app's global `.dark` class is set, re-point the same tokens to dark values
+   so the nav, hero, steps, reviews, equipment card, and chrome all follow
+   dark mode. Almost everything consumes the tokens via var(), so flipping
+   the tokens flips the page; the few hardcoded light surfaces that don't ride
+   a token are overridden explicitly below. The cooking-mode overlay (.rd-cm-*)
+   is intentionally dark in both themes and the @media print block is left as
+   white paper. */
+.dark .recipe-detail-page {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-2: #d4664e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+/* Hardcoded light surfaces that don't ride a token — flip explicitly. */
+.dark .recipe-detail-page .rd-nav { background: rgba(19, 19, 20, 0.85); }
+.dark .recipe-detail-page .rdm-nav { background: rgba(19, 19, 20, 0.92); }
+.dark .recipe-detail-page .rd-equipment-card { background: var(--surface); }
+
 /* ============ TOP NAV (sticky, slim) ============ */
 .recipe-detail-page .rd-nav {
   position: sticky;

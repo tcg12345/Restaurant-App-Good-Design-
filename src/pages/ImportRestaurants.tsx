@@ -284,7 +284,7 @@ export const ImportRestaurants: React.FC = () => {
                 <div className="bg-emerald-50 rounded-lg p-2"><div className="text-emerald-600 font-bold text-lg">{stats.found}</div><div className="text-emerald-600">Found</div></div>
                 <div className="bg-amber-50 rounded-lg p-2"><div className="text-amber-600 font-bold text-lg">{stats.skipped}</div><div className="text-amber-600">Skipped</div></div>
                 <div className="bg-red-50 rounded-lg p-2"><div className="text-red-600 font-bold text-lg">{stats.notFound}</div><div className="text-red-600">Not Found</div></div>
-                <div className="bg-gray-50 rounded-lg p-2"><div className="text-gray-600 font-bold text-lg">{stats.pending}</div><div className="text-gray-600">Pending</div></div>
+                <div className="bg-on-surface/[0.05] rounded-lg p-2"><div className="text-on-surface/60 font-bold text-lg">{stats.pending}</div><div className="text-on-surface/60">Pending</div></div>
               </div>
             )}
 
@@ -308,7 +308,7 @@ export const ImportRestaurants: React.FC = () => {
 
             {/* Progress */}
             {isRunning && (
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-on-surface/15 rounded-full h-2">
                 <div className="bg-primary h-2 rounded-full transition-all duration-300"
                   style={{ width: `${((stats.found + stats.notFound + stats.skipped + stats.errors) / stats.total) * 100}%` }} />
               </div>
@@ -322,10 +322,10 @@ export const ImportRestaurants: React.FC = () => {
                     item.status === 'found' ? 'bg-emerald-50 border-emerald-200' :
                     item.status === 'skipped' ? 'bg-amber-50 border-amber-200' :
                     item.status === 'not_found' || item.status === 'error' ? 'bg-red-50 border-red-200' :
-                    item.status === 'searching' ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+                    item.status === 'searching' ? 'bg-blue-50 border-blue-200' : 'bg-white border-on-surface/10'
                   }`}>
                   <div className="flex-shrink-0">
-                    {item.status === 'pending' && <div className="w-5 h-5 rounded-full border-2 border-gray-300" />}
+                    {item.status === 'pending' && <div className="w-5 h-5 rounded-full border-2 border-on-surface/25" />}
                     {item.status === 'searching' && <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />}
                     {item.status === 'found' && <CheckCircle className="w-5 h-5 text-emerald-500" />}
                     {item.status === 'skipped' && <AlertTriangle className="w-5 h-5 text-amber-500" />}

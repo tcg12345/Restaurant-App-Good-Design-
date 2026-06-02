@@ -3783,7 +3783,7 @@ const TripsTab: React.FC<{
                           <span
                             className={cn(
                               "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide flex-shrink-0 min-w-[58px] text-center",
-                              MEAL_COLORS[r.mealType] || 'bg-gray-100 text-gray-600'
+                              MEAL_COLORS[r.mealType] || 'bg-on-surface/[0.08] text-on-surface/70'
                             )}
                           >
                             {r.mealType}

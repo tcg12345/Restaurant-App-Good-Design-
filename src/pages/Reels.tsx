@@ -142,9 +142,9 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Featured in reel</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.name}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Featured in reel</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.name}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>
           {[r.cuisine, r.price, distance].filter(Boolean).join(' · ')}
         </p>
       </div>
@@ -153,7 +153,7 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
           {score.toFixed(1)}
         </span>
       )}
-      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-stone-400')} />
+      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-on-surface/40')} />
     </button>
   );
 };
@@ -180,13 +180,13 @@ const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onCli
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Recipe</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.title}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Recipe</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.title}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        phoneMode ? 'bg-white text-stone-900' : 'bg-stone-900 text-white',
+        phoneMode ? 'bg-white text-stone-900' : 'bg-on-surface text-surface',
       )}>View</span>
     </button>
   );
@@ -561,7 +561,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
                 'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
                 isFollowing
                   ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
-                  : 'bg-white text-stone-900 hover:bg-white/90',
+                  : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
               )}
             >
               {isFollowing ? 'Unfollow' : 'Follow'}
@@ -789,9 +789,9 @@ const PostRestaurantSideCard: React.FC<{ item: PostItemRow; onClick: () => void 
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Featured place</p>
-        <p className="text-[15px] font-bold leading-tight truncate text-stone-900">{r.name}</p>
-        <p className="text-[11px] truncate mt-0.5 text-stone-500">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/55">Featured place</p>
+        <p className="text-[15px] font-bold leading-tight truncate text-on-surface">{r.name}</p>
+        <p className="text-[11px] truncate mt-0.5 text-on-surface/55">
           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
         </p>
       </div>
@@ -800,7 +800,7 @@ const PostRestaurantSideCard: React.FC<{ item: PostItemRow; onClick: () => void 
           {score.toFixed(1)}
         </span>
       )}
-      <ChevronRight size={16} className="flex-shrink-0 text-stone-400" />
+      <ChevronRight size={16} className="flex-shrink-0 text-on-surface/40" />
     </button>
   );
 };
@@ -821,11 +821,11 @@ const PostRecipeSideCard: React.FC<{ item: PostItemRow; onClick: () => void }> =
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Recipe</p>
-        <p className="text-[15px] font-bold leading-tight truncate text-stone-900">{r.title}</p>
-        <p className="text-[11px] truncate mt-0.5 text-stone-500">{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/55">Recipe</p>
+        <p className="text-[15px] font-bold leading-tight truncate text-on-surface">{r.title}</p>
+        <p className="text-[11px] truncate mt-0.5 text-on-surface/55">{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
-      <span className="px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 bg-stone-900 text-white">View</span>
+      <span className="px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 bg-on-surface text-surface">View</span>
     </button>
   );
 };
@@ -1226,25 +1226,18 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
 
   // Mobile sheet uses light-gray pill chrome; desktop panel uses on-surface
   // tokens so it blends with the app's surface color (not a dark bg).
-  const headerCls = variant === 'sheet'
-    ? 'border-b border-stone-100'
-    : 'border-b border-on-surface/[0.07]';
-  const titleCls = variant === 'sheet'
-    ? 'font-serif font-bold text-stone-900 text-base'
-    : 'font-serif font-bold text-on-surface text-base';
-  const closeCls = variant === 'sheet'
-    ? 'w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600'
-    : 'w-8 h-8 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
-  const composerInputCls = variant === 'sheet'
-    ? 'h-11 rounded-full bg-stone-100 px-4 text-sm placeholder:text-stone-400 focus:bg-stone-50 focus:ring-2 focus:ring-stone-900/10'
-    : 'h-11 rounded-full bg-on-surface/[0.05] px-4 text-sm placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:ring-2 focus:ring-on-surface/10';
-  const submitActiveCls = variant === 'sheet'
-    ? 'bg-stone-900 text-white hover:bg-stone-800'
-    : 'bg-on-surface text-surface hover:bg-on-surface/90';
-  const composerBorderCls = variant === 'sheet' ? 'border-stone-100' : 'border-on-surface/[0.07]';
-  const usernameCls = variant === 'sheet' ? 'text-stone-900' : 'text-on-surface';
-  const bodyTextCls = variant === 'sheet' ? 'text-stone-800' : 'text-on-surface/85';
-  const muteCls = variant === 'sheet' ? 'text-stone-400' : 'text-on-surface/40';
+  // Both variants ride the app's surface tokens so the comments UI blends
+  // with the surface color in light AND dark mode (the mobile sheet used to
+  // hardcode a light stone palette, which broke in dark mode).
+  const headerCls = 'border-b border-on-surface/[0.07]';
+  const titleCls = 'font-serif font-bold text-on-surface text-base';
+  const closeCls = 'w-8 h-8 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
+  const composerInputCls = 'h-11 rounded-full bg-on-surface/[0.05] px-4 text-sm placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:ring-2 focus:ring-on-surface/10';
+  const submitActiveCls = 'bg-on-surface text-surface hover:bg-on-surface/90';
+  const composerBorderCls = 'border-on-surface/[0.07]';
+  const usernameCls = 'text-on-surface';
+  const bodyTextCls = 'text-on-surface/85';
+  const muteCls = 'text-on-surface/40';
 
   return (
     <>
@@ -1271,7 +1264,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           </div>
         ) : comments.length === 0 ? (
           <div className="text-center py-8">
-            <p className={cn('text-sm', variant === 'sheet' ? 'text-stone-500' : 'text-on-surface/55')}>No comments yet.</p>
+            <p className="text-sm text-on-surface/55">No comments yet.</p>
             <p className={cn('text-xs mt-1', muteCls)}>Be the first to say something.</p>
           </div>
         ) : (
@@ -1365,7 +1358,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
             style={{ height: '75%' }}
           >
             <div className="pt-2 pb-1 flex justify-center">
-              <span className="w-10 h-1 rounded-full bg-stone-300" />
+              <span className="w-10 h-1 rounded-full bg-on-surface/20" />
             </div>
             <CommentsBody
               targetId={targetId}
@@ -2032,7 +2025,7 @@ export const Reels: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openAddPostModal()}
-                className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold"
+                className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white/15 text-white text-sm font-bold border border-white/25"
               >
                 <Plus size={16} />
                 New post
@@ -2164,10 +2157,10 @@ export const Reels: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
             >
-              <h4 className="font-serif font-bold text-stone-900 text-lg">Delete reel?</h4>
-              <p className="text-sm text-stone-500 mt-1">This can't be undone.</p>
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This can't be undone.</p>
               <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeleteId(null)} className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200">Cancel</button>
+                <button type="button" onClick={() => setConfirmDeleteId(null)} className="flex-1 h-11 rounded-full bg-on-surface/[0.08] text-on-surface/80 text-sm font-bold hover:bg-on-surface/[0.12]">Cancel</button>
                 <button type="button" onClick={handleConfirmDelete} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
               </div>
             </motion.div>
@@ -2184,10 +2177,10 @@ export const Reels: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
             >
-              <h4 className="font-serif font-bold text-stone-900 text-lg">Delete post?</h4>
-              <p className="text-sm text-stone-500 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete post?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
               <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeletePostId(null)} className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200">Cancel</button>
+                <button type="button" onClick={() => setConfirmDeletePostId(null)} className="flex-1 h-11 rounded-full bg-on-surface/[0.08] text-on-surface/80 text-sm font-bold hover:bg-on-surface/[0.12]">Cancel</button>
                 <button type="button" onClick={handleConfirmDeletePost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
               </div>
             </motion.div>
