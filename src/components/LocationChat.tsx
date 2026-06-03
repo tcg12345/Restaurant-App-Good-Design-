@@ -31,7 +31,6 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   formatLocationLabel,
   priceLevelToString,
@@ -773,7 +772,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const { dragProps, startDrag } = useBottomSheet(open && phoneMode, () => setOpen(false));
 
   // Hide the bottom-nav on phone while the chat sheet is up.
   useEffect(() => {
@@ -2094,13 +2092,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.div
             key="island"
             className={cn('lp-chat-island', phoneMode && 'is-phone')}
-            initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.94, y: 16 }}
-            animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
-            exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 12 }}
+            initial={phoneMode ? { opacity: 0, scale: 0.92 } : { opacity: 0, scale: 0.94, y: 16 }}
+            animate={phoneMode ? { opacity: 1, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
+            exit={phoneMode ? { opacity: 0, scale: 0.96 } : { opacity: 0, scale: 0.96, y: 12 }}
             transition={phoneMode
-              ? { type: 'spring', damping: 28, stiffness: 300 }
+              ? { type: 'spring', damping: 30, stiffness: 320 }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            {...(phoneMode ? dragProps : {})}
             style={!phoneMode && pos
               ? {
                   left: pos.left,
@@ -2112,16 +2109,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             role="dialog"
             aria-label="Restaurant assistant"
           >
-            {phoneMode && (
-              <div
-                className="lp-chat-drag-handle"
-                aria-hidden="true"
-                onPointerDown={startDrag}
-                style={{ touchAction: 'none' }}
-              >
-                <span />
-              </div>
-            )}
 
             <header
               className="lp-chat-head"

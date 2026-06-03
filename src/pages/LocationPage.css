@@ -2043,14 +2043,22 @@
   resize: none;
 }
 .lp-chat-island.is-phone {
-  right: 0;
-  left: 0;
-  bottom: 0;
+  /* Full-screen takeover on phones (no longer a draggable bottom sheet) —
+     fills the viewport edge to edge so the keyboard resize is clean (no
+     94vh "peek" of the page squishing into the safe area). Closed with the
+     header ✕. transform-origin sits at the FAB (bottom-right) so the panel
+     scales up out of the floating button. */
+  inset: 0;
   width: auto;
+  height: auto;
   max-width: none;
-  height: 94vh;
-  max-height: 94vh;
-  border-radius: 22px 22px 0 0;
+  max-height: none;
+  border-radius: 0;
+  transform-origin: 100% 100%;
+}
+/* Header clears the status bar / notch now that the panel starts at top:0. */
+.lp-chat-island.is-phone .lp-chat-head {
+  padding-top: max(14px, env(safe-area-inset-top));
 }
 
 .lp-chat-drag-handle {
