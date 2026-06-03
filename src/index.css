@@ -189,6 +189,14 @@
     overscroll-behavior: contain;
   }
 
+  /* Paint <html> too (not just <body>) with the app surface so there's never
+     a transparent region that reveals the WKWebView's black backing — most
+     visible as a black strip around the on-screen keyboard on iOS. The
+     matching native fix is in ios/App/App/MainViewController.swift. */
+  html {
+    background-color: var(--color-surface);
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans;
   }
