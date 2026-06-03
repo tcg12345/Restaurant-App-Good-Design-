@@ -473,12 +473,11 @@ export const Auth: React.FC = () => {
     setError('');
     setOauthPending(provider);
     const { error: err } = await signInWithOAuth(provider);
-    // On success the browser redirects away, so we only reach here on
-    // failure (e.g. the provider isn't enabled in Supabase yet).
-    if (err) {
-      setError(err);
-      setOauthPending(null);
-    }
+    if (err) setError(err);
+    // Web: on success the page is already navigating away, so this is moot.
+    // Native: control returns here after success (onAuthStateChange then
+    // swaps the screen) or after a cancel — either way clear the spinner.
+    setOauthPending(null);
   }, [signInWithOAuth]);
 
   const sharedProps: SharedProps = {

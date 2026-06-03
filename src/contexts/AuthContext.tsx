@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, supabaseConfigured } from '../lib/supabase';
+import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
 import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -150,6 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    // Native shell: hand off to the Capacitor deep-link flow, which opens
+    // the system browser and exchanges the code on the way back in.
+    if (isNativeRuntime()) return signInWithOAuthNative(provider);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
