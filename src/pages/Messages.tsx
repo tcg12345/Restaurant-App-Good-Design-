@@ -1047,7 +1047,7 @@ const ChatView: React.FC<{
 
       {/* Composer */}
       {phoneMode ? (
-        <div className="flex flex-col gap-2 px-3 pt-2.5 pb-keyboard border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
+        <div className="flex flex-col gap-2 px-3 pt-2.5 pb-safe-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
           {/* Share buttons */}
           <div className="flex items-center gap-2">
             <button onClick={() => setRestPickerOpen(true)}

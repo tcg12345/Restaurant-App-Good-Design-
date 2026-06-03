@@ -231,7 +231,7 @@ export const SearchMain: React.FC = () => {
   }, [hasQuery, searchQuery, recentSearches]);
 
   return (
-    <div className="min-h-screen bg-surface" style={{ paddingBottom: 'calc(8rem + var(--keyboard-height, 0px))' }}>
+    <div className="pb-32 min-h-screen bg-surface">
       <header className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40">
         <div className="px-4 pt-safe-3 pb-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
           <button
