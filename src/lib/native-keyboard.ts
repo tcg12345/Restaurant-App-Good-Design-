@@ -7,6 +7,13 @@
  *     The toolbar (prev/next chevrons + Done) rendered as a dark band above
  *     the keyboard that didn't match iOS and looked broken; tap-outside
  *     (below) is how the keyboard is dismissed instead.
+ *   - Pairs with `resize: "none"` (capacitor.config.json): the web view is
+ *     never shrunk, so the page is NOT pushed up and there's no black strip —
+ *     the keyboard simply overlays the bottom of the (full-screen, app-colored)
+ *     web view. We publish the keyboard height as `--keyboard-height` so the
+ *     few bottom-anchored composers (AI chat, message/comment inputs) can lift
+ *     their input above the keyboard; top-anchored search bars already sit
+ *     above it and need nothing.
  *   - Dismisses the keyboard when the user taps (or starts scrolling on)
  *     anything that isn't a text field, which is what people expect on
  *     iOS but a web view doesn't do on its own.
@@ -42,6 +49,11 @@ function isEditableTarget(node: EventTarget | null): boolean {
     el = el.parentElement;
   }
   return false;
+}
+
+/** Publish (or clear) the keyboard height so CSS can lift bottom chrome. */
+function setKeyboardHeightVar(px: number): void {
+  document.documentElement.style.setProperty('--keyboard-height', `${Math.max(0, px)}px`);
 }
 
 export async function configureNativeKeyboard(
@@ -80,13 +92,23 @@ export async function configureNativeKeyboard(
   document.addEventListener('pointerdown', onPointerDown, true);
 
   const handles = await Promise.all([
-    Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
-    Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
+    Keyboard.addListener('keyboardWillShow', (info) => {
+      setKeyboardHeightVar(info?.keyboardHeight ?? 0);
+      options.onKeyboardChange?.(true);
+    }),
+    Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardHeightVar(0);
+    }),
+    Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeightVar(0);
+      options.onKeyboardChange?.(false);
+    }),
   ]);
 
   return {
     destroy() {
       document.removeEventListener('pointerdown', onPointerDown, true);
+      setKeyboardHeightVar(0);
       handles.forEach((h) => h.remove());
     },
   };
