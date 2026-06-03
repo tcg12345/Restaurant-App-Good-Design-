@@ -49,7 +49,7 @@ export const GuideEdit: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f2ec]">
+      <div className="min-h-screen flex items-center justify-center bg-cream">
         <Loader2 size={28} className="animate-spin text-primary/60" />
       </div>
     );
@@ -57,12 +57,12 @@ export const GuideEdit: React.FC = () => {
 
   if (!guide || guide.userId !== user?.id) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f2ec] p-6 text-center">
+      <div className="min-h-screen flex items-center justify-center bg-cream p-6 text-center">
         <p className="text-sm text-on-surface/55">You can't edit this guide.</p>
       </div>
     );
   }
 
   // The page itself is just a thin background — the editor is the sheet.
-  return <div className="min-h-screen bg-[#f4f2ec]" />;
+  return <div className="min-h-screen bg-cream" />;
 };

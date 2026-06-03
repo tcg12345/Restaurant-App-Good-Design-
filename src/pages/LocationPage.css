@@ -22,6 +22,17 @@
   --accent: #A8392A;
   --accent-soft: #F3E0D7;
   --green: #2E7D5C;
+  /* Shared editorial surface tokens consumed by the Advanced Recipe Builder
+     and Guide Creator modals (their CSS reads --cream / --cream-2 from here).
+     Hoisted to :root so those full-page modals get them even when the user
+     hasn't visited /location yet, and so they flip in the .dark block below. */
+  --cream: #EDE7D9;
+  --cream-2: #E6DFCE;
+  --green-soft: #DCEEDE;
+  /* RGB triplet for the low-alpha "ink" overlays (hover fills, hairline
+     borders, slider/switch tracks) the modals paint as rgba(var(--overlay-ink),a).
+     Flips to a light triplet in dark mode so those overlays stay visible. */
+  --overlay-ink: 31, 26, 23;
   --serif: 'Source Serif 4', 'Source Serif Pro', Georgia, serif;
 }
 
@@ -42,6 +53,9 @@
   --green: #2E7D5C;
   --green-soft: #DCEEDE;
   --gold: #E8A33C;
+  /* Sticky top bands (back-arrow row + filter bar) — frosted page-color
+     translucent. Lives on a token so it flips with the .dark block below. */
+  --loc-bar-bg: rgba(237, 231, 217, 0.92);
   --shadow-sm: 0 1px 2px rgba(31,26,23,0.04), 0 0 0 1px rgba(31,26,23,0.04);
   --shadow-md: 0 6px 18px -8px rgba(31,26,23,0.12), 0 1px 2px rgba(31,26,23,0.04), 0 0 0 1px rgba(31,26,23,0.05);
   --shadow-lg: 0 20px 40px -16px rgba(31,26,23,0.18), 0 4px 10px -4px rgba(31,26,23,0.08), 0 0 0 1px rgba(31,26,23,0.05);
@@ -85,6 +99,12 @@
   --muted-2: #5d5d5d;
   --accent: #c2543e;
   --accent-soft: rgba(194, 84, 62, 0.16);
+  /* Dark surfaces for the shared editorial tokens (recipe builder / guide
+     creator). Page bg goes near-black; cards ride --surface above. */
+  --cream: #131314;
+  --cream-2: #1c1c1e;
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --overlay-ink: 235, 235, 235;
 }
 .dark .location-page-root {
   --bg: #131314;
@@ -101,6 +121,7 @@
   --accent-2: #d4664e;
   --accent-soft: rgba(194, 84, 62, 0.16);
   --green-soft: rgba(46, 125, 92, 0.18);
+  --loc-bar-bg: rgba(19, 19, 20, 0.92);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
   --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
@@ -175,7 +196,7 @@
   position: sticky;
   top: 56px;
   z-index: 9;
-  background: rgba(237, 231, 217, 0.92);
+  background: var(--loc-bar-bg);
   backdrop-filter: saturate(150%) blur(14px);
   -webkit-backdrop-filter: saturate(150%) blur(14px);
   margin: 0 -24px 20px;
@@ -2022,14 +2043,27 @@
   resize: none;
 }
 .lp-chat-island.is-phone {
-  right: 0;
+  /* Full-screen takeover on phones (no longer a draggable bottom sheet).
+     Height is driven by --app-vh (the VisualViewport height published by
+     native-keyboard.ts) rather than 100vh/inset:0, because iOS's position:
+     fixed + keyboard behavior is unreliable — left to itself the panel ends
+     up short and pins the composer to the top. Sizing to the visible area
+     means the header stays at the top and the composer sits exactly above
+     the keyboard. Closed with the header ✕. Entrance animation is opacity-
+     only (a transform on a fixed element breaks iOS keyboard positioning). */
+  top: 0;
   left: 0;
-  bottom: 0;
+  right: 0;
+  bottom: auto;
   width: auto;
+  height: var(--app-vh, 100dvh);
   max-width: none;
-  height: 94vh;
-  max-height: 94vh;
-  border-radius: 22px 22px 0 0;
+  max-height: none;
+  border-radius: 0;
+}
+/* Header clears the status bar / notch now that the panel starts at top:0. */
+.lp-chat-island.is-phone .lp-chat-head {
+  padding-top: max(14px, env(safe-area-inset-top));
 }
 
 .lp-chat-drag-handle {

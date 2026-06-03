@@ -39,7 +39,9 @@
   position: absolute;
   inset: 0 0 auto 0;
   z-index: 5;
-  padding: 16px 24px;
+  /* Push the floating back / share controls below the iPhone status-bar
+     safe area so they don't sit under the notch / Dynamic Island. */
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 24px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -512,7 +514,8 @@
   line-height: 1.15;
   color: var(--gle-ink);
   margin: 0;
-  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .gle-scope .gle-entry-meta {
@@ -573,6 +576,10 @@
   font-size: calc(16px * var(--gle-scale));
   line-height: 1.65;
   color: var(--gle-ink);
+  /* Break long unbroken strings (URLs, run-on notes) so the description
+     never spills past the entry's column. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .gle-scope .gle-entry-grid {
@@ -585,6 +592,26 @@
 }
 @media (max-width: 720px) {
   .gle-scope .gle-entry-grid { grid-template-columns: 1fr; gap: 20px; }
+
+  /* ── Mobile hero ──────────────────────────────────────────────
+     Shrink the oversized desktop sizes and, crucially, pad the hero
+     content down far enough to clear the floating back / edit / share
+     bar (.gle-hero-top) so the eyebrow + title no longer sit under it. */
+  .gle-scope .gle-hero { min-height: 360px; }
+  .gle-scope .gle-hero-content {
+    padding: calc(env(safe-area-inset-top, 0px) + 88px) 20px 24px;
+    max-width: none;
+  }
+  .gle-scope .gle-hero-title { font-size: 38px; }
+  .gle-scope .gle-hero-sub { font-size: 15px; }
+  .gle-scope .gle-hero-eyebrow { font-size: 10px; flex-wrap: wrap; }
+
+  /* ── Mobile entries ───────────────────────────────────────────
+     Tighter rank column + smaller rank/name so the body column keeps
+     enough room for the meta / description (which no longer overflows). */
+  .gle-scope .gle-entry.layout-sidebar { grid-template-columns: 56px minmax(0, 1fr); gap: 16px; }
+  .gle-scope .gle-rank { font-size: 34px; }
+  .gle-scope .gle-entry-name { font-size: 26px; }
 }
 .gle-scope .gle-ib { min-width: 0; }
 .gle-scope .gle-ib-label {

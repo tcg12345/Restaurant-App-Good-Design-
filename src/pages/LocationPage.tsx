@@ -2228,7 +2228,7 @@ export const LocationPage: React.FC = () => {
           global top bar (DesktopHeader). Keeps the route navigable.
           On mobile we render a richer header with a centered LOCATION
           eyebrow + "{city} ▾" dropdown trigger and a share button. */}
-      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)' }}>
         {isMobile ? (
           <div className="flex items-center justify-between gap-3">
             <button
@@ -2770,14 +2770,14 @@ export const LocationPage: React.FC = () => {
           // out Tailwind's border class otherwise.
           const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors';
           const idleStyle: React.CSSProperties = {
-            background: '#FFFFFF',
-            color: 'rgba(28, 24, 22, 0.75)',
-            border: '1px solid rgba(28, 24, 22, 0.12)',
+            background: 'var(--surface)',
+            color: 'var(--ink-2)',
+            border: '1px solid var(--border-strong)',
           };
           const activeStyle: React.CSSProperties = {
-            background: '#1C1816',
-            color: '#FFFFFF',
-            border: '1px solid #1C1816',
+            background: 'var(--ink)',
+            color: 'var(--cream)',
+            border: '1px solid var(--ink)',
           };
           return (
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">

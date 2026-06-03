@@ -40,7 +40,7 @@ export const ProfileRecipeRow: React.FC<Props> = ({ meal, idx, userId }) => {
               <span className={cn(
                 'ml-1 text-[10.5px] font-bold tracking-[0.08em] uppercase px-1.5 py-0.5 rounded',
                 diffClass === 'easy' && 'bg-[var(--color-olive)]/15 text-[var(--color-olive)]',
-                diffClass === 'medium' && 'bg-[#FBE9D1] text-[#B47419]',
+                diffClass === 'medium' && 'bg-amber-500/15 text-amber-600',
                 diffClass === 'hard' && 'bg-primary/15 text-primary',
                 !['easy', 'medium', 'hard'].includes(diffClass || '') && 'bg-on-surface/[0.05] text-[var(--color-ink-2)]',
               )}>

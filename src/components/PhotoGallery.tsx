@@ -97,7 +97,7 @@ export const PhotoGallery: React.FC<{
         className="absolute inset-0 bg-surface flex flex-col"
       >
         {/* Header */}
-        <div className="flex-shrink-0 pt-4 pb-2 px-5">
+        <div className="flex-shrink-0 pt-safe-4 pb-2 px-5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-serif font-bold">Photos</h2>

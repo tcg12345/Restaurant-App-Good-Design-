@@ -182,7 +182,7 @@ export const Experts: React.FC = () => {
   return (
     <div className="pb-32">
 
-      <main className="px-3 pt-5">
+      <main className="px-3 pt-safe-5">
         <section className="mb-10">
           <h2 className="text-2xl font-serif font-bold mb-5">Meet the Experts</h2>
 

@@ -45,6 +45,36 @@
 .recipes-page-root a { color: inherit; text-decoration: none; }
 .recipes-page-root img { display: block; max-width: 100%; }
 
+/* ============ DARK MODE ============
+   The recipes explore page ships its own warm LIGHT palette above. When the
+   app's global `.dark` class is set, re-point the same tokens to dark values
+   so the hero, category rail, trending/collection/chef cards, recipe grid,
+   and explore tabs all follow dark mode. Almost everything consumes the
+   tokens via var(), so flipping them flips the page. The white badges / save
+   buttons that float over recipe photos are left light on purpose; only the
+   page-level cream surfaces (the sticky mobile header) are flipped here. */
+.dark .recipes-page-root {
+  --bg: #131314;
+  --bg-2: #1c1c1e;
+  --surface: #1c1c1e;
+  --surface-2: #18181a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --ink-2: #c2c2c2;
+  --muted: #8a8a8a;
+  --muted-2: #5d5d5d;
+  --accent: #c2543e;
+  --accent-2: #d4664e;
+  --accent-soft: rgba(194, 84, 62, 0.16);
+  --green-soft: rgba(46, 125, 92, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+/* Cream mobile header bar doesn't ride a token — flip explicitly. */
+.dark .recipes-page-root .m-header { background: rgba(19, 19, 20, 0.92); }
+
 /* ============ HERO ROW (page header + recipe of day) ============ */
 .recipes-page-root .r-hero-row {
   display: grid;

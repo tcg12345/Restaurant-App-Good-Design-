@@ -4,8 +4,7 @@
   "webDir": "dist",
   "plugins": {
     "Keyboard": {
-      "resize": "native",
-      "resizeOnFullScreen": true
+      "resize": "none"
     }
   }
 }

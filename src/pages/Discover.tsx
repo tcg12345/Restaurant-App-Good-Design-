@@ -39,6 +39,7 @@ import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
 import {
@@ -721,19 +722,28 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, [sortBy, selectedCuisines, selectedPrice, selectedMichelin]);
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
-  // Home mode forces 'full' (no map); Map mode starts at 'half' and cannot reach 'full'.
-  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>(mode === 'map' ? 'half' : 'full');
+  // Home mode forces 'full' (no map); Map mode opens at 'peek' (map-forward,
+  // with the redesigned header + first results peeking) and cannot reach 'full'.
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>(mode === 'map' ? 'peek' : 'full');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const PEEK_HEIGHT = 165;
+  // Peek shows the sheet header (title + search + tabs) plus a glimpse of the
+  // first result, matching the reference's map-prominent layout.
+  const PEEK_HEIGHT = 300;
   const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 680;
+  // On the map page the sheet's tallest state is 'half' — capped so the map
+  // always stays visible above it (the user can't drag it fully up). Home keeps
+  // the taller sheet since it has no map underneath.
+  const HALF_HEIGHT = (typeof window !== 'undefined' ? window.innerHeight : 800) * (mode === 'map' ? 0.55 : 0.85);
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
-    if (state === 'full') return 0;
-    if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
-    return FULL_HEIGHT - PEEK_HEIGHT;
+    let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
+    // Hard cap on the map page: the sheet can never rise above its 'half'
+    // position, so the map underneath is always visible — no matter what
+    // state it's in or how far it's dragged.
+    if (mode === 'map') y = Math.max(y, FULL_HEIGHT - HALF_HEIGHT);
+    return y;
   };
 
   // ── Discover feed state ──
@@ -2893,6 +2903,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     isMarkerSelectedRef.current = false;
   }, []);
 
+  // Drag-to-dismiss for the mobile detail sheet (swipe down to close).
+  // Drag only fires from the handle (startDetailDrag) so the body scrolls.
+  const detailSheetOpen = !!selectedPlace && mode === 'map' && !isDesktopMapMode;
+  const { dragProps: detailDragProps, startDrag: startDetailDrag } = useBottomSheet(detailSheetOpen, closePanelDetail);
+
   // Tiny <ItemMeta /> piece used inside every card so cuisine · price ·
   // city reads consistently across modes. Cuisine is the visual accent —
   // rendered in a vivid red so it lifts off the rest of the muted meta.
@@ -3225,14 +3240,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             visible whether or not the place is saved (the fill carries
             the state). */}
         <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={closePanelDetail}
-            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
-          >
-            <ChevronLeft size={14} />
-            Back to {activePanelMode.label}
-          </button>
+          {isDesktopMapMode ? (
+            <button
+              type="button"
+              onClick={closePanelDetail}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
+            >
+              <ChevronLeft size={14} />
+              Back to {activePanelMode.label}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={closePanelDetail}
+              aria-label="Close"
+              className="w-9 h-9 -ml-1 rounded-full border border-on-surface/10 flex items-center justify-center text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => toggleWishlist(restData)}
@@ -3586,18 +3612,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
       )}
 
-      {/* Map-page TopBar — always visible, overlays the map. Without it
-          the page chrome was only present while the bottom sheet sat at
-          its 'full' state (where TopBar lives inside the sheet body), so
-          the map view felt like it had no app frame at all. Rendered
-          before the sheet in the DOM so the sheet's z-40 layer covers
-          it when the user pulls the sheet up to full-screen. */}
+      {/* Map page (mobile): no top bar, no nav bar — just a back arrow on
+          the left, vertically aligned with the centered "Search this area"
+          pill. Clears the iPhone status-bar safe area. */}
       {mode === 'map' && !usingDesktopHeader && (
-        <div className="absolute top-0 left-0 right-0 z-40 pointer-events-none">
-          <div className="pointer-events-auto">
-            <TopBar title="Map" showBackButton />
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          aria-label="Back"
+          className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-4 z-40 w-11 h-11 rounded-full bg-white shadow-md border border-on-surface/[0.06] flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+        >
+          <ChevronLeft size={20} />
+        </button>
       )}
 
       {/* Search this area button — floating pill, appears instantly on pan-end */}
@@ -3609,7 +3635,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
             onClick={() => { setShowSearchHere(false); setReferenceLocation(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
-            className="absolute top-[calc(env(safe-area-inset-top)+4.5rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
+            className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
             Search this area
@@ -3619,10 +3645,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
       {/* Floating Action Buttons + Location Search — only on the Map page.
           Positioned to clear the iOS status-bar / Dynamic Island safe area
-          AND sit below the page TopBar above. The bare `top-6` from before
-          punched the buttons up into the status bar on notched phones. */}
+          and sit just below the back-arrow / search-this-area row. */}
       {mode !== 'home' && (
-      <div className="absolute right-6 top-[calc(env(safe-area-inset-top)+4.5rem)] flex flex-col gap-3 z-30 items-end">
+      <div className="absolute right-6 top-[calc(env(safe-area-inset-top)+4rem)] flex flex-col gap-3 z-30 items-end">
         {/* Location Search */}
         <AnimatePresence>
           {locationSearchOpen ? (
@@ -3990,266 +4015,46 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         )}
       </FilterSheetShell>
 
-      {/* Selected Place Card — above the bottom sheet. On the desktop
-          map page the side panel renders an inline detail view instead,
-          so this floating card is suppressed for that surface. */}
-      <AnimatePresence mode="wait">
-        {selectedPlace && sheetState === 'peek' && !isDesktopMapMode && (() => {
-          const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
-          const historyIdx = navHistory.indexOf(selectedPlace.id);
-          // Arrows can always navigate as long as there's more than one place —
-          // history provides proper back-tracking, and forward loops through
-          // all loaded places before cycling.
-          const hasPrev = historyIdx > 0;
-          const hasNext = places.length > 1;
-          // Pseudo-index / total for the "1/99" counter.
-          const currentIndex = historyIdx >= 0 ? historyIdx : 0;
-          const orderedPlaces = places;
-          const goTo = (dir: number) => {
-            if (places.length < 2) return;
-            if (dir === -1) {
-              if (historyIdx <= 0) return;
-              const prev = places.find((p) => p.id === navHistory[historyIdx - 1]);
-              if (!prev) return;
-              navClickRef.current = true;
-              setNavDirection(-1);
-              setSelectedPlace(prev);
-              setSelectedMarker(prev.id);
-              return;
-            }
-            // Forward — if we've already gone back and there's forward history,
-            // replay it; otherwise pick the next closest unvisited place.
-            if (historyIdx >= 0 && historyIdx < navHistory.length - 1) {
-              const next = places.find((p) => p.id === navHistory[historyIdx + 1]);
-              if (!next) return;
-              navClickRef.current = true;
-              setNavDirection(1);
-              setSelectedPlace(next);
-              setSelectedMarker(next.id);
-              return;
-            }
-            const ref = selectedPlace;
-            const visited = new Set(navHistory);
-            let candidates = places.filter((p) => !visited.has(p.id));
-            let newHistory = navHistory;
-            if (candidates.length === 0) {
-              // All places visited — reset the loop, keeping current as anchor.
-              newHistory = [ref.id];
-              candidates = places.filter((p) => p.id !== ref.id);
-              if (candidates.length === 0) return;
-            }
-            if (isRatingsMode) {
-              candidates.sort(
-                (a, b) =>
-                  Math.hypot(a.lat - ref.lat, a.lng - ref.lng) -
-                  Math.hypot(b.lat - ref.lat, b.lng - ref.lng)
-              );
-            } else {
-              // Non-ratings modes: preserve list order by sorting candidates
-              // by their index in `places` starting after current.
-              const refIdx = places.findIndex((p) => p.id === ref.id);
-              candidates.sort((a, b) => {
-                const ai = (places.findIndex((p) => p.id === a.id) - refIdx + places.length) % places.length;
-                const bi = (places.findIndex((p) => p.id === b.id) - refIdx + places.length) % places.length;
-                return ai - bi;
-              });
-            }
-            const next = candidates[0];
-            navClickRef.current = true;
-            setNavDirection(1);
-            setNavHistory([...newHistory, next.id]);
-            setSelectedPlace(next);
-            setSelectedMarker(next.id);
-          };
-
-          // Mode-specific data lookups
-          const myRating = mapMode === 'myratings' ? myRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
-          const friendRating = mapMode === 'friends' ? friendRatings.filter((r) => r.restaurant_id === selectedPlace.id) : [];
-          // Expert pick also surfaces through the Discover overlay — when an
-          // expert-rated place is selected on the Discover map, treat the card
-          // as an expert card so the user sees the expert's score + name.
-          const expertRating =
-            mapMode === 'experts' || mapMode === 'discover'
-              ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id)
-              : null;
-          const isExpertCard = mapMode === 'experts' || (mapMode === 'discover' && !!expertRating);
-          const discoverScore = mapMode === 'discover' ? userRatingMap[selectedPlace.id] : undefined;
-          const cuisine = getCuisineLabel(selectedPlace.types);
-          const restData = { id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address };
-
-
-          return (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className={cn("fixed z-40 flex items-center gap-2", phoneMode ? "left-2 right-2" : "left-1/2 -translate-x-1/2 w-full max-w-lg")}
-              style={{ bottom: PEEK_HEIGHT + 12 }}
+      {/* Selected place detail — mobile slide-up sheet that reuses the very
+          same RestaurantPanel detail the desktop map shows on marker tap, so
+          tapping a marker or a result card opens this panel instead of
+          navigating to the full restaurant page. */}
+      <AnimatePresence>
+        {selectedPlace && mode === 'map' && !isDesktopMapMode && (
+          <motion.div
+            key="map-detail-scrim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 z-[60] bg-black/45 backdrop-blur-sm"
+            onClick={closePanelDetail}
+          />
+        )}
+        {selectedPlace && mode === 'map' && !isDesktopMapMode && (
+          <motion.div
+            key="map-detail-sheet"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+            {...detailDragProps}
+            className="absolute left-0 right-0 bottom-0 z-[61] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
+            style={{ height: '92%' }}
+          >
+            {/* Grab strip — swipe down anywhere on it to dismiss the sheet. */}
+            <div
+              className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onPointerDown={startDetailDrag}
             >
-              {/* Left arrow — outside card */}
-              <button
-                onClick={(e) => { e.stopPropagation(); goTo(-1); }}
-                disabled={!hasPrev}
-                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
-                  hasPrev ? "bg-white/90 backdrop-blur-sm text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default")}
-              >
-                <ChevronLeft size={18} />
-              </button>
-
-              {/* Card — drag-to-swipe wrapper with horizontal slide transitions */}
-              <div className="flex-1 min-w-0 relative overflow-hidden">
-              <AnimatePresence mode="popLayout" custom={navDirection} initial={false}>
-              <motion.div
-                key={selectedPlace.id}
-                custom={navDirection}
-                variants={{
-                  enter: (d: number) => ({ x: d === 0 ? 0 : d * 320, opacity: d === 0 ? 1 : 0 }),
-                  center: { x: 0, opacity: 1 },
-                  exit: (d: number) => ({ x: d * -320, opacity: 0 }),
-                }}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-                drag="x"
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.3}
-                dragMomentum={false}
-                onDragEnd={(_e: any, info: any) => {
-                  if (info.offset.x < -50 && hasNext) goTo(1);
-                  else if (info.offset.x > 50 && hasPrev) goTo(-1);
-                }}
-                style={{ touchAction: 'pan-y' }}
-              >
-                <div className="flex flex-row overflow-hidden rounded-2xl bg-white/95 backdrop-blur-md shadow-xl border border-white/30 cursor-pointer"
-                  onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
-                >
-                  {/* Image — full-bleed left, clips to rounded-l-2xl via parent overflow-hidden */}
-                  {selectedPlace.photoUrl ? (
-                    <img src={selectedPlace.photoUrl} alt={selectedPlace.name}
-                      className="w-24 flex-shrink-0 self-stretch object-cover pointer-events-none select-none" draggable={false} referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-24 flex-shrink-0 self-stretch flex items-center justify-center bg-on-surface/5">
-                      <MapPinned size={24} className="text-on-surface/15" />
-                    </div>
-                  )}
-
-                  {/* Content column */}
-                  <div className="flex-1 min-w-0 py-2.5 pr-2.5 pl-3 flex flex-col justify-between select-none">
-                    {/* Top: name row with dismiss */}
-                    <div className="min-w-0">
-                      <div className="flex items-start justify-between gap-1">
-                        <h3 className="font-serif font-bold text-sm leading-tight truncate">{selectedPlace.name}</h3>
-                        <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }}
-                          className="w-5 h-5 rounded-full bg-on-surface/8 flex items-center justify-center text-on-surface/40 hover:bg-on-surface/15 transition-colors flex-shrink-0 mt-0.5">
-                          <X size={10} />
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                      {mapMode === 'myratings' || mapMode === 'friends' || isExpertCard ? (
-                        selectedPlace.priceLevel > 0 && (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[10px] font-semibold text-on-surface/30">{priceLevelToString(selectedPlace.priceLevel)}</span>
-                          </div>
-                        )
-                      ) : selectedPlace.rating > 0 && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <Star size={10} className="fill-amber-400 text-amber-400" />
-                          <span className="text-[11px] font-bold text-on-surface/70">{selectedPlace.rating.toFixed(1)}</span>
-                          <span className="text-[10px] text-on-surface/30">({selectedPlace.userRatingCount})</span>
-                          {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/30 ml-0.5">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
-                        </div>
-                      )}
-
-                      {/* Mode-specific line */}
-                      {mapMode === 'discover' && !isExpertCard && discoverScore !== undefined && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full mt-0.5">
-                          <Star size={8} className="fill-green-600 text-green-600" /> You rated: {discoverScore.toFixed(1)}
-                        </span>
-                      )}
-                      {mapMode === 'myratings' && myRating && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={cn("font-serif font-bold text-sm", scoreColor(Number(myRating.score)))}>{Number(myRating.score).toFixed(1)}<span className="text-[10px] text-on-surface/30 font-normal"> / 10</span></span>
-                        </div>
-                      )}
-                      {mapMode === 'friends' && friendRating.length > 0 && (() => {
-                        const first = friendRating[0];
-                        const prof = friendProfiles[first.user_id];
-                        const initial = prof?.display_name?.charAt(0)?.toUpperCase() || '?';
-                        return (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className={cn("font-serif font-bold text-sm", scoreColor(Number(first.score)))}>{Number(first.score).toFixed(1)}</span>
-                            <span className="w-4 h-4 rounded-full bg-primary/15 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{initial}</span>
-                            <span className="text-[10px] text-on-surface/50 truncate">{friendRating.length > 1 ? `+${friendRating.length - 1} friends` : prof?.display_name || 'Friend'}</span>
-                          </div>
-                        );
-                      })()}
-                      {isExpertCard && expertRating && (() => {
-                        const expProf = expertProfiles[expertRating.user_id];
-                        const expName = expProf?.display_name || 'Expert';
-                        return (
-                          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                            <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
-                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">Expert Pick</span>
-                            <span className="text-[10px] text-on-surface/50 truncate">by {expName}</span>
-                          </div>
-                        );
-                      })()}
-                      {mapMode === 'hotels' && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[11px] text-amber-400 leading-none">
-                            {Array.from({ length: 5 }, (_, i) => selectedPlace.rating >= i + 0.75 ? '★' : '☆').join('')}
-                          </span>
-                          <span className="text-[9px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded-full">Hotel</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Bottom row: location, counter, action buttons */}
-                    <div className="flex items-end justify-between mt-1">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-[10px] text-on-surface/35 truncate">{formatLocationLabel(selectedPlace.addressComponents, selectedPlace.fullAddress || selectedPlace.address)}</p>
-                        {currentIndex >= 0 && orderedPlaces.length > 1 && (
-                          <span className="text-[10px] text-on-surface/30 flex-shrink-0">{currentIndex + 1}/{orderedPlaces.length}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {mapMode === 'friends' && friendRating.length > 0 && (
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/review/${friendRating[0].id}`); }}
-                            className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors"
-                            title="See review">
-                            <Eye size={14} />
-                          </button>
-                        )}
-                        <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(restData); }}
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
-                          <Plus size={14} />
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); toggleWishlist(restData); }}
-                          className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "text-red-400" : "text-on-surface/40 hover:text-red-400")}>
-                          <Heart size={13} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-              </AnimatePresence>
-              </div>
-
-              {/* Right arrow — outside card */}
-              <button
-                onClick={(e) => { e.stopPropagation(); goTo(1); }}
-                disabled={!hasNext}
-                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
-                  hasNext ? "bg-white/90 backdrop-blur-sm text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default")}
-              >
-                <ChevronRight size={18} />
-              </button>
-            </motion.div>
-          );
-        })()}
+              <div className="w-10 h-1.5 rounded-full bg-on-surface/15" />
+            </div>
+            <div className="flex-1 min-h-0">
+              {renderPanelDetail(selectedPlace)}
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Bottom Sheet — tri-state: peek / half / full. Desktop map mode
@@ -4291,7 +4096,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const el = sheetRef.current;
             if (!el) return;
             const baseY = getSheetY(sheetState);
-            const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
+            const minY = mode === 'map' ? getSheetY('half') : 0;
+            const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
             el.style.transform = `translateY(${clamped}px)`;
             el.style.transition = 'none';
           }}
@@ -4323,7 +4129,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               const el = sheetRef.current;
               if (!el) return;
               const baseY = getSheetY(sheetState);
-              const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
+              const minY = mode === 'map' ? getSheetY('half') : 0;
+              const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
               el.style.transform = `translateY(${clamped}px)`;
               el.style.transition = 'none';
             };
@@ -5604,6 +5411,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <>
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
+          {/* Sheet title — "Discover / N results", matching the reference. */}
+          <div className="flex items-baseline gap-2.5 pb-3">
+            <h2 className="font-serif font-bold text-[26px] leading-none tracking-tight">{activePanelMode.label}</h2>
+            <span className="text-[13px] font-semibold text-on-surface/45">{panelResultCount} result{panelResultCount === 1 ? '' : 's'}</span>
+          </div>
           {/* First-time mode hint — dismissible banner above the tabs */}
           <AnimatePresence initial={false}>
             {showModeHint && !showSearchInput && (
@@ -5779,34 +5591,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No rated restaurants yet'}</p></div>
               ) : filteredMyRatings.map((r) => {
                 const s = Number(r.score);
-                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
-                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
                 const city = extractCityState(r.address || '', r.address || '');
+                const dist = distanceFromAnchor(r.lat, r.lng);
                 return (
-                <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
-                  {/* Photo thumbnail */}
-                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
-                    {r.photo_url ? (
-                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
-                    )}
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
-                      {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
-                      {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
+                <div key={r.id} onClick={() => focusPanelRating(r)}
+                  className="flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-serif font-bold text-[17px] leading-tight tracking-tight truncate">{r.restaurant_name}</h3>
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-[12.5px] font-semibold text-on-surface/55">
+                      {r.cuisine && <span className="text-primary">{r.cuisine}</span>}
+                      {r.cuisine && (r.price || city) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                      {r.price && <span className="tabular-nums">{r.price}</span>}
+                      {r.price && city && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                      {city && <span className="truncate">{city}</span>}
                     </div>
-                    {city && <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{city}</p>}
+                    <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
+                      {dist && <span className="inline-flex items-center gap-1"><MapPin size={13} className="text-on-surface/40" />{dist}</span>}
+                      <span className="inline-flex items-center gap-1"><Star size={12} className="fill-[#c1881f] text-[#c1881f]" />You rated {s.toFixed(1)}</span>
+                    </div>
                   </div>
-                  {/* Score orb */}
-                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
-                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
-                  </div>
+                  <ScoreBadge rating={s} size="md" className="self-center" />
                 </div>
                 );
               })}
@@ -5821,38 +5625,31 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               ) : filteredFriendRatings.map((r) => {
                 const prof = friendProfiles[r.user_id];
                 const s = Number(r.score);
-                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
-                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
                 const friendName = prof?.display_name || 'Friend';
                 const friendInitial = friendName.charAt(0).toUpperCase();
+                const city = extractCityState(r.address || '', r.address || '');
+                const dist = distanceFromAnchor(r.lat, r.lng);
                 return (
-                  <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
-                    {/* Photo thumbnail */}
-                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
-                      {r.photo_url ? (
-                        <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
-                      )}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
-                        {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
-                        {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
+                  <div key={r.id} onClick={() => focusPanelRating(r)}
+                    className="flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-serif font-bold text-[17px] leading-tight tracking-tight truncate">{r.restaurant_name}</h3>
+                      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-[12.5px] font-semibold text-on-surface/55">
+                        {r.cuisine && <span className="text-primary">{r.cuisine}</span>}
+                        {r.cuisine && (r.price || city) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                        {r.price && <span className="tabular-nums">{r.price}</span>}
+                        {r.price && city && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                        {city && <span className="truncate">{city}</span>}
                       </div>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="w-4 h-4 rounded-full bg-primary/10 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{friendInitial}</span>
-                        <span className="text-[11px] text-on-surface/40 truncate">{friendName}</span>
+                      <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
+                        {dist && <span className="inline-flex items-center gap-1"><MapPin size={13} className="text-on-surface/40" />{dist}</span>}
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <span className="w-4 h-4 rounded-full bg-primary/10 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{friendInitial}</span>
+                          <span className="truncate">{friendName}</span>
+                        </span>
                       </div>
                     </div>
-                    {/* Score orb */}
-                    <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
-                      <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
-                    </div>
+                    <ScoreBadge rating={s} size="md" className="self-center" />
                   </div>
                 );
               })}
@@ -5868,36 +5665,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 const expProf = expertProfiles[r.user_id];
                 const expName = expProf?.display_name || 'Expert';
                 const s = Number(r.score);
-                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
-                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                const city = extractCityState(r.address || '', r.address || '');
+                const dist = distanceFromAnchor(r.lat, r.lng);
                 return (
-                <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
-                  {/* Photo thumbnail */}
-                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
-                    {r.photo_url ? (
-                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
-                    )}
-                  </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
-                      {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
-                      {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
+                <div key={r.id} onClick={() => focusPanelRating(r)}
+                  className="flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-serif font-bold text-[17px] leading-tight tracking-tight truncate">{r.restaurant_name}</h3>
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-[12.5px] font-semibold text-on-surface/55">
+                      {r.cuisine && <span className="text-primary">{r.cuisine}</span>}
+                      {r.cuisine && (r.price || city) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                      {r.price && <span className="tabular-nums">{r.price}</span>}
+                      {r.price && city && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                      {city && <span className="truncate">{city}</span>}
                     </div>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <Star size={9} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                      <span className="text-[11px] font-semibold text-amber-600 truncate">{expName}</span>
+                    <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
+                      {dist && <span className="inline-flex items-center gap-1"><MapPin size={13} className="text-on-surface/40" />{dist}</span>}
+                      <span className="inline-flex items-center gap-1 min-w-0"><Star size={12} className="fill-amber-500 text-amber-500 flex-shrink-0" /><span className="truncate text-amber-600">{expName}</span></span>
                     </div>
                   </div>
-                  {/* Score orb */}
-                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
-                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
-                  </div>
+                  <ScoreBadge rating={s} size="md" className="self-center" />
                 </div>
                 );
               })}
@@ -5927,7 +5714,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       "flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors",
                       selectedMarker === place.id && "bg-teal-500/5"
                     )}
-                    onClick={() => navigate(`/restaurant/${place.id}`)}
+                    onClick={() => focusPanelPlace(place)}
                   >
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-muted self-center relative">
                       {place.photoUrl ? (
@@ -6057,22 +5844,28 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           {places.map((place) => {
                             const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                             const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
-                            const wishlisted = isWishlisted(place.id);
+                            const dist = distanceFromAnchor(place.lat, place.lng);
                             return (
-                              <div key={place.id} className={cn("flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors", selectedMarker === place.id && "bg-primary/[0.04]")} onClick={() => navigate(`/restaurant/${place.id}`)}>
-                                <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-muted self-center relative">
-                                  {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={20} className="text-on-surface/20" /></div>}
+                              <div key={place.id} onClick={() => focusPanelPlace(place)}
+                                className={cn("flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity", selectedMarker === place.id && "opacity-60")}>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="font-serif font-bold text-[17px] leading-tight tracking-tight truncate">{place.name}</h3>
+                                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-[12.5px] font-semibold text-on-surface/55">
+                                    {cuisine && <span className="text-primary">{cuisine}</span>}
+                                    {cuisine && (price || cityState) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                    {price && <span className="tabular-nums">{price}</span>}
+                                    {price && cityState && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                    {cityState && <span className="truncate">{cityState}</span>}
+                                  </div>
+                                  {dist && (
+                                    <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
+                                      <span className="inline-flex items-center gap-1"><MapPin size={13} className="text-on-surface/40" />{dist}</span>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                  <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
-                                  <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{price && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {price}</span>}</div>}
-                                  <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                                </div>
-                                <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
-                                </div>
+                                {place.rating > 0 && (
+                                  <ScoreBadge rating={place.rating} size="md" className="self-center" />
+                                )}
                               </div>
                             );
                           })}
@@ -6083,99 +5876,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <>
                   {/* ── Feed mode: Recommendations first, then Nearby ── */}
 
-                  {/* Recommendations */}
-                  {recsLoading ? (
-                    <section>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <Sparkles size={13} className="text-primary/60" />
-                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center py-6">
-                        <Loader2 size={18} className="text-primary/40 animate-spin" />
-                        <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                      </div>
-                    </section>
-                  ) : recommendations.length > 0 ? (
-                    <section>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <Sparkles size={13} className="text-primary/60" />
-                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                        </div>
-                      </div>
-                      <div
-                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
-                        onScroll={(e) => {
-                          const el = e.currentTarget;
-                          if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
-                        }}
-                      >
-                        {recommendations.map((place) => {
-                          const cuisine = getCuisineLabel((place as any).types || []);
-                          const wishlisted = isWishlisted(place.id);
-                          const recMeta = {
-                            id: place.id,
-                            name: place.name,
-                            image: (place as any).photoUrl || '',
-                            cuisine,
-                            price: priceLevelToString((place as any).priceLevel || 0),
-                            address: (place as any).address || '',
-                          };
-                          return (
-                            <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
-                              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                                {(place as any).photoUrl ? (
-                                  <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center"><MapPinned size={22} className="text-on-surface/15" /></div>
-                                )}
-                                <div className="absolute top-2 right-2 flex items-center gap-1">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
-                                    className={cn(
-                                      "w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
-                                      wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
-                                    )}
-                                    aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                                  >
-                                    <Heart size={14} className={wishlisted ? "fill-primary" : ""} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(recMeta); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
-                                    aria-label="Add to list"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="pt-2 pb-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <h3 className="font-serif text-[12px] font-bold leading-snug line-clamp-2 flex-1">{place.name}</h3>
-                                  {(place as any).rating > 0 && (
-                                    <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5 text-primary">
-                                      <Star size={10} className="fill-primary" />
-                                      <span className="text-[10px] font-bold">{(place as any).rating.toFixed(1)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                                <p className="mt-0.5 text-[9px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                                  {cuisine}{cuisine && <span className="text-on-surface/25 mx-1">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {recsLoadingMore && (
-                          <div className="flex-shrink-0 w-40 flex items-center justify-center">
-                            <Loader2 size={16} className="text-primary/40 animate-spin" />
-                          </div>
-                        )}
-                      </div>
-                    </section>
-                  ) : null}
 
                   {/* Nearby Restaurants — vertical list */}
                   {isSearching && places.length === 0 ? (
@@ -6189,30 +5889,32 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
                         <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                       </div>
-                      <div className="space-y-3">
+                      <div className="divide-y divide-on-surface/[0.06]">
                         {places.map((place) => {
                           const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
-                          const wishlisted = isWishlisted(place.id);
+                          const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
+                          const dist = distanceFromAnchor(place.lat, place.lng);
                           return (
-                            <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
-                              <div className="w-24 flex-shrink-0 self-stretch overflow-hidden relative">
-                                {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={22} className="text-on-surface/15" /></div>}
-                              </div>
-                              <div className="flex-1 min-w-0 py-3 pr-3">
-                                <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
-                                <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                {place.rating > 0 && (
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <Star size={10} className="fill-primary text-primary" />
-                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                    {price && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {price}</span>}
+                            <div key={place.id} onClick={() => focusPanelPlace(place)}
+                              className={cn("flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity", selectedMarker === place.id && "opacity-60")}>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-serif font-bold text-[17px] leading-tight tracking-tight truncate">{place.name}</h3>
+                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-[12.5px] font-semibold text-on-surface/55">
+                                  {cuisine && <span className="text-primary">{cuisine}</span>}
+                                  {cuisine && (price || cityState) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                  {price && <span className="tabular-nums">{price}</span>}
+                                  {price && cityState && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                  {cityState && <span className="truncate">{cityState}</span>}
+                                </div>
+                                {dist && (
+                                  <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
+                                    <span className="inline-flex items-center gap-1"><MapPin size={13} className="text-on-surface/40" />{dist}</span>
                                   </div>
                                 )}
-                                <div className="flex items-center gap-1.5 mt-2">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
-                                </div>
                               </div>
+                              {place.rating > 0 && (
+                                <ScoreBadge rating={place.rating} size="md" className="self-center" />
+                              )}
                             </div>
                           );
                         })}

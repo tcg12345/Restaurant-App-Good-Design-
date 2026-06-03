@@ -31,7 +31,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 18px;
+  /* Clear the iPhone status-bar safe area — this chrome is a fixed
+     full-screen overlay header pinned to the very top of the screen. */
+  padding: max(12px, env(safe-area-inset-top, 0px)) 18px 12px;
 }
 .gle-overlay .gle-chrome-left {
   display: flex;

@@ -192,7 +192,7 @@ export const GuideDetail: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f2ec]">
+      <div className="min-h-screen flex items-center justify-center bg-cream">
         <Loader2 size={28} className="animate-spin text-primary/60" />
       </div>
     );
@@ -200,7 +200,7 @@ export const GuideDetail: React.FC = () => {
 
   if (!guide) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f2ec] p-8 text-center">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-cream p-8 text-center">
         <BookOpen size={32} className="text-on-surface/25 mb-3" />
         <p className="text-base font-serif font-bold mb-1">Guide not found</p>
         <p className="text-sm text-on-surface/55 mb-4">It may have been unpublished or deleted.</p>

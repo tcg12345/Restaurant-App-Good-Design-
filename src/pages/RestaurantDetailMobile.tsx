@@ -184,7 +184,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#f7f2ea' }}>
+    <div className="min-h-screen bg-cream">
 
       {/* ── Sticky top bar — back / bookmark / share. Stays pinned to
           the top of the scroll container as the page scrolls past the
@@ -278,7 +278,7 @@ export const RestaurantDetailMobile: React.FC = () => {
         {/* Thin fade into page bg */}
         <div
           className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, #fff8f6, transparent)' }}
+          style={{ background: 'linear-gradient(to top, var(--color-cream), transparent)' }}
         />
 
         {/* Carousel arrows */}
@@ -331,7 +331,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   fontSize: '10px',
                   fontWeight: 500,
                   letterSpacing: '1.4px',
-                  color: '#6b6359',
+                  color: 'var(--color-ink-3)',
                 }}
               >
                 {isHotel ? 'Hotel' : cuisine}

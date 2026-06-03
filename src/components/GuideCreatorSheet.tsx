@@ -778,7 +778,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           className={cn(
             'w-full overflow-hidden flex flex-col',
             phoneMode
-              ? 'h-[94%] rounded-t-3xl'
+              ? 'h-full rounded-none'
               : 'h-[94%] sm:max-w-[1080px] sm:max-h-[94vh] sm:h-[860px] rounded-3xl',
           )}
           style={{ backgroundColor: 'var(--cream, #EDE7D9)' }}
@@ -830,10 +830,43 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                 </nav>
               )}
 
-              {/* Phone progress strip + close */}
+              {/* Phone header — eyebrow + step title, save / live-edit
+                  actions, and a segmented progress bar. Mirrors the
+                  Advanced Recipe builder's mobile header. */}
               {isPhone && (
-                <div className="gc-phone-strip">
-                  <div className="gc-phone-strip-progress">
+                <header className="gc-m-header">
+                  <div className="gc-m-titlerow">
+                    <div className="gc-m-titleblock">
+                      <div className="gc-m-eyebrow">Step {currentStepIdx + 1} of {totalSteps}</div>
+                      <div className="gc-m-title">{STEP_LABELS[step]}</div>
+                    </div>
+                    <div className="gc-m-actions">
+                      {currentStepIdx >= STEPS_ORDER.indexOf('entries') && (
+                        <button
+                          type="button"
+                          className="gc-m-live-link"
+                          onClick={onLaunchLiveEdit}
+                          disabled={busy}
+                          title="Open the Live editor — visual customizer"
+                        >
+                          <Wand2 size={12} /> Live edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="gc-m-save-link"
+                        onClick={onSaveDraft}
+                        disabled={busy}
+                      >
+                        {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+                        Save draft
+                      </button>
+                      <button type="button" className="gc-m-close" onClick={onClose} aria-label="Close">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="gc-m-progress-row">
                     {STEPS_ORDER.map((s, i) => {
                       const isDone = i < currentStepIdx;
                       const isCurrent = i === currentStepIdx;
@@ -841,20 +874,14 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                         <button
                           key={s}
                           type="button"
-                          className={`gc-phone-strip-dot${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
+                          className={`gc-m-progress-seg${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
                           onClick={() => jumpTo(s)}
                           aria-label={`Step ${i + 1}: ${STEP_LABELS[s]}`}
-                        >
-                          {isDone ? <Check size={14} strokeWidth={3} /> : i + 1}
-                        </button>
+                        />
                       );
                     })}
-                    <span className="gc-phone-strip-label">{STEP_LABELS[step]}</span>
                   </div>
-                  <button type="button" className="gc-phone-strip-close" onClick={onClose} aria-label="Close">
-                    <X size={18} />
-                  </button>
-                </div>
+                </header>
               )}
 
               {/* Step pane */}
@@ -871,10 +898,51 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     <div className="gc-step-gate">{gate.reason}</div>
                   )}
                 </div>
+
+                {/* Phone floating footer dock — back circle + big next/publish
+                    pill, matching the recipe builder. */}
+                {isPhone && (
+                  <div className="gc-m-foot">
+                    <button
+                      type="button"
+                      className="gc-m-foot-back"
+                      onClick={goBack}
+                      disabled={currentStepIdx === 0}
+                      aria-label="Back"
+                    >
+                      <ArrowLeft size={18} />
+                    </button>
+                    {step !== 'review' ? (
+                      <button
+                        type="button"
+                        className="gc-m-foot-next"
+                        onClick={goNext}
+                        disabled={!gate.ok}
+                        title={gate.ok ? undefined : gate.reason}
+                      >
+                        <span className="gc-m-foot-eyebrow">Next up</span>
+                        <span className="gc-m-foot-label">{NEXT_LABELS[step]} <ArrowRight size={16} /></span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="gc-m-foot-publish"
+                        onClick={onPublish}
+                        disabled={busy || entries.length === 0 || !title.trim() || !coverPhoto}
+                      >
+                        <span className="gc-m-foot-eyebrow">{editingId ? 'Save' : 'Publish'}</span>
+                        <span className="gc-m-foot-label">
+                          {editingId ? 'Save changes' : 'Publish guide'} {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={16} />}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Sticky footer */}
+            {/* Sticky footer (desktop — phone uses the floating dock above) */}
+            {!isPhone && (
             <div className="gc-foot">
               <button
                 type="button"
@@ -940,6 +1008,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                 )}
               </div>
             </div>
+            )}
           </div>
 
           <input

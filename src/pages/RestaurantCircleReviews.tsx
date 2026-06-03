@@ -122,16 +122,16 @@ export const RestaurantCircleReviews: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#f7f2ea' }}>
+      <div className="min-h-screen flex items-center justify-center bg-cream">
         <Loader2 size={32} className="animate-spin text-ink-3" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-24" style={{ backgroundColor: '#f7f2ea' }}>
+    <div className="min-h-screen pb-24 bg-cream">
       {/* Top bar */}
-      <header className="sticky top-0 z-10 backdrop-blur-md" style={{ backgroundColor: 'rgba(247, 242, 234, 0.92)' }}>
+      <header className="sticky top-0 z-10 backdrop-blur-md bg-cream/90">
         <div className="flex items-center gap-3 px-3 pt-safe-4 pb-3">
           <button
             type="button"

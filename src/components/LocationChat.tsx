@@ -31,7 +31,6 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   formatLocationLabel,
   priceLevelToString,
@@ -773,7 +772,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const { dragProps, startDrag } = useBottomSheet(open && phoneMode, () => setOpen(false));
 
   // Hide the bottom-nav on phone while the chat sheet is up.
   useEffect(() => {
@@ -789,12 +787,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     el.scrollTop = el.scrollHeight;
   }, [messages, streaming]);
 
-  // Focus the input when the chat opens.
+  // Focus the input when the chat opens — desktop only. On phones we
+  // deliberately DON'T auto-focus: doing so pops the on-screen keyboard up
+  // while the panel is still sliding in, and the keyboard resize fights the
+  // slide animation, making the whole thing glitch. The user taps the field
+  // to type when they're ready.
   useEffect(() => {
-    if (!open) return;
+    if (!open || phoneMode) return;
     const t = setTimeout(() => inputRef.current?.focus(), 220);
     return () => clearTimeout(t);
-  }, [open]);
+  }, [open, phoneMode]);
 
   // Abort any in-flight request when the component unmounts.
   useEffect(() => () => {
@@ -2090,13 +2092,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.div
             key="island"
             className={cn('lp-chat-island', phoneMode && 'is-phone')}
-            initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.94, y: 16 }}
-            animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
-            exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 12 }}
+            // Phone: opacity-only fade. A transform (scale/translate) on a
+            // position:fixed full-screen panel breaks iOS keyboard handling
+            // (the panel gets shoved up / mis-positioned when the keyboard
+            // opens), so the full-page chat must animate without one.
+            initial={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
+            animate={phoneMode ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
+            exit={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 12 }}
             transition={phoneMode
-              ? { type: 'spring', damping: 28, stiffness: 300 }
+              ? { duration: 0.2, ease: [0.22, 1, 0.36, 1] }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            {...(phoneMode ? dragProps : {})}
             style={!phoneMode && pos
               ? {
                   left: pos.left,
@@ -2108,16 +2113,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             role="dialog"
             aria-label="Restaurant assistant"
           >
-            {phoneMode && (
-              <div
-                className="lp-chat-drag-handle"
-                aria-hidden="true"
-                onPointerDown={startDrag}
-                style={{ touchAction: 'none' }}
-              >
-                <span />
-              </div>
-            )}
 
             <header
               className="lp-chat-head"

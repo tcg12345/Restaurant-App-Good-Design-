@@ -1841,7 +1841,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 style={{ height: '75%' }}
               >
                 <div className="pt-2 pb-1 flex justify-center">
-                  <span className="w-10 h-1 rounded-full bg-stone-300" />
+                  <span className="w-10 h-1 rounded-full bg-on-surface/20" />
                 </div>
                 <CommentsBody
                   targetId={openPostCommentsId}
