@@ -85,6 +85,23 @@ export async function configureNativeKeyboard(
   };
   document.addEventListener('pointerdown', onPointerDown, true);
 
+  // Publish the *visible* viewport height (the area above the keyboard) as
+  // --app-vh via the VisualViewport API. Full-screen fixed panels (the AI
+  // chat) size to this so their composer sits exactly above the keyboard —
+  // iOS's own position:fixed + keyboard behavior is unreliable (the panel
+  // ends up short, pinning the composer to the top), so we drive the height
+  // explicitly instead.
+  const vv = window.visualViewport;
+  const syncViewportHeight = () => {
+    const h = vv?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty('--app-vh', `${Math.round(h)}px`);
+  };
+  if (vv) {
+    vv.addEventListener('resize', syncViewportHeight);
+    vv.addEventListener('scroll', syncViewportHeight);
+    syncViewportHeight();
+  }
+
   const handles = await Promise.all([
     Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
     Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
@@ -93,6 +110,10 @@ export async function configureNativeKeyboard(
   return {
     destroy() {
       document.removeEventListener('pointerdown', onPointerDown, true);
+      if (vv) {
+        vv.removeEventListener('resize', syncViewportHeight);
+        vv.removeEventListener('scroll', syncViewportHeight);
+      }
       handles.forEach((h) => h.remove());
     },
   };

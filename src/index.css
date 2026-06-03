@@ -147,6 +147,13 @@
    getComputedStyle. env() can't be read directly from JS. */
 :root { --sat-top: env(safe-area-inset-top, 0px); }
 
+/* Height of the *visible* viewport (above the on-screen keyboard), published
+   by native-keyboard.ts from the VisualViewport API on iOS. Full-screen
+   fixed panels (the AI chat) size to this so their composer sits exactly
+   above the keyboard regardless of iOS's flaky position:fixed + keyboard
+   behavior. Falls back to the dynamic viewport height on web. */
+:root { --app-vh: 100dvh; }
+
 @layer utilities {
   /* iOS safe-area helpers. Apply to any sticky/fixed top header so
      content clears the status bar / notch on Capacitor builds while

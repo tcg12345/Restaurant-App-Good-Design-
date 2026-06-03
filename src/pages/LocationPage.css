@@ -2043,18 +2043,20 @@
   resize: none;
 }
 .lp-chat-island.is-phone {
-  /* Full-screen takeover on phones (no longer a draggable bottom sheet) —
-     fills the viewport edge to edge. With `resize: "none"` the web view is
-     never shrunk (so nothing is pushed up and no black strip appears); iOS
-     keeps this position:fixed panel above the keyboard on its own, so the
-     header stays at the top and the composer sits just above the keyboard —
-     no manual padding needed (adding any double-counts and shoves the
-     composer to the top). Closed with the header ✕. The entrance animation
-     is opacity-only (no transform) — a transform on a fixed element breaks
-     iOS's keyboard handling and mis-positions the whole panel. */
-  inset: 0;
+  /* Full-screen takeover on phones (no longer a draggable bottom sheet).
+     Height is driven by --app-vh (the VisualViewport height published by
+     native-keyboard.ts) rather than 100vh/inset:0, because iOS's position:
+     fixed + keyboard behavior is unreliable — left to itself the panel ends
+     up short and pins the composer to the top. Sizing to the visible area
+     means the header stays at the top and the composer sits exactly above
+     the keyboard. Closed with the header ✕. Entrance animation is opacity-
+     only (a transform on a fixed element breaks iOS keyboard positioning). */
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: auto;
   width: auto;
-  height: auto;
+  height: var(--app-vh, 100dvh);
   max-width: none;
   max-height: none;
   border-radius: 0;
