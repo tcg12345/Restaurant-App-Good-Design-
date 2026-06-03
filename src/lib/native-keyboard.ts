@@ -7,6 +7,14 @@
  *     The toolbar (prev/next chevrons + Done) rendered as a dark band above
  *     the keyboard that didn't match iOS and looked broken; tap-outside
  *     (below) is how the keyboard is dismissed instead.
+ *   - Pairs with `resize: "none"` (capacitor.config.json): the web view is
+ *     NOT shrunk and the page is NOT pushed up when the keyboard appears, so
+ *     the page background stays put — no black strip, no content jammed under
+ *     the status bar. The keyboard simply overlays the bottom. We publish the
+ *     keyboard height as the CSS variable `--keyboard-height` so the few
+ *     bottom-anchored composers (the AI chat, message/comment inputs) can lift
+ *     themselves above the keyboard with `padding-bottom`. Search bars and
+ *     other inputs sit at the top of their screen and stay visible as-is.
  *   - Dismisses the keyboard when the user taps (or starts scrolling on)
  *     anything that isn't a text field, which is what people expect on
  *     iOS but a web view doesn't do on its own.
@@ -42,6 +50,11 @@ function isEditableTarget(node: EventTarget | null): boolean {
     el = el.parentElement;
   }
   return false;
+}
+
+/** Publish (or clear) the keyboard height so CSS can lift bottom chrome. */
+function setKeyboardHeightVar(px: number): void {
+  document.documentElement.style.setProperty('--keyboard-height', `${Math.max(0, px)}px`);
 }
 
 export async function configureNativeKeyboard(
@@ -80,13 +93,27 @@ export async function configureNativeKeyboard(
   document.addEventListener('pointerdown', onPointerDown, true);
 
   const handles = await Promise.all([
-    Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
-    Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
+    // willShow carries the keyboard height — publish it so bottom-anchored
+    // composers lift above the keyboard as it slides up.
+    Keyboard.addListener('keyboardWillShow', (info) => {
+      setKeyboardHeightVar(info?.keyboardHeight ?? 0);
+      options.onKeyboardChange?.(true);
+    }),
+    // Clear the inset as the keyboard starts sliding away so composers
+    // animate back down in step with it.
+    Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardHeightVar(0);
+    }),
+    Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeightVar(0);
+      options.onKeyboardChange?.(false);
+    }),
   ]);
 
   return {
     destroy() {
       document.removeEventListener('pointerdown', onPointerDown, true);
+      setKeyboardHeightVar(0);
       handles.forEach((h) => h.remove());
     },
   };
