@@ -120,20 +120,27 @@ const PrimaryButton: React.FC<{
   </motion.button>
 );
 
-const SocialRow: React.FC = () => (
+const SocialRow: React.FC<{
+  onOAuth: (provider: 'google' | 'apple') => void;
+  pending: 'google' | 'apple' | null;
+}> = ({ onOAuth, pending }) => (
   <div className="grid grid-cols-2 gap-3">
     <button
       type="button"
-      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+      onClick={() => onOAuth('apple')}
+      disabled={pending !== null}
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
     >
-      <AppleIcon size={16} />
+      {pending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <AppleIcon size={16} />}
       <span>Apple</span>
     </button>
     <button
       type="button"
-      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+      onClick={() => onOAuth('google')}
+      disabled={pending !== null}
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
     >
-      <GoogleIcon size={16} />
+      {pending === 'google' ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon size={16} />}
       <span>Google</span>
     </button>
   </div>
@@ -172,12 +179,14 @@ type SharedProps = {
   onSignIn: () => void;
   onSignUp: () => void;
   onBack: () => void;
+  onOAuth: (provider: 'google' | 'apple') => void;
+  oauthPending: 'google' | 'apple' | null;
   keepSignedIn: boolean;
   setKeepSignedIn: (v: boolean) => void;
 };
 
 const StepEmail: React.FC<SharedProps> = ({
-  email, setEmail, submitting, error, onEmailContinue,
+  email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending,
 }) => (
   <div className="space-y-4">
     <header>
@@ -189,7 +198,7 @@ const StepEmail: React.FC<SharedProps> = ({
       </p>
     </header>
 
-    <SocialRow />
+    <SocialRow onOAuth={onOAuth} pending={oauthPending} />
     <Divider>or continue with email</Divider>
 
     <form
@@ -395,7 +404,7 @@ const StepSignup: React.FC<SharedProps> = ({
 
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC = () => {
-  const { signIn, signUp, checkEmailExists } = useAuth();
+  const { signIn, signUp, signInWithOAuth, checkEmailExists } = useAuth();
   const { phoneMode, togglePhoneMode, isNative } = useSettings();
   const useDesktopLayout = useDesktopAuthLayout();
 
@@ -406,6 +415,7 @@ export const Auth: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
+  const [oauthPending, setOauthPending] = useState<'google' | 'apple' | null>(null);
 
   const handleEmailContinue = useCallback(async () => {
     setError('');
@@ -459,6 +469,18 @@ export const Auth: React.FC = () => {
     setError('');
   }, []);
 
+  const handleOAuth = useCallback(async (provider: 'google' | 'apple') => {
+    setError('');
+    setOauthPending(provider);
+    const { error: err } = await signInWithOAuth(provider);
+    // On success the browser redirects away, so we only reach here on
+    // failure (e.g. the provider isn't enabled in Supabase yet).
+    if (err) {
+      setError(err);
+      setOauthPending(null);
+    }
+  }, [signInWithOAuth]);
+
   const sharedProps: SharedProps = {
     email, setEmail, password, setPassword, showPassword, setShowPassword,
     submitting, error,
@@ -466,6 +488,8 @@ export const Auth: React.FC = () => {
     onSignIn: handleSignIn,
     onSignUp: handleSignUp,
     onBack: handleBack,
+    onOAuth: handleOAuth,
+    oauthPending,
     keepSignedIn, setKeepSignedIn,
   };
 
@@ -596,10 +620,16 @@ export const Auth: React.FC = () => {
                   <span className="text-[10px] uppercase tracking-[0.18em] text-on-surface/40 font-bold">or</span>
                   <span className="flex-1 h-px bg-on-surface/10" />
                 </div>
-                <MobileGhostButton icon={<AppleIcon size={16} />}>
+                <MobileGhostButton
+                  icon={oauthPending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <AppleIcon size={16} />}
+                  onClick={() => handleOAuth('apple')}
+                >
                   Continue with Apple
                 </MobileGhostButton>
-                <MobileGhostButton icon={<GoogleIcon size={16} />}>
+                <MobileGhostButton
+                  icon={oauthPending === 'google' ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon size={16} />}
+                  onClick={() => handleOAuth('google')}
+                >
                   Continue with Google
                 </MobileGhostButton>
                 {error && (

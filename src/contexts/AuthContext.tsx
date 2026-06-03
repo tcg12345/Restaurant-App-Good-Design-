@@ -26,6 +26,11 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  /** Start an OAuth sign-in (e.g. Google). Redirects the browser to the
+   *  provider and back to the app, where the session is picked up by
+   *  `onAuthStateChange`. Returns an error only when the redirect itself
+   *  can't be started. */
+  signInWithOAuth: (provider: 'google' | 'apple') => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   pendingRequestCount: number;
@@ -45,6 +50,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
+  signInWithOAuth: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
   pendingRequestCount: 0,
@@ -142,6 +148,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          // Return to the app after the provider hands control back. The
+          // supabase-js client (detectSessionInUrl: true) finishes the
+          // exchange on load and onAuthStateChange takes it from there.
+          redirectTo: window.location.origin,
+        },
+      });
+      // On success the browser is already navigating away, so this return
+      // mainly surfaces configuration errors (e.g. provider not enabled).
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Could not start sign-in. Please try again.' };
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
@@ -192,7 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
       {children}
     </AuthContext.Provider>
   );
