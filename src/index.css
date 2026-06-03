@@ -147,13 +147,6 @@
    getComputedStyle. env() can't be read directly from JS. */
 :root { --sat-top: env(safe-area-inset-top, 0px); }
 
-/* On-screen keyboard height, published by native-keyboard.ts on iOS (0 on
-   web / when closed). With Capacitor `resize: "none"` the web view isn't
-   shrunk and the page isn't pushed up — the keyboard just overlays the
-   bottom — so bottom-anchored composers lift their input above it by padding
-   with this value. */
-:root { --keyboard-height: 0px; }
-
 @layer utilities {
   /* iOS safe-area helpers. Apply to any sticky/fixed top header so
      content clears the status bar / notch on Capacitor builds while
@@ -183,17 +176,6 @@
   /* `mb-safe` for content that scrolls behind a fixed bottom nav: lets
      callers offset their last item without inlining a calc() string. */
   .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
-
-  /* Bottom-anchored composers (message / comment inputs) use this so their
-     input rises above the on-screen keyboard. With `resize: "none"` the
-     keyboard overlays the bottom; --keyboard-height (set by native-keyboard.ts)
-     pushes the input up while the composer's own background fills the gap
-     behind the keyboard. Falls back to the home-indicator inset (or 1rem)
-     when the keyboard is closed, so it doubles as the normal bottom padding. */
-  .pb-keyboard {
-    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px), var(--keyboard-height, 0px));
-    transition: padding-bottom 0.22s ease;
-  }
 }
 
 @layer base {

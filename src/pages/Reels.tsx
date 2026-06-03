@@ -1299,7 +1299,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       </div>
 
       {/* Composer */}
-      <div className={cn('border-t px-4 pt-3 pb-keyboard flex items-center gap-2 flex-shrink-0', composerBorderCls)}>
+      <div className={cn('border-t px-4 py-3 flex items-center gap-2 flex-shrink-0', composerBorderCls)}>
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

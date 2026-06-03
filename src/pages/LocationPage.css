@@ -2044,22 +2044,18 @@
 }
 .lp-chat-island.is-phone {
   /* Full-screen takeover on phones (no longer a draggable bottom sheet) —
-     fills the viewport edge to edge so the keyboard resize is clean (no
-     94vh "peek" of the page squishing into the safe area). Closed with the
-     header ✕. transform-origin sits at the FAB (bottom-right) so the panel
-     scales up out of the floating button. */
+     fills the viewport edge to edge. With Capacitor `resize: "native"` the
+     web view shrinks to sit above the keyboard, so the panel fills that
+     shrunk area cleanly: header at top, composer just above the keyboard,
+     no page peek and no black strip. Closed with the header ✕. The entrance
+     animation is opacity-only (no transform) — a transform on a fixed
+     element breaks iOS's keyboard handling and mis-positions the panel. */
   inset: 0;
   width: auto;
   height: auto;
   max-width: none;
   max-height: none;
   border-radius: 0;
-  transform-origin: 100% 100%;
-  /* Keyboard overlays the bottom (resize:none) — pad by its height so the
-     composer rises above it while the panel's own background fills the gap
-     behind the keyboard (no black, nothing else moves). */
-  padding-bottom: var(--keyboard-height, 0px);
-  transition: padding-bottom 0.25s ease;
 }
 /* Header clears the status bar / notch now that the panel starts at top:0. */
 .lp-chat-island.is-phone .lp-chat-head {
@@ -2691,12 +2687,10 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  /* Bottom padding stacks the design's 4px gutter on top of the device
-     safe-area inset so the input never sits under the home indicator. When
-     the keyboard is open the panel is already lifted by --keyboard-height
-     and the home indicator hides behind the keyboard, so drop the safe-area
-     part to avoid a dead gap above the keyboard. */
-  padding: 10px 12px calc(4px + max(0px, env(safe-area-inset-bottom, 0px) - var(--keyboard-height, 0px)));
+  /* Bottom padding stacks the design's 4px gutter on top of the
+     device safe-area inset so the input never sits under the iPhone
+     home indicator. */
+  padding: 10px 12px calc(4px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
 }
 .lp-chat-input {

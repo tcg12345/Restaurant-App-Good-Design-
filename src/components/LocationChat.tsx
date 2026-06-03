@@ -2092,11 +2092,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.div
             key="island"
             className={cn('lp-chat-island', phoneMode && 'is-phone')}
-            initial={phoneMode ? { opacity: 0, scale: 0.92 } : { opacity: 0, scale: 0.94, y: 16 }}
-            animate={phoneMode ? { opacity: 1, scale: 1 } : { opacity: 1, scale: 1, y: 0 }}
-            exit={phoneMode ? { opacity: 0, scale: 0.96 } : { opacity: 0, scale: 0.96, y: 12 }}
+            // Phone: opacity-only fade. A transform (scale/translate) on a
+            // position:fixed full-screen panel breaks iOS keyboard handling
+            // (the panel gets shoved up / mis-positioned when the keyboard
+            // opens), so the full-page chat must animate without one.
+            initial={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
+            animate={phoneMode ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
+            exit={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 12 }}
             transition={phoneMode
-              ? { type: 'spring', damping: 30, stiffness: 320 }
+              ? { duration: 0.2, ease: [0.22, 1, 0.36, 1] }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             style={!phoneMode && pos
               ? {
