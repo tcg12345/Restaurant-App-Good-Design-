@@ -53,10 +53,14 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   );
 
   const rightCluster = (
-    <div className="flex items-center gap-2 text-on-surface/60">
+    <div className="flex items-center gap-2">
       {rightAction}
-      <button className="p-2 hover:bg-muted rounded-full transition-colors relative" onClick={() => navigate('/messages')}>
-        <MessageCircle size={20} />
+      <button
+        className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
+        onClick={() => navigate('/messages')}
+        aria-label="Messages"
+      >
+        <MessageCircle size={21} />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 bg-primary text-white text-[12px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
             {unreadCount}
@@ -65,11 +69,11 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
       </button>
       {!isCirclePage && (
         <button
-          className="p-2 hover:bg-muted rounded-full transition-colors relative"
+          className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
           onClick={() => navigate('/circle')}
           aria-label="Your Circle"
         >
-          <Heart size={20} />
+          <Heart size={21} />
           {pendingRequestCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[12px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
               {pendingRequestCount}
