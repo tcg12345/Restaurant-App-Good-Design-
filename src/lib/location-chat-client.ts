@@ -5,6 +5,8 @@
 // and parses Anthropic's standard Server-Sent Events into a more
 // ergonomic local event union.
 
+import { apiUrl } from './api-base';
+
 /* ── Wire types (sent to the Edge Function) ───────────────────── */
 
 export type ContentBlock =
@@ -82,9 +84,9 @@ export type StreamEvent =
 
 /* ── Streaming consumer ───────────────────────────────────────── */
 
-// Same-origin URL — Vercel serves both the SPA and the function from
-// the same domain in production, and `vercel dev` does locally.
-const FUNCTION_URL = '/api/location-chat';
+// Same-origin on web (Vercel serves SPA + function from one domain);
+// absolute Vercel URL on native, where the app is served locally.
+const FUNCTION_URL = apiUrl('/api/location-chat');
 
 /**
  * Stream a chat turn from Claude (via the Edge Function). Yields

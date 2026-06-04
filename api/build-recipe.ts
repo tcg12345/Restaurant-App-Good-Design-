@@ -71,22 +71,25 @@ const TOOL_BUILD_RECIPE = {
   input_schema: RECIPE_INPUT_SCHEMA,
 };
 
+// CORS so the native (Capacitor) build can call this cross-origin; the
+// web app is same-origin. Every response must carry these, not just the
+// preflight.
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'content-type, authorization',
+};
+
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   });
 }
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'content-type, authorization',
-      },
-    });
+    return new Response(null, { headers: CORS_HEADERS });
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -184,6 +187,7 @@ export default async function handler(req: Request): Promise<Response> {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      ...CORS_HEADERS,
     },
   });
 }

@@ -995,25 +995,25 @@ function buildSystemPrompt(body: ChatRequest): string {
   return lines.join('\n');
 }
 
+// Allow cross-origin calls. The web app is same-origin, but the native
+// (Capacitor) build calls this from capacitor://localhost, so every
+// response — preflight, errors, and the stream — must carry these.
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'content-type, authorization',
+};
+
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   });
 }
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
-    // Same-origin in production (Vercel serves both the SPA and the
-    // API from the same domain) but allowing OPTIONS keeps `vercel dev`
-    // and any future cross-origin testing painless.
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'content-type, authorization',
-      },
-    });
+    return new Response(null, { headers: CORS_HEADERS });
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -1133,6 +1133,7 @@ export default async function handler(req: Request): Promise<Response> {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      ...CORS_HEADERS,
     },
   });
 }

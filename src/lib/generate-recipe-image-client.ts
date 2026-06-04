@@ -4,8 +4,9 @@
 // cover-photo plumbing (onCoverPhotoChange) — exactly like an upload.
 
 import type { HomeMeal } from '../contexts/ListsContext';
+import { apiUrl } from './api-base';
 
-const FUNCTION_URL = '/api/generate-recipe-image';
+const FUNCTION_URL = apiUrl('/api/generate-recipe-image');
 
 export interface GenerateImageResult {
   ok: boolean;

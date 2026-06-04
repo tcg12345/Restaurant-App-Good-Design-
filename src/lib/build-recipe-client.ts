@@ -5,8 +5,9 @@
 
 import type { HomeMeal } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, type BuildRecipeInput } from './recipe-from-ai';
+import { apiUrl } from './api-base';
 
-const FUNCTION_URL = '/api/build-recipe';
+const FUNCTION_URL = apiUrl('/api/build-recipe');
 
 export interface GenerateRecipeResult {
   ok: boolean;
