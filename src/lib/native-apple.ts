@@ -90,6 +90,7 @@ export async function signInWithAppleNative(): Promise<{ error: string | null }>
     // that as a no-op rather than an error.
     const msg = e instanceof Error ? e.message : String(e);
     if (/cancel/i.test(msg)) return { error: null };
+    console.error('[native-apple] sign-in failed:', e);
     return { error: 'Could not complete Apple sign-in. Please try again.' };
   }
 }

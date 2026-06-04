@@ -95,8 +95,9 @@ export async function signInWithOAuthNative(
       if (!gotCallback) finish({ error: null });
     });
 
-    Browser.open({ url: data.url }).catch(() =>
-      finish({ error: 'Could not open the sign-in page. Please try again.' }),
-    );
+    Browser.open({ url: data.url }).catch((e) => {
+      console.error('[native-oauth] Browser.open failed:', e);
+      finish({ error: 'Could not open the sign-in page. Please try again.' });
+    });
   });
 }
