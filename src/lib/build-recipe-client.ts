@@ -5,9 +5,9 @@
 
 import type { HomeMeal } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, type BuildRecipeInput } from './recipe-from-ai';
-import { apiUrl } from './api-base';
+import { apiUrl, apiHeaders } from './api-base';
 
-const FUNCTION_URL = apiUrl('/api/build-recipe');
+const FUNCTION_URL = apiUrl('build-recipe');
 
 export interface GenerateRecipeResult {
   ok: boolean;
@@ -107,7 +107,7 @@ async function postRecipe(
   try {
     res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiHeaders(),
       body: JSON.stringify(payload),
       signal,
     });

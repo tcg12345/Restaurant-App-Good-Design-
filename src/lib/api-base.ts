@@ -1,25 +1,36 @@
-// Resolve the base URL for the `/api/*` serverless functions.
+// Resolve URL + auth headers for the AI Supabase Edge Functions.
 //
-// On the web the app is served from the same Vercel domain as the API, so
-// relative paths ('/api/foo') just work — and stay correct across preview
-// deployments and custom domains. But the native (Capacitor) build serves
-// the bundled web assets from capacitor://localhost, where there is no
-// backend, so those relative calls have nowhere to go. There we must point
-// at the deployed API explicitly via VITE_API_BASE_URL (baked into the
-// native bundle at build time).
+// The AI endpoints (chat, recipe build, recipe image) run as Supabase Edge
+// Functions at https://<ref>.supabase.co/functions/v1/<name>. That URL is
+// stable and already known to every build (web and native) via
+// VITE_SUPABASE_URL, so there's nothing platform-specific to configure —
+// both web and the native (Capacitor) app call the same absolute URL.
 //
-// VITE_API_BASE_URL is only consulted on native, so it's safe to leave set
-// during web dev/builds — the web path always uses relative URLs.
+// The functions verify the caller's Supabase session (see
+// functions/_shared/auth.ts), so requests must carry the signed-in user's
+// access token.
 
-import { Capacitor } from '@capacitor/core';
+import { supabase } from './supabase';
 
-const PROD_API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '');
+const FUNCTIONS_BASE = `${(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '')}/functions/v1`;
+const ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '') as string;
 
-/** Absolute on native (Vercel domain), relative on web. `path` should start
- *  with a leading slash, e.g. apiUrl('/api/location-chat'). */
-export function apiUrl(path: string): string {
-  if (Capacitor.isNativePlatform() && PROD_API_BASE) {
-    return `${PROD_API_BASE}${path}`;
-  }
-  return path;
+/** Absolute URL of a deployed Edge Function, e.g. apiUrl('location-chat'). */
+export function apiUrl(name: string): string {
+  return `${FUNCTIONS_BASE}/${name}`;
+}
+
+/**
+ * Headers for an Edge Function call: JSON body + the signed-in user's bearer
+ * token (which the function verifies). Falls back to the anon key when there
+ * is no session — the function then responds 401, surfaced to the user.
+ */
+export async function apiHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token || ANON_KEY;
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'apikey': ANON_KEY,
+  };
 }

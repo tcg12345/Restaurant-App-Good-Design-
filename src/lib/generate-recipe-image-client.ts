@@ -4,9 +4,9 @@
 // cover-photo plumbing (onCoverPhotoChange) — exactly like an upload.
 
 import type { HomeMeal } from '../contexts/ListsContext';
-import { apiUrl } from './api-base';
+import { apiUrl, apiHeaders } from './api-base';
 
-const FUNCTION_URL = apiUrl('/api/generate-recipe-image');
+const FUNCTION_URL = apiUrl('generate-recipe-image');
 
 export interface GenerateImageResult {
   ok: boolean;
@@ -108,7 +108,7 @@ export async function generateRecipeImage(
   try {
     res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiHeaders(),
       body: JSON.stringify({ recipe: recipeImagePayload(meal) }),
       signal,
     });
