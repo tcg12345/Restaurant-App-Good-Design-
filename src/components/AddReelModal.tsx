@@ -1187,7 +1187,7 @@ const StepVideo: React.FC<{
       {/* Flex-center wrapper — the inner tile is sized by aspect-ratio
           + max-h, which often resolves to less than the parent's full
           width, so we center it horizontally here. */}
-      <div className={cn('flex items-start justify-center', !videoUrl && useNativeGrid && 'w-full')}>
+      <div className={cn(!videoUrl && useNativeGrid ? '-mx-5' : 'flex items-start justify-center')}>
       <AnimatePresence mode="wait">
         {!videoUrl ? (
           useNativeGrid ? (
@@ -1195,7 +1195,7 @@ const StepVideo: React.FC<{
               key="empty-native"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
-              className="w-full -mx-5"
+              className="w-full"
             >
               <p className="text-[12.5px] text-on-surface/55 px-5 pb-3 max-w-[280px] leading-relaxed">
                 Pick a vertical video from your camera roll. Up to {REEL_MAX_DURATION_SECONDS}s.
@@ -1206,6 +1206,7 @@ const StepVideo: React.FC<{
                 selectedIds={selectedIds}
                 selectionMode="single"
                 onCameraTap={onCameraTap}
+                columns={3}
               />
             </motion.div>
           ) : (
