@@ -2415,6 +2415,20 @@
   text-align: center;
   padding: 10px;
 }
+/* Each recommended restaurant is a card stacked above its own blurb. */
+.lp-chat-card-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* Per-restaurant detail shown directly under its card. */
+.lp-chat-card-note {
+  margin: 0;
+  padding: 1px 6px 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
 /* Recipe card variant — replaces the score circle with a small cover
    thumbnail (or a ChefHat fallback). Same outer layout otherwise. */
 .lp-chat-card-recipe-cover {

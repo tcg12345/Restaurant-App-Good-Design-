@@ -209,7 +209,27 @@ const TOOL_RECOMMEND = {
       },
       reason: {
         type: 'string',
-        description: 'One short sentence on why these match the user.',
+        description: 'One short sentence on why these match the user, shown above the cards as an intro.',
+      },
+      highlights: {
+        type: 'array',
+        description:
+          'A short, specific detail for EACH recommended restaurant, rendered directly under that restaurant\'s card. Include exactly one entry for every id in restaurant_ids, in the same order.',
+        items: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'A restaurant id that also appears in restaurant_ids.',
+            },
+            note: {
+              type: 'string',
+              description:
+                '1-2 sentences on why THIS specific place fits the user (vibe, signature dish, why it suits their taste). Do not start with the name — the card already shows it.',
+            },
+          },
+          required: ['id', 'note'],
+        },
       },
     },
     required: ['restaurant_ids'],
@@ -892,6 +912,14 @@ function buildSystemPrompt(body: ChatRequest): string {
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
   lines.push('- Be conversational, not robotic. Speak like a friendly local.');
   lines.push('- After running an ACTION tool, your reply should briefly confirm what you did, not narrate the click-by-click.');
+  lines.push('');
+  lines.push('Presenting recommendations:');
+  lines.push(
+    '- When you call recommend_restaurants, fill in `highlights` with ONE entry per recommended restaurant — its detail renders directly under that restaurant\'s card, so every card gets its own blurb.',
+  );
+  lines.push(
+    '- Do NOT also list the per-restaurant details as a bulleted block in your prose — that would duplicate the highlights. In your text, write only: a brief one-line intro before the cards, then (after the cards) a short overall summary and a closing follow-up question (e.g. "want me to narrow by vibe?").',
+  );
   lines.push('');
   lines.push('When to take ACTIONS vs answer in prose:');
   lines.push(

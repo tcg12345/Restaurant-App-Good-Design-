@@ -510,11 +510,18 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
     if (b.type === 'text' && b.text) {
       out.push({ type: 'text', text: b.text });
     } else if (b.type === 'cards') {
+      const highlights = b.notes
+        ? Object.entries(b.notes).map(([id, note]) => ({ id, note }))
+        : [];
       out.push({
         type: 'tool_use',
         id: b.toolUseId,
         name: 'recommend_restaurants',
-        input: { restaurant_ids: b.placeIds, reason: b.reason || '' },
+        input: {
+          restaurant_ids: b.placeIds,
+          reason: b.reason || '',
+          ...(highlights.length ? { highlights } : {}),
+        },
       });
     } else if (b.type === 'recipe_cards') {
       out.push({
@@ -1362,12 +1369,25 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             toolUsesInThisTurn.push({ id: ev.id, name: ev.name, input: ev.input });
             if (ev.name === 'recommend_restaurants') {
               // Render cards immediately — no need to wait for 'done'.
-              const input = (ev.input || {}) as { restaurant_ids?: string[]; reason?: string };
+              const input = (ev.input || {}) as {
+                restaurant_ids?: string[];
+                reason?: string;
+                highlights?: Array<{ id?: string; note?: string }>;
+              };
               const placeIds = Array.isArray(input.restaurant_ids)
                 ? input.restaurant_ids.filter((id): id is string => typeof id === 'string')
                 : [];
               const reason = typeof input.reason === 'string' ? input.reason : '';
-              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason });
+              // Map each per-restaurant highlight to its card by id.
+              const notes: Record<string, string> = {};
+              if (Array.isArray(input.highlights)) {
+                for (const h of input.highlights) {
+                  if (h && typeof h.id === 'string' && typeof h.note === 'string' && h.note.trim()) {
+                    notes[h.id] = h.note.trim();
+                  }
+                }
+              }
+              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason, notes });
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
@@ -2432,10 +2452,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       <div key={bi} className="lp-chat-cards">
                         {b.placeIds.map((id) => {
                           const place = placeById.get(id);
+                          const note = b.notes?.[id];
                           if (!place) {
                             return (
-                              <div key={id} className="lp-chat-card lp-chat-card-missing">
-                                Restaurant no longer in your filtered list.
+                              <div key={id} className="lp-chat-card-group">
+                                <div className="lp-chat-card lp-chat-card-missing">
+                                  Restaurant no longer in your filtered list.
+                                </div>
                               </div>
                             );
                           }
@@ -2452,32 +2475,34 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             placeMeta?.neighborhood,
                           );
                           return (
-                            <button
-                              key={id}
-                              type="button"
-                              className="lp-chat-card"
-                              onClick={() => handleNavigateRestaurant(id)}
-                            >
-                              <div className={cn('lp-chat-card-score', scoreClass)}>
-                                {score > 0 ? score.toFixed(1) : '—'}
-                              </div>
-                              <div className="lp-chat-card-info">
-                                <h4>{place.name}</h4>
-                                <p>
-                                  {cuisine && <span className="accent">{cuisine}</span>}
-                                  {cuisine && priceLabel && <span className="dot">·</span>}
-                                  {priceLabel && <span className="price">{priceLabel}</span>}
-                                  {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
-                                  {areaLabel && (
-                                    <span className="area">
-                                      <MapPin size={11} />
-                                      {areaLabel}
-                                    </span>
-                                  )}
-                                </p>
-                              </div>
-                              <ChevronRight />
-                            </button>
+                            <div key={id} className="lp-chat-card-group">
+                              <button
+                                type="button"
+                                className="lp-chat-card"
+                                onClick={() => handleNavigateRestaurant(id)}
+                              >
+                                <div className={cn('lp-chat-card-score', scoreClass)}>
+                                  {score > 0 ? score.toFixed(1) : '—'}
+                                </div>
+                                <div className="lp-chat-card-info">
+                                  <h4>{place.name}</h4>
+                                  <p>
+                                    {cuisine && <span className="accent">{cuisine}</span>}
+                                    {cuisine && priceLabel && <span className="dot">·</span>}
+                                    {priceLabel && <span className="price">{priceLabel}</span>}
+                                    {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
+                                    {areaLabel && (
+                                      <span className="area">
+                                        <MapPin size={11} />
+                                        {areaLabel}
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                                <ChevronRight />
+                              </button>
+                              {note && <p className="lp-chat-card-note">{note}</p>}
+                            </div>
                           );
                         })}
                       </div>
