@@ -42,6 +42,7 @@ import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { PhotoLibraryGrid } from './PhotoLibraryGrid';
+import { ModalFloatingNav } from './ModalFloatingNav';
 
 // Build a Google Places type → human label lookup once.
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
@@ -624,7 +625,7 @@ export const AddReelModal: React.FC = () => {
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'bg-surface w-full overflow-hidden flex flex-col',
+              'relative bg-surface w-full overflow-hidden flex flex-col',
               phoneMode
                 ? 'h-full rounded-none'
                 : 'h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
@@ -632,28 +633,16 @@ export const AddReelModal: React.FC = () => {
           >
             {/* Header */}
             <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              {/* Back / close */}
-              {step > 1 && !isEditing ? (
-                <button
-                  type="button"
-                  onClick={() => goToStep((step - 1) as Step)}
-                  disabled={submitting}
-                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40 flex-shrink-0"
-                  aria-label="Back"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { if (!submitting) closeAddReelModal(); }}
-                  disabled={submitting}
-                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40 flex-shrink-0"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
-              )}
+              {/* Close — back lives in the floating action bar now. */}
+              <button
+                type="button"
+                onClick={() => { if (!submitting) closeAddReelModal(); }}
+                disabled={submitting}
+                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40 flex-shrink-0"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
               <div className="flex-1 min-w-0">
                 <h2 className="font-serif font-bold text-lg leading-tight truncate">
                   {isEditing ? 'Edit reel' : (
@@ -709,7 +698,7 @@ export const AddReelModal: React.FC = () => {
                   animate="center"
                   exit="exit"
                   transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  className="px-5 pt-5 pb-6"
+                  className="px-5 pt-5 pb-28"
                 >
                   {/* ───────── STEP 1: VIDEO ───────── */}
                   {step === 1 && !isEditing && (
@@ -806,110 +795,74 @@ export const AddReelModal: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {/* Auth / error band — shown below the body but above the footer */}
-            {(errorMsg || !user?.id) && (
-              <div className="px-5 pb-2 flex-shrink-0 space-y-2">
-                {!user?.id && (
-                  <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                    <span>Sign in to post reels.</span>
-                  </div>
-                )}
-                {errorMsg && (
-                  <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="border-t border-on-surface/[0.06] px-5 pt-3 pb-safe-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              {/* Step 1 + 2: Next button. Step 3: Post / Save. */}
-              {!isEditing && step === 1 && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (videoFile && videoUrl) { goToStep(2); return; }
-                    if (nativePick && !nativeMaterializing) {
-                      if (await materializeNativePick()) goToStep(2);
-                    }
-                  }}
-                  disabled={!canAdvanceFromStep1 || nativeMaterializing}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    canAdvanceFromStep1 && !nativeMaterializing
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  {nativeMaterializing ? (
-                    <><Loader2 size={15} className="animate-spin" /> Loading…</>
-                  ) : (
-                    <>Next <ChevronRight size={15} /></>
-                  )}
-                </button>
-              )}
-              {/* Edit step — editing is always optional. */}
-              {!isEditing && step === 2 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(3)}
-                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
-              {/* Featured step — gated on a chosen restaurant or recipe. */}
-              {!isEditing && step === 3 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(4)}
-                  disabled={!canAdvanceFromStep3}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    canAdvanceFromStep3
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
-              {/* Final step — Post / Save changes. */}
-              {step === 4 && (
-                <button
-                  type="button"
-                  onClick={onSubmit}
-                  disabled={!canSubmit}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
-                    canSubmit && !submitting
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  {submitting ? (
+            {/* Floating action bar — compact, dynamic primary + back button,
+                floating over the step content instead of a pinned bottom bar. */}
+            {(() => {
+              let onPrimary: () => void = () => {};
+              let primaryDisabled = false;
+              let label: React.ReactNode;
+              if (step === 4) {
+                onPrimary = onSubmit;
+                primaryDisabled = !canSubmit;
+                label = submitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
+                  </>
+                ) : (
+                  <>
+                    <Upload size={15} />
+                    {isEditing ? 'Save changes' : 'Post reel'}
+                  </>
+                );
+              } else if (step === 3) {
+                onPrimary = () => goToStep(4);
+                primaryDisabled = !canAdvanceFromStep3;
+                label = <>Next <ChevronRight size={15} /></>;
+              } else if (step === 2) {
+                onPrimary = () => goToStep(3);
+                label = <>Next <ChevronRight size={15} /></>;
+              } else {
+                onPrimary = () => {
+                  if (videoFile && videoUrl) { goToStep(2); return; }
+                  if (nativePick && !nativeMaterializing) {
+                    void materializeNativePick().then((ok) => { if (ok) goToStep(2); });
+                  }
+                };
+                primaryDisabled = !canAdvanceFromStep1 || nativeMaterializing;
+                label = nativeMaterializing
+                  ? <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                  : <>Next <ChevronRight size={15} /></>;
+              }
+              const showBack = step > 1 && !isEditing;
+              return (
+                <ModalFloatingNav
+                  onBack={showBack ? () => { if (!submitting) goToStep((step - 1) as Step); } : undefined}
+                  backDisabled={submitting}
+                  onPrimary={onPrimary}
+                  primaryDisabled={primaryDisabled}
+                  progress={submitting && !finalizingEdits ? progress : undefined}
+                  notice={(errorMsg || !user?.id) ? (
                     <>
-                      <Loader2 size={15} className="animate-spin" />
-                      {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
+                      {!user?.id && (
+                        <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>Sign in to post reels.</span>
+                        </div>
+                      )}
+                      {errorMsg && (
+                        <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>{errorMsg}</span>
+                        </div>
+                      )}
                     </>
-                  ) : (
-                    <>
-                      <Upload size={15} />
-                      {isEditing ? 'Save changes' : 'Post reel'}
-                    </>
-                  )}
-                  {submitting && !finalizingEdits && (
-                    <span
-                      className="absolute left-0 bottom-0 h-0.5 bg-white/40"
-                      style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }}
-                    />
-                  )}
-                </button>
-              )}
-            </div>
+                  ) : undefined}
+                >
+                  {label}
+                </ModalFloatingNav>
+              );
+            })()}
           </motion.div>
         </motion.div>
       )}
