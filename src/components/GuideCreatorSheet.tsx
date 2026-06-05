@@ -267,7 +267,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setTheme(initialGuide.theme);
       setStep('review');
     } else {
-      setEditingId(null);
+      // Assign the new guide a stable id up front so every save upserts the
+      // SAME row. Without this, a second save firing before setEditingId had
+      // flushed (autosave, launch-live-edit, save-then-publish) inserted a
+      // fresh row each time — which is what produced duplicate guide cards.
+      setEditingId(crypto.randomUUID());
       setType('restaurants');
       setSeedMode(null);
       setTitle('');

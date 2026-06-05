@@ -29,9 +29,7 @@ import { FilterSheet } from '../components/FilterSheet';
 import { FilterSection, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
-import { ProfilePostCard } from '../components/profile/ProfilePostCard';
-import { ProfileReelCard } from '../components/profile/ProfileReelCard';
-import { ProfileGuideCard } from '../components/profile/ProfileGuideCard';
+import { ProfilePostsSection, ProfileReelsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -820,11 +818,7 @@ export const UserProfile: React.FC = () => {
                     <div className="text-[13.5px] text-[var(--color-ink-3)]">When this user shares a post, it'll show up here.</div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                    {profilePosts.map((p) => (
-                      <ProfilePostCard key={p.id} post={p} />
-                    ))}
-                  </div>
+                  <ProfilePostsSection posts={profilePosts} hideHeader />
                 )}
               </>
             )}
@@ -843,11 +837,7 @@ export const UserProfile: React.FC = () => {
                     <div className="text-[13.5px] text-[var(--color-ink-3)]">When this user posts a reel, it'll show up here.</div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    {profileReels.map((r) => (
-                      <ProfileReelCard key={r.id} reel={r} />
-                    ))}
-                  </div>
+                  <ProfileReelsSection reels={profileReels} hideHeader />
                 )}
               </>
             )}
@@ -868,11 +858,7 @@ export const UserProfile: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
-                    {publicGuides.map((g) => (
-                      <ProfileGuideCard key={g.id} guide={g} />
-                    ))}
-                  </div>
+                  <ProfileGuidesSection guides={publicGuides} hideHeader />
                 )}
               </>
             )}
