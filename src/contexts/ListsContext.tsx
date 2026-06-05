@@ -503,9 +503,36 @@ function saveToStorage(key: string, value: unknown) {
   // cloud sync layer is the source of truth — local persistence is best-effort.
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.warn(`[ListsContext] saveToStorage(${key}) failed:`, err);
+  } catch {
+    // Almost always QuotaExceededError: base64 image data-URLs (cover photos,
+    // user photos) are the bloat that overruns the ~5MB cap. Retry with those
+    // stripped — the rest of the entry (names, scores, ids, …) still persists
+    // for instant first paint, and the images rehydrate from the cloud on the
+    // next load. We only strip on failure, so images stay cached when they fit.
+    try {
+      localStorage.setItem(key, JSON.stringify(stripDataUrls(value)));
+    } catch (err2) {
+      console.warn(`[ListsContext] saveToStorage(${key}) failed even after stripping images:`, err2);
+    }
   }
+}
+
+// Deep-clone `value`, replacing any base64 data-URL string with '' so a
+// cached copy fits in localStorage. Leaves http(s) URLs and all other data
+// intact. Used as the quota-overflow fallback in saveToStorage.
+function stripDataUrls<T>(value: T): T {
+  if (typeof value === 'string') {
+    return (value.startsWith('data:') ? '' : value) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => stripDataUrls(v)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = stripDataUrls(v);
+    return out as unknown as T;
+  }
+  return value;
 }
 
 /** Built-in "Want to Cook" recipe list — the recipe equivalent of the
