@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ChefHat,
   Check,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -557,20 +558,22 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   return out;
 }
 
-/** Pluck suggestion chips for the empty state, biased by active filters. */
-function buildSuggestions(shortCity: string, filters: ChatFilters): string[] {
+interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
+
+/** Suggestion cards for the empty state, biased by active filters. `prompt`
+ *  is sent to the model; `title` / `subtitle` drive the horizontal card. */
+function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
   const cuisineLabel = (filters.cuisines?.[0] && (
     GOOGLE_TYPE_TO_CUISINE_LABEL[filters.cuisines[0]] || ''
   )) || '';
-  const out = [
+  return [
     cuisineLabel
-      ? `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`
-      : `Best date night spots in ${shortCity}`,
-    'Hidden gems most people miss',
-    'Where to go for a casual lunch',
-    'Something quick under $20',
+      ? { prompt: `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${shortCity}` }
+      : { prompt: `Best date night spots in ${shortCity}`, title: 'Date night', subtitle: `romantic spots in ${shortCity}` },
+    { prompt: 'Hidden gems most people miss', title: 'Hidden gems', subtitle: 'underrated local favorites' },
+    { prompt: 'Where to go for a casual lunch', title: 'Casual lunch', subtitle: 'easy midday bites' },
+    { prompt: 'Something quick under $20', title: 'Under $20', subtitle: 'quick & budget-friendly' },
   ];
-  return out.slice(0, 4);
 }
 
 const MAX_AGENTIC_TURNS = 5;
@@ -2316,21 +2319,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               <>
               {messages.length === 0 && (
                 <div className="lp-chat-empty">
-                  <p className="lp-chat-empty-lead">
-                    Ask me what to eat in {shortCityName} — I'll pick from your filtered list.
-                  </p>
-                  <div className="lp-chat-suggestions">
-                    {suggestions.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        className="lp-chat-suggestion"
-                        onClick={() => handleSuggestion(s)}
-                      >
-                        {s}
-                      </button>
-                    ))}
+                  <div className="lp-chat-empty-mark" aria-hidden="true">
+                    <Sparkles size={22} />
                   </div>
+                  <p className="lp-chat-empty-lead">
+                    Ask me what to eat in {shortCityName}
+                  </p>
+                  <p className="lp-chat-empty-sub">I'll pick from your filtered list.</p>
                 </div>
               )}
 
@@ -2552,41 +2547,54 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               )}
             </div>
 
+            {view === 'chat' && messages.length === 0 && (
+              <div className="lp-chat-suggest-row">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.prompt}
+                    type="button"
+                    className="lp-chat-suggest-card"
+                    onClick={() => handleSuggestion(s.prompt)}
+                  >
+                    <span className="title">{s.title}</span>
+                    <span className="sub">{s.subtitle}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
-              <textarea
-                ref={inputRef}
-                className="lp-chat-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit();
+              <div className="lp-chat-composer">
+                <textarea
+                  ref={inputRef}
+                  className="lp-chat-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                  rows={1}
+                  placeholder={
+                    messages.length === 0
+                      ? 'Ask for a recommendation…'
+                      : 'Ask a follow-up…'
                   }
-                }}
-                rows={1}
-                placeholder={
-                  messages.length === 0
-                    ? 'Ask for a recommendation…'
-                    : 'Ask a follow-up…'
-                }
-                disabled={streaming}
-              />
-              <button
-                type="submit"
-                className="lp-chat-send"
-                disabled={streaming || !input.trim()}
-                aria-label="Send"
-              >
-                {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              </button>
-            </form>
-            )}
-            {view === 'chat' && (
-              <div className="lp-chat-foot-note">
-                AI can make mistakes — verify the basics.
+                  disabled={streaming}
+                />
+                <button
+                  type="submit"
+                  className="lp-chat-send"
+                  disabled={streaming || !input.trim()}
+                  aria-label="Send"
+                >
+                  {streaming ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={18} />}
+                </button>
               </div>
+            </form>
             )}
           </motion.div>
         )}
