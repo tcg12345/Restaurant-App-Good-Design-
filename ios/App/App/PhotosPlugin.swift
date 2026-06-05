@@ -36,7 +36,6 @@ import Capacitor
 import Photos
 import UIKit
 import AVFoundation
-import MobileCoreServices
 import UniformTypeIdentifiers
 
 @objc(PhotoLibraryPlugin)
@@ -265,24 +264,11 @@ public class PhotoLibraryPlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerContr
 
     private func extensionFor(uti: String?) -> String? {
         guard let uti = uti else { return nil }
-        if #available(iOS 14.0, *) {
-            return UTType(uti)?.preferredFilenameExtension
-        }
-        if let cfExt = UTTypeCopyPreferredTagWithClass(uti as CFString, kUTTagClassFilenameExtension)?.takeRetainedValue() {
-            return cfExt as String
-        }
-        return nil
+        return UTType(uti)?.preferredFilenameExtension
     }
 
     private func mimeFor(extension ext: String) -> String? {
-        if #available(iOS 14.0, *) {
-            return UTType(filenameExtension: ext)?.preferredMIMEType
-        }
-        if let uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, ext as CFString, nil)?.takeRetainedValue(),
-           let mime = UTTypeCopyPreferredTagWithClass(uti, kUTTagClassMIMEType)?.takeRetainedValue() {
-            return mime as String
-        }
-        return nil
+        return UTType(filenameExtension: ext)?.preferredMIMEType
     }
 
     // MARK: - Settings deep-link
