@@ -15,7 +15,8 @@ export interface UiMessage {
 
 export type UiBlock =
   | { type: 'text'; text: string }
-  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
+  // `notes` maps a place id → a 1-2 sentence blurb shown under that card.
+  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string; notes?: Record<string, string> }
   | { type: 'recipe_cards'; toolUseId: string; recipeIds: string[]; reason?: string }
   // AI-built recipe draft. The `draft` is a full HomeMeal-shaped object
   // with builderVersion: 'advanced'; it has a stable client-assigned id

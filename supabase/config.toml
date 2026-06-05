@@ -1,0 +1,19 @@
+# Supabase CLI configuration.
+#
+# Set project_id to your project ref (the subdomain of your Supabase URL),
+# or run `supabase link --project-ref <ref>` which records it for you.
+project_id = "YOUR_PROJECT_REF"
+
+# The AI Edge Functions are called from the browser and the native app with
+# CORS. Browsers don't send an Authorization header on the preflight OPTIONS
+# request, so the gateway's JWT check would 401 the preflight and break CORS.
+# We therefore disable the gateway check and verify the caller's token inside
+# each function instead (see functions/_shared/auth.ts → requireUser).
+[functions.location-chat]
+verify_jwt = false
+
+[functions.build-recipe]
+verify_jwt = false
+
+[functions.generate-recipe-image]
+verify_jwt = false

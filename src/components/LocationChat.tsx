@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ChefHat,
   Check,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -510,11 +511,18 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
     if (b.type === 'text' && b.text) {
       out.push({ type: 'text', text: b.text });
     } else if (b.type === 'cards') {
+      const highlights = b.notes
+        ? Object.entries(b.notes).map(([id, note]) => ({ id, note }))
+        : [];
       out.push({
         type: 'tool_use',
         id: b.toolUseId,
         name: 'recommend_restaurants',
-        input: { restaurant_ids: b.placeIds, reason: b.reason || '' },
+        input: {
+          restaurant_ids: b.placeIds,
+          reason: b.reason || '',
+          ...(highlights.length ? { highlights } : {}),
+        },
       });
     } else if (b.type === 'recipe_cards') {
       out.push({
@@ -550,20 +558,22 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   return out;
 }
 
-/** Pluck suggestion chips for the empty state, biased by active filters. */
-function buildSuggestions(shortCity: string, filters: ChatFilters): string[] {
+interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
+
+/** Suggestion cards for the empty state, biased by active filters. `prompt`
+ *  is sent to the model; `title` / `subtitle` drive the horizontal card. */
+function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
   const cuisineLabel = (filters.cuisines?.[0] && (
     GOOGLE_TYPE_TO_CUISINE_LABEL[filters.cuisines[0]] || ''
   )) || '';
-  const out = [
+  return [
     cuisineLabel
-      ? `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`
-      : `Best date night spots in ${shortCity}`,
-    'Hidden gems most people miss',
-    'Where to go for a casual lunch',
-    'Something quick under $20',
+      ? { prompt: `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${shortCity}` }
+      : { prompt: `Best date night spots in ${shortCity}`, title: 'Date night', subtitle: `romantic spots in ${shortCity}` },
+    { prompt: 'Hidden gems most people miss', title: 'Hidden gems', subtitle: 'underrated local favorites' },
+    { prompt: 'Where to go for a casual lunch', title: 'Casual lunch', subtitle: 'easy midday bites' },
+    { prompt: 'Something quick under $20', title: 'Under $20', subtitle: 'quick & budget-friendly' },
   ];
-  return out.slice(0, 4);
 }
 
 const MAX_AGENTIC_TURNS = 5;
@@ -1362,12 +1372,25 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             toolUsesInThisTurn.push({ id: ev.id, name: ev.name, input: ev.input });
             if (ev.name === 'recommend_restaurants') {
               // Render cards immediately — no need to wait for 'done'.
-              const input = (ev.input || {}) as { restaurant_ids?: string[]; reason?: string };
+              const input = (ev.input || {}) as {
+                restaurant_ids?: string[];
+                reason?: string;
+                highlights?: Array<{ id?: string; note?: string }>;
+              };
               const placeIds = Array.isArray(input.restaurant_ids)
                 ? input.restaurant_ids.filter((id): id is string => typeof id === 'string')
                 : [];
               const reason = typeof input.reason === 'string' ? input.reason : '';
-              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason });
+              // Map each per-restaurant highlight to its card by id.
+              const notes: Record<string, string> = {};
+              if (Array.isArray(input.highlights)) {
+                for (const h of input.highlights) {
+                  if (h && typeof h.id === 'string' && typeof h.note === 'string' && h.note.trim()) {
+                    notes[h.id] = h.note.trim();
+                  }
+                }
+              }
+              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason, notes });
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
@@ -2296,21 +2319,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               <>
               {messages.length === 0 && (
                 <div className="lp-chat-empty">
-                  <p className="lp-chat-empty-lead">
-                    Ask me what to eat in {shortCityName} — I'll pick from your filtered list.
-                  </p>
-                  <div className="lp-chat-suggestions">
-                    {suggestions.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        className="lp-chat-suggestion"
-                        onClick={() => handleSuggestion(s)}
-                      >
-                        {s}
-                      </button>
-                    ))}
+                  <div className="lp-chat-empty-mark" aria-hidden="true">
+                    <Sparkles size={22} />
                   </div>
+                  <p className="lp-chat-empty-lead">
+                    Ask me what to eat in {shortCityName}
+                  </p>
+                  <p className="lp-chat-empty-sub">I'll pick from your filtered list.</p>
                 </div>
               )}
 
@@ -2432,10 +2447,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       <div key={bi} className="lp-chat-cards">
                         {b.placeIds.map((id) => {
                           const place = placeById.get(id);
+                          const note = b.notes?.[id];
                           if (!place) {
                             return (
-                              <div key={id} className="lp-chat-card lp-chat-card-missing">
-                                Restaurant no longer in your filtered list.
+                              <div key={id} className="lp-chat-card-group">
+                                <div className="lp-chat-card lp-chat-card-missing">
+                                  Restaurant no longer in your filtered list.
+                                </div>
                               </div>
                             );
                           }
@@ -2452,32 +2470,34 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                             placeMeta?.neighborhood,
                           );
                           return (
-                            <button
-                              key={id}
-                              type="button"
-                              className="lp-chat-card"
-                              onClick={() => handleNavigateRestaurant(id)}
-                            >
-                              <div className={cn('lp-chat-card-score', scoreClass)}>
-                                {score > 0 ? score.toFixed(1) : '—'}
-                              </div>
-                              <div className="lp-chat-card-info">
-                                <h4>{place.name}</h4>
-                                <p>
-                                  {cuisine && <span className="accent">{cuisine}</span>}
-                                  {cuisine && priceLabel && <span className="dot">·</span>}
-                                  {priceLabel && <span className="price">{priceLabel}</span>}
-                                  {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
-                                  {areaLabel && (
-                                    <span className="area">
-                                      <MapPin size={11} />
-                                      {areaLabel}
-                                    </span>
-                                  )}
-                                </p>
-                              </div>
-                              <ChevronRight />
-                            </button>
+                            <div key={id} className="lp-chat-card-group">
+                              <button
+                                type="button"
+                                className="lp-chat-card"
+                                onClick={() => handleNavigateRestaurant(id)}
+                              >
+                                <div className={cn('lp-chat-card-score', scoreClass)}>
+                                  {score > 0 ? score.toFixed(1) : '—'}
+                                </div>
+                                <div className="lp-chat-card-info">
+                                  <h4>{place.name}</h4>
+                                  <p>
+                                    {cuisine && <span className="accent">{cuisine}</span>}
+                                    {cuisine && priceLabel && <span className="dot">·</span>}
+                                    {priceLabel && <span className="price">{priceLabel}</span>}
+                                    {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
+                                    {areaLabel && (
+                                      <span className="area">
+                                        <MapPin size={11} />
+                                        {areaLabel}
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                                <ChevronRight />
+                              </button>
+                              {note && <p className="lp-chat-card-note">{note}</p>}
+                            </div>
                           );
                         })}
                       </div>
@@ -2527,41 +2547,54 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               )}
             </div>
 
+            {view === 'chat' && messages.length === 0 && (
+              <div className="lp-chat-suggest-row">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.prompt}
+                    type="button"
+                    className="lp-chat-suggest-card"
+                    onClick={() => handleSuggestion(s.prompt)}
+                  >
+                    <span className="title">{s.title}</span>
+                    <span className="sub">{s.subtitle}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
-              <textarea
-                ref={inputRef}
-                className="lp-chat-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit();
+              <div className="lp-chat-composer">
+                <textarea
+                  ref={inputRef}
+                  className="lp-chat-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                  rows={1}
+                  placeholder={
+                    messages.length === 0
+                      ? 'Ask for a recommendation…'
+                      : 'Ask a follow-up…'
                   }
-                }}
-                rows={1}
-                placeholder={
-                  messages.length === 0
-                    ? 'Ask for a recommendation…'
-                    : 'Ask a follow-up…'
-                }
-                disabled={streaming}
-              />
-              <button
-                type="submit"
-                className="lp-chat-send"
-                disabled={streaming || !input.trim()}
-                aria-label="Send"
-              >
-                {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              </button>
-            </form>
-            )}
-            {view === 'chat' && (
-              <div className="lp-chat-foot-note">
-                AI can make mistakes — verify the basics.
+                  disabled={streaming}
+                />
+                <button
+                  type="submit"
+                  className="lp-chat-send"
+                  disabled={streaming || !input.trim()}
+                  aria-label="Send"
+                >
+                  {streaming ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={18} />}
+                </button>
               </div>
+            </form>
             )}
           </motion.div>
         )}

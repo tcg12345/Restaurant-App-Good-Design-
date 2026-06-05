@@ -37,6 +37,7 @@ import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { PhotoLibraryGrid } from './PhotoLibraryGrid';
+import { ModalFloatingNav } from './ModalFloatingNav';
 import {
   MediaEditor,
   applyAllEdits,
@@ -923,7 +924,7 @@ export const AddPostModal: React.FC = () => {
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'bg-surface w-full overflow-hidden flex flex-col',
+              'relative bg-surface w-full overflow-hidden flex flex-col',
               phoneMode
                 ? 'h-full rounded-none'
                 : 'h-full sm:max-w-2xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
@@ -931,29 +932,16 @@ export const AddPostModal: React.FC = () => {
           >
             {/* Header */}
             <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              {/* Back when there's a previous step, else close. Edit mode
-                  starts at step 2 so its "back" closes the modal. */}
-              {!isEditing && step > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => { if (!submitting) goToStep((step - 1) as Step); }}
-                  disabled={submitting}
-                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
-                  aria-label="Back"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => { if (!submitting) closeAddPostModal(); }}
-                  disabled={submitting}
-                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
-              )}
+              {/* Close — back lives in the floating action bar now. */}
+              <button
+                type="button"
+                onClick={() => { if (!submitting) closeAddPostModal(); }}
+                disabled={submitting}
+                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
               <div className="flex-1 min-w-0">
                 <h2 className="font-serif font-bold text-lg leading-tight truncate">
                   {isEditing ? 'Edit post' : (
@@ -1033,7 +1021,7 @@ export const AddPostModal: React.FC = () => {
                   animate="center"
                   exit="exit"
                   transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  className="px-5 pt-4 pb-6 space-y-5"
+                  className="px-5 pt-4 pb-28 space-y-5"
                 >
 
               {/* ───────── STEP 1: Media ───────── */}
@@ -1748,117 +1736,86 @@ export const AddPostModal: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {/* Auth + submit-error banners — pinned between the body and
-                the footer so they stay visible across all steps. */}
-            {(!user?.id || errorMsg) && (
-              <div className="px-5 pb-2 flex-shrink-0 space-y-2">
-                {!user?.id && (
-                  <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                    <span>Sign in to post.</span>
-                  </div>
-                )}
-                {errorMsg && (
-                  <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="border-t border-on-surface/[0.06] px-5 pt-3 pb-safe-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              {/* Step 1 (Media): Next, gated on at least one item OR a
-                  staged native pick that we can materialize on the way
-                  through. */}
-              {!isEditing && step === 1 && (() => {
-                const canAdvance = items.length > 0 || nativePicks.length > 0;
-                const busy = nativeMaterializing;
-                return (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (busy) return;
-                      if (items.length > 0) { goToStep(2); return; }
-                      if (nativePicks.length > 0) {
-                        if (await materializeNativePicks()) goToStep(2);
-                      }
-                    }}
-                    disabled={!canAdvance || busy}
-                    className={cn(
-                      'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                      canAdvance && !busy
-                        ? 'bg-primary text-white hover:bg-primary/90'
-                        : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                    )}
-                  >
-                    {busy ? (
-                      <><Loader2 size={15} className="animate-spin" /> Loading…</>
-                    ) : (
-                      <>
-                        Next
-                        {nativePicks.length > 0 && items.length === 0 && (
-                          <span className="text-white/85 font-semibold">· {nativePicks.length}</span>
-                        )}
-                        <ChevronRight size={15} />
-                      </>
-                    )}
-                  </button>
+            {/* Floating action bar — compact, dynamic primary + back button,
+                floating over the step content instead of a pinned bottom bar. */}
+            {(() => {
+              let onPrimary: () => void = () => {};
+              let primaryDisabled = false;
+              let label: React.ReactNode;
+              if (step === 4) {
+                onPrimary = onSubmit;
+                primaryDisabled = !canSubmit;
+                label = submitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
+                  </>
+                ) : (
+                  <>
+                    <Upload size={15} />
+                    {isEditing
+                      ? 'Save changes'
+                      : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+                  </>
                 );
-              })()}
-              {/* Step 2 (Edit): Next — editing is always optional. */}
-              {!isEditing && step === 2 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(3)}
-                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
-              {/* Step 3 (Tag): Next — captions and featured are optional. */}
-              {step === 3 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(4)}
-                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
-              {/* Step 4 (Details): Post / Save changes. */}
-              {step === 4 && (
-                <button
-                  type="button"
-                  onClick={onSubmit}
-                  disabled={!canSubmit}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
-                    canSubmit
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  {submitting ? (
+              } else if (step === 3) {
+                onPrimary = () => goToStep(4);
+                label = <>Next <ChevronRight size={15} /></>;
+              } else if (step === 2) {
+                onPrimary = () => goToStep(3);
+                label = <>Next <ChevronRight size={15} /></>;
+              } else {
+                // Step 1 (media) — create only.
+                const canAdvance = items.length > 0 || nativePicks.length > 0;
+                onPrimary = () => {
+                  if (nativeMaterializing) return;
+                  if (items.length > 0) { goToStep(2); return; }
+                  if (nativePicks.length > 0) {
+                    void materializeNativePicks().then((ok) => { if (ok) goToStep(2); });
+                  }
+                };
+                primaryDisabled = !canAdvance || nativeMaterializing;
+                label = nativeMaterializing ? (
+                  <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                ) : (
+                  <>
+                    Next
+                    {nativePicks.length > 0 && items.length === 0 && (
+                      <span className="font-semibold opacity-85">· {nativePicks.length}</span>
+                    )}
+                    <ChevronRight size={15} />
+                  </>
+                );
+              }
+              const showBack = step > (isEditing ? 3 : 1);
+              return (
+                <ModalFloatingNav
+                  onBack={showBack ? () => { if (!submitting) goToStep((step - 1) as Step); } : undefined}
+                  backDisabled={submitting}
+                  onPrimary={onPrimary}
+                  primaryDisabled={primaryDisabled}
+                  progress={submitting && !isEditing && !finalizingEdits ? progress : undefined}
+                  notice={(!user?.id || errorMsg) ? (
                     <>
-                      <Loader2 size={15} className="animate-spin" />
-                      {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
+                      {!user?.id && (
+                        <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>Sign in to post.</span>
+                        </div>
+                      )}
+                      {errorMsg && (
+                        <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>{errorMsg}</span>
+                        </div>
+                      )}
                     </>
-                  ) : (
-                    <>
-                      <Upload size={15} />
-                      {isEditing
-                        ? 'Save changes'
-                        : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
-                    </>
-                  )}
-                  {submitting && !isEditing && !finalizingEdits && (
-                    <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
-                  )}
-                </button>
-              )}
-            </div>
+                  ) : undefined}
+                >
+                  {label}
+                </ModalFloatingNav>
+              );
+            })()}
           </motion.div>
 
           {/* ── Picker overlay (restaurant or recipe) ── */}

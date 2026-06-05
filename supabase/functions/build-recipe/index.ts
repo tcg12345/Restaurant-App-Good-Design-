@@ -18,15 +18,12 @@
 // Recipe quality bar + tool input schema are shared with the chat's
 // build_recipe tool (api/location-chat.ts) so both paths author equally
 // thorough recipes.
-import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from './_recipe-spec';
-
-export const config = { runtime: 'edge' };
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
+import { requireUser } from '../_shared/auth.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
-  ? process.env?.ANTHROPIC_API_KEY
-  : undefined;
+const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
 
 // Opus authors noticeably better recipes (measurements, sequencing,
 // realistic timing) than Sonnet, and this is a one-shot call rather
@@ -77,7 +74,7 @@ const TOOL_BUILD_RECIPE = {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 function jsonError(status: number, message: string): Response {
@@ -87,9 +84,13 @@ function jsonError(status: number, message: string): Response {
   });
 }
 
-export default async function handler(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  if (req.method === 'POST') {
+    const auth = await requireUser(req);
+    if ('response' in auth) return auth.response;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -191,3 +192,5 @@ export default async function handler(req: Request): Promise<Response> {
     },
   });
 }
+
+Deno.serve(handler);

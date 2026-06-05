@@ -25,6 +25,8 @@ interface Props {
   pageSize?: number;
   /** Optional Tailwind className applied to the outer scroller. */
   className?: string;
+  /** Number of columns in the thumbnail grid. Defaults to 4. */
+  columns?: number;
   /** If provided, the first cell of the grid renders as a camera button
    *  that fires this callback. The caller is responsible for actually
    *  opening the camera (we just provide the affordance). */
@@ -56,6 +58,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
   pageSize = 48,
   className,
   onCameraTap,
+  columns = COLS,
 }) => {
   const [status, setStatus] = useState<PhotoPermissionStatus | 'loading'>('loading');
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -144,7 +147,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
 
   if (status === 'loading') {
     return (
-      <div className={cn('grid gap-[2px]', className)} style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+      <div className={cn('grid gap-[2px]', className)} style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
         {Array.from({ length: 12 }).map((_, i) => (
           <div key={i} className="aspect-square bg-on-surface/[0.04] animate-pulse" />
         ))}
@@ -191,7 +194,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
           </button>
         </div>
       )}
-      <div className="grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+      <div className="grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
         {onCameraTap && (
           <button
             type="button"

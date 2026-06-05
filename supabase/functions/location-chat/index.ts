@@ -23,15 +23,12 @@
 // The chat's build_recipe tool shares its quality bar + input schema with
 // the dedicated "Create with AI" modal generator (api/build-recipe.ts) so
 // recipes authored in chat are just as thorough and precise.
-import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from './_recipe-spec';
-
-export const config = { runtime: 'edge' };
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
+import { requireUser } from '../_shared/auth.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
-  ? process.env?.ANTHROPIC_API_KEY
-  : undefined;
+const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
 
 // Model IDs the chat can run on. The client selects one of these
 // (or 'auto') via the header model picker.
@@ -1029,7 +1026,7 @@ function buildSystemPrompt(body: ChatRequest): string {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 function jsonError(status: number, message: string): Response {
@@ -1039,9 +1036,15 @@ function jsonError(status: number, message: string): Response {
   });
 }
 
-export default async function handler(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  // Require a signed-in Supabase user. verify_jwt is off (so the OPTIONS
+  // preflight gets through); we enforce auth here instead.
+  if (req.method === 'POST') {
+    const auth = await requireUser(req);
+    if ('response' in auth) return auth.response;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -1165,3 +1168,5 @@ export default async function handler(req: Request): Promise<Response> {
     },
   });
 }
+
+Deno.serve(handler);

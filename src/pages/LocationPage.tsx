@@ -82,6 +82,7 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { MichelinMark } from '../components/MichelinBadge';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
 import type { MichelinChatHit } from '../components/LocationChat';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
@@ -3023,6 +3024,7 @@ export const LocationPage: React.FC = () => {
                     walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
                     driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
                     isMobile={isMobile}
+                    showMichelin={selectedMichelin.length > 0}
                   />
                 ))}
               </div>
@@ -3951,6 +3953,9 @@ interface LocationListItemProps {
   walkMinCap: number | null;
   driveMinCap: number | null;
   isMobile?: boolean;
+  /** Show the Michelin distinction mark on the card. Only true while a
+   *  Michelin filter is active, so the mark never appears unfiltered. */
+  showMichelin?: boolean;
 }
 
 const LocationListItem: React.FC<LocationListItemProps> = ({
@@ -3960,6 +3965,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   walkMinCap,
   driveMinCap,
   isMobile = false,
+  showMichelin = false,
 }) => {
   const { driveMin, walkMin } = useTravelTimes(
     origin,
@@ -4074,6 +4080,12 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
                   {locationLabel}
                 </span>
               )}
+              {showMichelin && mich.michelin && (
+                <>
+                  {(cuisine || priceLabel || locationLabel) && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+                  <MichelinMark michelin={mich.michelin} size={12} />
+                </>
+              )}
             </div>
             {tags.length > 0 && (
               <div className="mt-2 flex gap-1.5 flex-wrap">
@@ -4135,6 +4147,12 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
             <span className="pin-row">
               <MapPin /> {locationLabel}
             </span>
+          )}
+          {showMichelin && mich.michelin && (
+            <>
+              {(cuisine || priceLabel || locationLabel) && <span className="sep" />}
+              <MichelinMark michelin={mich.michelin} size={12} />
+            </>
           )}
         </div>
         {tags.length > 0 && (

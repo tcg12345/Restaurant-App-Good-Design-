@@ -30,7 +30,7 @@ import {
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinBySyntheticId } from '../lib/michelin';
-import { MichelinBadge } from '../components/MichelinBadge';
+import { MichelinBadge, MichelinMark } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
@@ -5845,6 +5845,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                             const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                             const dist = distanceFromAnchor(place.lat, place.lng);
+                            // Only resolve (and show) the distinction while a Michelin filter is active.
+                            const michHit = selectedMichelin.length > 0 && michelinReady
+                              ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+                              : null;
                             return (
                               <div key={place.id} onClick={() => focusPanelPlace(place)}
                                 className={cn("flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity", selectedMarker === place.id && "opacity-60")}>
@@ -5856,6 +5860,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                     {price && <span className="tabular-nums">{price}</span>}
                                     {price && cityState && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
                                     {cityState && <span className="truncate">{cityState}</span>}
+                                    {michHit && (
+                                      <>
+                                        {(cuisine || price || cityState) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                        <MichelinMark michelin={michHit} size={12} />
+                                      </>
+                                    )}
                                   </div>
                                   {dist && (
                                     <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">
@@ -5894,6 +5904,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), priceLevelToString(place.priceLevel));
                           const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                           const dist = distanceFromAnchor(place.lat, place.lng);
+                          // Only resolve (and show) the distinction while a Michelin filter is active.
+                          const michHit = selectedMichelin.length > 0 && michelinReady
+                            ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+                            : null;
                           return (
                             <div key={place.id} onClick={() => focusPanelPlace(place)}
                               className={cn("flex items-start gap-3 cursor-pointer py-[18px] active:opacity-60 transition-opacity", selectedMarker === place.id && "opacity-60")}>
@@ -5905,6 +5919,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   {price && <span className="tabular-nums">{price}</span>}
                                   {price && cityState && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
                                   {cityState && <span className="truncate">{cityState}</span>}
+                                  {michHit && (
+                                    <>
+                                      {(cuisine || price || cityState) && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/30" />}
+                                      <MichelinMark michelin={michHit} size={12} />
+                                    </>
+                                  )}
                                 </div>
                                 {dist && (
                                   <div className="flex items-center gap-3.5 mt-2 text-[12px] font-semibold text-on-surface/50">

@@ -21,13 +21,11 @@
 // The OpenAI API key lives here as a Vercel environment variable
 // (`OPENAI_API_KEY`) and never reaches the browser bundle.
 
-export const config = { runtime: 'edge' };
+import { requireUser } from '../_shared/auth.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const OPENAI_API_KEY: string | undefined = typeof process !== 'undefined'
-  ? process.env?.OPENAI_API_KEY
-  : undefined;
+const OPENAI_API_KEY: string | undefined = Deno.env.get('OPENAI_API_KEY');
 
 // Single named constant so swapping the model is a one-line change. Falls
 // back to gpt-image-1 if an account doesn't yet have access to gpt-image-2.
@@ -57,7 +55,7 @@ interface RecipeImageInput {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type, authorization',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 function jsonError(status: number, message: string): Response {
@@ -102,9 +100,13 @@ function buildImagePrompt(recipe: RecipeImageInput): string {
   return parts.join(' ').slice(0, MAX_PROMPT_CHARS);
 }
 
-export default async function handler(req: Request): Promise<Response> {
+async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
+  }
+  if (req.method === 'POST') {
+    const auth = await requireUser(req);
+    if ('response' in auth) return auth.response;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -196,3 +198,5 @@ export default async function handler(req: Request): Promise<Response> {
     },
   });
 }
+
+Deno.serve(handler);

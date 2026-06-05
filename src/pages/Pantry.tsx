@@ -21,6 +21,7 @@ import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
 import { useAuth } from '../contexts/AuthContext';
@@ -573,7 +574,10 @@ const RestaurantRow: React.FC<{
   onEdit?: () => void;
   onRemove?: () => void;
   removeLabel?: string;
-}> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
+  /** Show the Michelin distinction mark — only true while a Michelin filter
+   *  is active, so it never appears unfiltered. */
+  showMichelin?: boolean;
+}> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel, showMichelin = false }) => {
   const { phoneMode } = useSettings();
   const { restaurantMeta } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -704,6 +708,11 @@ const RestaurantRow: React.FC<{
                   <h3 className={cn("font-serif font-bold leading-tight truncate", phoneMode ? "text-[15px]" : "text-[16px]")}>{name}</h3>
                   <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
                     {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
+                    {showMichelin && mich.michelin && (
+                      <span className="inline-flex items-center align-middle ml-1.5">
+                        <MichelinMark michelin={mich.michelin} size={12} />
+                      </span>
+                    )}
                   </p>
                   {location && (
                     <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
@@ -986,7 +995,10 @@ const RestaurantGridCard: React.FC<{
    *  without scrolling through the rest of the score editor. */
   onEditNotes?: () => void;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onEditNotes, onRemove }) => {
+  /** Show the Michelin distinction mark — only true while a Michelin filter
+   *  is active, so it never appears unfiltered. */
+  showMichelin?: boolean;
+}> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onEditNotes, onRemove, showMichelin = false }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -1068,11 +1080,16 @@ const RestaurantGridCard: React.FC<{
           </div>
 
           {/* Cuisine · price */}
-          {(cuisineLabel || showPrice) && (
+          {(cuisineLabel || showPrice || (showMichelin && mich.michelin)) && (
             <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
               {cuisineLabel}
               {cuisineLabel && showPrice ? ' · ' : ''}
               {showPrice && mich.price}
+              {showMichelin && mich.michelin && (
+                <span className="inline-flex items-center align-middle ml-1.5">
+                  <MichelinMark michelin={mich.michelin} size={12} />
+                </span>
+              )}
             </p>
           )}
 
@@ -7373,6 +7390,7 @@ export const Pantry: React.FC = () => {
                           onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                           onEditNotes={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address }, 'notes')}
                           onRemove={() => removeRating(r.restaurantId)}
+                          showMichelin={michelinFilter.length > 0}
                         />
                       ) : (
                         <div key={r.restaurantId} className="flex items-center gap-2">
@@ -7418,6 +7436,7 @@ export const Pantry: React.FC = () => {
                               wouldReturn={r.wouldReturn}
                               listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
                               onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                              showMichelin={michelinFilter.length > 0}
                             />
                           </div>
                         </div>

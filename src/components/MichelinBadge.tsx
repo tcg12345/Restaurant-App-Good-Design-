@@ -18,6 +18,43 @@ interface MichelinBadgeProps {
 const MICHELIN_RED = '#a2191f';
 
 /**
+ * Compact, label-less distinction mark for dense list rows: just the red
+ * glyph(s) — one filled star per award, a soup glyph for Bib Gourmand, or
+ * utensils for Selected. Used inline on the cards' meta line (only while a
+ * Michelin filter is active). For the full pill with wordmark, use
+ * MichelinBadge.
+ */
+export function MichelinMark({
+  michelin,
+  size = 13,
+  className = '',
+}: { michelin: MichelinInfo; size?: number; className?: string }) {
+  const distinction = michelin.bibGourmand
+    ? 'Bib Gourmand'
+    : michelin.selected
+      ? 'Michelin Selected'
+      : `${michelin.stars} Michelin ${michelin.stars === 1 ? 'Star' : 'Stars'}`;
+  return (
+    <span
+      className={`inline-flex items-center ${className}`}
+      role="img"
+      aria-label={distinction}
+      title={distinction}
+    >
+      {michelin.bibGourmand ? (
+        <Soup size={size} color={MICHELIN_RED} strokeWidth={2.2} />
+      ) : michelin.selected ? (
+        <Utensils size={size} color={MICHELIN_RED} strokeWidth={2.2} />
+      ) : (
+        Array.from({ length: michelin.stars }).map((_, i) => (
+          <Star key={i} size={size} fill={MICHELIN_RED} color={MICHELIN_RED} strokeWidth={0} />
+        ))
+      )}
+    </span>
+  );
+}
+
+/**
  * Distinction badge for a Michelin-recognised restaurant. Starred restaurants
  * show one filled star per award plus the "MICHELIN" wordmark; Bib Gourmand
  * shows a bib/soup glyph plus "BIB GOURMAND"; Selected (in the Guide, no

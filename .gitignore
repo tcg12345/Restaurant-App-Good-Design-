@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+# Apple "Sign in with Apple" private key — never commit this.
+*.p8
