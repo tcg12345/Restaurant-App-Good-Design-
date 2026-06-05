@@ -305,18 +305,37 @@ public class PhotoLibraryPlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerContr
                 call.reject("Camera not available on this device", "NO_CAMERA")
                 return
             }
+            // Only request media types the camera actually offers. Setting
+            // mediaTypes to a type that isn't in availableMediaTypes throws
+            // UIKit's "No available types for source" exception — which is
+            // what crashed video capture when "public.movie" was set blindly.
+            let available = UIImagePickerController.availableMediaTypes(for: .camera) ?? []
+            let imageType = UTType.image.identifier   // "public.image"
+            let movieType = UTType.movie.identifier   // "public.movie"
+
+            let desired: [String]
+            switch mediaType {
+            case "photo": desired = [imageType]
+            case "video": desired = [movieType]
+            default:      desired = [imageType, movieType]
+            }
+            let types = desired.filter { available.contains($0) }
+            guard !types.isEmpty else {
+                let what = mediaType == "video" ? "Video" : (mediaType == "photo" ? "Photo" : "Camera")
+                call.reject("\(what) capture isn't available on this device's camera.", "NO_MEDIA_TYPES")
+                return
+            }
+
             let picker = UIImagePickerController()
             picker.sourceType = .camera
-            switch mediaType {
-            case "photo":
-                picker.mediaTypes = ["public.image"]
-                picker.cameraCaptureMode = .photo
-            case "video":
-                picker.mediaTypes = ["public.movie"]
+            picker.mediaTypes = types
+            // Open straight into the right mode when that type is supported.
+            if mediaType == "video" {
                 picker.cameraCaptureMode = .video
                 picker.videoQuality = .typeHigh
-            default:
-                picker.mediaTypes = ["public.image", "public.movie"]
+            } else if mediaType == "photo" {
+                picker.cameraCaptureMode = .photo
+            } else if types.contains(movieType) {
                 picker.videoQuality = .typeHigh
             }
             picker.delegate = self
