@@ -784,6 +784,21 @@ export const Profile: React.FC = () => {
     if (prevGuideCreatorOpen.current && !guideCreatorOpen) void refreshMyGuides();
     prevGuideCreatorOpen.current = guideCreatorOpen;
   }, [guideCreatorOpen, refreshMyGuides]);
+  // Guides actually worth rendering in the grid. Two cleanups:
+  //   1. De-dupe by id (defensive — keeps the grid stable if a refresh
+  //      ever races and a row slips in twice).
+  //   2. Drop empty, untitled drafts — the accidental "Untitled guide"
+  //      tiles a user racks up by opening the creator and bailing. A
+  //      draft with a title OR any entries is real work-in-progress and
+  //      stays so the owner can finish it.
+  const visibleGuides = useMemo(() => {
+    const seen = new Set<string>();
+    return myGuides.filter((g) => {
+      if (seen.has(g.id)) return false;
+      seen.add(g.id);
+      return g.entries.length > 0 || g.title.trim().length > 0;
+    });
+  }, [myGuides]);
 
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
@@ -1706,7 +1721,7 @@ export const Profile: React.FC = () => {
         )}
 
         {activeTab === 'guides' && (
-          myGuides.length === 0 ? (
+          visibleGuides.length === 0 ? (
             <EmptyTabState
               icon={<BookOpen size={32} className="text-on-surface/15" />}
               title="No guides yet"
@@ -1716,7 +1731,7 @@ export const Profile: React.FC = () => {
             />
           ) : (
             <ProfileGuidesSection
-              guides={myGuides}
+              guides={visibleGuides}
               isOwn
               onEdit={(guide) => openGuideCreator(guide)}
               onDelete={(id) => setConfirmDeleteGuideId(id)}
