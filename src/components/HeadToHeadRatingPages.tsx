@@ -8,6 +8,7 @@ import {
   type H2HState,
   type Tier,
   type H2HCandidate,
+  type CandidateMetaResolver,
   TIER_LABELS,
   TIER_BLURB,
   initH2H,
@@ -19,6 +20,21 @@ import {
   computeFinalScore,
   totalEstimatedComparisons,
 } from '../lib/headToHeadRating';
+import { relevanceHint, type SimilarityInput } from '../lib/restaurantSimilarity';
+
+/** The new restaurant being placed. Carries optional geo/locality/tags so the
+ *  head-to-head engine can score relevance; only name/cuisine/price/address are
+ *  required for display. */
+export interface H2HNewRestaurant {
+  name: string;
+  cuisine: string;
+  price: string;
+  address: string;
+  lat?: number;
+  lng?: number;
+  neighborhood?: string;
+  tags?: string[];
+}
 
 
 /* ── Ranking context (lives under the slider) ─────────────────────── */
@@ -184,7 +200,7 @@ export const MethodToggle: React.FC<{
 export const InlineH2H: React.FC<{
   ratings: RestaurantRating[];
   excludeId: string;
-  newRestaurant: { name: string; cuisine: string; price: string; address: string };
+  newRestaurant: H2HNewRestaurant;
   state: H2HState | null;
   setState: (s: H2HState | null) => void;
   onComplete: (finalScore: number) => void;
@@ -199,14 +215,26 @@ export const InlineH2H: React.FC<{
    *  immediately after the last comparison resolves. Used by the tie-break
    *  flow so the modal saves straight after the search. */
   skipResult?: boolean;
-}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult }) => {
+  /** Resolves a rated restaurant's geo/locality meta so comparisons can be
+   *  picked by relevance. Optional — without it, location simply degrades. */
+  resolveMeta?: CandidateMetaResolver;
+}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta }) => {
   // Tier select (skipped when the caller supplies state externally)
   if (!state) {
     if (skipTierSelect) return null;
     return (
       <InlineTierSelect
         onPick={(tier) => {
-          const fresh = initH2H(ratings as never, tier, excludeId);
+          const target: SimilarityInput = {
+            cuisine: newRestaurant.cuisine,
+            price: newRestaurant.price,
+            address: newRestaurant.address,
+            neighborhood: newRestaurant.neighborhood,
+            lat: newRestaurant.lat,
+            lng: newRestaurant.lng,
+            tags: newRestaurant.tags,
+          };
+          const fresh = initH2H(ratings, tier, excludeId, target, resolveMeta);
           if (isComplete(fresh)) {
             onComplete(computeFinalScore(fresh));
             return;
@@ -313,7 +341,7 @@ const InlineTierSelect: React.FC<{
 const InlineCompare: React.FC<{
   state: H2HState;
   comparison: H2HCandidate;
-  newRestaurant: { name: string; cuisine: string; price: string; address: string };
+  newRestaurant: H2HNewRestaurant;
   onBack: () => void;
   onPick: (pickedNew: boolean) => void;
   onTie: () => void;
@@ -321,6 +349,21 @@ const InlineCompare: React.FC<{
   const total = totalEstimatedComparisons(state);
   const done = state.history.length;
   const progress = total === 0 ? 1 : Math.min(1, done / total);
+  const hint = useMemo(
+    () =>
+      state.target
+        ? relevanceHint(state.target, {
+            cuisine: comparison.cuisine,
+            price: comparison.price,
+            address: comparison.address,
+            neighborhood: comparison.neighborhood,
+            lat: comparison.lat,
+            lng: comparison.lng,
+            tags: comparison.tags,
+          })
+        : '',
+    [state.target, comparison],
+  );
   return (
     <motion.div
       key="inline-compare"
@@ -354,6 +397,14 @@ const InlineCompare: React.FC<{
           transition={{ type: 'spring', stiffness: 200, damping: 28 }}
         />
       </div>
+      {hint && (
+        <div className="flex justify-center mb-2.5">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] text-primary/80 text-[10px] font-semibold">
+            <Sparkles size={10} />
+            {hint}
+          </span>
+        </div>
+      )}
       <AnimatePresence mode="wait">
         <motion.div
           key={comparison.restaurantId + ':' + state.history.length}

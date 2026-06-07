@@ -8,6 +8,12 @@
  */
 
 import type { RestaurantRating } from '../contexts/ListsContext';
+import {
+  computeSimilarity,
+  NEUTRAL_SIMILARITY,
+  PEER_SIMILARITY_THRESHOLD,
+  type SimilarityInput,
+} from './restaurantSimilarity';
 
 export type Tier = 'loved' | 'fine' | 'disliked';
 
@@ -21,7 +27,35 @@ export interface H2HCandidate {
   notes: string;
   tags: string[];
   score: number;
+  /** Geo/locality, resolved lazily from restaurant meta when available.
+   *  Used only to score similarity — absent fields degrade gracefully. */
+  lat?: number;
+  lng?: number;
+  neighborhood?: string;
 }
+
+/** Resolver that maps a candidate's id to its geo/locality metadata, so the
+ *  similarity engine can use coordinates the rating rows don't carry. */
+export type CandidateMetaResolver = (
+  restaurantId: string,
+) => { lat?: number; lng?: number; neighborhood?: string; address?: string } | undefined;
+
+/* ── Similarity-aware selection tunables ───────────────────────────────── */
+
+/** Max real comparisons (choices + ties) before we finalize by interpolation. */
+export const DEFAULT_BUDGET = 6;
+/** Effectively no cap — used by the tie-break flow to preserve old behavior. */
+export const UNLIMITED_BUDGET = Number.POSITIVE_INFINITY;
+/** Selection weight on information-gain ramps from MIN (relevance-led, early)
+ *  to MAX (convergence-led, late) as the search progresses. */
+export const W_INFO_MIN = 0.35;
+export const W_INFO_MAX = 0.9;
+/** Rounds at which the schedule's round-progress signal saturates. */
+export const SCHEDULE_ROUNDS_FULL = 4;
+/** How hard a budget-capped final score is pulled toward the peer prior. */
+export const PEER_PULL = 0.25;
+
+const EPS = 1e-9;
 
 export interface H2HStep {
   kind: 'choice' | 'tie';
@@ -59,6 +93,14 @@ export interface H2HState {
   history: H2HStep[];
   /** Total candidates considered when the search started — used for progress. */
   initialPoolSize: number;
+  /** The restaurant being placed, as similarity attributes. Null in the
+   *  tie-break flow → every candidate scores NEUTRAL (pure bisection). */
+  target: SimilarityInput | null;
+  /** Per-candidate similarity to `target`, index-aligned to `candidates`,
+   *  each in [0,1]. Computed once at init; constant for the session. */
+  similarity: number[];
+  /** Max comparisons before finalizing by interpolation (ties count). */
+  budget: number;
 }
 
 export const TIER_LABELS: Record<Tier, string> = {
@@ -99,17 +141,55 @@ function ratingToCandidate(r: RestaurantRating): H2HCandidate {
   };
 }
 
+/** Fill in coords/neighborhood (and a better address) from the meta resolver
+ *  when available — the rating rows don't carry geo data. */
+function enrichCandidate(c: H2HCandidate, resolveMeta?: CandidateMetaResolver): H2HCandidate {
+  if (!resolveMeta) return c;
+  const meta = resolveMeta(c.restaurantId);
+  if (!meta) return c;
+  return {
+    ...c,
+    lat: meta.lat,
+    lng: meta.lng,
+    neighborhood: meta.neighborhood,
+    address: c.address || meta.address || '',
+  };
+}
+
+function candidateToInput(c: H2HCandidate): SimilarityInput {
+  return {
+    cuisine: c.cuisine,
+    price: c.price,
+    address: c.address,
+    neighborhood: c.neighborhood,
+    lat: c.lat,
+    lng: c.lng,
+    tags: c.tags,
+  };
+}
+
+/** Per-candidate similarity to the target, or a flat neutral array when there
+ *  is no target (tie-break flow) — which makes selection pure bisection. */
+function computeSimilarities(target: SimilarityInput | null, candidates: H2HCandidate[]): number[] {
+  if (!target) return candidates.map(() => NEUTRAL_SIMILARITY);
+  return candidates.map((c) => computeSimilarity(target, candidateToInput(c)).score);
+}
+
 export function initH2H(
   allRatings: RestaurantRating[],
   tier: Tier,
   excludeId?: string,
+  target?: SimilarityInput,
+  resolveMeta?: CandidateMetaResolver,
+  budget: number = DEFAULT_BUDGET,
 ): H2HState {
   const { min, max } = tierRange(tier);
   const candidates = allRatings
     .filter((r) => r.restaurantId !== excludeId)
     .filter((r) => r.score >= min && r.score <= max)
     .sort((a, b) => b.score - a.score)
-    .map(ratingToCandidate);
+    .map(ratingToCandidate)
+    .map((c) => enrichCandidate(c, resolveMeta));
   return {
     tier,
     candidates,
@@ -123,6 +203,9 @@ export function initH2H(
     tiedScores: [],
     history: [],
     initialPoolSize: candidates.length,
+    target: target ?? null,
+    similarity: computeSimilarities(target ?? null, candidates),
+    budget,
   };
 }
 
@@ -172,25 +255,90 @@ export function initH2HTieBreak(
     tiedScores: [],
     history: [],
     initialPoolSize: candidates.length,
+    // No similarity target: every candidate scores neutral, so selection is
+    // pure bisection and the budget never bites — identical to the original
+    // tie-break behavior.
+    target: null,
+    similarity: candidates.map(() => NEUTRAL_SIMILARITY),
+    budget: UNLIMITED_BUDGET,
   };
 }
 
-/** Return the next index to compare against, or null when nothing valid
- *  remains in [lo, hi]. Walks outward from the midpoint so we keep the
- *  search balanced even after several ties have eaten into the window. */
+/** In-window, non-excluded candidate indices, in ascending order. */
+function activeIndices(state: H2HState): number[] {
+  const excludedSet = new Set(state.excluded);
+  const out: number[] = [];
+  for (let i = state.lo; i <= state.hi; i++) {
+    if (!excludedSet.has(i)) out.push(i);
+  }
+  return out;
+}
+
+/** Median index of the peer cohort across the whole pool — used once, at the
+ *  first comparison, to open near where similar restaurants already sit in the
+ *  tier's sorted list. Returns null when there are no peers. */
+function peerSeedIndex(state: H2HState): number | null {
+  const peers: number[] = [];
+  for (let i = state.lo; i <= state.hi; i++) {
+    if ((state.similarity[i] ?? NEUTRAL_SIMILARITY) >= PEER_SIMILARITY_THRESHOLD) peers.push(i);
+  }
+  if (peers.length === 0) return null;
+  return peers[Math.floor((peers.length - 1) / 2)]; // lower median (deterministic)
+}
+
+/** Weight on information-gain vs. relevance. Ramps toward MAX as rounds accrue
+ *  or the window collapses, so early asks are relevant and late asks converge. */
+function infoWeight(state: H2HState): number {
+  const roundProgress = clamp(state.history.length / SCHEDULE_ROUNDS_FULL, 0, 1);
+  const countInWindow = activeIndices(state).length;
+  const denom = Math.max(1, state.initialPoolSize - 1);
+  const windowProgress = 1 - clamp((countInWindow - 1) / denom, 0, 1);
+  const progress = Math.max(roundProgress, windowProgress);
+  return W_INFO_MIN + (W_INFO_MAX - W_INFO_MIN) * progress;
+}
+
+/**
+ * Choose the next index to compare against. Among in-window, non-excluded
+ * candidates we maximize `w_info·informationGain + w_relevance·similarity`.
+ * Information gain peaks at the (integer) window midpoint, so selection never
+ * prunes the window — it only picks *which* in-window item to ask about, which
+ * keeps the binary-search correctness invariant intact (every answer still
+ * moves exactly one boundary). With neutral/uniform similarity this reduces to
+ * the classic midpoint walk. Returns null when nothing valid remains.
+ */
 function pickComparisonIndex(state: H2HState): number | null {
   if (state.lo > state.hi) return null;
-  const target = Math.floor((state.lo + state.hi) / 2);
-  const excludedSet = new Set(state.excluded);
-  const span = state.hi - state.lo;
-  for (let offset = 0; offset <= span; offset++) {
-    const candidates = offset === 0 ? [target] : [target - offset, target + offset];
-    for (const idx of candidates) {
-      if (idx < state.lo || idx > state.hi) continue;
-      if (!excludedSet.has(idx)) return idx;
+  const idxs = activeIndices(state);
+  if (idxs.length === 0) return null;
+
+  // Center information gain on the geometric midpoint, except on the very
+  // first comparison, where we seed near the peer cohort's central position.
+  const seed = state.history.length === 0 ? peerSeedIndex(state) : null;
+  const center = seed ?? Math.floor((state.lo + state.hi) / 2);
+  const half = Math.max(1, (state.hi - state.lo) / 2);
+
+  const wInfo = infoWeight(state);
+  const wRel = 1 - wInfo;
+
+  let best = idxs[0];
+  let bestScore = -Infinity;
+  let bestInfo = -Infinity;
+  for (const i of idxs) {
+    const info = clamp(1 - Math.abs(i - center) / half, 0, 1);
+    const rel = state.similarity[i] ?? NEUTRAL_SIMILARITY;
+    const s = wInfo * info + wRel * rel;
+    // Deterministic preference: higher blended score, then higher info gain
+    // (closer to center), then lower index.
+    const better =
+      s > bestScore + EPS ||
+      (Math.abs(s - bestScore) <= EPS && info > bestInfo + EPS);
+    if (better) {
+      best = i;
+      bestScore = s;
+      bestInfo = info;
     }
   }
-  return null;
+  return best;
 }
 
 export function pickComparison(state: H2HState): H2HCandidate | null {
@@ -284,7 +432,44 @@ export function undoLastChoice(state: H2HState): H2HState {
 }
 
 export function isComplete(state: H2HState): boolean {
-  return pickComparisonIndex(state) === null;
+  return pickComparisonIndex(state) === null || state.history.length >= state.budget;
+}
+
+/** Peer indices to anchor a budget-capped final score. Prefers peers still
+ *  inside the live window; falls back to all peers when none remain. */
+function peerIndicesForFinalize(state: H2HState): number[] {
+  const excludedSet = new Set(state.excluded);
+  const inWindow: number[] = [];
+  const all: number[] = [];
+  for (let i = 0; i < state.candidates.length; i++) {
+    if ((state.similarity[i] ?? NEUTRAL_SIMILARITY) >= PEER_SIMILARITY_THRESHOLD) {
+      all.push(i);
+      if (i >= state.lo && i <= state.hi && !excludedSet.has(i)) inWindow.push(i);
+    }
+  }
+  return inWindow.length > 0 ? inWindow : all;
+}
+
+/** When the budget runs out with the window still open, place the score
+ *  between the bounding remaining candidates (clamped to the comparison-derived
+ *  envelope), optionally pulled toward the peer prior. */
+function interpolateOpenWindow(state: H2HState): number {
+  // Candidates are sorted desc: candidates[lo] is the highest-scored item
+  // still above the new restaurant's slot, candidates[hi] the lowest below.
+  const upperNeighbor = state.candidates[state.lo]?.score ?? state.upperBound;
+  const lowerNeighbor = state.candidates[state.hi]?.score ?? state.lowerBound;
+  const upper = Math.min(state.upperBound, upperNeighbor);
+  const lower = Math.max(state.lowerBound, lowerNeighbor);
+  const hiV = Math.max(upper, lower);
+  const loV = Math.min(upper, lower);
+
+  let raw = (hiV + loV) / 2;
+  const peers = peerIndicesForFinalize(state);
+  if (peers.length > 0) {
+    const mean = peers.reduce((s, i) => s + state.candidates[i].score, 0) / peers.length;
+    raw = (1 - PEER_PULL) * raw + PEER_PULL * mean;
+  }
+  return clamp(raw, loV, hiV);
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -307,7 +492,13 @@ export function computeFinalScore(state: H2HState): number {
     return clamp(round1(avg), 0, 10);
   }
 
-  const raw = (state.upperBound + state.lowerBound) / 2;
+  // Budget exhausted with the window still open: interpolate between the
+  // bounding remaining candidates rather than the (still-wide) tier bounds.
+  const windowOpen = activeIndices(state).length > 0;
+  const raw =
+    windowOpen && state.history.length >= state.budget
+      ? interpolateOpenWindow(state)
+      : (state.upperBound + state.lowerBound) / 2;
   let rounded = round1(raw);
 
   // Strict-bound nudge: when a bound came from a real comparison the user
@@ -331,12 +522,11 @@ export function computeFinalScore(state: H2HState): number {
  */
 export function estimateRemainingComparisons(state: H2HState): number {
   if (isComplete(state)) return 0;
-  const excludedSet = new Set(state.excluded);
-  let remaining = 0;
-  for (let i = state.lo; i <= state.hi; i++) {
-    if (!excludedSet.has(i)) remaining += 1;
-  }
-  return Math.max(1, Math.ceil(Math.log2(remaining + 1)));
+  const remaining = activeIndices(state).length;
+  const est = Math.max(1, Math.ceil(Math.log2(remaining + 1)));
+  // Never promise more comparisons than the budget allows.
+  const budgetLeft = Math.max(0, state.budget - state.history.length);
+  return Math.min(est, budgetLeft);
 }
 
 export function totalEstimatedComparisons(state: H2HState): number {

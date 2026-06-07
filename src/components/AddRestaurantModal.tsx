@@ -18,7 +18,7 @@ export const AddRestaurantModal: React.FC = () => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating,
-    lists, createList, ratings,
+    lists, createList, ratings, getRestaurantInfo,
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
@@ -582,7 +582,8 @@ export const AddRestaurantModal: React.FC = () => {
                           <InlineH2H
                             ratings={ratings}
                             excludeId={restaurant.id}
-                            newRestaurant={restaurant}
+                            newRestaurant={{ ...restaurant, tags: selectedTags }}
+                            resolveMeta={getRestaurantInfo}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}
