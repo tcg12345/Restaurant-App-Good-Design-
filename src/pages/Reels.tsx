@@ -247,13 +247,19 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
   const [followBusy, setFollowBusy] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    if (!currentUserId || !reel.authorId || isMine) return;
+    // Only resolve follow state for slides in the active window. Firing
+    // this for every reel in the feed meant a DB round trip per slide on
+    // mount — dozens to hundreds at once — saturating the connection the
+    // media loads were competing for. `near` covers the active slide and
+    // its immediate neighbours, so the pill is already resolved by the
+    // time a swipe brings it on screen.
+    if (!near || !currentUserId || !reel.authorId || isMine) return;
     (async () => {
       const yes = await isFollowingUser(currentUserId, reel.authorId);
       if (!cancelled) setIsFollowing(yes);
     })();
     return () => { cancelled = true; };
-  }, [currentUserId, reel.authorId, isMine]);
+  }, [near, currentUserId, reel.authorId, isMine]);
 
   const onToggleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
