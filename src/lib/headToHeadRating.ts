@@ -62,7 +62,7 @@ export const LOCATION_EARLY_BIAS = 0.6;
 const EPS = 1e-9;
 
 export interface H2HStep {
-  kind: 'choice' | 'tie';
+  kind: 'choice' | 'tie' | 'skip';
   pickedNew?: boolean;
   comparisonId: string;
   comparisonIndex: number;
@@ -476,6 +476,35 @@ export function applyTie(state: H2HState): H2HState {
   };
 }
 
+/** Skip the current comparison: the user can't (or doesn't want to) judge it.
+ *  Unlike a tie this carries no signal — the candidate is dropped from the
+ *  pickable set so a different one is shown, but it does NOT nudge the score
+ *  and does NOT consume the comparison budget. Undoable via undoLastChoice. */
+export function applySkip(state: H2HState): H2HState {
+  const mid = pickComparisonIndex(state);
+  if (mid === null) return state;
+  const comp = state.candidates[mid];
+  if (!comp) return state;
+  const step: H2HStep = {
+    kind: 'skip',
+    comparisonId: comp.restaurantId,
+    comparisonIndex: mid,
+    prevLo: state.lo,
+    prevHi: state.hi,
+    prevUpper: state.upperBound,
+    prevLower: state.lowerBound,
+    prevUpperFromComparison: state.upperBoundFromComparison,
+    prevLowerFromComparison: state.lowerBoundFromComparison,
+    prevExcluded: state.excluded,
+    prevTiedScores: state.tiedScores,
+  };
+  return {
+    ...state,
+    excluded: [...state.excluded, mid],
+    history: [...state.history, step],
+  };
+}
+
 export function undoLastChoice(state: H2HState): H2HState {
   if (state.history.length === 0) return state;
   const last = state.history[state.history.length - 1];
@@ -493,8 +522,16 @@ export function undoLastChoice(state: H2HState): H2HState {
   };
 }
 
+/** Number of real comparisons answered so far (choices + ties). Skips don't
+ *  count — they carry no signal and don't consume the budget. */
+export function comparisonsMade(state: H2HState): number {
+  let n = 0;
+  for (const s of state.history) if (s.kind !== 'skip') n++;
+  return n;
+}
+
 export function isComplete(state: H2HState): boolean {
-  return pickComparisonIndex(state) === null || state.history.length >= state.budget;
+  return pickComparisonIndex(state) === null || comparisonsMade(state) >= state.budget;
 }
 
 /** Peer indices to anchor a budget-capped final score. Prefers peers still
@@ -558,7 +595,7 @@ export function computeFinalScore(state: H2HState): number {
   // bounding remaining candidates rather than the (still-wide) tier bounds.
   const windowOpen = activeIndices(state).length > 0;
   const raw =
-    windowOpen && state.history.length >= state.budget
+    windowOpen && comparisonsMade(state) >= state.budget
       ? interpolateOpenWindow(state)
       : (state.upperBound + state.lowerBound) / 2;
   let rounded = round1(raw);
@@ -587,10 +624,10 @@ export function estimateRemainingComparisons(state: H2HState): number {
   const remaining = activeIndices(state).length;
   const est = Math.max(1, Math.ceil(Math.log2(remaining + 1)));
   // Never promise more comparisons than the budget allows.
-  const budgetLeft = Math.max(0, state.budget - state.history.length);
+  const budgetLeft = Math.max(0, state.budget - comparisonsMade(state));
   return Math.min(est, budgetLeft);
 }
 
 export function totalEstimatedComparisons(state: H2HState): number {
-  return state.history.length + estimateRemainingComparisons(state);
+  return comparisonsMade(state) + estimateRemainingComparisons(state);
 }

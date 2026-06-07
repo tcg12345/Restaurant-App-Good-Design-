@@ -7,8 +7,11 @@ import {
   pickComparison,
   applyChoice,
   applyTie,
+  applySkip,
+  undoLastChoice,
   isComplete,
   computeFinalScore,
+  comparisonsMade,
   type H2HState,
   type H2HStep,
   type H2HCandidate,
@@ -324,6 +327,50 @@ describe('hotels and restaurants never compare against each other', () => {
     const state = initH2HTieBreak(ratings, 8.0, 'self', 'Italian');
     expect(state).not.toBeNull();
     expect(state!.candidates.map((c) => c.restaurantId)).toEqual(['rest1']);
+  });
+});
+
+/* ── Skip ──────────────────────────────────────────────────────────────── */
+
+describe('skip', () => {
+  const ratings = [mk('a', 9.0), mk('b', 8.5), mk('c', 8.0), mk('d', 7.5), mk('e', 7.0)];
+
+  it('drops the shown candidate and surfaces a different one, with no tie signal', () => {
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    const first = pickComparison(state)!;
+    state = applySkip(state);
+    expect(state.tiedScores).toEqual([]); // skip is not a tie
+    expect(state.excluded.length).toBe(1);
+    expect(comparisonsMade(state)).toBe(0); // skips aren't real comparisons
+    expect(pickComparison(state)!.restaurantId).not.toBe(first.restaurantId);
+  });
+
+  it('does not consume the comparison budget', () => {
+    const many = Array.from({ length: 10 }, (_, i) => mk(`r${i}`, 9.5 - i * 0.2));
+    let state = initH2H(many, 'loved', 'none', undefined, undefined, 2);
+    state = applySkip(state);
+    state = applySkip(state);
+    state = applySkip(state);
+    expect(isComplete(state)).toBe(false); // three skips didn't end it
+    state = applyChoice(state, false);
+    state = applyChoice(state, false);
+    expect(isComplete(state)).toBe(true); // two real comparisons did
+  });
+
+  it('skipping everything places at the tier midpoint with no signal', () => {
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    while (!isComplete(state)) state = applySkip(state);
+    expect(state.tiedScores).toEqual([]);
+    expect(computeFinalScore(state)).toBeCloseTo((7.0 + 10.0) / 2, 6); // loved-tier midpoint
+  });
+
+  it('is undoable via the back action', () => {
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    const first = pickComparison(state)!;
+    state = applySkip(state);
+    state = undoLastChoice(state);
+    expect(state.excluded).toEqual([]);
+    expect(pickComparison(state)!.restaurantId).toBe(first.restaurantId);
   });
 });
 

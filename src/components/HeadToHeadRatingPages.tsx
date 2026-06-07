@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Sliders, Swords, Sparkles, RotateCcw, SkipForward } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import type { RestaurantRating } from '../contexts/ListsContext';
@@ -15,9 +15,11 @@ import {
   pickComparison,
   applyChoice,
   applyTie,
+  applySkip,
   undoLastChoice,
   isComplete,
   computeFinalScore,
+  comparisonsMade,
   totalEstimatedComparisons,
 } from '../lib/headToHeadRating';
 import { relevanceHint, type SimilarityInput } from '../lib/restaurantSimilarity';
@@ -288,6 +290,7 @@ export const InlineH2H: React.FC<{
         setState(next);
       }}
       onTie={() => setState(applyTie(state))}
+      onSkip={() => setState(applySkip(state))}
     />
   );
 };
@@ -345,9 +348,10 @@ const InlineCompare: React.FC<{
   onBack: () => void;
   onPick: (pickedNew: boolean) => void;
   onTie: () => void;
-}> = ({ state, comparison, newRestaurant, onBack, onPick, onTie }) => {
+  onSkip: () => void;
+}> = ({ state, comparison, newRestaurant, onBack, onPick, onTie, onSkip }) => {
   const total = totalEstimatedComparisons(state);
-  const done = state.history.length;
+  const done = comparisonsMade(state);
   const progress = total === 0 ? 1 : Math.min(1, done / total);
   const hint = useMemo(
     () =>
@@ -438,13 +442,24 @@ const InlineCompare: React.FC<{
           />
         </motion.div>
       </AnimatePresence>
-      <button
-        type="button"
-        onClick={onTie}
-        className="mt-3 w-full py-2.5 rounded-xl bg-on-surface/[0.05] hover:bg-on-surface/[0.08] text-on-surface/70 hover:text-on-surface font-semibold text-[13px] transition-colors active:scale-[0.98]"
-      >
-        Too close to call
-      </button>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onTie}
+          className="flex-1 py-2.5 rounded-xl bg-on-surface/[0.05] hover:bg-on-surface/[0.08] text-on-surface/70 hover:text-on-surface font-semibold text-[13px] transition-colors active:scale-[0.98]"
+        >
+          Too close to call
+        </button>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-on-surface/55 hover:text-on-surface/80 hover:bg-on-surface/[0.05] font-semibold text-[13px] transition-colors active:scale-[0.98]"
+          aria-label="Skip this comparison"
+        >
+          <SkipForward size={14} />
+          Skip
+        </button>
+      </div>
     </motion.div>
   );
 };
@@ -570,9 +585,9 @@ const InlineResult: React.FC<{
         </div>
       </motion.div>
       <p className="text-center text-[11.5px] text-on-surface/55 mt-3 max-w-[260px] leading-relaxed">
-        {state.history.length === 0
+        {comparisonsMade(state) === 0
           ? "No others to compare to — fine-tune the score below if needed."
-          : `Based on ${state.history.length} comparison${state.history.length === 1 ? '' : 's'}.`}
+          : `Based on ${comparisonsMade(state)} comparison${comparisonsMade(state) === 1 ? '' : 's'}.`}
       </p>
       <div className="mt-3 flex items-center gap-2 w-full max-w-xs">
         <button
