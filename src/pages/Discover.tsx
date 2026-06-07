@@ -5052,126 +5052,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               ) : null
               )}
 
-              {/* Guides — curated lists from friends and tastemakers.
-                  Matches the editorial card vocabulary: square gradient
-                  cover cards (or real cover photos when present) +
-                  serif title + author chip. */}
-              {(discoverChip === 'all' || discoverChip === 'guides') && (
-              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
-                <div className="flex items-end justify-between gap-4 mb-3">
-                  <div className="min-w-0">
-                    <h2 className={cn(
-                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em]',
-                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                    )}>
-                      Guides
-                    </h2>
-                    {usingDesktopHeader && (
-                      <p className="mt-1 text-[13px] text-on-surface/55">
-                        Curated lists from friends and tastemakers
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openGuideCreator()}
-                    className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
-                  >
-                    Browse all
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-                <div className={cn(
-                  "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                  phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
-                )}>
-                  {/* Create-a-guide tile — soft accent surface so it doesn't
-                      compete with real guides, but is still inviting. */}
-                  <button
-                    type="button"
-                    onClick={() => openGuideCreator()}
-                    className={cn(
-                      'flex-shrink-0 snap-start text-left group',
-                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
-                    )}
-                  >
-                    <div className="aspect-square rounded-2xl border-[1.5px] border-dashed border-primary/30 bg-primary/[0.05] p-4 flex flex-col justify-between transition-colors group-hover:border-primary group-hover:bg-primary/[0.08]">
-                      <div className="w-10 h-10 rounded-2xl bg-white shadow-sm grid place-items-center text-primary">
-                        <Plus size={18} />
-                      </div>
-                      <div>
-                        <h3 className="font-serif font-semibold text-[17px] text-on-surface tracking-[-0.015em] leading-tight">
-                          Create a guide
-                        </h3>
-                        <p className="mt-1 text-[12px] text-on-surface/65 leading-[1.4]">
-                          Bundle restaurants or recipes into a shareable list.
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                  {feedGuides.map((g) => {
-                    const author = feedGuideAuthors[g.userId];
-                    const authorName = author?.display_name || author?.username || 'someone';
-                    const authorInitial = authorName.charAt(0).toUpperCase();
-                    const authorHue = hashToHue(g.userId || authorName);
-                    return (
-                      <Link
-                        key={g.id}
-                        to={`/guides/${g.id}`}
-                        className={cn(
-                          'flex-shrink-0 snap-start group',
-                          usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
-                        )}
-                      >
-                        <article className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden flex flex-col transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
-                          <div className="relative aspect-[1/0.85] overflow-hidden">
-                            {g.coverPhoto ? (
-                              <img
-                                src={g.coverPhoto}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div
-                                className="absolute inset-0"
-                                style={{ background: placeholderGradient(g.id || g.title) }}
-                              />
-                            )}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                backgroundImage:
-                                  'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
-                              }}
-                            />
-                            <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
-                              <BookOpen size={11} className="text-primary" />
-                              Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
-                            </span>
-                          </div>
-                          <div className="px-3.5 pt-3 pb-3.5">
-                            <h3 className="font-serif font-semibold text-on-surface text-[15px] tracking-[-0.01em] leading-[1.25] line-clamp-2">
-                              {g.title}
-                            </h3>
-                            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55">
-                              <span
-                                className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold"
-                                style={{ background: `hsl(${authorHue} 50% 45%)` }}
-                              >
-                                {authorInitial}
-                              </span>
-                              <span>by {authorName}</span>
-                            </div>
-                          </div>
-                        </article>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
-              )}
-
               {/* Recipes For You — friend / expert / public recipes ranked by
                   source + cuisine/tag overlap with the user's logged Home
                   Cooking meals. Same card vocabulary as Recommended/Guides
@@ -5371,6 +5251,126 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     })}
                   </div>
                 )}
+              </section>
+              )}
+
+              {/* Guides — curated lists from friends and tastemakers.
+                  Matches the editorial card vocabulary: square gradient
+                  cover cards (or real cover photos when present) +
+                  serif title + author chip. */}
+              {(discoverChip === 'all' || discoverChip === 'guides') && (
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
+                  <div className="min-w-0">
+                    <h2 className={cn(
+                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em]',
+                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
+                    )}>
+                      Guides
+                    </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-1 text-[13px] text-on-surface/55">
+                        Curated lists from friends and tastemakers
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                  >
+                    Browse all
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className={cn(
+                  "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
+                  phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
+                )}>
+                  {/* Create-a-guide tile — soft accent surface so it doesn't
+                      compete with real guides, but is still inviting. */}
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className={cn(
+                      'flex-shrink-0 snap-start text-left group',
+                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                    )}
+                  >
+                    <div className="aspect-square rounded-2xl border-[1.5px] border-dashed border-primary/30 bg-primary/[0.05] p-4 flex flex-col justify-between transition-colors group-hover:border-primary group-hover:bg-primary/[0.08]">
+                      <div className="w-10 h-10 rounded-2xl bg-white shadow-sm grid place-items-center text-primary">
+                        <Plus size={18} />
+                      </div>
+                      <div>
+                        <h3 className="font-serif font-semibold text-[17px] text-on-surface tracking-[-0.015em] leading-tight">
+                          Create a guide
+                        </h3>
+                        <p className="mt-1 text-[12px] text-on-surface/65 leading-[1.4]">
+                          Bundle restaurants or recipes into a shareable list.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  {feedGuides.map((g) => {
+                    const author = feedGuideAuthors[g.userId];
+                    const authorName = author?.display_name || author?.username || 'someone';
+                    const authorInitial = authorName.charAt(0).toUpperCase();
+                    const authorHue = hashToHue(g.userId || authorName);
+                    return (
+                      <Link
+                        key={g.id}
+                        to={`/guides/${g.id}`}
+                        className={cn(
+                          'flex-shrink-0 snap-start group',
+                          usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                        )}
+                      >
+                        <article className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden flex flex-col transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                          <div className="relative aspect-[1/0.85] overflow-hidden">
+                            {g.coverPhoto ? (
+                              <img
+                                src={g.coverPhoto}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div
+                                className="absolute inset-0"
+                                style={{ background: placeholderGradient(g.id || g.title) }}
+                              />
+                            )}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                backgroundImage:
+                                  'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                              }}
+                            />
+                            <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
+                              <BookOpen size={11} className="text-primary" />
+                              Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
+                            </span>
+                          </div>
+                          <div className="px-3.5 pt-3 pb-3.5">
+                            <h3 className="font-serif font-semibold text-on-surface text-[15px] tracking-[-0.01em] leading-[1.25] line-clamp-2">
+                              {g.title}
+                            </h3>
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55">
+                              <span
+                                className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold"
+                                style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                              >
+                                {authorInitial}
+                              </span>
+                              <span>by {authorName}</span>
+                            </div>
+                          </div>
+                        </article>
+                      </Link>
+                    );
+                  })}
+                </div>
               </section>
               )}
 
