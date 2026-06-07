@@ -91,14 +91,25 @@ describe('computeSimilarity — location (isolated)', () => {
 
 describe('computeSimilarity — renormalization', () => {
   it('blends only the present components and renormalizes weights', () => {
-    // cuisine exact (1.0, w=0.30) + price two-apart (0.5, w=0.25), nothing else.
-    // (0.30*1 + 0.25*0.5) / 0.55 = 0.425 / 0.55 = 0.772727…
+    // cuisine exact (1.0, w=0.25) + price two-apart (0.5, w=0.15), nothing else.
+    // (0.25*1 + 0.15*0.5) / 0.40 = 0.325 / 0.40 = 0.8125
     const r = computeSimilarity(
       si({ cuisine: 'Italian', price: '$$$' }),
       si({ cuisine: 'Italian', price: '$' }),
     );
     expect(r.present).toEqual({ location: false, cuisine: true, price: true, tags: false });
-    expect(r.score).toBeCloseTo(0.42500 / 0.55, 6);
+    expect(r.score).toBeCloseTo(0.325 / 0.4, 6);
+  });
+
+  it('weights location above cuisine', () => {
+    // Same city but different cuisine should beat same cuisine in another city.
+    const target = si({ cuisine: 'Italian', price: '$$', city: 'nyc' });
+    const sameCity = computeSimilarity(target, si({ cuisine: 'Thai', price: '$$', city: 'nyc' }));
+    const sameCuisineElsewhere = computeSimilarity(
+      target,
+      si({ cuisine: 'Italian', price: '$$', city: 'la' }),
+    );
+    expect(sameCity.score).toBeGreaterThan(sameCuisineElsewhere.score);
   });
 
   it('all components missing → neutral', () => {

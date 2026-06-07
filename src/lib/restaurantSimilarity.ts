@@ -45,11 +45,14 @@ export interface SimilarityResult {
 
 /* ── Tunables ──────────────────────────────────────────────────────────── */
 
-/** Top-level component weights (renormalized over whichever are present). */
+/** Top-level component weights (renormalized over whichever are present).
+ *  Location is intentionally the dominant signal: a restaurant in the same
+ *  city/neighborhood is the most useful thing to compare against, so it should
+ *  outweigh a same-cuisine match somewhere across the country. */
 export const SIMILARITY_WEIGHTS = {
-  location: 0.3,
-  cuisine: 0.3,
-  price: 0.25,
+  location: 0.45,
+  cuisine: 0.25,
+  price: 0.15,
   tags: 0.15,
 } as const;
 

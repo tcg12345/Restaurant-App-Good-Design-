@@ -54,6 +54,10 @@ export const W_INFO_MAX = 0.9;
 export const SCHEDULE_ROUNDS_FULL = 4;
 /** How hard a budget-capped final score is pulled toward the peer prior. */
 export const PEER_PULL = 0.25;
+/** At the very first comparison this fraction of the relevance signal comes
+ *  purely from location, so opening matchups are dominated by "same area"
+ *  before cuisine/price/tags weigh in. Decays to 0 as the search converges. */
+export const LOCATION_EARLY_BIAS = 0.6;
 
 const EPS = 1e-9;
 
@@ -99,6 +103,11 @@ export interface H2HState {
   /** Per-candidate similarity to `target`, index-aligned to `candidates`,
    *  each in [0,1]. Computed once at init; constant for the session. */
   similarity: number[];
+  /** Per-candidate location sub-score, index-aligned to `candidates`. Falls
+   *  back to the overall similarity when a candidate has no location signal,
+   *  so unknown-location rows are neither boosted nor penalized. Lets early
+   *  comparisons emphasize location specifically. */
+  locationScores: number[];
   /** Max comparisons before finalizing by interpolation (ties count). */
   budget: number;
 }
@@ -168,11 +177,26 @@ function candidateToInput(c: H2HCandidate): SimilarityInput {
   };
 }
 
-/** Per-candidate similarity to the target, or a flat neutral array when there
- *  is no target (tie-break flow) — which makes selection pure bisection. */
-function computeSimilarities(target: SimilarityInput | null, candidates: H2HCandidate[]): number[] {
-  if (!target) return candidates.map(() => NEUTRAL_SIMILARITY);
-  return candidates.map((c) => computeSimilarity(target, candidateToInput(c)).score);
+/** Per-candidate overall similarity and location sub-score. With no target
+ *  (tie-break flow) both are flat-neutral, making selection pure bisection.
+ *  A candidate with no location signal gets its overall similarity as the
+ *  location score, so it isn't boosted or penalized by the early location bias. */
+function computeRelevance(
+  target: SimilarityInput | null,
+  candidates: H2HCandidate[],
+): { similarity: number[]; locationScores: number[] } {
+  if (!target) {
+    const flat = candidates.map(() => NEUTRAL_SIMILARITY);
+    return { similarity: flat, locationScores: [...flat] };
+  }
+  const similarity: number[] = [];
+  const locationScores: number[] = [];
+  for (const c of candidates) {
+    const r = computeSimilarity(target, candidateToInput(c));
+    similarity.push(r.score);
+    locationScores.push(r.present.location ? r.parts.location ?? r.score : r.score);
+  }
+  return { similarity, locationScores };
 }
 
 export function initH2H(
@@ -190,6 +214,7 @@ export function initH2H(
     .sort((a, b) => b.score - a.score)
     .map(ratingToCandidate)
     .map((c) => enrichCandidate(c, resolveMeta));
+  const { similarity, locationScores } = computeRelevance(target ?? null, candidates);
   return {
     tier,
     candidates,
@@ -204,7 +229,8 @@ export function initH2H(
     history: [],
     initialPoolSize: candidates.length,
     target: target ?? null,
-    similarity: computeSimilarities(target ?? null, candidates),
+    similarity,
+    locationScores,
     budget,
   };
 }
@@ -260,6 +286,7 @@ export function initH2HTieBreak(
     // tie-break behavior.
     target: null,
     similarity: candidates.map(() => NEUTRAL_SIMILARITY),
+    locationScores: candidates.map(() => NEUTRAL_SIMILARITY),
     budget: UNLIMITED_BUDGET,
   };
 }
@@ -286,25 +313,34 @@ function peerSeedIndex(state: H2HState): number | null {
   return peers[Math.floor((peers.length - 1) / 2)]; // lower median (deterministic)
 }
 
-/** Weight on information-gain vs. relevance. Ramps toward MAX as rounds accrue
- *  or the window collapses, so early asks are relevant and late asks converge. */
-function infoWeight(state: H2HState): number {
+/** How far the search has progressed, in [0,1]: the max of round-count and
+ *  window-shrinkage signals. Drives both the info/relevance balance and the
+ *  early location bias. 0 = just started (relevance- and location-led), 1 =
+ *  converging (information-gain-led). */
+function selectionProgress(state: H2HState): number {
   const roundProgress = clamp(state.history.length / SCHEDULE_ROUNDS_FULL, 0, 1);
   const countInWindow = activeIndices(state).length;
   const denom = Math.max(1, state.initialPoolSize - 1);
   const windowProgress = 1 - clamp((countInWindow - 1) / denom, 0, 1);
-  const progress = Math.max(roundProgress, windowProgress);
+  return Math.max(roundProgress, windowProgress);
+}
+
+/** Weight on information-gain vs. relevance. Ramps toward MAX as the search
+ *  progresses, so early asks are relevant and late asks converge. */
+function infoWeight(progress: number): number {
   return W_INFO_MIN + (W_INFO_MAX - W_INFO_MIN) * progress;
 }
 
 /**
  * Choose the next index to compare against. Among in-window, non-excluded
- * candidates we maximize `w_info·informationGain + w_relevance·similarity`.
- * Information gain peaks at the (integer) window midpoint, so selection never
- * prunes the window — it only picks *which* in-window item to ask about, which
- * keeps the binary-search correctness invariant intact (every answer still
- * moves exactly one boundary). With neutral/uniform similarity this reduces to
- * the classic midpoint walk. Returns null when nothing valid remains.
+ * candidates we maximize `w_info·informationGain + w_relevance·relevance`,
+ * where `relevance` blends overall similarity with a location-only term that
+ * dominates early (so opening matchups favor the same area) and fades as the
+ * search converges. Information gain peaks at the (integer) window midpoint, so
+ * selection never prunes the window — it only picks *which* in-window item to
+ * ask about, keeping the binary-search correctness invariant intact (every
+ * answer still moves exactly one boundary). With neutral/uniform similarity
+ * this reduces to the classic midpoint walk. Returns null when nothing remains.
  */
 function pickComparisonIndex(state: H2HState): number | null {
   if (state.lo > state.hi) return null;
@@ -317,15 +353,20 @@ function pickComparisonIndex(state: H2HState): number | null {
   const center = seed ?? Math.floor((state.lo + state.hi) / 2);
   const half = Math.max(1, (state.hi - state.lo) / 2);
 
-  const wInfo = infoWeight(state);
+  const progress = selectionProgress(state);
+  const wInfo = infoWeight(progress);
   const wRel = 1 - wInfo;
+  // Early on, most of the relevance signal is pure location; this decays to 0.
+  const locBias = LOCATION_EARLY_BIAS * (1 - progress);
 
   let best = idxs[0];
   let bestScore = -Infinity;
   let bestInfo = -Infinity;
   for (const i of idxs) {
     const info = clamp(1 - Math.abs(i - center) / half, 0, 1);
-    const rel = state.similarity[i] ?? NEUTRAL_SIMILARITY;
+    const sim = state.similarity[i] ?? NEUTRAL_SIMILARITY;
+    const loc = state.locationScores[i] ?? sim;
+    const rel = locBias * loc + (1 - locBias) * sim;
     const s = wInfo * info + wRel * rel;
     // Deterministic preference: higher blended score, then higher info gain
     // (closer to center), then lower index.

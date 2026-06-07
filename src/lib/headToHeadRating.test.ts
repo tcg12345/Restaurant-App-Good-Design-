@@ -141,6 +141,23 @@ describe('warm start seeds near the peer cohort', () => {
   });
 });
 
+describe('location leads the opening comparison', () => {
+  it('opens with a same-city restaurant over a same-cuisine one elsewhere', () => {
+    // Target: NYC Italian. One candidate is same-city (different cuisine),
+    // another is same-cuisine in another city. Location should win the open.
+    const ratings = [
+      mk('a', 9.5, { cuisine: 'Thai', address: 'Los Angeles, CA' }),
+      mk('sameCuisine', 9.0, { cuisine: 'Italian', address: 'Los Angeles, CA' }),
+      mk('c', 8.5, { cuisine: 'Thai', address: 'Los Angeles, CA' }),
+      mk('sameCity', 8.0, { cuisine: 'Thai', address: 'New York, NY' }),
+      mk('e', 7.5, { cuisine: 'Thai', address: 'Los Angeles, CA' }),
+    ];
+    const target: Target = { cuisine: 'Italian', price: '', address: 'New York, NY' };
+    const state = initH2H(ratings, 'loved', 'none', target);
+    expect(pickComparison(state)!.restaurantId).toBe('sameCity');
+  });
+});
+
 describe('outliers stay reachable; relevance never prunes the window', () => {
   const scores = [9.5, 9.2, 8.9, 8.6, 8.3, 8.0, 7.5];
   // Only the lowest-scored candidate (7.5) is a peer.
@@ -225,6 +242,7 @@ describe('comparison budget', () => {
       history: [fakeStep(), fakeStep(), fakeStep()],
       initialPoolSize: 3,
       target: null,
+      locationScores: [0, 0, 0],
       budget: 3,
     };
     const withoutPeers = computeFinalScore({ ...base, similarity: [0, 0, 0] });
