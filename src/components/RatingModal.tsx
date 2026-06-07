@@ -163,7 +163,7 @@ export const RatingModal: React.FC = () => {
   const handleSave = () => {
     if (!ratingModalRestaurant) return;
     if (ratingMethod === 'slider' && h2hScore === null) {
-      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id);
+      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id, ratingModalRestaurant.cuisine);
       if (tieBreakState) {
         setH2hState(tieBreakState);
         setRatingMethod('h2h');

@@ -136,6 +136,17 @@ export function tierRange(tier: Tier): { min: number; max: number } {
   return { min: 1.0, max: 3.9 };
 }
 
+/** Hotels/lodging are rated through the same flow as restaurants but are a
+ *  different kind of thing — comparing a hotel breakfast against a dinner spot
+ *  is meaningless. The app marks a rated hotel by storing its cuisine as
+ *  "Hotel Breakfast" (see RestaurantDetail*), and discovery occasionally uses
+ *  the bare "Hotel" label. Head-to-head only ever compares like with like, so
+ *  this predicate lets us keep the comparison pool to a single category. */
+export function isHotelRating(cuisine: string | undefined): boolean {
+  const c = (cuisine || '').trim().toLowerCase();
+  return c === 'hotel breakfast' || c === 'hotel';
+}
+
 function ratingToCandidate(r: RestaurantRating): H2HCandidate {
   return {
     restaurantId: r.restaurantId,
@@ -208,8 +219,12 @@ export function initH2H(
   budget: number = DEFAULT_BUDGET,
 ): H2HState {
   const { min, max } = tierRange(tier);
+  // Only compare within the same category as the item being rated — never mix
+  // hotels and restaurants. With no target we default to the restaurant pool.
+  const wantHotel = isHotelRating(target?.cuisine);
   const candidates = allRatings
     .filter((r) => r.restaurantId !== excludeId)
+    .filter((r) => isHotelRating(r.cuisine) === wantHotel)
     .filter((r) => r.score >= min && r.score <= max)
     .sort((a, b) => b.score - a.score)
     .map(ratingToCandidate)
@@ -244,9 +259,15 @@ export function initH2HTieBreak(
   allRatings: RestaurantRating[],
   targetScore: number,
   excludeId?: string,
+  targetCuisine?: string,
 ): H2HState | null {
   const targetRounded = round1(targetScore);
-  const others = allRatings.filter((r) => r.restaurantId !== excludeId);
+  // Keep the tie-break pool to the same category (hotel vs restaurant) so
+  // tied/neighbouring scores from the other category can't skew the result.
+  const wantHotel = isHotelRating(targetCuisine);
+  const others = allRatings.filter(
+    (r) => r.restaurantId !== excludeId && isHotelRating(r.cuisine) === wantHotel,
+  );
   const tiedRaw = others
     .filter((r) => round1(r.score) === targetRounded)
     .sort((a, b) => b.score - a.score);

@@ -278,7 +278,7 @@ export const AddRestaurantModal: React.FC = () => {
     // H2H), force a quick H2H against just the tied ones so the new
     // rating lands in the right spot relative to them.
     if (ratingMethod === 'slider' && h2hScore === null) {
-      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id);
+      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id, restaurant.cuisine);
       if (tieBreakState) {
         setH2hState(tieBreakState);
         setRatingMethod('h2h');
