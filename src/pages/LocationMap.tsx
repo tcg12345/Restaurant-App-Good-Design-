@@ -95,6 +95,18 @@ function inferCuisineLabel(types: string[]): string {
   return '';
 }
 
+// Same quick-cuisine rotation as /location's sticky filter bar, mapped to
+// the Google type strings the shared place pool carries.
+const QUICK_CUISINES: Array<{ label: string; type: string }> = [
+  { label: 'Japanese', type: 'japanese_restaurant' },
+  { label: 'Italian', type: 'italian_restaurant' },
+  { label: 'French', type: 'french_restaurant' },
+  { label: 'Korean', type: 'korean_restaurant' },
+  { label: 'American', type: 'american_restaurant' },
+];
+
+const PRICE_TIERS = [1, 2, 3, 4] as const;
+
 const scoreBadgeClass = (score: number): string => {
   if (score >= 8) return 'border-emerald-600/50 bg-emerald-600/10 text-emerald-700';
   if (score >= 5) return 'border-amber-500/50 bg-amber-500/10 text-amber-700';
@@ -155,6 +167,37 @@ export const LocationMap: React.FC = () => {
 
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [hydrating, setHydrating] = useState(true);
+
+  // In-page filters — same semantics as /location's sticky bar: cuisine
+  // matches when any of the place's Google types is selected; price
+  // matches the exact tier. Filters shrink what's shown (list + markers)
+  // from the pool we already have; they never refetch.
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
+  const [selectedPrice, setSelectedPrice] = useState(0);
+  const toggleCuisine = useCallback((type: string) => {
+    setSelectedCuisines((prev) =>
+      prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type],
+    );
+  }, []);
+  const filtersActive = selectedCuisines.length > 0 || selectedPrice > 0;
+  const clearFilters = useCallback(() => {
+    setSelectedCuisines([]);
+    setSelectedPrice(0);
+  }, []);
+
+  const filteredPlaces = useMemo(() => {
+    if (!filtersActive) return places;
+    const cuisineSet = new Set(selectedCuisines);
+    return places.filter((p) => {
+      if (selectedPrice > 0 && p.priceLevel !== selectedPrice) return false;
+      if (cuisineSet.size > 0) {
+        let hit = false;
+        for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [places, filtersActive, selectedCuisines, selectedPrice]);
 
   // Hydrate from cache, then run a fallback fetch only when nothing's
   // there. This keeps the common "open list → tap map" flow cost-free.
@@ -337,7 +380,7 @@ export const LocationMap: React.FC = () => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     clearMarkers();
-    for (const place of places) {
+    for (const place of filteredPlaces) {
       if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
       const el = document.createElement('button');
       el.type = 'button';
@@ -369,7 +412,7 @@ export const LocationMap: React.FC = () => {
         .addTo(map);
       markersRef.current[place.id] = marker;
     }
-  }, [places, mapReady, clearMarkers, selectPlace]);
+  }, [filteredPlaces, mapReady, clearMarkers, selectPlace]);
 
   // Highlight the selected marker (scale + ring) without rebuilding the
   // whole marker set.
@@ -383,7 +426,7 @@ export const LocationMap: React.FC = () => {
         : '0 2px 6px rgba(0,0,0,0.25)';
       el.style.zIndex = selected ? '5' : '1';
     }
-  }, [selectedId, places, mapReady]);
+  }, [selectedId, filteredPlaces, mapReady]);
 
   // Bottom sheet expand/collapse (mobile). "peek" shows just the handle
   // + a compact summary; "expanded" reveals the scrolling list.
@@ -420,12 +463,56 @@ export const LocationMap: React.FC = () => {
   // Sort the list by distance from the city centre — that's what people
   // scanning a map are looking for ("show me what's nearest").
   const sortedPlaces = useMemo(() => {
-    if (!hasCoords) return places;
-    return [...places].sort((a, b) =>
+    if (!hasCoords) return filteredPlaces;
+    return [...filteredPlaces].sort((a, b) =>
       haversineDistanceMi(lat, lng, a.lat, a.lng)
       - haversineDistanceMi(lat, lng, b.lat, b.lng),
     );
-  }, [places, hasCoords, lat, lng]);
+  }, [filteredPlaces, hasCoords, lat, lng]);
+
+  // Cuisine + price chips, shared by the desktop panel and the mobile
+  // floating strip — only the container styling differs per surface.
+  const renderFilterChips = (overlay: boolean) => {
+    const base = overlay
+      ? 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-white/95 shadow-sm text-on-surface/70'
+      : 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70';
+    const active = overlay
+      ? 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-on-surface text-surface shadow-sm'
+      : 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-on-surface text-surface';
+    return (
+      <>
+        <button
+          type="button"
+          onClick={clearFilters}
+          className={!filtersActive ? active : base}
+        >
+          All
+        </button>
+        {QUICK_CUISINES.map((c) => (
+          <button
+            key={c.type}
+            type="button"
+            onClick={() => toggleCuisine(c.type)}
+            className={selectedCuisines.includes(c.type) ? active : base}
+          >
+            {c.label}
+          </button>
+        ))}
+        <span className={cn('flex-shrink-0 w-px h-4 self-center', overlay ? 'bg-on-surface/20' : 'bg-on-surface/15')} />
+        {PRICE_TIERS.map((tier) => (
+          <button
+            key={tier}
+            type="button"
+            onClick={() => setSelectedPrice((p) => (p === tier ? 0 : tier))}
+            aria-label={`Price ${'$'.repeat(tier)}`}
+            className={selectedPrice === tier ? active : base}
+          >
+            {'$'.repeat(tier)}
+          </button>
+        ))}
+      </>
+    );
+  };
 
   // One row of restaurant facts, shared by the desktop panel and the
   // mobile sheet so the two layouts stay in lockstep.
@@ -473,23 +560,40 @@ export const LocationMap: React.FC = () => {
                 onUseCurrent={handleUseCurrent}
               />
             </div>
+            {/* Cuisine + price filters — trim the list and the markers. */}
+            <div className="mt-3 flex gap-1.5 overflow-x-auto no-scrollbar -mx-5 px-5">
+              {renderFilterChips(false)}
+            </div>
             <p className="mt-3 text-[11.5px] font-semibold uppercase tracking-wider text-on-surface/45 flex items-center gap-1.5">
               <MapPin size={12} className="text-primary/70" />
-              {hydrating && sortedPlaces.length === 0
+              {hydrating && places.length === 0
                 ? 'Loading nearby spots…'
                 : `${sortedPlaces.length} ${sortedPlaces.length === 1 ? 'place' : 'places'} · nearest first`}
             </p>
           </div>
 
           <div className="flex-1 overflow-y-auto overscroll-contain">
-            {hydrating && sortedPlaces.length === 0 ? (
+            {hydrating && places.length === 0 ? (
               <div className="flex items-center justify-center gap-2 py-16 text-on-surface/50 text-sm font-medium">
                 <Loader2 size={15} className="animate-spin" />
                 Finding restaurants…
               </div>
             ) : sortedPlaces.length === 0 ? (
               <div className="px-6 py-16 text-center text-on-surface/45 text-sm">
-                No restaurants in {cityDisplay} yet.
+                {filtersActive && places.length > 0 ? (
+                  <>
+                    Nothing matches these filters.
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="block mx-auto mt-3 px-4 h-9 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/75 text-[12.5px] font-semibold transition-colors"
+                    >
+                      Clear filters
+                    </button>
+                  </>
+                ) : (
+                  <>No restaurants in {cityDisplay} yet.</>
+                )}
               </div>
             ) : (
               <ul className="px-3 py-3 space-y-1">
@@ -556,7 +660,7 @@ export const LocationMap: React.FC = () => {
 
         {/* Map pane */}
         <div className="relative flex-1 h-full min-w-0">
-          <div ref={containerRef} className="absolute inset-0" />
+          <div ref={containerRef} className="absolute inset-0" style={{ position: 'absolute', inset: 0 }} />
           {hydrating && places.length === 0 && (
             <div className="absolute top-5 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-white/95 shadow-md flex items-center gap-2 text-on-surface/60 text-xs font-semibold">
               <Loader2 size={14} className="animate-spin" />
@@ -572,7 +676,7 @@ export const LocationMap: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 bg-surface overflow-hidden">
       {/* Map container — fills the viewport beneath the floating UI */}
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="absolute inset-0" style={{ position: 'absolute', inset: 0 }} />
 
       {/* Sticky top bar — back to /location on the left, location picker
           centred so the user can swap cities without leaving the map. */}
@@ -593,6 +697,10 @@ export const LocationMap: React.FC = () => {
               onUseCurrent={handleUseCurrent}
             />
           </div>
+        </div>
+        {/* Cuisine + price filters — trim the sheet list and the markers. */}
+        <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar -mx-3 px-3">
+          {renderFilterChips(true)}
         </div>
       </div>
 
@@ -652,6 +760,18 @@ export const LocationMap: React.FC = () => {
               className="overflow-y-auto px-4 pb-6"
               style={{ maxHeight: 'calc(70vh - 60px)' }}
             >
+              {sortedPlaces.length === 0 && filtersActive && places.length > 0 && (
+                <div className="py-8 text-center text-on-surface/45 text-sm">
+                  Nothing matches these filters.
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="block mx-auto mt-3 px-4 h-9 rounded-full bg-on-surface/[0.06] text-on-surface/75 text-[12.5px] font-semibold"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              )}
               <ul className="divide-y divide-on-surface/[0.06]">
                 {sortedPlaces.map((place) => {
                   const { cuisine, priceLabel, distLabel, score } = placeFacts(place);
