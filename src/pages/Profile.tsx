@@ -784,6 +784,21 @@ export const Profile: React.FC = () => {
     if (prevGuideCreatorOpen.current && !guideCreatorOpen) void refreshMyGuides();
     prevGuideCreatorOpen.current = guideCreatorOpen;
   }, [guideCreatorOpen, refreshMyGuides]);
+  // Guides actually worth rendering in the grid. Two cleanups:
+  //   1. De-dupe by id (defensive — keeps the grid stable if a refresh
+  //      ever races and a row slips in twice).
+  //   2. Drop empty, untitled drafts — the accidental "Untitled guide"
+  //      tiles a user racks up by opening the creator and bailing. A
+  //      draft with a title OR any entries is real work-in-progress and
+  //      stays so the owner can finish it.
+  const visibleGuides = useMemo(() => {
+    const seen = new Set<string>();
+    return myGuides.filter((g) => {
+      if (seen.has(g.id)) return false;
+      seen.add(g.id);
+      return g.entries.length > 0 || g.title.trim().length > 0;
+    });
+  }, [myGuides]);
 
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
@@ -1229,6 +1244,12 @@ export const Profile: React.FC = () => {
           ) : undefined}
         />
       )}
+
+      {/* Center + cap the content column on desktop so the page mirrors the
+          public profile (UserProfile) instead of stretching edge-to-edge in
+          the sidebar layout. A no-op on narrow / phone viewports, where the
+          content is already slimmer than the cap. */}
+      <div className="mx-auto w-full max-w-[1280px]">
 
       {pendingRequestCount > 0 && (
         <div className="mx-5 mt-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
@@ -1706,7 +1727,7 @@ export const Profile: React.FC = () => {
         )}
 
         {activeTab === 'guides' && (
-          myGuides.length === 0 ? (
+          visibleGuides.length === 0 ? (
             <EmptyTabState
               icon={<BookOpen size={32} className="text-on-surface/15" />}
               title="No guides yet"
@@ -1716,7 +1737,7 @@ export const Profile: React.FC = () => {
             />
           ) : (
             <ProfileGuidesSection
-              guides={myGuides}
+              guides={visibleGuides}
               isOwn
               onEdit={(guide) => openGuideCreator(guide)}
               onDelete={(id) => setConfirmDeleteGuideId(id)}
@@ -1803,6 +1824,7 @@ export const Profile: React.FC = () => {
           )
         )}
       </main>
+      </div>
 
       <EditTopListsSheet
         open={editListsOpen}

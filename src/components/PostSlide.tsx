@@ -12,7 +12,7 @@
  * (one set of like / comment / save / share counts) — those live in the
  * page-level Reels component, not here, and toggle via the prop callbacks.
  */
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Star, Trash2, MapPin, PlayCircle } from 'lucide-react';
@@ -147,6 +147,19 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
 
 /* ── Single media frame (image or muted-loop video) ────────────────── */
 
+// How many photos on either side of the focused carousel item to keep
+// mounted on the ACTIVE post. Wide enough that ordinary swiping always
+// lands on an already-decoded frame (instead of one that only started
+// loading the moment you swiped onto it); bounded so a 15-photo post
+// doesn't fetch everything at once. Videos use a tighter ±1 — they're
+// far heavier to buffer, so we only warm the immediate neighbours.
+const PHOTO_PRELOAD_RADIUS = 3;
+
+// Transient media-load failures (a flaky network or a momentary storage
+// blip) get this many silent retries before we fall back to the gradient
+// placeholder — never the browser's broken-image icon.
+const MEDIA_MAX_RETRIES = 2;
+
 interface MediaFrameProps {
   item: PostItemRow;
   /** True when the parent post is the active feed item. Drives which
@@ -162,8 +175,22 @@ interface MediaFrameProps {
   muted: boolean;
 }
 
-const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, muted }) => {
+const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, muted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Media-load resilience. A signed-URL fetch can fail transiently
+  // (network hiccup, storage 5xx) — without handling, the <img> is left
+  // showing the browser's broken-image icon on a black slide and never
+  // refetches, which is exactly the "photo reel got lost" symptom.
+  // Photos get a few retries (bumping `attempt` remounts the element and
+  // forces a fresh request); videos fail straight to the placeholder.
+  // Reset whenever the signed URL changes — e.g. a feed refresh re-signs
+  // the storage path, which should clear a prior failure.
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => { setAttempt(0); }, [item.mediaUrl]);
+  const onImgError = useCallback(() => setAttempt((n) => n + 1), []);
+  const onVideoError = useCallback(() => setAttempt(MEDIA_MAX_RETRIES + 1), []);
+
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -185,7 +212,8 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
   }, [muted]);
 
   // Default fallback — gradient placeholder. Used for any item far from
-  // the active one, or when the signed URL isn't ready yet.
+  // the active one, when the signed URL isn't ready yet, or when the
+  // media failed to load after its retries.
   const placeholder = (
     <div className={cn('absolute inset-0 bg-gradient-to-b', item.bgGradient || 'from-stone-800 to-stone-900')}>
       {item.mediaType === 'video' && !item.mediaUrl && (
@@ -196,7 +224,7 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
     </div>
   );
 
-  if (!shouldRenderMedia || !item.mediaUrl) return placeholder;
+  if (!shouldRenderMedia || !item.mediaUrl || attempt > MEDIA_MAX_RETRIES) return placeholder;
 
   // Photos and videos on posts show in their native aspect ratio
   // (object-contain) — letterboxed against the slide's black background
@@ -216,12 +244,16 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         // we want the buffer warm enough to start playback instantly, so
         // use preload="auto".
         preload="auto"
+        onError={onVideoError}
         className="absolute inset-0 w-full h-full object-contain"
       />
     );
   }
   return (
     <img
+      // Remount on each retry so the browser re-requests the same URL
+      // rather than reusing the failed image entry from its cache.
+      key={attempt}
       src={item.mediaUrl}
       alt=""
       // `eager` so the cover frame of a near (not yet active) post
@@ -231,11 +263,18 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
       // feed lands too late.
       loading="eager"
       decoding="async"
+      onError={onImgError}
       {...(highPriority ? { fetchpriority: 'high' } : {})}
       className="absolute inset-0 w-full h-full object-contain"
     />
   );
 };
+
+// Memoized so a carousel scroll (which bumps the parent's activeIdx every
+// frame) only re-renders the frames whose own props actually changed —
+// the previously- and newly-focused items — instead of every item in the
+// post. That's what keeps swiping smooth on multi-item posts.
+const MediaFrame = React.memo(MediaFrameInner);
 
 /* ── Slide ─────────────────────────────────────────────────────────── */
 
@@ -284,13 +323,19 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
   const [followBusy, setFollowBusy] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    if (!currentUserId || !post.userId || isMine) return;
+    // Only resolve follow state for slides in the active window. Firing
+    // this for every post in the feed meant a DB round trip per slide on
+    // mount — dozens to hundreds at once — saturating the connection the
+    // media loads were competing for. `near` covers the active slide and
+    // its immediate neighbours, so the pill is already resolved by the
+    // time a swipe brings it on screen.
+    if (!near || !currentUserId || !post.userId || isMine) return;
     (async () => {
       const yes = await isFollowingUser(currentUserId, post.userId);
       if (!cancelled) setIsFollowing(yes);
     })();
     return () => { cancelled = true; };
-  }, [currentUserId, post.userId, isMine]);
+  }, [near, currentUserId, post.userId, isMine]);
 
   const onToggleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -390,20 +435,20 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
-          // Mount real media when this post is the active feed item
-          // OR a vertical neighbour ("near") AND this carousel item
-          // is within ±1 of the post's own activeIdx — plus the cover
-          // (idx 0) for any near post regardless of activeIdx, so the
-          // first frame is buffered before the user swipes in.
-          //
-          // Keeping the ±1 window mounted across the active→near
-          // transition is what makes vertical scrolling not flash:
-          // the previously-visible item stays rendered while the post
-          // slides out, instead of being torn down to its gradient
-          // placeholder mid-scroll.
+          const dist = Math.abs(idx - activeIdx);
+          // Decide which carousel items mount real media versus a cheap
+          // gradient. Active post: keep a wide buffer of PHOTOS mounted
+          // (they're cheap, and pre-decoding them is what makes a swipe
+          // land on a ready frame instead of one that only began loading
+          // the moment you swiped onto it) plus videos within ±1
+          // (expensive — only the immediate neighbours pre-buffer).
+          // Neighbour ("near") posts only mount their cover (idx 0) and
+          // the ±1 window; keeping that window across the active→near
+          // hand-off is what stops vertical scroll from flashing to a
+          // gradient as the previous post slides out.
           const shouldRenderMedia =
-            ((active || near) && Math.abs(idx - activeIdx) <= 1)
-            || (near && idx === 0);
+            (active && (it.mediaType === 'video' ? dist <= 1 : dist <= PHOTO_PRELOAD_RADIUS))
+            || (near && (idx === 0 || dist <= 1));
           return (
             <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
               <MediaFrame

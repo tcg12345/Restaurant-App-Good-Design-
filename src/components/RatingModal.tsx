@@ -13,7 +13,7 @@ import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadTo
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'favorite-dishes';
 
 export const RatingModal: React.FC = () => {
-  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings } = useLists();
+  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings, getRestaurantInfo } = useLists();
   const { phoneMode } = useSettings();
 
   const existing = ratingModalRestaurant ? getRating(ratingModalRestaurant.id) : undefined;
@@ -163,7 +163,7 @@ export const RatingModal: React.FC = () => {
   const handleSave = () => {
     if (!ratingModalRestaurant) return;
     if (ratingMethod === 'slider' && h2hScore === null) {
-      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id);
+      const tieBreakState = initH2HTieBreak(ratings, score, ratingModalRestaurant.id, ratingModalRestaurant.cuisine);
       if (tieBreakState) {
         setH2hState(tieBreakState);
         setRatingMethod('h2h');
@@ -400,7 +400,8 @@ export const RatingModal: React.FC = () => {
                           <InlineH2H
                             ratings={ratings}
                             excludeId={ratingModalRestaurant.id}
-                            newRestaurant={ratingModalRestaurant}
+                            newRestaurant={{ ...ratingModalRestaurant, tags: selectedTags }}
+                            resolveMeta={getRestaurantInfo}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}
