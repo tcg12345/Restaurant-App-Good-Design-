@@ -46,14 +46,15 @@ export interface SimilarityResult {
 /* ── Tunables ──────────────────────────────────────────────────────────── */
 
 /** Top-level component weights (renormalized over whichever are present).
- *  Location is intentionally the dominant signal: a restaurant in the same
- *  city/neighborhood is the most useful thing to compare against, so it should
- *  outweigh a same-cuisine match somewhere across the country. */
+ *  Location is the single biggest signal — a restaurant in the same
+ *  city/neighborhood is the most useful thing to compare against — but the
+ *  food profile (cuisine + price together) carries equal total weight, so
+ *  neither side dominates. Tags are a light tiebreaker on top. */
 export const SIMILARITY_WEIGHTS = {
-  location: 0.45,
+  location: 0.4,
   cuisine: 0.25,
-  price: 0.15,
-  tags: 0.15,
+  price: 0.25,
+  tags: 0.1,
 } as const;
 
 /** Location sub-weights when both restaurants have coordinates. */
@@ -75,6 +76,12 @@ export const DISTANCE_DECAY_MILES = 8;
 export const NEARBY_MILES = 1.5;
 /** Partial credit for cuisines that are related but not identical. */
 export const CUISINE_RELATED_CREDIT = 0.5;
+/** Partial credit when cities differ but the region (US state / country)
+ *  matches — a same-metro tier between "same city" and "different region". */
+export const REGION_MATCH_CREDIT = 0.35;
+/** Price credit by band distance: same band, one apart, two apart, three.
+ *  A $ and a $$$$ restaurant should almost never be a preferred comparison. */
+export const PRICE_BAND_CREDIT = [1, 0.5, 0.15, 0] as const;
 /** Score returned when no component is available — drives bisection fallback. */
 export const NEUTRAL_SIMILARITY = 0.5;
 /** A candidate at or above this similarity is treated as a "peer". */
@@ -144,9 +151,15 @@ function priceTier(price: string): number {
   return Math.max(0, Math.min(4, n));
 }
 
-function cityOf(input: SimilarityInput): string {
-  const c = (input.city ?? extractCityState(input.address || '')) || '';
-  return c.trim().toLowerCase();
+/** "City, ST" / "City, Country" / "City" label → normalized city + region
+ *  keys. The full label keys the same-city tier (so "Portland, OR" never
+ *  matches "Portland, ME"); the trailing segment keys the same-region tier. */
+function placeOf(input: SimilarityInput): { city: string; region: string } {
+  const label = ((input.city ?? extractCityState(input.address || '')) || '').trim().toLowerCase();
+  if (!label) return { city: '', region: '' };
+  const comma = label.lastIndexOf(',');
+  const region = comma >= 0 ? label.slice(comma + 1).trim() : '';
+  return { city: label, region };
 }
 
 function normTags(tags: string[] | undefined): Set<string> {
@@ -172,10 +185,14 @@ function evalLocation(a: SimilarityInput, b: SimilarityInput): LocationEval {
   const coordsA = isFiniteCoord(a.lat) && isFiniteCoord(a.lng);
   const coordsB = isFiniteCoord(b.lat) && isFiniteCoord(b.lng);
 
-  const cityA = cityOf(a);
-  const cityB = cityOf(b);
-  const cityKnown = !!cityA && !!cityB;
-  const cityMatch = cityKnown && cityA === cityB;
+  const placeA = placeOf(a);
+  const placeB = placeOf(b);
+  const cityKnown = !!placeA.city && !!placeB.city;
+  const cityMatch = cityKnown && placeA.city === placeB.city;
+  const regionMatch =
+    cityKnown && !cityMatch && !!placeA.region && placeA.region === placeB.region;
+  // Tiered city credit: same city > same region (state/country) > elsewhere.
+  const cityScore = cityMatch ? 1 : regionMatch ? REGION_MATCH_CREDIT : 0;
 
   const nbhdA = (a.neighborhood || '').trim().toLowerCase();
   const nbhdB = (b.neighborhood || '').trim().toLowerCase();
@@ -188,7 +205,7 @@ function evalLocation(a: SimilarityInput, b: SimilarityInput): LocationEval {
     let num = LOCATION_SUBWEIGHTS.distance * distScore;
     let den = LOCATION_SUBWEIGHTS.distance;
     if (cityKnown) {
-      num += LOCATION_SUBWEIGHTS.city * (cityMatch ? 1 : 0);
+      num += LOCATION_SUBWEIGHTS.city * cityScore;
       den += LOCATION_SUBWEIGHTS.city;
     }
     if (nbhdKnown) {
@@ -202,7 +219,7 @@ function evalLocation(a: SimilarityInput, b: SimilarityInput): LocationEval {
     let num = 0;
     let den = 0;
     if (cityKnown) {
-      num += LOCATION_SUBWEIGHTS_NO_COORDS.city * (cityMatch ? 1 : 0);
+      num += LOCATION_SUBWEIGHTS_NO_COORDS.city * cityScore;
       den += LOCATION_SUBWEIGHTS_NO_COORDS.city;
     }
     if (nbhdKnown) {
@@ -234,7 +251,8 @@ function evalPrice(a: SimilarityInput, b: SimilarityInput): PriceEval {
   const pa = priceTier(a.price);
   const pb = priceTier(b.price);
   if (pa < 1 || pb < 1) return { present: false, score: 0, exact: false };
-  return { present: true, score: 1 - Math.abs(pa - pb) / 4, exact: pa === pb };
+  const dist = Math.min(Math.abs(pa - pb), PRICE_BAND_CREDIT.length - 1);
+  return { present: true, score: PRICE_BAND_CREDIT[dist], exact: pa === pb };
 }
 
 interface TagEval { present: boolean; score: number; shared: string[]; }
