@@ -25,7 +25,7 @@ import {
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
-import { refineRecipe } from '../lib/build-recipe-client';
+import { refineRecipe, editRecipeIngredient, type IngredientEdit, type IngredientEditResult } from '../lib/build-recipe-client';
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
@@ -234,6 +234,15 @@ export const AddHomeMealModal: React.FC = () => {
       return { ok: true };
     }
     return { ok: false, error: res.error };
+  };
+
+  // Remove or substitute one ingredient in the in-preview AI draft. The
+  // AI may decline (recipe untouched) — the sheet renders its reason.
+  const handleAiIngredientEdit = async (edit: IngredientEdit): Promise<IngredientEditResult> => {
+    if (!aiDraft) return { ok: false, error: 'No recipe to update.' };
+    const res = await editRecipeIngredient(aiDraft, edit);
+    if (res.ok && res.meal) setAiDraft(res.meal);
+    return res;
   };
 
   // Edit from the AI preview sheet → seed the Advanced builder (as a
@@ -1690,6 +1699,7 @@ export const AddHomeMealModal: React.FC = () => {
       onCoverPhotoChange={handleAiCoverChange}
       onRefine={handleAiRefine}
       onGenerateImage={handleAiGenerateImage}
+      onIngredientEdit={handleAiIngredientEdit}
       zClass="z-[210]"
       publishLabel="Publish recipe"
     />
