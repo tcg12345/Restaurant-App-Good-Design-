@@ -1,9 +1,9 @@
 // Shared recipe-authoring spec — the single source of truth used by BOTH
-// AI recipe paths so they produce equally thorough, precise recipes:
-//   • api/build-recipe.ts  — the "Create with AI" Add-Recipe modal generator
-//   • api/location-chat.ts — the "Ask a local" chat's build_recipe tool
+// AI recipe paths so they produce equally calibrated, precise recipes:
+//   • build-recipe/index.ts  — the "Create with AI" Add-Recipe modal generator
+//   • location-chat/index.ts — the "Ask a local" chat's build_recipe tool
 //
-// (Underscore-prefixed so Vercel treats it as a private module, not a route.)
+// Mirror of api/_recipe-spec.ts — keep the two in sync.
 
 export const CUISINE_HINT =
   'Afghan, African, American, Argentinian, Australian, Austrian, BBQ, Bakery, Belgian, Brazilian, British, Cajun, Caribbean, Chinese, Cuban, Dessert, Ethiopian, Filipino, French, Fusion, German, Greek, Hawaiian, Indian, Indonesian, Irish, Israeli, Italian, Jamaican, Japanese, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nordic, Pakistani, Peruvian, Polish, Portuguese, Russian, Scandinavian, Seafood, Soul Food, Southern, Spanish, Sri Lankan, Swedish, Tex-Mex, Thai, Turkish, Ukrainian, Vegan, Vegetarian, Vietnamese';
@@ -13,27 +13,33 @@ export const COURSE_HINT = 'Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Ap
 // The quality bar that calibrates depth/precision/timing to the dish's
 // complexity and the chosen difficulty. Authoritative for both paths.
 export const RECIPE_QUALITY_BAR = [
-  'SCALE DEPTH TO THE DISH. First, silently judge how technically demanding the dish is, then match your level of detail to it:',
-  '- Forgiving, everyday dishes (sheet-pan dinners, simple pastas, stir-fries, salads, quick soups, drop cookies, smoothies): be CONCISE — a handful of clear steps. Do NOT pad them with needless precision or ceremony.',
-  '- Technically demanding dishes — in BAKING and COOKING alike — earn exhaustive detail. This includes laminated/enriched doughs (croissants, danish, brioche), breads and sourdough, pastry and choux, confectionery and sugar work, tempered chocolate, custards and emulsions (crème anglaise, hollandaise, mayonnaise), anything fermented or cured, and multi-component, multi-stage, or multi-day dishes (stocks, braises, confit, terrines, consommé, mole, risotto done properly). For these, leave nothing to guesswork.',
-  '- The dish\'s inherent complexity sets a FLOOR: never drop a technique step essential to success just to keep things short.',
+  'MATCH THE RECIPE TO THE DISH — the #1 failure mode is over-complicating simple food. Before writing anything, silently judge how technically demanding the dish truly is, then write at exactly that level:',
+  '- SIMPLE everyday dishes (grilled cheese, scrambled eggs, sheet-pan dinners, simple pastas, stir-fries, salads, quick soups, smoothies, drop cookies, tacos): 4–8 steps of 1–3 short sentences each, a focused ingredient list, flat `ingredients` and flat `steps` (NO groups), little or no special equipment, at most 1–2 notes. A grilled cheese is four steps, not twelve. Resist every urge to add ceremony, sub-recipes, optional flourishes, or restaurant technique the dish does not need.',
+  '- MODERATE dishes (weeknight braises, risotto, roast chicken, layer cakes, yeasted breads, fresh pasta, curries built from a paste): 8–14 steps with real technique detail where the dish can fail, grouped sections only if there are genuinely distinct components.',
+  '- DEMANDING projects (laminated doughs, sourdough, choux and pastry, confectionery and sugar work, tempered chocolate, custards and emulsions, fermentation and curing, multi-day or multi-component builds like mole, consommé, Beef Wellington): exhaustive detail — leave nothing to guesswork. This is the ONLY tier where very long, sectioned recipes are appropriate.',
+  '- The dish\'s inherent complexity sets a FLOOR (never drop a technique step essential to success) AND a CEILING (never inflate a simple dish to look impressive). When in doubt between two lengths, choose the shorter one.',
   '',
-  'DIFFICULTY CALIBRATION. You are given a target difficulty (or asked to infer one). Within the floor above, calibrate prose AND depth:',
-  '- Easy — make it genuinely approachable for a nervous beginner. For a demanding dish you MAY offer a simpler or faster BUT STILL RELIABLE variant (e.g. a rough-puff shortcut instead of full lamination); trim to the essential moves, coach warmly in plain language, name common pitfalls kindly, and define any technical term the first time you must use it. Approachable, not exhaustive — but never a broken or fake method.',
-  '- Medium — write for a confident home cook. Balanced detail: clear technique with the key whys, sensible measurements, a few pro cues. No hand-holding, no over-explaining.',
-  '- Hard — write for an ambitious cook chasing a professional result. Be rigorous and complete: exact temperatures, dimensions and roll-out sizes, fold/shaping schemes and layer counts, gluten-rest and freeze/temper steps, and sensory doneness cues. Assume technical vocabulary; do not water it down.',
-  '- If no difficulty is given, do NOT simplify — produce the BEST, most authentic version of the dish, scaled to its true complexity (simple dishes stay simple; demanding dishes get the full rigorous treatment). Then set the `difficulty` field to whatever the finished recipe actually is.',
+  'DIFFICULTY CONTRACT. The target difficulty is a hard product requirement that governs WHICH version of the dish you write — technique choice, ingredient count, equipment, and step count — not just the tone of the prose:',
+  '- Easy — the simplest version of the dish that still tastes genuinely good. Choose beginner-proof techniques and dependable shortcuts (rough puff instead of lamination, store-bought stock, one pan instead of three). Common supermarket ingredients only; no specialist equipment (no stand mixer, thermometer, or scale unless truly unavoidable); typically ≤10 ingredients and ≤8 steps. Plain, warm language; define any technical term you must use; name the one or two pitfalls that actually matter. The finished recipe must really BE easy — if even the simplified approach is genuinely demanding, label the difficulty honestly rather than mislabeling it Easy.',
+  '- Medium — the classic home version, written for a confident cook. Proper technique with the key whys, sensible measurements, a few pro cues. No hand-holding, no over-explaining, no professional-kitchen ceremony.',
+  '- Hard — the no-compromise version for an ambitious cook chasing a professional result: full classical technique, exact temperatures, dimensions and roll-out sizes, fold/shaping schemes, rest and temper steps, sensory doneness cues. Assume technical vocabulary.',
+  '- If no difficulty is given, write the dish at its natural complexity (simple dishes stay simple; demanding dishes get the full treatment) and set the `difficulty` field to what the finished recipe honestly is.',
   '',
-  'GRANULARITY & DEPTH OF STEPS (applies to EVERY recipe — be thorough, even for simpler dishes):',
-  '- Each step\'s `body` is a FULL instruction, usually 2–4 sentences: state the action, then HOW to do it well (technique, hand position, heat level), the sensory signs to watch / listen / smell for ("cook until it smells nutty and turns the color of hazelnut shells, about 3 minutes"), and the WHY when it helps the cook succeed. Never a bare one-liner like "Add the flour."',
-  '- Break compound actions into SEPARATE steps instead of cramming several moves into one. Prefer more, finer-grained steps: a demanding dish usually means many of them (a separate step per fold, rest, roll-out, sear, deglaze, reduction), each carrying its own exact dimensions / temperatures / cues.',
-  '- Within each method section, give that component SEVERAL detailed steps rather than one lumped paragraph.',
-  '- The only limit is honesty: do not invent ceremony for a genuinely forgiving dish — there, use fewer steps, but each one is still richly described. Default to MORE thoroughness; never thin, terse steps.',
+  'CONSTRAINTS ARE HARD REQUIREMENTS. When the request specifies servings, a time budget, dietary restrictions, a course, or equipment, the recipe MUST satisfy every one of them:',
+  '- Servings: set `servings` to exactly the requested number and scale quantities to match.',
+  '- Time budget: prepTime + cookTime + chillTime must fit within it. If the classic version cannot fit, write a faster authentic variation that can — never misreport timings to fake compliance.',
+  '- Dietary restrictions are absolute — they apply to every ingredient, garnish, and suggested substitution.',
+  '- Before returning, re-check the finished recipe against each stated requirement and fix any miss.',
+  '',
+  'STEP WRITING:',
+  '- One clear action per step, each with a short imperative `title`. Sensible order.',
+  '- A step\'s length must match its risk. Routine moves stay short ("Drain the pasta, reserving a cup of the water."). Where the dish can actually fail, spend the words: the action, HOW to do it well (technique, heat level), the sensory signs to watch or smell for ("cook until it smells nutty and turns the color of hazelnut shells, about 3 minutes"), and the WHY when it helps. Reserve 3–4-sentence steps for genuinely tricky moments.',
+  '- Break compound actions into separate steps in demanding recipes (a step per fold, rest, roll-out, sear, deglaze); in simple recipes, combine trivial actions naturally rather than padding the count.',
   '',
   'PRECISION (apply in full to demanding dishes; lightly to simple ones):',
-  '- Use mass in grams for all baking and confectionery. When a volume measure genuinely helps the cook, put it parenthetically in the ingredient `name` (e.g. name "bread flour (about 2 cups)", amount "250", unit "g").',
-  '- Put exact temperatures (oven, dough, butter, syrup, internal), exact dimensions and roll-out sizes at each stage, and fold/lamination schemes directly in the step `body`.',
-  '- Give sensory doneness cues, not just clock times ("bake until deep amber and the layers feel set — pull on color, not the clock"). Note finishing-timing rules where they matter (e.g. egg-wash only just before baking).',
+  '- Use mass in grams for all baking and confectionery. When a volume measure genuinely helps the cook, put it parenthetically in the ingredient `name` (e.g. name "bread flour (about 2 cups)", amount "250", unit "g"). Everyday savory cooking can stay in convenient kitchen units.',
+  '- Put exact temperatures (oven, dough, butter, syrup, internal), exact dimensions and roll-out sizes at each stage, and fold/lamination schemes directly in the step `body` where they matter.',
+  '- Give sensory doneness cues, not just clock times ("bake until deep amber and the layers feel set — pull on color, not the clock").',
   '',
   'TIMING (must be honest):',
   '- `prepTime` = hands-on active minutes only. `cookTime` = active bake/cook/sear minutes.',
@@ -42,10 +48,9 @@ export const RECIPE_QUALITY_BAR = [
   '- For any long or overnight/multi-day project, add a `makeAhead` note with a realistic timeline (e.g. "Plan across 2 days: Day 1 mix and chill overnight; Day 2 laminate, proof ~2 hr, bake. Active time ~1 hr 45 min; total elapsed ~14 hr").',
   '',
   'STRUCTURE:',
-  '- Sensible step ordering; one clear action per step, each with a short imperative `title`.',
-  '- Group the METHOD into sections with `stepGroups` whenever the dish is built from distinct components or stages — e.g. a Beef Wellington with "For the duxelles", "For the crêpes", "Sear & wrap the beef", "Assemble & bake", or a laminated dough with "Make the détrempe", "Laminate", "Shape & proof", "Bake". Each section is a named run of steps. Use the flat `steps` list instead for a simple single-flow recipe. Use ONE of `stepGroups` or `steps`, never both. Number of sections should match the dish\'s real components — do not invent sections for a simple recipe.',
+  '- Group the METHOD into sections with `stepGroups` ONLY when the dish is built from genuinely distinct components or stages — e.g. a Beef Wellington with "For the duxelles", "For the crêpes", "Sear & wrap the beef", "Assemble & bake". Use the flat `steps` list for any single-flow recipe. Use ONE of `stepGroups` or `steps`, never both, and never invent sections for a simple dish.',
   '- Group ingredients with `ingredientGroups` ONLY when the recipe truly has distinct stages ("For the détrempe", "For the butter block"); otherwise use the flat `ingredients` list.',
-  '- Include the `equipment` the cook needs and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead). Complex projects warrant the make-ahead timeline note above.',
+  '- List only the `equipment` the cook actually needs (skip the obvious — bowls, spoons), and 1–3 genuinely useful `notes` (a chef tip, a substitution, or a make-ahead). Complex projects warrant the make-ahead timeline note above.',
   '- Write BOTH a `summary` (one punchy line, the byline under the title) AND a longer `introParagraph` (2–4 sentences of prose for the top of the recipe page). They MUST be different: the intro describes what the dish actually is — its flavor and texture, where it comes from or when to serve it, and why it is worth cooking. Do NOT just restate the summary.',
   `- Set a sensible \`cuisine\` (examples: ${CUISINE_HINT}) and \`course\` (one or more of: ${COURSE_HINT}).`,
 ].join('\n');
@@ -57,7 +62,7 @@ const STEP_ITEM_SCHEMA = {
   required: ['body'],
   properties: {
     title: { type: 'string', description: 'Short imperative, e.g. "Brown the butter".' },
-    body: { type: 'string', description: 'A thorough, descriptive instruction — usually 2–4 sentences: the action, HOW to do it well (technique and hand/heat cues), the sensory signs to watch/listen/smell for, and the why when useful. Not a terse one-liner. Break compound actions into separate steps rather than lumping them. For demanding dishes include exact temperatures, dimensions/roll-out sizes, fold or shaping schemes, and sensory doneness cues — not just clock times.' },
+    body: { type: 'string', description: 'A complete instruction whose length matches the step\'s risk. Routine moves stay to one short sentence ("Drain the pasta, reserving a cup of the water."). Where the dish can fail, spend 2–4 sentences: the action, HOW to do it well (technique and heat cues), the sensory signs to watch/smell for, and the why when useful. For demanding dishes include exact temperatures, dimensions/roll-out sizes, fold or shaping schemes, and sensory doneness cues — not just clock times.' },
     durationMin: { type: 'integer', minimum: 0, description: 'Minutes this step takes, including any passive wait (proof/chill/rest) it contains, so per-step times sum to the real total.' },
     tip: { type: 'string', description: 'Optional inline tip for this step.' },
   },
