@@ -382,6 +382,15 @@ export const LocationMap: React.FC = () => {
     clearMarkers();
     for (const place of filteredPlaces) {
       if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+      // Two-element marker. Mapbox positions the OUTER wrapper by writing
+      // `transform: translate(x, y)` to it on every frame of a pan/zoom,
+      // so the wrapper must carry no transform transition — otherwise the
+      // browser animates each translate step and the markers visibly lag
+      // and float behind the map instead of staying pinned. The scale /
+      // shadow animation lives on the INNER pill, where it's independent
+      // of positioning.
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'width:36px;height:36px;line-height:0;';
       const el = document.createElement('button');
       el.type = 'button';
       el.className = 'location-map-marker';
@@ -407,7 +416,8 @@ export const LocationMap: React.FC = () => {
         // Bring the matching desktop row into view.
         rowRefs.current[place.id]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      wrapper.appendChild(el);
+      const marker = new mapboxgl.Marker({ element: wrapper, anchor: 'center' })
         .setLngLat([place.lng, place.lat])
         .addTo(map);
       markersRef.current[place.id] = marker;
@@ -415,16 +425,19 @@ export const LocationMap: React.FC = () => {
   }, [filteredPlaces, mapReady, clearMarkers, selectPlace]);
 
   // Highlight the selected marker (scale + ring) without rebuilding the
-  // whole marker set.
+  // whole marker set. We touch only the inner pill — never the wrapper's
+  // transform — so the live Mapbox positioning is left alone.
   useEffect(() => {
     for (const [id, marker] of Object.entries(markersRef.current) as Array<[string, mapboxgl.Marker]>) {
-      const el = marker.getElement();
+      const wrapper = marker.getElement();
+      const el = wrapper.firstElementChild as HTMLElement | null;
+      if (!el) continue;
       const selected = id === selectedId;
-      el.style.transform = `${el.style.transform.replace(/ scale\([^)]*\)/, '')}${selected ? ' scale(1.22)' : ''}`;
+      el.style.transform = selected ? 'scale(1.22)' : 'scale(1)';
       el.style.boxShadow = selected
         ? '0 0 0 3px rgba(28,24,22,0.85), 0 4px 12px rgba(0,0,0,0.3)'
         : '0 2px 6px rgba(0,0,0,0.25)';
-      el.style.zIndex = selected ? '5' : '1';
+      wrapper.style.zIndex = selected ? '5' : '1';
     }
   }, [selectedId, filteredPlaces, mapReady]);
 
