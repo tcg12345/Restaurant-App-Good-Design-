@@ -165,24 +165,20 @@ const LinkedRecipeCards: React.FC<{ refs: LinkedRecipeRef[] }> = ({ refs }) => {
       <h3 className="rd-linked-heading">Linked recipes</h3>
       <div className="rd-linked-list">
         {refs.map((r) => {
-          const hue = hashToHue(r.id);
           const time = r.totalTimeMin ? formatMinutes(r.totalTimeMin) : '';
           return (
             <Link key={r.id} to={`/recipe/${r.ownerId}/${r.id}`} className="rd-linked-card">
-              <span
-                className="rd-linked-thumb"
-                style={{ background: `linear-gradient(135deg, hsl(${hue} 36% 62%), hsl(${(hue + 40) % 360} 40% 44%))` }}
-              >
-                {r.coverPhoto && (
+              {r.coverPhoto && (
+                <span className="rd-linked-thumb">
                   <img
                     src={r.coverPhoto}
                     alt=""
                     loading="lazy"
                     referrerPolicy="no-referrer"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none'; }}
                   />
-                )}
-              </span>
+                </span>
+              )}
               <span className="rd-linked-main">
                 <span className="rd-linked-title">{r.title || 'Untitled recipe'}</span>
                 <span className="rd-linked-sub">

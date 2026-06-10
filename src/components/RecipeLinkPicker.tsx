@@ -45,12 +45,6 @@ interface PickerItem extends PickedRecipe {
   sortTs: number;
 }
 
-function hashToHue(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
-
 function formatMin(m?: number): string | null {
   if (!m || m <= 0) return null;
   const h = Math.floor(m / 60);
@@ -318,21 +312,18 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
                   already ? 'opacity-60 cursor-default' : 'hover:bg-on-surface/[0.04]',
                 )}
               >
-                <div
-                  className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 relative"
-                  style={{ background: `linear-gradient(135deg, hsl(${hashToHue(it.id)} 36% 62%), hsl(${(hashToHue(it.id) + 40) % 360} 40% 44%))` }}
-                >
-                  {it.coverPhoto && (
+                {it.coverPhoto && (
+                  <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 relative">
                     <img
                       src={it.coverPhoto}
                       alt=""
                       className="absolute inset-0 w-full h-full object-cover"
                       loading="lazy"
                       referrerPolicy="no-referrer"
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none'; }}
                     />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="font-serif font-semibold text-[15px] leading-tight text-on-surface truncate">
                     {it.title || 'Untitled recipe'}

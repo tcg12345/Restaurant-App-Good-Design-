@@ -21,12 +21,6 @@ interface Props {
   excludeId?: string | null;
 }
 
-function hueOf(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
-
 export const LinkedRecipesEditor: React.FC<Props> = ({ state, dispatch, defaultPlacement, excludeId }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const linked = state.linkedRecipes;
@@ -61,20 +55,17 @@ export const LinkedRecipesEditor: React.FC<Props> = ({ state, dispatch, defaultP
 
       {linked.map((ref) => (
         <div key={ref.id} className="arb-linked-row">
-          <div
-            className="arb-linked-thumb"
-            style={{ background: `linear-gradient(135deg, hsl(${hueOf(ref.id)} 36% 62%), hsl(${(hueOf(ref.id) + 40) % 360} 40% 44%))` }}
-          >
-            {ref.coverPhoto && (
+          {ref.coverPhoto && (
+            <div className="arb-linked-thumb">
               <img
                 src={ref.coverPhoto}
                 alt=""
                 loading="lazy"
                 referrerPolicy="no-referrer"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none'; }}
               />
-            )}
-          </div>
+            </div>
+          )}
           <div className="arb-linked-row-main">
             <div className="arb-linked-row-title">{ref.title || 'Untitled recipe'}</div>
             <div className="arb-linked-row-by">by {ref.authorName || 'unknown'}</div>

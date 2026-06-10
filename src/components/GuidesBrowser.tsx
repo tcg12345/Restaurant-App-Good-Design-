@@ -294,12 +294,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
               key={g.id}
               className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] hover:border-on-surface/15"
             >
-              <div
-                className="relative aspect-[1/0.78] overflow-hidden"
-                /* Gradient seed sits behind the photo so a slow or failed
-                   image load never shows a broken-image glyph. */
-                style={{ background: `linear-gradient(135deg, hsl(${hashToHue(g.id)} 38% 60%), hsl(${(hashToHue(g.id) + 40) % 360} 42% 42%))` }}
-              >
+              <div className="relative aspect-[1/0.78] overflow-hidden">
                 <img
                   src={g.image}
                   alt=""
