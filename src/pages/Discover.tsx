@@ -16,6 +16,7 @@ import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
+import { GuidesBrowser } from '../components/GuidesBrowser';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
@@ -428,6 +429,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Published guides on Discover. Loaded once per session — there's no
   // pagination yet so we cap to a reasonable rail length.
   const [feedGuides, setFeedGuides] = useState<GuideRow[]>([]);
+  // "Browse all" guides popup — search / author-filter over the guide pool.
+  const [guidesBrowserOpen, setGuidesBrowserOpen] = useState(false);
   const [feedGuideAuthors, setFeedGuideAuthors] = useState<Record<string, UserProfile>>({});
   useEffect(() => {
     let cancelled = false;
@@ -5276,7 +5279,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => openGuideCreator()}
+                    onClick={() => setGuidesBrowserOpen(true)}
                     className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
                   >
                     Browse all
@@ -5952,6 +5955,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       )}
 
       </div>{/* inner map-area wrapper (contents on mobile, flex-1 on desktop) */}
+
+      <GuidesBrowser
+        open={guidesBrowserOpen}
+        onClose={() => setGuidesBrowserOpen(false)}
+        isMobile={!usingDesktopHeader}
+      />
     </div>
   );
 };

@@ -96,6 +96,7 @@ import {
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
+import { GuidesBrowser } from '../components/GuidesBrowser';
 
 /* ── Placeholder guides ──────────────────────────────────────────────────────
    Same visual language as the Home page's horizontal guide scroller. Titles
@@ -1494,6 +1495,8 @@ export const LocationPage: React.FC = () => {
   // Collapsible sections (Guides + Local experts).
   const [guidesOpen, setGuidesOpen] = useState(true);
   const [expertsOpen, setExpertsOpen] = useState(true);
+  // "Browse all" guides popup (search + author filters over the rail's pool).
+  const [guidesBrowserOpen, setGuidesBrowserOpen] = useState(false);
   // Horizontal-rail scroll refs so the section header arrows can scroll
   // their respective rails one screen at a time.
   const guidesRowRef = useRef<HTMLDivElement | null>(null);
@@ -2621,7 +2624,9 @@ export const LocationPage: React.FC = () => {
                     <ChevronRight />
                   </button>
                 </div>
-                <a className="section-link" href="#">Browse all <ChevronRight /></a>
+                <button type="button" className="section-link" onClick={() => setGuidesBrowserOpen(true)}>
+                  Browse all <ChevronRight />
+                </button>
               </div>
             )}
           </div>
@@ -2646,6 +2651,18 @@ export const LocationPage: React.FC = () => {
                   </article>
                 );
               })}
+              {/* End-of-rail "Browse all" tile — same affordance the header
+                  link provides on desktop, and the only entry point on
+                  mobile where the header is a collapse toggle. */}
+              <button
+                type="button"
+                className="gd-card gd-browse-all"
+                onClick={() => setGuidesBrowserOpen(true)}
+              >
+                <span className="gd-browse-all-icon"><BookOpen /></span>
+                <span className="gd-browse-all-title">Browse all guides</span>
+                <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
+              </button>
             </div>
           </div>
         </section>
@@ -3086,6 +3103,13 @@ export const LocationPage: React.FC = () => {
         onWalkMinChange={setSelectedWalkMin}
         selectedDriveMin={selectedDriveMin}
         onDriveMinChange={setSelectedDriveMin}
+      />
+
+      <GuidesBrowser
+        open={guidesBrowserOpen}
+        onClose={() => setGuidesBrowserOpen(false)}
+        cityName={shortCityName}
+        isMobile={isMobile}
       />
 
       {/* The AI assistant FAB lives in App.tsx (mounted globally).

@@ -918,6 +918,52 @@
   border: 1.5px solid rgba(255,255,255,0.4);
 }
 
+/* End-of-rail "Browse all guides" tile. Dashed accent outline (echoing
+   Discover's create-a-guide tile) so it reads as an action, not another
+   photo card. */
+.location-page-root .gd-browse-all {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 18px;
+  text-align: left;
+  background: rgba(193, 73, 44, 0.05);
+  border: 1.5px dashed rgba(193, 73, 44, 0.32);
+  cursor: pointer;
+}
+.location-page-root .gd-browse-all:hover {
+  background: rgba(193, 73, 44, 0.09);
+  border-color: var(--accent);
+}
+.location-page-root .gd-browse-all-icon {
+  width: 40px; height: 40px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(31,26,23,0.08);
+  display: grid; place-items: center;
+  color: var(--accent);
+  margin-bottom: auto;
+}
+.location-page-root .gd-browse-all-icon svg { width: 18px; height: 18px; }
+.location-page-root .gd-browse-all-title {
+  font-family: var(--serif);
+  font-size: 18px; font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.location-page-root .gd-browse-all-sub {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 12px; font-weight: 600;
+  color: var(--ink-2);
+}
+.location-page-root .gd-browse-all-sub svg { width: 13px; height: 13px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all { padding: 14px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all-title { font-size: 15px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all-sub { font-size: 11px; }
+
 /* Smaller, denser guide cards on the mobile layout — matches the
    compact card sizing the desktop Discover Guides rail uses. The
    snap-mandatory behavior is also dropped so the user can stop the
