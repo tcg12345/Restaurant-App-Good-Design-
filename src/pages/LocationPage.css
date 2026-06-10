@@ -208,7 +208,7 @@
 .location-page-root .loc-filterbar {
   position: sticky;
   top: 66px;
-  z-index: 9;
+  z-index: 20;
   background: var(--loc-bar-bg);
   backdrop-filter: saturate(160%) blur(16px);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
@@ -378,6 +378,7 @@
 /* ============ MINI MAP ============ */
 .location-page-root .minimap {
   position: relative;
+  z-index: 1;
   border-radius: var(--radius-lg);
   /* Clip the always-expanded canvas inside so the collapsed strip
      shows only the centre slice — Mapbox keeps the full 590px-tall
