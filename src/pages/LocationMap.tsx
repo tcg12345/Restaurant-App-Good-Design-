@@ -4,10 +4,17 @@ import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { ArrowLeft, ChevronDown, ChevronRight, ChevronUp, Loader2, MapPin } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Heart, Loader2, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
+import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { MichelinBadge } from '../components/MichelinBadge';
+import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown } from '../components/filterPrimitives';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import {
   HomeLocationBar,
@@ -129,6 +136,8 @@ export const LocationMap: React.FC = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
+  const { isWishlisted, toggleWishlist } = useLists();
   // Michelin dataset readiness — list rows override cuisine/price for
   // matched starred/Bib restaurants once it's loaded.
   const michelinReady = useMichelinIndexReady();
@@ -170,19 +179,26 @@ export const LocationMap: React.FC = () => {
 
   // In-page filters — same semantics as /location's sticky bar: cuisine
   // matches when any of the place's Google types is selected; price
-  // matches the exact tier. Filters shrink what's shown (list + markers)
-  // from the pool we already have; they never refetch.
+  // matches the exact tier; min score gates on the 0–10 display scale.
+  // Filters shrink what's shown (list + markers) from the pool we
+  // already have; they never refetch. The quick chips and the Filters
+  // sheet drive the same state, so they always agree.
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
+  const [minScore, setMinScore] = useState(0);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const toggleCuisine = useCallback((type: string) => {
     setSelectedCuisines((prev) =>
       prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type],
     );
   }, []);
-  const filtersActive = selectedCuisines.length > 0 || selectedPrice > 0;
+  const filtersActive = selectedCuisines.length > 0 || selectedPrice > 0 || minScore > 0;
+  const activeFilterCount =
+    selectedCuisines.length + (selectedPrice > 0 ? 1 : 0) + (minScore > 0 ? 1 : 0);
   const clearFilters = useCallback(() => {
     setSelectedCuisines([]);
     setSelectedPrice(0);
+    setMinScore(0);
   }, []);
 
   const filteredPlaces = useMemo(() => {
@@ -190,6 +206,7 @@ export const LocationMap: React.FC = () => {
     const cuisineSet = new Set(selectedCuisines);
     return places.filter((p) => {
       if (selectedPrice > 0 && p.priceLevel !== selectedPrice) return false;
+      if (minScore > 0 && p.rating * 2 < minScore) return false;
       if (cuisineSet.size > 0) {
         let hit = false;
         for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
@@ -197,7 +214,7 @@ export const LocationMap: React.FC = () => {
       }
       return true;
     });
-  }, [places, filtersActive, selectedCuisines, selectedPrice]);
+  }, [places, filtersActive, selectedCuisines, selectedPrice, minScore]);
 
   // Hydrate from cache, then run a fallback fetch only when nothing's
   // there. This keeps the common "open list → tap map" flow cost-free.
@@ -346,6 +363,7 @@ export const LocationMap: React.FC = () => {
     // every recentre keeps the canvas crisp.
     map.resize();
     setSelectedId(null);
+    setDetailPlace(null);
   }, [hasCoords, lat, lng]);
 
   // The viewport can change size after mount (mobile keyboard dismiss,
@@ -365,8 +383,18 @@ export const LocationMap: React.FC = () => {
     return () => cancelAnimationFrame(id);
   }, [isMobile]);
 
+  // Inline restaurant detail — tapping a marker or a list row swaps the
+  // side panel (desktop) / opens a slide-up sheet (mobile) showing the
+  // same RestaurantPanelBody the main map page uses, instead of
+  // navigating away to the full restaurant route.
+  const [detailPlace, setDetailPlace] = useState<PlaceResult | null>(null);
+  const closeDetail = useCallback(() => setDetailPlace(null), []);
+  const { dragProps: detailDragProps, startDrag: startDetailDrag } =
+    useBottomSheet(!!detailPlace && isMobile, closeDetail);
+
   const selectPlace = useCallback((place: PlaceResult, fly: boolean) => {
     setSelectedId(place.id);
+    setDetailPlace(place);
     if (fly && mapRef.current) {
       mapRef.current.flyTo({ center: [place.lng, place.lat], zoom: 14, speed: 0.9 });
     }
@@ -523,6 +551,22 @@ export const LocationMap: React.FC = () => {
             {'$'.repeat(tier)}
           </button>
         ))}
+        <span className={cn('flex-shrink-0 w-px h-4 self-center', overlay ? 'bg-on-surface/20' : 'bg-on-surface/15')} />
+        {/* Full Filters sheet — same popup chrome as the rest of the app. */}
+        <button
+          type="button"
+          onClick={() => setFilterSheetOpen(true)}
+          aria-label="Open filters"
+          className={cn(base, 'gap-1.5')}
+        >
+          <SlidersHorizontal size={13} className="opacity-80" />
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
       </>
     );
   };
@@ -542,12 +586,161 @@ export const LocationMap: React.FC = () => {
     return { cuisine, priceLabel, distLabel, score };
   }, [michelinReady, hasCoords, lat, lng]);
 
+  // Inline restaurant detail — the same RestaurantPanelBody the main map
+  // page embeds on marker tap (noHero so it composes inside our own
+  // chrome). Desktop swaps the side panel content; mobile slides it up
+  // as a sheet over the map.
+  const renderDetail = (place: PlaceResult) => {
+    const { cuisine, priceLabel, distLabel } = placeFacts(place);
+    const mich = michelinReady
+      ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
+      : null;
+    const fav = isWishlisted(place.id);
+    const snapshot: RestaurantPanelSnapshot = {
+      id: place.id,
+      name: place.name,
+      cuisine,
+      price: priceLabel,
+      address: place.fullAddress || place.address || '',
+      image: place.photoUrl || undefined,
+      score: place.rating > 0 ? place.rating : undefined,
+      distanceMi: hasCoords ? haversineDistanceMi(lat, lng, place.lat, place.lng) : undefined,
+    };
+    const topChrome = (
+      <div className="px-5 pt-4 pb-4">
+        <div className="flex items-center justify-between gap-3">
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={closeDetail}
+              aria-label="Close"
+              className="w-9 h-9 -ml-1 rounded-full border border-on-surface/10 flex items-center justify-center text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={closeDetail}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
+            >
+              <ChevronLeft size={14} />
+              Back to list
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => toggleWishlist({
+              id: place.id,
+              name: place.name,
+              image: place.photoUrl || '',
+              cuisine,
+              price: priceLabel,
+              address: place.fullAddress || place.address || '',
+              lat: Number.isFinite(place.lat) ? place.lat : undefined,
+              lng: Number.isFinite(place.lng) ? place.lng : undefined,
+            })}
+            aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={fav}
+            className={cn(
+              'w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0',
+              fav ? 'border-red-200 bg-red-50/70 text-red-500' : 'border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70',
+            )}
+            title={fav ? 'Saved' : 'Save'}
+          >
+            <Heart size={15} className={fav ? 'fill-current' : ''} />
+          </button>
+        </div>
+
+        <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
+          {place.name}
+        </h1>
+        {mich && (
+          <div className="mt-2">
+            <MichelinBadge michelin={mich} size="sm" href={mich.guideUrl} />
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[12.5px] text-on-surface/65">
+          {cuisine && <span className="font-semibold text-primary tracking-tight">{cuisine}</span>}
+          {cuisine && priceLabel && <span className="text-on-surface/25">·</span>}
+          {priceLabel && <span className="font-semibold tabular-nums">{priceLabel}</span>}
+          {distLabel && (
+            <>
+              {(cuisine || priceLabel) && <span className="text-on-surface/25">·</span>}
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <MapPin size={11} className="text-on-surface/45" />
+                {distLabel}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+    return (
+      <div className="h-full flex flex-col">
+        <RestaurantPanelBody
+          snapshot={snapshot}
+          onClose={closeDetail}
+          currentUserId={user?.id ?? null}
+          noHero
+          topChrome={topChrome}
+        />
+      </div>
+    );
+  };
+
+  // Full Filters popup — shared FilterSheet chrome (same as Discover,
+  // Pantry, wishlist…). Drives the very same state as the quick chips.
+  const filterSheetNode = (
+    <FilterSheetShell
+      open={filterSheetOpen}
+      onClose={() => setFilterSheetOpen(false)}
+      title="Filters"
+      subtitle={activeFilterCount > 0 ? `${activeFilterCount} active` : undefined}
+      onReset={clearFilters}
+    >
+      <FilterSection label="Price">
+        <Segment>
+          <SegmentItem active={selectedPrice === 0} onClick={() => setSelectedPrice(0)}>Any</SegmentItem>
+          {PRICE_TIERS.map((tier) => (
+            <SegmentItem
+              key={tier}
+              active={selectedPrice === tier}
+              onClick={() => setSelectedPrice((p) => (p === tier ? 0 : tier))}
+            >
+              {'$'.repeat(tier)}
+            </SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
+      <FilterSection label="Minimum score" sub="Google rating mapped to the app's 0–10 scale.">
+        <PillRow>
+          {([[0, 'Any'], [7, '7+'], [8, '8+'], [9, '9+']] as const).map(([v, l]) => (
+            <Pill key={v} active={minScore === v} onClick={() => setMinScore(v)}>{l}</Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
+      <FilterSection label="Cuisine">
+        <FilterDropdown
+          options={CUISINE_TYPES.filter((c) => c.type !== '').map((c) => ({ value: c.type, label: c.label }))}
+          selected={selectedCuisines}
+          onToggle={toggleCuisine}
+          placeholder="All cuisines"
+          searchPlaceholder="Search cuisines"
+        />
+      </FilterSection>
+    </FilterSheetShell>
+  );
+
   /* ── Desktop split layout ─────────────────────────────────────────── */
   if (!isMobile) {
     return (
       <div className="fixed inset-0 z-50 bg-surface overflow-hidden flex">
-        {/* Side panel — chrome + scrollable restaurant list */}
+        {/* Side panel — list chrome, or the inline restaurant detail when
+            a marker / row is selected (same swap the main map page does). */}
         <aside className="w-[400px] max-w-[42vw] h-full flex flex-col flex-shrink-0 border-r border-on-surface/[0.08] bg-surface">
+          {detailPlace ? renderDetail(detailPlace) : (
+          <>
           <div className="px-5 pt-5 pb-4 border-b border-on-surface/[0.06]">
             <div className="flex items-center gap-3">
               <button
@@ -669,6 +862,8 @@ export const LocationMap: React.FC = () => {
               </ul>
             )}
           </div>
+          </>
+          )}
         </aside>
 
         {/* Map pane */}
@@ -681,6 +876,8 @@ export const LocationMap: React.FC = () => {
             </div>
           )}
         </div>
+
+        {filterSheetNode}
       </div>
     );
   }
@@ -792,7 +989,7 @@ export const LocationMap: React.FC = () => {
                     <li key={place.id} className={cn(selectedId === place.id && 'bg-primary/5')}>
                       <button
                         type="button"
-                        onClick={() => navigate(`/restaurant/${place.id}`)}
+                        onClick={() => selectPlace(place, false)}
                         className="w-full flex items-start gap-3 py-3 px-1 text-left"
                       >
                         <div className="flex-1 min-w-0">
@@ -826,6 +1023,49 @@ export const LocationMap: React.FC = () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Selected place detail — slide-up sheet reusing the same
+          RestaurantPanelBody the desktop panel embeds, so tapping a
+          marker or a sheet row opens this instead of navigating away. */}
+      <AnimatePresence>
+        {detailPlace && (
+          <motion.div
+            key="loc-map-detail-scrim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 z-[60] bg-black/45 backdrop-blur-sm"
+            onClick={closeDetail}
+          />
+        )}
+        {detailPlace && (
+          <motion.div
+            key="loc-map-detail-sheet"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+            {...detailDragProps}
+            className="absolute left-0 right-0 bottom-0 z-[61] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
+            style={{ height: '92%' }}
+          >
+            {/* Grab strip — swipe down anywhere on it to dismiss. */}
+            <div
+              className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              onPointerDown={startDetailDrag}
+            >
+              <div className="w-10 h-1.5 rounded-full bg-on-surface/15" />
+            </div>
+            <div className="flex-1 min-h-0">
+              {renderDetail(detailPlace)}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {filterSheetNode}
     </div>
   );
 };

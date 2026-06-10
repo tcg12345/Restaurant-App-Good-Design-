@@ -134,7 +134,10 @@
 .location-page-root .lp-page {
   max-width: none;
   margin: 0;
-  padding: 8px 24px 96px;
+  /* No top padding on desktop: the sticky filter bar is the first child
+     and should sit flush under the global header at rest, so the two
+     read as one continuous chrome block. (Mobile overrides below.) */
+  padding: 0 24px 96px;
 }
 /* Mobile redesign uses tighter side padding so guide cards, list
    items, and the editorial hero can breathe out closer to the
@@ -192,31 +195,48 @@
 .location-page-root .loc-switch svg { width: 11px; height: 11px; }
 
 /* ============ STICKY FILTER BAR ============ */
-/* One quiet frosted band. Controls read as tonal text-chips on the
-   shared surface rather than individually outlined boxes — hover gets
-   a soft wash, active gets the solid ink pill. Color/background-only
-   transitions keep every interaction compositor-cheap. */
+/* One quiet frosted band — the page's single chrome strip on desktop
+   (the back arrow lives inside it, far left). Controls read as tonal
+   text-chips on the shared surface rather than individually outlined
+   boxes — hover gets a soft wash, active gets the solid ink pill.
+   Color/background-only transitions keep every interaction
+   compositor-cheap.
+
+   Sticky offset: sits flush under the global DesktopHeader. The header
+   measures 67px tall (py-2.5 + content + border); 66px overlaps the
+   border seam by 1px so no gap ever shows between the two bars. */
 .location-page-root .loc-filterbar {
   position: sticky;
-  top: 56px;
+  top: 66px;
   z-index: 9;
   background: var(--loc-bar-bg);
   backdrop-filter: saturate(160%) blur(16px);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
   margin: 0 -24px 22px;
-  padding: 12px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border);
   box-shadow: 0 14px 28px -26px rgba(31, 26, 23, 0.35);
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 4px;
   /* Never scroll the bar — at narrow widths chips wrap to a new row
      instead. overflow:visible is critical so the .fb-menu dropdown
      opening below a chip isn't clipped by the bar's bounds. */
   flex-wrap: wrap;
   overflow: visible;
 }
+.location-page-root .fb-back {
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  margin-left: -6px;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  color: var(--ink-2);
+  transition: background-color .18s ease, color .18s ease;
+}
+.location-page-root .fb-back:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
+.location-page-root .fb-back svg { width: 18px; height: 18px; }
 .location-page-root .fb-chip {
   display: inline-flex; align-items: center; gap: 7px;
-  height: 34px; padding: 0 14px;
+  height: 34px; padding: 0 12px;
   border-radius: 999px;
   background: transparent;
   border: none;
@@ -252,10 +272,10 @@
   letter-spacing: 0;
   margin-left: 4px;
 }
-.location-page-root .fb-divider { width: 1px; height: 16px; background: var(--border-strong); margin: 0 8px; flex-shrink: 0; }
+.location-page-root .fb-divider { width: 1px; height: 16px; background: var(--border-strong); margin: 0 5px; flex-shrink: 0; }
 .location-page-root .fb-toggle {
   display: inline-flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 13px;
+  height: 34px; padding: 0 11px;
   border-radius: 999px;
   background: transparent;
   border: none;
@@ -296,7 +316,7 @@
 }
 .location-page-root .fb-view-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 13px;
+  height: 28px; padding: 0 11px;
   border-radius: 999px;
   font-size: 12.5px; font-weight: 600;
   color: var(--muted);
@@ -313,7 +333,7 @@
 .location-page-root .fb-sort {
   position: relative;
   display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 13px;
+  height: 34px; padding: 0 11px;
   border-radius: 999px;
   background: transparent;
   border: none;
@@ -1975,8 +1995,8 @@
 
 /* ============ RESPONSIVE ============ */
 @media (max-width: 900px) {
-  .location-page-root .lp-page { padding: 8px 16px 96px; }
-  .location-page-root .loc-filterbar { margin: 0 -16px 20px; padding: 10px 16px; }
+  .location-page-root .lp-page { padding: 0 16px 96px; }
+  .location-page-root .loc-filterbar { margin: 0 -16px 20px; padding: 12px 16px; }
   .location-page-root .loc-title { font-size: 32px; }
   .location-page-root .loc-region { font-size: 18px; }
   .location-page-root .loc-section-head h2 { font-size: 24px; }

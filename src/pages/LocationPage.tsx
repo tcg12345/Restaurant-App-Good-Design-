@@ -2225,62 +2225,51 @@ export const LocationPage: React.FC = () => {
 
   return (
     <div className="location-page-root min-h-screen pb-24">
-      {/* Back-arrow row — map icon + location hero have moved to the
-          global top bar (DesktopHeader). Keeps the route navigable.
-          On mobile we render a richer header with a centered LOCATION
-          eyebrow + "{city} ▾" dropdown trigger and a share button. */}
-      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)' }}>
-        {isMobile ? (
-          <div className="flex items-center justify-between gap-3">
+      {/* Mobile header — centered LOCATION eyebrow + "{city} ▾" dropdown
+          trigger and a share button. On desktop there is no separate
+          back-arrow row anymore: the back arrow lives inside the sticky
+          filter bar below, so the page chrome is one bar instead of two
+          stacked strips. */}
+      {isMobile && (
+      <div className="sticky top-0 z-20 pt-safe-4 pb-2 px-1" style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+            style={{ color: 'var(--ink-2)' }}
+            aria-label="Back"
+          >
+            <ArrowLeft size={22} />
+          </button>
+          <div className="flex-1 min-w-0 text-center">
             <button
               type="button"
-              onClick={() => navigate(-1)}
-              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
-              style={{ color: 'var(--ink-2)' }}
-              aria-label="Back"
+              onClick={() => setMobileLocationPickerOpen(true)}
+              className="inline-flex items-center gap-1 max-w-full"
+              style={{ color: 'var(--ink)' }}
+              aria-label="Change location"
             >
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex-1 min-w-0 text-center">
-              <button
-                type="button"
-                onClick={() => setMobileLocationPickerOpen(true)}
-                className="inline-flex items-center gap-1 max-w-full"
-                style={{ color: 'var(--ink)' }}
-                aria-label="Change location"
-              >
-                <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
-                <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof navigator !== 'undefined' && navigator.share) {
-                  void navigator.share({ title: cityDisplay, url: window.location.href }).catch(() => {});
-                }
-              }}
-              className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
-              style={{ color: 'var(--ink-2)' }}
-              aria-label="Share"
-            >
-              <Share2 size={20} />
+              <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
+              <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
             </button>
           </div>
-        ) : (
-          <div className="flex items-center">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
-              style={{ color: 'var(--ink-2)' }}
-              aria-label="Back"
-            >
-              <ArrowLeft size={22} />
-            </button>
-          </div>
-        )}
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof navigator !== 'undefined' && navigator.share) {
+                void navigator.share({ title: cityDisplay, url: window.location.href }).catch(() => {});
+              }
+            }}
+            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
+            style={{ color: 'var(--ink-2)' }}
+            aria-label="Share"
+          >
+            <Share2 size={20} />
+          </button>
+        </div>
       </div>
+      )}
 
       {/* Headless location picker — opened by tapping "{city} ▾" in the
           mobile header above. The component is portal-rendered, so its
@@ -2333,6 +2322,17 @@ export const LocationPage: React.FC = () => {
             experts and the Search box further down) ───────────────── */}
         {!isMobile && (
         <div className="loc-filterbar">
+          {/* Back arrow — lives inside the bar (very left) so the page has
+              one chrome strip instead of a separate back-arrow row. */}
+          <button
+            type="button"
+            className="fb-back"
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+          >
+            <ArrowLeft />
+          </button>
+
           {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
