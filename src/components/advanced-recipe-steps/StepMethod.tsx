@@ -8,11 +8,14 @@
 import React from 'react';
 import { ArrowUp, ArrowDown, Trash2, Clock, Lightbulb, Plus, X } from 'lucide-react';
 import type { RecipeStepDetail } from '../../contexts/ListsContext';
+import { LinkedRecipesEditor } from './LinkedRecipesEditor';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
 
 interface Props {
   state: AdvancedRecipeState;
   dispatch: React.Dispatch<Action>;
+  /** Id of the meal being edited (so the link picker excludes it). */
+  existingId?: string | null;
 }
 
 interface StepCardProps {
@@ -145,7 +148,7 @@ const StepCard: React.FC<StepCardProps> = ({
   );
 };
 
-export const StepMethod: React.FC<Props> = ({ state, dispatch }) => {
+export const StepMethod: React.FC<Props> = ({ state, dispatch, existingId }) => {
   // Section chrome (name + reorder + delete) appears once there's more
   // than one section. A lone section stays a clean flat list.
   const grouped = state.stepGroups.length > 1;
@@ -230,6 +233,13 @@ export const StepMethod: React.FC<Props> = ({ state, dispatch }) => {
       >
         <Plus size={16} /> Add a section
       </button>
+
+      <LinkedRecipesEditor
+        state={state}
+        dispatch={dispatch}
+        defaultPlacement="method"
+        excludeId={existingId}
+      />
     </>
   );
 };

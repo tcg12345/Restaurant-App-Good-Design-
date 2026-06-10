@@ -975,6 +975,99 @@
   font-weight: 700;
 }
 
+/* ============ LINKED RECIPES ============
+   Component recipes (sauce / dough / side) attached via the Advanced
+   builder. Shared by the desktop ingredients aside + directions column
+   and the phone layout — tappable cards that navigate to the linked
+   recipe's own page. */
+.recipe-detail-page .rd-linked-block {
+  margin: 22px 0 28px;
+}
+.recipe-detail-page .rd-linked-heading {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted, #8C8278);
+  margin: 0 0 10px;
+}
+.recipe-detail-page .rd-linked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.recipe-detail-page .rd-linked-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid var(--border, rgba(31,26,23,0.1));
+  border-radius: 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.recipe-detail-page .rd-linked-card:hover {
+  border-color: var(--ink, #1f1a17);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgba(31, 26, 23, 0.18);
+}
+.recipe-detail-page .rd-linked-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+.recipe-detail-page .rd-linked-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.recipe-detail-page .rd-linked-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recipe-detail-page .rd-linked-title {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--ink, #1f1a17);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recipe-detail-page .rd-linked-sub {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--muted, #8C8278);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recipe-detail-page .rd-linked-card > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted-2, #B8AFA4);
+  transition: color .15s, transform .15s;
+}
+.recipe-detail-page .rd-linked-card:hover > svg {
+  color: var(--accent, #A8392A);
+  transform: translateX(2px);
+}
+.dark .recipe-detail-page .rd-linked-card { background: var(--surface); }
+
 @media (max-width: 768px) {
   .recipe-detail-page .rd-equipment-card {
     flex-direction: column;
