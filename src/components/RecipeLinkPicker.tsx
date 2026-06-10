@@ -6,7 +6,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists, type LinkedRecipeRef } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import {
+  getFriends,
+  getFriendsPublicHomeMeals,
+  getAllPublicHomeMeals,
+  getProfilesByIds,
+  type FriendHomeMeal,
+  type UserProfile,
+} from '../lib/supabase-community';
 import { cn } from '../lib/utils';
 
 /* ── Recipe link picker ──────────────────────────────────────────────────────
@@ -18,6 +25,12 @@ import { cn } from '../lib/utils';
      - the user's formal recipes (RecipesContext.myRecipes)
      - public recipes by friends (fetched on open)
      - all other public community recipes (fetched on open)
+
+   Friend / community recipes live in TWO stores: the formal `recipes`
+   table AND user_app_data.home_meals (where the Basic/Advanced builders
+   publish). Most published recipes are public home meals, so both are
+   queried and merged — without the home-meals pools the remote scopes
+   would look empty even when friends have published plenty.
 
    Desktop renders the centered spotlight card; phone gets a full-page
    slide-up panel. Layered at z-[200] — the picker-sheet tier above the
@@ -76,32 +89,59 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('all');
   const [loadingRemote, setLoadingRemote] = useState(false);
+  const [friendMeals, setFriendMeals] = useState<FriendHomeMeal[]>([]);
+  const [communityMeals, setCommunityMeals] = useState<FriendHomeMeal[]>([]);
   const [authorProfiles, setAuthorProfiles] = useState<Record<string, UserProfile>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   const myId = user?.id || '';
 
-  // Fresh state + remote fetch on every open. Friend/community recipes are
-  // on-demand caches in RecipesContext, so re-fetching keeps them current
-  // without paying anything while the picker is closed.
+  // Fresh state + remote fetch on every open. Four pools load in
+  // parallel: friends' public home meals, community-wide public home
+  // meals, and the two formal recipes-table pools cached in
+  // RecipesContext. Home meals are where the recipe builders publish,
+  // so they're the bulk of what friends/community actually have.
   useEffect(() => {
     if (!open) return;
     setQuery('');
     setScope('all');
     setLoadingRemote(true);
-    Promise.all([fetchFriendRecipes(), fetchPublicRecipes()])
-      .finally(() => setLoadingRemote(false));
+    let cancelled = false;
+    (async () => {
+      const friendMealsPromise = (async () => {
+        if (!myId) return [] as FriendHomeMeal[];
+        const friends = await getFriends(myId);
+        const ids = friends.map((f) => f.friend_id).filter(Boolean);
+        return ids.length > 0 ? getFriendsPublicHomeMeals(ids) : [];
+      })();
+      const [fm, cm] = await Promise.all([
+        friendMealsPromise.catch(() => [] as FriendHomeMeal[]),
+        getAllPublicHomeMeals(myId, { mealLimit: 80 }).catch(() => [] as FriendHomeMeal[]),
+        fetchFriendRecipes().catch(() => {}),
+        fetchPublicRecipes().catch(() => {}),
+      ]);
+      if (cancelled) return;
+      setFriendMeals(fm);
+      setCommunityMeals(cm);
+      setLoadingRemote(false);
+    })();
     if (!phoneMode) {
       const t = setTimeout(() => inputRef.current?.focus(), 180);
-      return () => clearTimeout(t);
+      return () => { cancelled = true; clearTimeout(t); };
     }
-  }, [open, phoneMode, fetchFriendRecipes, fetchPublicRecipes]);
+    return () => { cancelled = true; };
+  }, [open, phoneMode, myId, fetchFriendRecipes, fetchPublicRecipes]);
 
   // Resolve display names for friend / community recipe authors.
   useEffect(() => {
     if (!open) return;
     const ids = Array.from(new Set(
-      [...friendRecipes, ...publicRecipes].map((r) => r.userId).filter((id) => id && id !== myId),
+      [
+        ...friendRecipes.map((r) => r.userId),
+        ...publicRecipes.map((r) => r.userId),
+        ...friendMeals.map((m) => m.userId),
+        ...communityMeals.map((m) => m.userId),
+      ].filter((id) => id && id !== myId),
     ));
     if (ids.length === 0) return;
     let cancelled = false;
@@ -109,7 +149,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
       if (!cancelled) setAuthorProfiles((prev) => ({ ...prev, ...profiles }));
     });
     return () => { cancelled = true; };
-  }, [open, friendRecipes, publicRecipes, myId]);
+  }, [open, friendRecipes, publicRecipes, friendMeals, communityMeals, myId]);
 
   useEffect(() => {
     if (!open) return;
@@ -166,7 +206,31 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
         sortTs: Date.parse(r.updatedAt || r.createdAt || '') || 0,
       });
     }
-    const remote = (list: typeof friendRecipes, scopeKey: 'friends' | 'community', label: string) => {
+    // Remote pool A: public home meals (where the recipe builders
+    // publish — the bulk of friends' / community recipes).
+    const remoteMeals = (list: FriendHomeMeal[], scopeKey: 'friends' | 'community', label: string) => {
+      for (const m of list) {
+        if (m.userId === myId) continue; // own meals already covered above
+        const profile = authorProfiles[m.userId];
+        push({
+          key: `homeMeal-${m.id}`,
+          id: m.id,
+          ownerId: m.userId,
+          source: 'homeMeal',
+          title: m.name,
+          coverPhoto: m.coverPhoto || m.photos?.[0]?.url || undefined,
+          authorName: profile?.display_name || profile?.username || (scopeKey === 'friends' ? 'A friend' : 'A community cook'),
+          totalTimeMin: (m.prepTime || 0) + (m.cookTime || 0) + (m.chillTime || 0) || undefined,
+          scope: scopeKey,
+          scopeLabel: label,
+          cuisine: m.cuisine,
+          isPrivate: false,
+          sortTs: m.createdAt || 0,
+        });
+      }
+    };
+    // Remote pool B: formal recipes-table rows.
+    const remoteRecipes = (list: typeof friendRecipes, scopeKey: 'friends' | 'community', label: string) => {
       for (const r of list) {
         if (r.userId === myId) continue; // own recipes already covered above
         const profile = authorProfiles[r.userId];
@@ -177,7 +241,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
           source: 'recipe',
           title: r.title,
           coverPhoto: r.photos?.[0] || undefined,
-          authorName: profile?.display_name || profile?.username || 'A community cook',
+          authorName: profile?.display_name || profile?.username || (scopeKey === 'friends' ? 'A friend' : 'A community cook'),
           totalTimeMin: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0) || undefined,
           scope: scopeKey,
           scopeLabel: label,
@@ -187,10 +251,14 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
         });
       }
     };
-    remote(friendRecipes, 'friends', 'Friend');
-    remote(publicRecipes, 'community', 'Community');
+    // Friends first so a meal that also appears in the community-wide
+    // scan keeps its Friend classification (the id-dedupe in push).
+    remoteMeals(friendMeals, 'friends', 'Friend');
+    remoteRecipes(friendRecipes, 'friends', 'Friend');
+    remoteMeals(communityMeals, 'community', 'Community');
+    remoteRecipes(publicRecipes, 'community', 'Community');
     return out;
-  }, [homeMeals, myRecipes, friendRecipes, publicRecipes, authorProfiles, myId, excludeId]);
+  }, [homeMeals, myRecipes, friendRecipes, publicRecipes, friendMeals, communityMeals, authorProfiles, myId, excludeId]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
