@@ -62,6 +62,7 @@ import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -302,6 +303,7 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
+    <AppErrorBoundary>
     <Router>
       <AuthProvider>
         <SettingsProvider>
@@ -335,5 +337,6 @@ export default function App() {
         </SettingsProvider>
       </AuthProvider>
     </Router>
+    </AppErrorBoundary>
   );
 }

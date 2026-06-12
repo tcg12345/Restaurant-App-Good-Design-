@@ -1,6 +1,6 @@
 {
   "appId": "com.tylergorin.restaurantapp",
-  "appName": "restaurant App",
+  "appName": "Gourmet Canvas",
   "webDir": "dist",
   "plugins": {
     "Keyboard": {

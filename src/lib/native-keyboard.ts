@@ -86,15 +86,24 @@ export async function configureNativeKeyboard(
   document.addEventListener('pointerdown', onPointerDown, true);
 
   // Publish the *visible* viewport height (the area above the keyboard) as
-  // --app-vh via the VisualViewport API. Full-screen fixed panels (the AI
-  // chat) size to this so their composer sits exactly above the keyboard —
-  // iOS's own position:fixed + keyboard behavior is unreliable (the panel
-  // ends up short, pinning the composer to the top), so we drive the height
-  // explicitly instead.
+  // --app-vh. Full-screen fixed panels (the AI chat) size to this so their
+  // composer sits exactly above the keyboard.
+  //
+  // With Keyboard.resize:"none" the WKWebView is never resized, and its
+  // VisualViewport does NOT shrink for the keyboard — so the keyboard
+  // events (which report the exact keyboard height before the animation
+  // starts) are the source of truth while it's open. A `kb-open` class on
+  // <html> lets CSS drop bottom safe-area padding that would otherwise
+  // leave a dead gap above the keyboard (the home indicator is covered).
+  // The VisualViewport listener still handles non-keyboard size changes
+  // (rotation, split view) while the keyboard is closed.
+  const root = document.documentElement;
+  const setAppVh = (h: number) => root.style.setProperty('--app-vh', `${Math.round(h)}px`);
+  let keyboardHeight = 0;
   const vv = window.visualViewport;
   const syncViewportHeight = () => {
-    const h = vv?.height ?? window.innerHeight;
-    document.documentElement.style.setProperty('--app-vh', `${Math.round(h)}px`);
+    if (keyboardHeight > 0) return; // keyboard listeners own --app-vh while open
+    setAppVh(vv?.height ?? window.innerHeight);
   };
   if (vv) {
     vv.addEventListener('resize', syncViewportHeight);
@@ -103,7 +112,19 @@ export async function configureNativeKeyboard(
   }
 
   const handles = await Promise.all([
-    Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
+    Keyboard.addListener('keyboardWillShow', (info) => {
+      keyboardHeight = info?.keyboardHeight ?? 0;
+      if (keyboardHeight > 0) {
+        setAppVh(window.innerHeight - keyboardHeight);
+        root.classList.add('kb-open');
+      }
+      options.onKeyboardChange?.(true);
+    }),
+    Keyboard.addListener('keyboardWillHide', () => {
+      keyboardHeight = 0;
+      root.classList.remove('kb-open');
+      setAppVh(vv?.height ?? window.innerHeight);
+    }),
     Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
   ]);
 
@@ -114,6 +135,7 @@ export async function configureNativeKeyboard(
         vv.removeEventListener('resize', syncViewportHeight);
         vv.removeEventListener('scroll', syncViewportHeight);
       }
+      root.classList.remove('kb-open');
       handles.forEach((h) => h.remove());
     },
   };

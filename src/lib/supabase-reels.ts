@@ -314,11 +314,13 @@ async function signVideoPaths(paths: string[]): Promise<Record<string, string>> 
 
 /* ── Read ───────────────────────────────────────────────────────────── */
 
+/** Returns null when the fetch itself failed (offline, Supabase down) so
+ * callers can tell "couldn't load" apart from "feed is genuinely empty". */
 export async function listReels(opts: {
   kind?: ReelKind;
   limit?: number;
   viewerId?: string | null;
-}): Promise<ReelRow[]> {
+}): Promise<ReelRow[] | null> {
   if (!supabaseConfigured) return [];
   const { kind, limit = 50, viewerId } = opts;
 
@@ -335,7 +337,7 @@ export async function listReels(opts: {
   const { data, error } = await query;
   if (error) {
     console.warn('[Reels] list failed:', error.message);
-    return [];
+    return null;
   }
   if (!data || data.length === 0) return [];
 
@@ -502,7 +504,8 @@ export async function deleteReel(reelId: string): Promise<boolean> {
 
 /* ── Comments ───────────────────────────────────────────────────────── */
 
-export async function listComments(reelId: string): Promise<ReelComment[]> {
+/** Returns null when the fetch failed, [] when there are no comments. */
+export async function listComments(reelId: string): Promise<ReelComment[] | null> {
   if (!supabaseConfigured) return [];
   const { data, error } = await supabase.from('reel_comments')
     .select('*')
@@ -510,7 +513,7 @@ export async function listComments(reelId: string): Promise<ReelComment[]> {
     .order('created_at', { ascending: false });
   if (error) {
     console.warn('[Reels] comments fetch failed:', error.message);
-    return [];
+    return null;
   }
   const comments: ReelComment[] = (data || []).map((row) => {
     const r = row as Record<string, unknown>;

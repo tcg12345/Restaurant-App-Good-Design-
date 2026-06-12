@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { applyNativeTheme } from '../lib/native-theme';
 
 interface SettingsContextType {
   /** True on a real phone — either the Capacitor native runtime or a
@@ -82,12 +83,15 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [darkMode, setDarkModeState] = useState<boolean>(() => loadDarkMode());
 
   // Apply the dark class to <html> so Tailwind's @custom-variant dark
-  // selector matches everywhere, and persist the user's choice.
+  // selector matches everywhere, persist the user's choice, and mirror
+  // the theme onto the native chrome (status-bar style + the window's
+  // interface style) so it can never disagree with the page.
   useEffect(() => {
     const root = document.documentElement;
     if (darkMode) root.classList.add('dark');
     else root.classList.remove('dark');
     try { localStorage.setItem(DARK_MODE_KEY, darkMode ? '1' : '0'); } catch {}
+    void applyNativeTheme(darkMode);
   }, [darkMode]);
 
   const setDarkMode = useCallback((on: boolean) => setDarkModeState(on), []);

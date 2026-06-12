@@ -2168,6 +2168,17 @@
   max-width: none;
   max-height: none;
   border-radius: 0;
+  /* --app-vh jumps to the above-keyboard height the moment
+     keyboardWillShow fires (native-keyboard.ts); easing the height over
+     ~the keyboard's own animation time makes the composer ride up with
+     the keyboard instead of teleporting. */
+  transition: height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* While the keyboard is up the home indicator is covered, so the
+   composer's safe-area cushion would just be a dead gap between the
+   pill and the keyboard — collapse it to the plain design gutter. */
+html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
+  padding-bottom: 10px;
 }
 /* Header clears the status bar / notch now that the panel starts at top:0. */
 .lp-chat-island.is-phone .lp-chat-head {

@@ -799,7 +799,9 @@ const ChatView: React.FC<{
       {/* Header */}
       <div className={cn(
         'flex items-center gap-3 flex-shrink-0 border-b border-on-surface/[0.06] bg-surface/80 backdrop-blur-md',
-        phoneMode ? 'px-4 py-3' : 'px-6 py-3.5',
+        // pt-safe-3 keeps the back arrow / name clear of the status bar &
+        // Dynamic Island — the thread view is full-screen on phones.
+        phoneMode ? 'px-4 pt-safe-3 pb-3' : 'px-6 py-3.5',
       )}>
         {phoneMode && (
           <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
@@ -942,7 +944,7 @@ const ChatView: React.FC<{
                     <div className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
                       {hasText && (
                         <div className={cn(
-                          "px-3.5 py-2 text-sm leading-relaxed rounded-2xl mb-1",
+                          "selectable px-3.5 py-2 text-sm leading-relaxed rounded-2xl mb-1",
                           isMe
                             ? "bg-primary text-white rounded-br-md"
                             : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"
@@ -984,7 +986,7 @@ const ChatView: React.FC<{
                       )}
                     </div>
                   ) : (
-                    <div className={cn("px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
+                    <div className={cn("selectable px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
                       isMe
                         ? "bg-primary text-white rounded-br-md"
                         : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"

@@ -539,7 +539,7 @@ export const RecipeDirectionsList: React.FC<{
                       className="overflow-hidden"
                     >
                       <p className={cn(
-                        'text-on-surface/85 whitespace-pre-wrap font-sans',
+                        'selectable text-on-surface/85 whitespace-pre-wrap font-sans',
                         // pt-0 in compact mode so the Newsreader numeral
                         // sits slightly higher than the body baseline,
                         // matching the editorial reference.
@@ -617,7 +617,7 @@ export const RecipeReviewList: React.FC<RecipeReviewListProps> = ({ reviews, pro
               {renderRating && <div className="ml-auto">{renderRating(r.rating)}</div>}
             </div>
             {r.notes && (
-              <p className="text-[14px] text-on-surface/70 leading-[1.6] whitespace-pre-wrap">
+              <p className="selectable text-[14px] text-on-surface/70 leading-[1.6] whitespace-pre-wrap">
                 {r.notes}
               </p>
             )}

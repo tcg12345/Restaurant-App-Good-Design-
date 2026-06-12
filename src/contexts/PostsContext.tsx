@@ -61,6 +61,10 @@ function decoratePost(row: PostRow): Post {
 interface PostsContextValue {
   posts: Post[];
   loading: boolean;
+  /** True when the last feed fetch failed (offline / Supabase error) —
+   * lets the page render "couldn't load" + retry instead of a false
+   * "nothing here yet" empty state. */
+  loadError: boolean;
   refreshPosts: () => Promise<void>;
 
   createPost: (input: {
@@ -80,7 +84,8 @@ interface PostsContextValue {
   updatePost: (postId: string, postUpdates: PostUpdate, itemUpdates: PostItemUpdate[]) => Promise<boolean>;
   deletePost: (postId: string) => Promise<boolean>;
 
-  loadPostComments: (postId: string) => Promise<PostComment[]>;
+  /** Resolves to null when the fetch failed (vs [] for "no comments"). */
+  loadPostComments: (postId: string) => Promise<PostComment[] | null>;
   addPostComment: (postId: string, body: string) => Promise<PostComment | null>;
   deletePostComment: (postId: string, commentId: string) => Promise<boolean>;
 
@@ -124,6 +129,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [addPostModalOpen, setAddPostModalOpen] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
@@ -142,9 +148,20 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const refreshPosts = useCallback(async () => {
     if (!supabaseConfigured) return;
     setLoading(true);
-    const rows = await listPosts({ viewerId: userIdRef.current, limit: 100 });
-    setPosts(rows.map(decoratePost));
-    setLoading(false);
+    try {
+      const rows = await listPosts({ viewerId: userIdRef.current, limit: 100 });
+      if (rows) {
+        setPosts(rows.map(decoratePost));
+        setLoadError(false);
+      } else {
+        setLoadError(true);
+      }
+    } catch (err) {
+      console.warn('[Posts] refresh failed:', err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -262,7 +279,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ok;
   }, []);
 
-  const loadPostComments = useCallback(async (postId: string): Promise<PostComment[]> => {
+  const loadPostComments = useCallback(async (postId: string): Promise<PostComment[] | null> => {
     return cloudListPostComments(postId);
   }, []);
 
@@ -302,6 +319,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const value: PostsContextValue = {
     posts,
     loading,
+    loadError,
     refreshPosts,
     createPost,
     togglePostLike,

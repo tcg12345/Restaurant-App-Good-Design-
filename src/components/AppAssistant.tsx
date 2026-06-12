@@ -60,6 +60,9 @@ const HIDE_ON_PATHS = new Set<string>([
   '/onboarding',
   '/import',
   '/profile-setup',
+  // Messages: the FAB sits right on top of the composer / quick-share
+  // chips in a conversation, and chatting is already a focused activity.
+  '/messages',
 ]);
 
 function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {

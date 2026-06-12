@@ -366,10 +366,12 @@ export async function getPost(postId: string): Promise<PostRow | null> {
   return post;
 }
 
+/** Returns null when the fetch itself failed (offline, Supabase down) so
+ * callers can tell "couldn't load" apart from "feed is genuinely empty". */
 export async function listPosts(opts: {
   limit?: number;
   viewerId?: string | null;
-}): Promise<PostRow[]> {
+}): Promise<PostRow[] | null> {
   if (!supabaseConfigured) return [];
   const { limit = 50, viewerId } = opts;
 
@@ -381,7 +383,7 @@ export async function listPosts(opts: {
     .limit(limit);
   if (error) {
     console.warn('[Posts] list failed:', error.message);
-    return [];
+    return null;
   }
   if (!data || data.length === 0) return [];
 
@@ -555,13 +557,14 @@ export async function deletePost(postId: string): Promise<boolean> {
 
 /* ── Comments ───────────────────────────────────────────────────────── */
 
-export async function listPostComments(postId: string): Promise<PostComment[]> {
+/** Returns null when the fetch failed, [] when there are no comments. */
+export async function listPostComments(postId: string): Promise<PostComment[] | null> {
   if (!supabaseConfigured) return [];
   const { data, error } = await supabase.from('post_comments')
     .select('*')
     .eq('post_id', postId)
     .order('created_at', { ascending: false });
-  if (error) { console.warn('[Posts] comments fetch failed:', error.message); return []; }
+  if (error) { console.warn('[Posts] comments fetch failed:', error.message); return null; }
   const comments: PostComment[] = (data || []).map((row) => {
     const r = row as Record<string, unknown>;
     return {
