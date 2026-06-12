@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  ArrowUpRight, Heart, MapPin, Smartphone, Sparkles, Star, Users,
+  ArrowUpRight, Heart, MapPin, Sparkles, Star, Users,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
@@ -460,7 +460,6 @@ export const AuthShell: React.FC<{
   headerRight?: React.ReactNode;
   panel?: AuthPanelVariant;
 }> = ({ children, headerRight, panel = 'email' }) => {
-  const { phoneMode, togglePhoneMode } = useSettings();
   return (
     <div className="h-screen overflow-hidden bg-surface text-on-surface flex">
       <div className="hidden lg:block lg:w-[44%] xl:w-[46%] h-screen">
@@ -488,17 +487,6 @@ export const AuthShell: React.FC<{
           <a href="#" className="hover:text-on-surface/70">Privacy</a>
           <span>·</span>
           <a href="#" className="hover:text-on-surface/70">Help</a>
-          <span className="ml-auto">
-            <button
-              type="button"
-              onClick={togglePhoneMode}
-              className="inline-flex items-center gap-1.5 text-on-surface/40 hover:text-on-surface/70 transition-colors"
-              aria-pressed={phoneMode}
-            >
-              <Smartphone size={12} />
-              <span>Phone preview</span>
-            </button>
-          </span>
         </footer>
       </div>
     </div>

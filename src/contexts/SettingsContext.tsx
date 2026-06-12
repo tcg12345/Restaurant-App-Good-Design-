@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 interface SettingsContextType {
+  /** True on a real phone — either the Capacitor native runtime or a
+   *  phone-sized browser viewport (≤768px). Fully automatic: there is
+   *  no manual toggle; the value tracks live viewport resizes. */
   phoneMode: boolean;
-  togglePhoneMode: () => void;
-  setPhoneMode: (on: boolean) => void;
   /** True when the app is running inside a Capacitor native shell
-   *  (iOS / Android). Surfaced so App.tsx can suppress the desktop
-   *  "phone frame" preview wrapper without losing the mobile UI
-   *  gates that page-level code reads from `phoneMode`. */
+   *  (iOS / Android). Surfaced for native-only concerns (keyboard
+   *  plugin wiring, etc.). */
   isNative: boolean;
   hideBottomNav: boolean;
   setHideBottomNav: (hide: boolean) => void;
@@ -24,8 +24,6 @@ interface SettingsContextType {
 
 const SettingsContext = createContext<SettingsContextType>({
   phoneMode: false,
-  togglePhoneMode: () => {},
-  setPhoneMode: () => {},
   isNative: false,
   hideBottomNav: false,
   setHideBottomNav: () => {},
@@ -38,7 +36,6 @@ const SettingsContext = createContext<SettingsContextType>({
 
 export const useSettings = () => useContext(SettingsContext);
 
-const PHONE_MODE_KEY = 'gourmad-phone-mode';
 const DARK_MODE_KEY = 'gourmad-dark-mode';
 
 /** Detect a Capacitor-wrapped native runtime. Returns false on the
@@ -49,15 +46,9 @@ function isNativePlatform(): boolean {
   return !!(cap?.isNativePlatform?.());
 }
 
-function loadPhoneMode(): boolean {
-  // Real mobile device — always on. Skips the persisted toggle so a
-  // stale '0' from desktop preview doesn't disable the mobile UI on
-  // the user's phone.
-  if (isNativePlatform()) return true;
-  try {
-    return localStorage.getItem(PHONE_MODE_KEY) === '1';
-  } catch { return false; }
-}
+/** Phone-sized viewport breakpoint — matches the (max-width: 768px)
+ *  convention used by LocationPage / LocationMap / RestaurantDetail. */
+const NARROW_QUERY = '(max-width: 768px)';
 
 function loadDarkMode(): boolean {
   try {
@@ -73,19 +64,22 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Capacitor flag is captured once on mount — it can't change for the
   // life of the app instance.
   const [isNative] = useState<boolean>(() => isNativePlatform());
-  // Lazy-init from localStorage so a refresh keeps the user's choice.
-  const [phoneMode, setPhoneModeState] = useState<boolean>(() => loadPhoneMode());
+  // Live viewport signal — phone mode follows the real window size, so
+  // resizing across the breakpoint (or rotating a tablet) swaps layouts
+  // without a reload.
+  const [isNarrowViewport, setIsNarrowViewport] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY);
+    const handler = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const phoneMode = isNative || isNarrowViewport;
   const [hideBottomNav, setHideBottomNav] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [darkMode, setDarkModeState] = useState<boolean>(() => loadDarkMode());
-
-  // Persist whenever phoneMode changes. Skip on native — the flag is
-  // always true there, and writing locks it in even if the build is
-  // later loaded in a desktop browser for testing.
-  useEffect(() => {
-    if (isNative) return;
-    try { localStorage.setItem(PHONE_MODE_KEY, phoneMode ? '1' : '0'); } catch {}
-  }, [phoneMode, isNative]);
 
   // Apply the dark class to <html> so Tailwind's @custom-variant dark
   // selector matches everywhere, and persist the user's choice.
@@ -96,18 +90,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try { localStorage.setItem(DARK_MODE_KEY, darkMode ? '1' : '0'); } catch {}
   }, [darkMode]);
 
-  const setPhoneMode = useCallback((on: boolean) => setPhoneModeState(on), []);
-  const togglePhoneMode = useCallback(() => {
-    setPhoneModeState((prev) => !prev);
-  }, []);
-
   const setDarkMode = useCallback((on: boolean) => setDarkModeState(on), []);
   const toggleDarkMode = useCallback(() => {
     setDarkModeState((prev) => !prev);
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ phoneMode, togglePhoneMode, setPhoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode }}>
+    <SettingsContext.Provider value={{ phoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode }}>
       {children}
     </SettingsContext.Provider>
   );

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
+  Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
@@ -16,6 +16,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, type Guide as MyGuide } from '../lib/supabase-guides';
+import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -835,7 +836,7 @@ export const Profile: React.FC = () => {
       void refreshMyGuides();
     }
   };
-  const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
+  const { phoneMode, darkMode, toggleDarkMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'guides' | 'rated'>('top');
   const [editListsOpen, setEditListsOpen] = useState(false);
   // Desktop "Top lists" category rail selection — 'all' shows every list,
@@ -935,6 +936,7 @@ export const Profile: React.FC = () => {
   const [accountMsg, setAccountMsg] = useState('');
   const [accountError, setAccountError] = useState('');
   const [deleteStep, setDeleteStep] = useState(0);
+  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -1059,6 +1061,27 @@ export const Profile: React.FC = () => {
       setAccountMsg('Password updated successfully');
       setNewPassword('');
     }
+  };
+
+  // Permanently delete the account + every piece of server-side data
+  // (delete-account Edge Function), then wipe the device's local app
+  // data. The local sign-out inside deleteAccount fires onAuthStateChange,
+  // which lands the user on the signed-out screen. In-app deletion is an
+  // App Store requirement (Review Guideline 5.1.1(v)).
+  const handleDeleteAccount = async () => {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    setAccountMsg('');
+    setAccountError('');
+    const result = await deleteAccount();
+    if (!result.ok) {
+      setDeletingAccount(false);
+      setDeleteStep(0);
+      setAccountError(result.error || 'Could not delete the account. Please try again.');
+      return;
+    }
+    clearLocalAppData();
+    setSettingsOpen(false);
   };
 
   const displayName = profile?.display_name || 'Your Name';
@@ -2028,14 +2051,6 @@ export const Profile: React.FC = () => {
                           toggle
                           toggleValue={darkMode}
                           onClick={toggleDarkMode}
-                        />
-                        <SettingsRow
-                          icon={<Smartphone size={17} />}
-                          label="Phone View"
-                          hint="Force mobile layout on desktop"
-                          toggle
-                          toggleValue={phoneMode}
-                          onClick={togglePhoneMode}
                           isLast
                         />
                       </SettingsSection>
@@ -2269,7 +2284,11 @@ export const Profile: React.FC = () => {
                         )}
                         {deleteStep === 1 && (
                           <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
-                            <p className="text-xs text-red-600 font-medium">Are you sure? This will permanently delete all your data.</p>
+                            <p className="text-xs text-red-600 font-medium">
+                              This permanently deletes your account and everything in it —
+                              profile, ratings, recipes, posts, reels, guides, photos and
+                              friends. There is no way to recover it.
+                            </p>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -2295,19 +2314,25 @@ export const Profile: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setDeleteStep(0)}
-                                className="flex-1 py-2 border border-on-surface/15 rounded-lg text-xs font-semibold text-on-surface/50"
+                                disabled={deletingAccount}
+                                className="flex-1 py-2 border border-on-surface/15 rounded-lg text-xs font-semibold text-on-surface/50 disabled:opacity-50"
                               >
                                 Cancel
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setAccountMsg('Please contact support to delete your account.');
-                                  setDeleteStep(0);
-                                }}
-                                className="flex-1 py-2 bg-red-700 text-white rounded-lg text-xs font-semibold"
+                                onClick={handleDeleteAccount}
+                                disabled={deletingAccount}
+                                className="flex-1 py-2 bg-red-700 text-white rounded-lg text-xs font-semibold disabled:opacity-70 flex items-center justify-center gap-1.5"
                               >
-                                Delete Forever
+                                {deletingAccount ? (
+                                  <>
+                                    <Loader2 size={12} className="animate-spin" />
+                                    Deleting…
+                                  </>
+                                ) : (
+                                  'Delete Forever'
+                                )}
                               </button>
                             </div>
                           </div>
