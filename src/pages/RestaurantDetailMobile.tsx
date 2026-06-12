@@ -466,7 +466,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <p
-                  className="uppercase text-white/70"
+                  className="uppercase text-cream/70"
                   style={{
                     fontFamily: '"JetBrains Mono", ui-monospace, monospace',
                     fontSize: '11px',
@@ -476,7 +476,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   Your rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
                 </p>
                 <p
-                  className="italic text-white/95 line-clamp-1 mt-0.5"
+                  className="italic text-cream/95 line-clamp-1 mt-0.5"
                   style={{
                     fontFamily: '"Fraunces", "Noto Serif", serif',
                     fontSize: '15px',
@@ -486,7 +486,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   "{myRating.notes || 'Tap to update or log a new visit'}"
                 </p>
               </div>
-              <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+              <ChevronRight size={18} className="text-cream/55 flex-shrink-0" />
             </>
           ) : (
             <>
@@ -495,7 +495,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <p
-                  className="uppercase text-white/70"
+                  className="uppercase text-cream/70"
                   style={{
                     fontFamily: '"JetBrains Mono", ui-monospace, monospace',
                     fontSize: '11px',
@@ -505,7 +505,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   Tap to rate
                 </p>
                 <p
-                  className="italic text-white/95 mt-0.5"
+                  className="italic text-cream/95 mt-0.5"
                   style={{
                     fontFamily: '"Fraunces", "Noto Serif", serif',
                     fontSize: '15px',
@@ -515,7 +515,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   "Log your visit and score"
                 </p>
               </div>
-              <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+              <ChevronRight size={18} className="text-cream/55 flex-shrink-0" />
             </>
           )}
         </button>

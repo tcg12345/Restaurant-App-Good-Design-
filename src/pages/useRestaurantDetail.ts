@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
+import { attachMapErrorFallback } from '../lib/map-error';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import { getCommunityStats, getFriendsStats, getCommunityPhotos, getHotelDining, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type HotelDining, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
@@ -113,6 +114,7 @@ export function useRestaurantDetail() {
       zoom: 15,
       interactive: true,
     });
+    attachMapErrorFallback(map, el);
     mapRef.current = map;
 
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
@@ -255,9 +257,14 @@ export function useRestaurantDetail() {
 
   useEffect(() => {
     if (!place?.id) return;
-    getCommunityStats(place.id).then(setCommunityStats);
-    getCommunityPhotos(place.id).then(setCommunityPhotos);
-    getExpertRecommendations(place.id).then(setExpertRecommendations);
+    // Community data is additive — on a failed fetch the section just keeps
+    // its default empty state, but the rejection must be caught so it
+    // doesn't surface as an unhandled-promise error.
+    const warn = (what: string) => (err: unknown) =>
+      console.warn(`[RestaurantDetail] ${what} fetch failed:`, err);
+    getCommunityStats(place.id).then(setCommunityStats).catch(warn('community stats'));
+    getCommunityPhotos(place.id).then(setCommunityPhotos).catch(warn('community photos'));
+    getExpertRecommendations(place.id).then(setExpertRecommendations).catch(warn('expert recommendations'));
 
     // Seed visit history from localStorage first so the UI reflects a
     // newly-saved visit immediately (Supabase write is async and may
@@ -281,7 +288,7 @@ export function useRestaurantDetail() {
     setVisitHistory(localMapped);
 
     if (user?.id) {
-      getFriendsStats(user.id, place.id).then(setFriendsStats);
+      getFriendsStats(user.id, place.id).then(setFriendsStats).catch(warn('friends stats'));
       getVisitHistory(user.id, place.id).then((remote) => {
         // Merge by id, then sort newest first by visit_date (fall back
         // to created_at so records without an explicit visit date
@@ -296,11 +303,11 @@ export function useRestaurantDetail() {
           return bd.localeCompare(ad);
         });
         setVisitHistory(merged);
-      });
+      }).catch(warn('visit history'));
     }
     // Fetch hotel dining if this place looks like a hotel
     const isHotel = place.types[0] === 'hotel' || place.types[0] === 'lodging';
-    if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions);
+    if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions).catch(warn('hotel dining'));
   }, [place?.id, user?.id, ratingFingerprint]);
 
   // Community-supplied price fallback: when Google has no priceLevel

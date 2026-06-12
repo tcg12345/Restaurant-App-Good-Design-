@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
+import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -1557,6 +1558,7 @@ export const LocationPage: React.FC = () => {
       // user picked — same radius the list uses, so the two views agree.
       maxBounds: buildMiniMapBounds(init.lat, init.lng),
     });
+    attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
     map.on('load', () => {
       setMapReady(true);

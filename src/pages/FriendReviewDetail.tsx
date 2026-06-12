@@ -311,7 +311,7 @@ export const FriendReviewDetail: React.FC = () => {
           <div className="relative pl-5">
             <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-primary/70" />
             <span className="absolute -top-3 left-3 font-serif text-5xl text-primary/25 leading-none select-none pointer-events-none">&ldquo;</span>
-            <p className="font-serif italic text-[15px] text-on-surface/75 leading-relaxed whitespace-pre-wrap pt-1">{rating.notes}</p>
+            <p className="selectable font-serif italic text-[15px] text-on-surface/75 leading-relaxed whitespace-pre-wrap pt-1">{rating.notes}</p>
           </div>
         </div>
       )}

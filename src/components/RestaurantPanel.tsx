@@ -28,6 +28,7 @@ import {
   Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
+import { attachMapErrorFallback } from '../lib/map-error';
 import { useBottomSheet } from '../lib/useBottomSheet';
 // Required for the Mapbox canvas to actually render — provides the
 // .mapboxgl-canvas-container / .mapboxgl-canvas positioning rules. The
@@ -400,6 +401,7 @@ export const RestaurantPanelBody: React.FC<{
       interactive: false,
       attributionControl: false,
     });
+    attachMapErrorFallback(map, el);
     mapInstanceRef.current = map;
     new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
 

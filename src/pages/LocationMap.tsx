@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
+import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -328,6 +329,7 @@ export const LocationMap: React.FC = () => {
       attributionControl: false,
       maxBounds: initial.hasCoords ? buildBboxBounds(initial.lat, initial.lng) : undefined,
     });
+    attachMapErrorFallback(map, containerRef.current);
     mapRef.current = map;
     map.on('load', () => {
       setMapReady(true);

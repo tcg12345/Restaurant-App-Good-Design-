@@ -523,7 +523,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     ]);
     setActivity(act);
     setHomeMeals(meals);
-    setPosts(allPosts.filter((p) => friendIdSet.has(p.userId)));
+    // listPosts resolves null when the fetch failed; keep whatever the
+    // feed already showed rather than wiping it to a false empty state.
+    if (allPosts) setPosts(allPosts.filter((p) => friendIdSet.has(p.userId)));
 
     // Collect all user IDs from both sources
     const allUserIds = new Set<string>();
@@ -699,6 +701,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // CommentsBody already consumes for reels.
   const loadPostCommentsAdapter = useCallback(async (postId: string) => {
     const rows = await loadPostComments(postId);
+    // null = fetch failed; CommentsBody shows its retry state for that.
+    if (!rows) return null;
     return rows.map((c) => ({ id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, author: c.author }));
   }, [loadPostComments]);
   const addPostCommentAdapter = useCallback(async (postId: string, body: string) => {

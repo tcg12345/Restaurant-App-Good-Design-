@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -1182,8 +1182,9 @@ interface CommentsBodyProps {
   targetId: string;
   onClose: () => void;
   variant: 'sheet' | 'panel';
-  /** Polymorphic adapters — caller picks reels or posts. */
-  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  /** Polymorphic adapters — caller picks reels or posts. Loaders resolve
+   *  to null when the fetch failed (vs [] for "no comments"). */
+  loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
   deleteComment: (id: string, commentId: string) => Promise<boolean>;
   currentUserId: string | null;
@@ -1195,18 +1196,28 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   const [comments, setComments] = useState<UnifiedComment[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  // Bumped by "Try again" to re-run the load effect.
+  const [retryTick, setRetryTick] = useState(0);
   const [posting, setPosting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadFailed(false);
     loadComments(targetId).then((list) => {
       if (cancelled) return;
-      setComments(list);
+      setComments(list ?? []);
+      setLoadFailed(list === null);
+      setLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setComments([]);
+      setLoadFailed(true);
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [targetId, loadComments]);
+  }, [targetId, loadComments, retryTick]);
 
   const onSubmit = async () => {
     if (!draft.trim() || posting) return;
@@ -1268,6 +1279,18 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           <div className={cn('flex items-center justify-center py-8', muteCls)}>
             <Loader2 size={20} className="animate-spin" />
           </div>
+        ) : loadFailed ? (
+          <div className="text-center py-8">
+            <p className="text-sm text-on-surface/55">Couldn't load comments.</p>
+            <button
+              type="button"
+              onClick={() => setRetryTick((t) => t + 1)}
+              className="mt-3 inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/75 text-xs font-bold transition-colors"
+            >
+              <RefreshCw size={13} />
+              Try again
+            </button>
+          </div>
         ) : comments.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-sm text-on-surface/55">No comments yet.</p>
@@ -1287,7 +1310,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
                   )}
                   <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
                 </div>
-                <p className={cn('text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
+                <p className={cn('selectable text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
               </div>
               {c.userId === currentUserId && (
                 <button
@@ -1339,7 +1362,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
 interface CommentsSheetProps {
   targetId: string | null;
   onClose: () => void;
-  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
   deleteComment: (id: string, commentId: string) => Promise<boolean>;
   currentUserId: string | null;
@@ -1387,7 +1410,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
 interface CommentsPanelProps {
   targetId: string | null;
   onClose: () => void;
-  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
   deleteComment: (id: string, commentId: string) => Promise<boolean>;
   currentUserId: string | null;
@@ -1499,6 +1522,7 @@ export const Reels: React.FC = () => {
   const focused = !!focusKey;
   const {
     reels: allReels, recipeReels, loading: reelsLoading,
+    loadError: reelsLoadError, refreshReels,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
     openCommentsSheet, closeCommentsSheet, openCommentsReelId,
     currentUserId,
@@ -1506,6 +1530,7 @@ export const Reels: React.FC = () => {
   } = useReels();
   const {
     posts: allPosts, loading: postsLoading,
+    loadError: postsLoadError, refreshPosts,
     togglePostLike, togglePostSave, deletePost,
     setPostVisibility: _setPostVisibility,
     openAddPostModal,
@@ -2021,6 +2046,21 @@ export const Reels: React.FC = () => {
       {loading && feedItems.length === 0 ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
             <Loader2 size={26} className="animate-spin" />
+          </div>
+        ) : feedItems.length === 0 && (reelsLoadError || postsLoadError) ? (
+          // Fetch failed with nothing cached — say so instead of passing it
+          // off as an empty feed, and give the user a way back.
+          <div className="h-full w-full flex flex-col items-center justify-center text-white/70 text-sm px-8 text-center gap-3">
+            <p className="text-base text-white/85">Couldn't load the feed.</p>
+            <p className="text-xs text-white/55 -mt-1.5">Check your connection and try again.</p>
+            <button
+              type="button"
+              onClick={() => { void refreshReels(); void refreshPosts(); }}
+              className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white/15 text-white text-sm font-bold border border-white/25"
+            >
+              <RefreshCw size={16} />
+              Try again
+            </button>
           </div>
         ) : feedItems.length === 0 ? (
           <div className="h-full w-full flex flex-col items-center justify-center text-white/70 text-sm px-8 text-center gap-3">

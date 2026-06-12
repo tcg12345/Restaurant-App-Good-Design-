@@ -103,6 +103,10 @@ interface ReelsContextValue {
   recipeReels: Reel[];
 
   loading: boolean;
+  /** True when the last feed fetch failed (offline / Supabase error) —
+   * lets the page render "couldn't load" + retry instead of a false
+   * "nothing here yet" empty state. */
+  loadError: boolean;
   refreshReels: () => Promise<void>;
 
   postReel: (input: {
@@ -126,7 +130,8 @@ interface ReelsContextValue {
   deleteReel: (reelId: string) => Promise<boolean>;
 
   // Comments
-  loadComments: (reelId: string) => Promise<ReelComment[]>;
+  /** Resolves to null when the fetch failed (vs [] for "no comments"). */
+  loadComments: (reelId: string) => Promise<ReelComment[] | null>;
   addComment: (reelId: string, body: string) => Promise<ReelComment | null>;
   deleteComment: (reelId: string, commentId: string) => Promise<boolean>;
 
@@ -160,6 +165,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const [addReelModalOpen, setAddReelModalOpen] = useState(false);
   const [addReelInitialKind, setAddReelInitialKind] = useState<ReelKind | null>(null);
@@ -169,9 +175,20 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const refreshReels = useCallback(async () => {
     if (!supabaseConfigured) return;
     setLoading(true);
-    const rows = await listReels({ viewerId: userIdRef.current, limit: 100 });
-    setReels(rows.map(rowToUi));
-    setLoading(false);
+    try {
+      const rows = await listReels({ viewerId: userIdRef.current, limit: 100 });
+      if (rows) {
+        setReels(rows.map(rowToUi));
+        setLoadError(false);
+      } else {
+        setLoadError(true);
+      }
+    } catch (err) {
+      console.warn('[Reels] refresh failed:', err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   // Re-fetch when the viewer changes (so liked/saved state is theirs).
@@ -280,7 +297,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   /* ── Comments ──────────────────────────────────────────────────── */
 
-  const loadComments = useCallback(async (reelId: string): Promise<ReelComment[]> => {
+  const loadComments = useCallback(async (reelId: string): Promise<ReelComment[] | null> => {
     return cloudListComments(reelId);
   }, []);
 
@@ -329,6 +346,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     restaurantReels,
     recipeReels,
     loading,
+    loadError,
     refreshReels,
     postReel,
     toggleLike,

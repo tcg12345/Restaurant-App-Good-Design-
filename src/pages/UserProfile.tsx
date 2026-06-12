@@ -20,6 +20,7 @@ import {
 import { getMyGuides, type Guide } from '../lib/supabase-guides';
 import type { HomeMeal } from '../contexts/ListsContext';
 import mapboxgl from 'mapbox-gl';
+import { attachMapErrorFallback } from '../lib/map-error';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
@@ -325,6 +326,7 @@ export const UserProfile: React.FC = () => {
       zoom: 3,
       accessToken: MAPBOX_TOKEN,
     });
+    attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
 
     map.on('load', async () => {

@@ -455,14 +455,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-surface/55">
                     Your Rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
                   </span>
-                  <span className="font-serif italic text-base text-white/85 truncate">
+                  <span className="font-serif italic text-base text-surface/85 truncate">
                     {myRating.notes ? `"${myRating.notes}"` : 'Tap to see your full review'}
                   </span>
                 </div>
-                <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+                <ChevronRight size={18} className="text-surface/55 flex-shrink-0" />
               </>
             ) : (
               <>
@@ -470,14 +470,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   <Star size={20} className="text-on-surface" />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/55">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-surface/55">
                     Rate this restaurant
                   </span>
-                  <span className="font-serif text-base text-white/90">
+                  <span className="font-serif text-base text-surface/90">
                     Log your visit and score
                   </span>
                 </div>
-                <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+                <ChevronRight size={18} className="text-surface/55 flex-shrink-0" />
               </>
             )}
           </button>
