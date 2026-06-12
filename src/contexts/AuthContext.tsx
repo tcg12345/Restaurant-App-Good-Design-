@@ -3,6 +3,7 @@ import { supabase, supabaseConfigured } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
+import { clearLocalAppData } from '../lib/supabase-account';
 import type { User, Session } from '@supabase/supabase-js';
 
 /** Race a promise against a timeout. Used to make sure a hung Supabase
@@ -42,6 +43,37 @@ interface AuthContextType {
    *  the check can't be performed). Used by the desktop sign-in to
    *  branch between "Welcome back" and "Create account". */
   checkEmailExists: (email: string) => Promise<boolean>;
+}
+
+/** Which user this device's localStorage caches belong to. */
+const ACTIVE_USER_KEY = 'gourmad-active-user';
+
+/**
+ * Cross-account leak guard. Several stores cache personal data in
+ * localStorage under fixed keys (chats, home meals, recipes, drafts…);
+ * if a DIFFERENT user signs in on the same device, the providers would
+ * boot from the previous account's cache and then merge it into the new
+ * account's cloud data. So: on an account switch we purge all app-local
+ * storage and reload before any provider acts on the new identity. The
+ * Supabase session lives under its own `sb-*` key and survives the
+ * purge, so the reload comes back signed in as the new user with clean
+ * caches. Same-user re-logins keep their offline cache untouched.
+ *
+ * Returns true when a switch was detected and a reload is in flight —
+ * the caller should stop (not propagate the user into React state).
+ */
+function guardDeviceAccount(newUserId: string): boolean {
+  try {
+    const prev = localStorage.getItem(ACTIVE_USER_KEY);
+    if (prev && prev !== newUserId) {
+      clearLocalAppData();
+      localStorage.setItem(ACTIVE_USER_KEY, newUserId);
+      window.location.reload();
+      return true;
+    }
+    localStorage.setItem(ACTIVE_USER_KEY, newUserId);
+  } catch { /* storage unavailable — nothing cached, nothing to leak */ }
+  return false;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -100,6 +132,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
         if (!mounted) return;
         const u = session?.user ?? null;
+        // Account switched on this device — purge stale caches + reload
+        // before any provider sees the new identity.
+        if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) await loadProfile(u.id);
       } catch {
@@ -113,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event: string, session: Session | null) => {
         const u = session?.user ?? null;
+        if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) loadProfile(u.id);
         else { setProfile(null); setPendingRequestCount(0); }
