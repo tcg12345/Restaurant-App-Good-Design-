@@ -40,18 +40,24 @@ export async function deleteAccount(): Promise<{ ok: boolean; error?: string }> 
   }
 }
 
+/** localStorage prefixes that hold app data. `gourmad-` covers ratings,
+ *  meals, chats, drafts and prefs; `lp-chat-` is the AI assistant's
+ *  saved-conversation cache. */
+const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-'];
+
 /**
  * Drop every app-owned localStorage key (ratings cache, home meals,
- * recents, drafts…). Called after a successful account deletion so the
- * device holds no leftover personal data and a future sign-up on the
- * same browser starts clean.
+ * chats, AI conversations, recents, drafts…). Called after a successful
+ * account deletion — and by AuthContext when a different user signs in
+ * on this device — so no personal data leaks across accounts or
+ * lingers on the hardware.
  */
 export function clearLocalAppData(): void {
   try {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('gourmad-')) doomed.push(key);
+      if (key && APP_STORAGE_PREFIXES.some((p) => key.startsWith(p))) doomed.push(key);
     }
     doomed.forEach((k) => localStorage.removeItem(k));
   } catch { /* storage unavailable — nothing to clear */ }
