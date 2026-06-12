@@ -194,10 +194,15 @@ export async function removeCommunityPhotos(userId: string, restaurantId: string
 export async function publishCommunityPhotos(
   userId: string, restaurantId: string, photos: { url: string; caption: string; isFavorite: boolean }[]
 ): Promise<boolean> {
-  if (!supabaseConfigured || !userId || photos.length === 0) return false;
+  if (!supabaseConfigured || !userId) return false;
   try {
-    // Remove existing photos for this user+restaurant first
+    // Replace semantics: always clear this user's existing rows for the
+    // restaurant first, so photos removed from the review disappear from
+    // the community gallery. An empty list therefore means "remove all" —
+    // the old early-return on empty input was how stale photos survived
+    // review edits and kept haunting restaurant pages.
     await supabase.from('community_photos').delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    if (photos.length === 0) return true;
     // Insert new ones
     const rows = photos.map((p) => ({
       user_id: userId, restaurant_id: restaurantId,
