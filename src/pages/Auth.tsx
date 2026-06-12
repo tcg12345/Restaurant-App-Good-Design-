@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Smartphone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 import {
@@ -405,7 +404,6 @@ const StepSignup: React.FC<SharedProps> = ({
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC = () => {
   const { signIn, signUp, signInWithOAuth, checkEmailExists } = useAuth();
-  const { phoneMode, togglePhoneMode, isNative } = useSettings();
   const useDesktopLayout = useDesktopAuthLayout();
 
   const [step, setStep] = useState<Step>('email');
@@ -545,24 +543,6 @@ export const Auth: React.FC = () => {
             <MobileBackButton onClick={handleBack} />
           )}
         </div>
-        {/* Tiny phone-preview toggle, kept reachable on desktop preview;
-            hidden on native where the toggle has no meaning. */}
-        {!isNative && (
-          <button
-            type="button"
-            onClick={togglePhoneMode}
-            className={cn(
-              'inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold border transition-colors',
-              phoneMode
-                ? 'bg-on-surface/[0.06] border-on-surface/15 text-on-surface/85'
-                : 'bg-transparent border-on-surface/10 text-on-surface/55',
-            )}
-            aria-pressed={phoneMode}
-          >
-            <Smartphone size={12} className={phoneMode ? 'text-primary' : 'text-on-surface/45'} />
-            <span>Preview</span>
-          </button>
-        )}
       </div>
 
       {/* Step content — animates in/out per step */}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
@@ -835,7 +835,7 @@ export const Profile: React.FC = () => {
       void refreshMyGuides();
     }
   };
-  const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
+  const { phoneMode, darkMode, toggleDarkMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'guides' | 'rated'>('top');
   const [editListsOpen, setEditListsOpen] = useState(false);
   // Desktop "Top lists" category rail selection — 'all' shows every list,
@@ -2028,14 +2028,6 @@ export const Profile: React.FC = () => {
                           toggle
                           toggleValue={darkMode}
                           onClick={toggleDarkMode}
-                        />
-                        <SettingsRow
-                          icon={<Smartphone size={17} />}
-                          label="Phone View"
-                          hint="Force mobile layout on desktop"
-                          toggle
-                          toggleValue={phoneMode}
-                          onClick={togglePhoneMode}
                           isLast
                         />
                       </SettingsSection>

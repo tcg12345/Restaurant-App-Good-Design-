@@ -115,7 +115,7 @@ function useIsDesktop(): boolean {
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  const { phoneMode, isNative, setKeyboardOpen } = useSettings();
+  const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
     void configureNativeKeyboard({
@@ -129,20 +129,15 @@ const AppContent: React.FC = () => {
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
-  // `phoneMode` does two jobs: gate the mobile UI everywhere, and (only
-  // here in App.tsx) render the desktop "phone preview" frame around
-  // the app. On Capacitor / real mobile we want the first job but not
-  // the second — the OS already gives us a phone-shaped viewport.
-  const showPhoneFrame = phoneMode && !isNative;
-  // Sidebar mode: real desktop viewport AND not in the phone-frame preview.
-  // The Onboarding flow is intentionally pre-auth-only so this gate isn't
-  // needed for it; we just keep the sidebar off the few pages where it
-  // would clash (none today, but the variable exists so we can tune).
+  // Sidebar mode: real desktop viewport, signed in, profile complete.
+  // `phoneMode` is now fully viewport/runtime-derived (≤768px or native),
+  // so it can never be true at the same time as `isDesktop` (≥1024px) —
+  // the !phoneMode guard is kept for clarity.
   const useSidebar = isDesktop && !phoneMode && isSignedIn && profileComplete;
 
   if (loading) {
     return (
-      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : "min-h-screen bg-surface flex items-center justify-center"}>
+      <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
           G
         </div>
@@ -152,41 +147,19 @@ const AppContent: React.FC = () => {
 
   if (!isSignedIn) {
     return (
-      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
-        <div
-          className={
-            showPhoneFrame
-              ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"
-              : "min-h-screen bg-surface selection:bg-primary/20 selection:text-primary"
-          }
-          style={
-            showPhoneFrame
-              ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
-              : undefined
-          }
-        >
-          <div className={showPhoneFrame ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
-            <Routes location={location}>
-              <Route path="/import" element={<ImportRestaurants />} />
-              <Route path="*" element={<Auth />} />
-            </Routes>
-          </div>
-        </div>
+      <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
+        <Routes location={location}>
+          <Route path="/import" element={<ImportRestaurants />} />
+          <Route path="*" element={<Auth />} />
+        </Routes>
       </div>
     );
   }
 
   if (isSignedIn && !profileComplete) {
     return (
-      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
-        <div
-          className={showPhoneFrame ? "relative bg-surface overflow-hidden rounded-3xl shadow-2xl border border-white/10" : "min-h-screen bg-surface"}
-          style={showPhoneFrame ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' } : undefined}
-        >
-          <div className={showPhoneFrame ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
-            <ProfileSetup />
-          </div>
-        </div>
+      <div className="min-h-screen bg-surface">
+        <ProfileSetup />
       </div>
     );
   }
@@ -304,39 +277,25 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // ── Phone-frame preview / narrow viewport layout (existing) ──────────
+  // ── Phone / narrow viewport layout ───────────────────────────────────
   return (
-    <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
-      <div
-        id={showPhoneFrame ? "phone-frame-root" : undefined}
-        className={
-          showPhoneFrame
-            ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"
-            : "min-h-screen bg-surface selection:bg-primary/20 selection:text-primary"
-        }
-        style={
-          showPhoneFrame
-            ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
-            : undefined
-        }
-      >
-        <div className={showPhoneFrame ? "relative h-full overflow-y-auto overflow-x-hidden" : "relative"}>
-          {routesBlock}
-        </div>
-        <AnimatePresence>
-          {showBottomNav && (
-            <motion.div
-              initial={{ y: 100, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100, opacity: 0 }}
-              transition={{ type: 'spring', damping: 20, stiffness: 100 }}
-            >
-              <BottomNav collapsible={isMapPage} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {modals}
+    <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
+      <div className="relative">
+        {routesBlock}
       </div>
+      <AnimatePresence>
+        {showBottomNav && (
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 100 }}
+          >
+            <BottomNav collapsible={isMapPage} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {modals}
     </div>
   );
 };
