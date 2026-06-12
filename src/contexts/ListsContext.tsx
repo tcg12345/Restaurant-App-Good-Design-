@@ -1042,6 +1042,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             });
             if (r.photos && r.photos.length > 0 && isPublicRef.current) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
+            } else if (!r.photos || r.photos.length === 0) {
+              // Self-heal: clear gallery rows for ratings whose photos were
+              // removed before reconciliation existed (or on another
+              // device). Deliberately NOT keyed on isPublic here — the
+              // profile may not be loaded yet at boot, and removing
+              // photo-less ratings' rows is safe regardless.
+              removeCommunityPhotos(userId, r.restaurantId);
             }
           }
         }
@@ -1606,11 +1613,17 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
         friendIds: rating.friendIds || [], photoUrl: rating.image || '',
       });
-      // Only publish photos to community if account is public
+      // Reconcile the community gallery with this save: publish the
+      // current photo set when the account is public; otherwise (photos
+      // removed, or account private) clear any previously published rows.
+      // Skipping the clear was how removed photos lived on forever on
+      // restaurant pages.
       if (rating.photos && rating.photos.length > 0 && isPublicRef.current) {
         publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
           console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
         });
+      } else {
+        removeCommunityPhotos(userIdRef.current, rating.restaurantId);
       }
     }
     showToast(
@@ -1735,6 +1748,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           friendIds: p.friendIds || [],
           photoUrl: p.image || '',
         });
+        // The promoted visit's photo set replaces the deleted visit's in
+        // the community gallery (or clears it if the promoted visit has
+        // no photos) — the gallery must always mirror the *current* visit.
+        if (p.photos && p.photos.length > 0 && isPublicRef.current) {
+          publishCommunityPhotos(userIdRef.current, restaurantId, p.photos).catch(() => {});
+        } else {
+          removeCommunityPhotos(userIdRef.current, restaurantId);
+        }
       }
       return;
     }
