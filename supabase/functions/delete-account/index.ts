@@ -2,8 +2,8 @@
 //
 // Permanently deletes the calling user's account and all associated
 // data, in-app, as required by App Store Review Guideline 5.1.1(v).
-// The caller is identified from their own JWT (requireUser) — a user
-// can only ever delete themselves.
+// The caller is identified from their own JWT — a user can only ever
+// delete themselves.
 //
 // What gets removed:
 //   1. Storage objects — the user's folders in the `reels-videos` and
@@ -16,14 +16,39 @@
 //      REFERENCES auth.users(id) ON DELETE CASCADE, so the row delete
 //      wipes them all transactionally.
 //
+// Deliberately self-contained (no ../_shared imports, unlike the AI
+// functions) so it can be pasted as a single file into the dashboard's
+// function editor. Deploy with JWT verification DISABLED — the browser
+// never sends an Authorization header on the CORS preflight, so the
+// gateway check would break web callers; the token is verified inside
+// the handler instead.
+//
 // Requires the service-role key, which is injected into every Edge
 // Function automatically as SUPABASE_SERVICE_ROLE_KEY and never
 // reaches the browser bundle.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
 
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 const JSON_HEADERS = { 'Content-Type': 'application/json', ...CORS_HEADERS };
+
+/** Verify the caller's Supabase JWT and return their user id, or null. */
+async function getCallerId(req: Request): Promise<string | null> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user.id;
+}
 
 /** Buckets that store per-user media under a `{userId}/...` prefix. */
 const USER_BUCKETS = ['reels-videos', 'post-media'];
@@ -68,9 +93,13 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const auth = await requireUser(req);
-  if ('response' in auth) return auth.response;
-  const { userId } = auth;
+  const userId = await getCallerId(req);
+  if (!userId) {
+    return new Response(JSON.stringify({ error: 'Sign in to delete your account.' }), {
+      status: 401,
+      headers: JSON_HEADERS,
+    });
+  }
 
   const admin = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
