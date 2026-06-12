@@ -122,10 +122,11 @@ describe('flat (no-peer) similarity behaves like bisection', () => {
 
 /* ── Warm start & outlier reachability ─────────────────────────────────── */
 
-describe('warm start seeds near the peer cohort', () => {
-  it('first comparison is the peer-median candidate', () => {
-    // 7 candidates; make the ones at sorted indices 1, 3, 5 peers (Italian),
-    // the rest non-peers (Thai). Peer-median index = 3 → score 8.8.
+describe('similarity-biased pivots prefer peers in the middle band', () => {
+  it('first comparison is the most central peer', () => {
+    // 7 candidates; the ones at sorted indices 1, 3, 5 are peers (Italian),
+    // the rest non-peers (Thai). All three peers sit in the middle band and
+    // tie on relevance, so proximity to the midpoint picks index 3 → 8.8.
     const scores = [9.7, 9.4, 9.1, 8.8, 8.5, 8.2, 7.9];
     const ratings = scores.map((s, i) =>
       mk(`r${i}`, s, { cuisine: i % 2 === 1 ? 'Italian' : 'Thai' }),
@@ -163,23 +164,32 @@ describe('location leads the opening comparison', () => {
   });
 });
 
-describe('outliers stay reachable; relevance never prunes the window', () => {
+describe('middle-band guardrail: an edge peer never hijacks the pivot', () => {
   const scores = [9.5, 9.2, 8.9, 8.6, 8.3, 8.0, 7.5];
-  // Only the lowest-scored candidate (7.5) is a peer.
+  // Only the lowest-scored candidate (7.5) is a peer — and it sits at the
+  // window edge, outside the middle band.
   const ratings = scores.map((s, i) =>
     mk(`r${i}`, s, { cuisine: i === scores.length - 1 ? 'Italian' : 'Thai' }),
   );
   const target: Target = { cuisine: 'Italian', price: '', address: '' };
 
-  it('probes the low-scored peer first, then places just below it', () => {
-    let state = initH2H(ratings, 'loved', 'none', target);
+  it('keeps the first pivot inside the middle band despite the edge peer', () => {
+    const state = initH2H(ratings, 'loved', 'none', target);
     const first = pickComparison(state)!;
-    expect(first.score).toBeCloseTo(7.5, 6); // warm start reaches the edge peer
+    // Window [0,6], middle 50% band = [1,5] — the peer at index 6 is off-limits.
+    const firstIdx = state.candidates.findIndex((c) => c.restaurantId === first.restaurantId);
+    expect(firstIdx).toBeGreaterThanOrEqual(1);
+    expect(firstIdx).toBeLessThanOrEqual(5);
+  });
+
+  it('places just below the bottom when the new restaurant loses to everyone', () => {
+    let state = initH2H(ratings, 'loved', 'none', target);
     const trueScore = 7.4; // new restaurant loses to everyone
     while (!isComplete(state)) {
       const comp = pickComparison(state)!;
       state = applyChoice(state, trueScore > comp.score);
     }
+    expect(state.lo).toBeGreaterThan(state.hi); // window fully resolved, no truncation
     const final = computeFinalScore(state);
     expect(final).toBeGreaterThan(7.0);
     expect(final).toBeLessThan(7.5);
@@ -187,12 +197,44 @@ describe('outliers stay reachable; relevance never prunes the window', () => {
 
   it('still converges to the top when the true position is high', () => {
     let state = initH2H(ratings, 'loved', 'none', target);
-    const trueScore = 9.6; // beats everyone, despite the low-similarity seed
+    const trueScore = 9.6; // beats everyone
     while (!isComplete(state)) {
       const comp = pickComparison(state)!;
       state = applyChoice(state, trueScore > comp.score);
     }
+    expect(state.lo).toBeGreaterThan(state.hi);
     expect(computeFinalScore(state)).toBeGreaterThan(9.4);
+  });
+
+  it('every pivot stays inside the band even when similarity loads the edges', () => {
+    // 21 candidates; the most similar ones (Italian, same city) sit at the
+    // extremes of the score range, the middle is filler. No matter how the
+    // user answers, no pivot may leave the live window's middle 50%.
+    const n = 21;
+    const ratings2 = Array.from({ length: n }, (_, i) =>
+      mk(`r${String(i).padStart(2, '0')}`, 9.9 - i * 0.1, {
+        cuisine: i < 3 || i >= n - 3 ? 'Italian' : 'Thai',
+        address: i < 3 || i >= n - 3 ? 'New York, NY' : 'Los Angeles, CA',
+      }),
+    );
+    const target2: Target = { cuisine: 'Italian', price: '', address: 'New York, NY' };
+    for (const answerPattern of [true, false, null]) {
+      let state = initH2H(ratings2, 'loved', 'none', target2);
+      let flip = false;
+      while (!isComplete(state)) {
+        const comp = pickComparison(state)!;
+        const idx = state.candidates.findIndex((c) => c.restaurantId === comp.restaurantId);
+        const span = state.hi - state.lo + 1;
+        if (span > 4) {
+          // Widest allowed band is the warm start's middle 80%.
+          const margin = Math.floor((span * (1 - 0.8)) / 2);
+          expect(idx).toBeGreaterThanOrEqual(state.lo + margin);
+          expect(idx).toBeLessThanOrEqual(state.hi - margin);
+        }
+        const pickNew = answerPattern === null ? (flip = !flip) : answerPattern;
+        state = applyChoice(state, pickNew);
+      }
+    }
   });
 });
 
@@ -383,5 +425,181 @@ describe('cold start', () => {
     const final = computeFinalScore(state);
     expect(final).toBeGreaterThanOrEqual(7.0);
     expect(final).toBeLessThanOrEqual(10.0);
+  });
+
+  it('matches existing behavior on tiny lists (1–3 candidates)', () => {
+    for (const n of [1, 2, 3]) {
+      const ratings = Array.from({ length: n }, (_, i) => mk(`r${i}`, 9.0 - i));
+      const target: Target = { cuisine: 'Sushi', price: '$$', address: 'New York, NY' };
+      let biased = initH2H(ratings, 'loved', 'none', target);
+      let plain = initH2H(ratings, 'loved', 'none');
+      const trueScore = 8.5 - (n - 1) / 2; // lands mid-list
+      while (!isComplete(biased)) biased = applyChoice(biased, trueScore > pickComparison(biased)!.score);
+      while (!isComplete(plain)) plain = applyChoice(plain, trueScore > pickComparison(plain)!.score);
+      expect(computeFinalScore(biased)).toBeCloseTo(computeFinalScore(plain), 6);
+    }
+  });
+});
+
+/* ── Property test: global correctness ─────────────────────────────────── */
+
+/** Deterministic LCG so the "random" cases are reproducible. */
+function makeRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
+const CUISINE_POOL = ['Italian', 'Sushi', 'Japanese', 'Thai', 'Mexican', 'French', 'Pizza', ''];
+const ADDRESS_POOL = [
+  'New York, NY',
+  'Brooklyn, NY',
+  'Los Angeles, CA',
+  'Boston, MA',
+  'Paris, France',
+  '',
+];
+const PRICE_POOL = ['', '$', '$$', '$$$', '$$$$'];
+const TAG_POOL = ['Romantic', 'Cozy', 'Lively', 'Great cocktails'];
+
+function randomRatings(rnd: () => number, n: number): RestaurantRating[] {
+  return Array.from({ length: n }, (_, i) => {
+    const score = 7 + Math.floor(rnd() * 30) / 10; // 7.0–9.9, duplicates allowed
+    return mk(`r${String(i).padStart(3, '0')}`, score, {
+      cuisine: CUISINE_POOL[Math.floor(rnd() * CUISINE_POOL.length)],
+      address: ADDRESS_POOL[Math.floor(rnd() * ADDRESS_POOL.length)],
+      price: PRICE_POOL[Math.floor(rnd() * PRICE_POOL.length)],
+      tags: TAG_POOL.filter(() => rnd() < 0.3),
+    });
+  });
+}
+
+function runToCompletion(state: H2HState, trueScore: number): H2HState {
+  let s = state;
+  let guard = 0;
+  while (!isComplete(s)) {
+    const comp = pickComparison(s)!;
+    s = applyChoice(s, trueScore > comp.score);
+    if (++guard > 100) throw new Error('did not terminate');
+  }
+  return s;
+}
+
+describe('property: similarity bias never changes the final placement', () => {
+  it('matches plain binary search across 150 randomized lists', () => {
+    const rnd = makeRng(20260609);
+    for (let trial = 0; trial < 150; trial++) {
+      const n = Math.floor(rnd() * 81); // 0–80 candidates
+      const ratings = randomRatings(rnd, n);
+      // True score sits off the 0.1 grid so every answer is strict/consistent.
+      const trueScore = 7 + Math.floor(rnd() * 30) / 10 + 0.05;
+      const target: Target = {
+        cuisine: CUISINE_POOL[Math.floor(rnd() * CUISINE_POOL.length)],
+        address: ADDRESS_POOL[Math.floor(rnd() * ADDRESS_POOL.length)],
+        price: PRICE_POOL[Math.floor(rnd() * PRICE_POOL.length)],
+        tags: TAG_POOL.filter(() => rnd() < 0.3),
+      };
+
+      const biased = runToCompletion(initH2H(ratings, 'loved', 'none', target), trueScore);
+      const plain = runToCompletion(
+        initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET),
+        trueScore,
+      );
+
+      // The window must close fully (the budget guard prevents truncation)…
+      expect(biased.lo).toBeGreaterThan(biased.hi);
+      // …and the placement must be exactly what plain bisection produces.
+      expect(computeFinalScore(biased)).toBeCloseTo(computeFinalScore(plain), 6);
+    }
+  });
+
+  it('is deterministic: the same inputs and answers replay identically', () => {
+    const rnd = makeRng(42);
+    const ratings = randomRatings(rnd, 30);
+    const target: Target = { cuisine: 'Sushi', price: '$$$', address: 'New York, NY' };
+    const seq = (): string[] => {
+      let s = initH2H(ratings, 'loved', 'none', target);
+      const ids: string[] = [];
+      while (!isComplete(s)) {
+        const comp = pickComparison(s)!;
+        ids.push(comp.restaurantId);
+        s = applyChoice(s, 8.55 > comp.score);
+      }
+      return ids;
+    };
+    expect(seq()).toEqual(seq());
+  });
+});
+
+/* ── Comparison-count bounds ───────────────────────────────────────────── */
+
+describe('comparison-count bounds', () => {
+  it('always finishes within the default budget and fully resolves the window', () => {
+    const rnd = makeRng(7);
+    for (const n of [10, 25, 50, 120, 200]) {
+      const ratings = randomRatings(rnd, n);
+      const target: Target = { cuisine: 'Sushi', price: '$$$', address: 'New York, NY' };
+      for (let t = 0; t < 10; t++) {
+        const trueScore = 7 + Math.floor(rnd() * 30) / 10 + 0.05;
+        const end = runToCompletion(initH2H(ratings, 'loved', 'none', target), trueScore);
+        expect(comparisonsMade(end)).toBeLessThanOrEqual(8); // DEFAULT_BUDGET
+        expect(end.lo).toBeGreaterThan(end.hi); // exact placement, no truncation
+      }
+    }
+  });
+
+  it('stays near log2(n) on flat-similarity inputs', () => {
+    for (const n of [15, 31, 63]) {
+      const ratings = Array.from({ length: n }, (_, i) => mk(`r${i}`, 9.9 - i * 0.01));
+      const end = runToCompletion(
+        initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET),
+        7.005,
+      );
+      expect(comparisonsMade(end)).toBeLessThanOrEqual(Math.ceil(Math.log2(n + 1)));
+    }
+  });
+});
+
+/* ── Demo: rating a NYC sushi spot ─────────────────────────────────────── */
+
+describe('demo: NYC sushi restaurant gets similar NYC opponents first', () => {
+  it('early opponents are dominated by similar NYC spots', () => {
+    const ratings = [
+      mk('nyc-sushi-1', 9.6, { cuisine: 'Sushi', price: '$$$', address: 'New York, NY', tags: ['Date night'] }),
+      mk('miami-steak', 9.4, { cuisine: 'Steakhouse', price: '$$$$', address: 'Miami, FL' }),
+      mk('la-tacos', 9.1, { cuisine: 'Mexican', price: '$', address: 'Los Angeles, CA' }),
+      mk('nyc-ramen', 8.9, { cuisine: 'Ramen', price: '$$', address: 'New York, NY' }),
+      mk('chicago-pizza', 8.6, { cuisine: 'Pizza', price: '$$', address: 'Chicago, IL' }),
+      mk('nyc-sushi-2', 8.4, { cuisine: 'Sushi', price: '$$$', address: 'New York, NY' }),
+      mk('austin-bbq', 8.1, { cuisine: 'BBQ', price: '$$', address: 'Austin, TX' }),
+      mk('nyc-italian', 7.8, { cuisine: 'Italian', price: '$$$', address: 'New York, NY' }),
+      mk('sf-thai', 7.5, { cuisine: 'Thai', price: '$$', address: 'San Francisco, CA' }),
+      mk('nyc-izakaya', 7.2, { cuisine: 'Japanese', price: '$$$', address: 'New York, NY' }),
+    ];
+    const target: Target = {
+      cuisine: 'Sushi',
+      price: '$$$',
+      address: 'New York, NY',
+      tags: ['Date night'],
+    };
+    let state = initH2H(ratings, 'loved', 'none', target);
+    const trueScore = 8.75;
+    const opponents: string[] = [];
+    while (!isComplete(state)) {
+      const comp = pickComparison(state)!;
+      opponents.push(comp.restaurantId);
+      state = applyChoice(state, trueScore > comp.score);
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `[demo] opponent order: ${opponents.join(' → ')} | final score: ${computeFinalScore(state)}`,
+    );
+    // The first two comparisons are both highly similar NYC restaurants.
+    expect(opponents.slice(0, 2).every((id) => id.startsWith('nyc'))).toBe(true);
+    // And the placement is still globally exact.
+    expect(state.lo).toBeGreaterThan(state.hi);
+    expect(computeFinalScore(state)).toBeCloseTo(8.8, 6); // between 8.6 and 8.9
   });
 });

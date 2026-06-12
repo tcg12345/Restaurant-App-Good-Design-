@@ -17,6 +17,7 @@ import { useToast } from '../contexts/ToastContext';
 import {
   useLists,
   type HomeMeal,
+  type LinkedRecipeRef,
   type RecipeIngredient,
   type RecipeIngredientGroup,
   type RecipeNote,
@@ -66,6 +67,10 @@ export interface AdvancedRecipeState {
   equipment: string[];
   tags: string[];
   notes: RecipeNote[];
+  /** Other recipes attached as components (sauce / dough / side). Each
+   *  ref carries placement flags deciding whether it renders with the
+   *  ingredients card, the method, or both on the recipe page. */
+  linkedRecipes: LinkedRecipeRef[];
   /** Author's personal score (0–10, 0.1 step). Surfaced on the
    *  author's own profile but never on the standalone recipe page —
    *  so it's "private from the public recipe view" while still
@@ -163,13 +168,16 @@ function methodToPayload(groups: RecipeStepGroup[]): {
 }
 
 /** Backfill `stepGroups` on a persisted draft that predates sections
- *  (it only had a flat `steps` array). Keeps old localStorage drafts
- *  from crashing StepMethod when hydrated. */
+ *  (it only had a flat `steps` array), and `linkedRecipes` on drafts
+ *  saved before recipe linking existed. Keeps old localStorage drafts
+ *  from crashing the steps when hydrated. */
 function coerceState(s: AdvancedRecipeState): AdvancedRecipeState {
-  if (Array.isArray(s.stepGroups) && s.stepGroups.length > 0) return s;
-  const legacy = (s as unknown as { steps?: RecipeStepDetail[] }).steps;
+  let next = s;
+  if (!Array.isArray(next.linkedRecipes)) next = { ...next, linkedRecipes: [] };
+  if (Array.isArray(next.stepGroups) && next.stepGroups.length > 0) return next;
+  const legacy = (next as unknown as { steps?: RecipeStepDetail[] }).steps;
   const steps = Array.isArray(legacy) && legacy.length > 0 ? legacy : [{ title: '', body: '' }];
-  return { ...s, stepGroups: [{ name: '', steps }] };
+  return { ...next, stepGroups: [{ name: '', steps }] };
 }
 
 /** Initial state for a brand-new draft. */
@@ -192,6 +200,7 @@ function emptyState(): AdvancedRecipeState {
     equipment: [],
     tags: [],
     notes: [],
+    linkedRecipes: [],
     score: 0,
     isPublic: false,
     createdWithAi: false,
@@ -239,6 +248,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     equipment: meal.equipment || [],
     tags: meal.tags || [],
     notes: meal.notes || [],
+    linkedRecipes: meal.linkedRecipes || [],
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
     createdWithAi: !!meal.createdWithAi,
@@ -288,6 +298,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     stepGroups: method.stepGroups,
     equipment: state.equipment.filter(Boolean),
     notes: state.notes.filter((n) => n.text.trim()),
+    linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
     builderVersion: 'advanced',
     createdWithAi: state.createdWithAi || undefined,
     // Preserve source attribution if somehow present (defensive — saved
@@ -321,6 +332,9 @@ export type Action =
   | { type: 'ADD_NOTE'; noteType: RecipeNote['type'] }
   | { type: 'UPDATE_NOTE'; index: number; note: RecipeNote }
   | { type: 'REMOVE_NOTE'; index: number }
+  | { type: 'ADD_LINKED_RECIPE'; recipe: LinkedRecipeRef }
+  | { type: 'REMOVE_LINKED_RECIPE'; id: string }
+  | { type: 'TOGGLE_LINKED_PLACEMENT'; id: string; field: 'inIngredients' | 'inMethod' }
   | { type: 'HYDRATE'; state: AdvancedRecipeState }
   | { type: 'RESET' };
 
@@ -458,6 +472,24 @@ function reducer(state: AdvancedRecipeState, action: Action): AdvancedRecipeStat
       return { ...state, notes: state.notes.map((n, i) => (i === action.index ? action.note : n)) };
     case 'REMOVE_NOTE':
       return { ...state, notes: state.notes.filter((_, i) => i !== action.index) };
+    case 'ADD_LINKED_RECIPE': {
+      if (state.linkedRecipes.some((r) => r.id === action.recipe.id)) return state;
+      return { ...state, linkedRecipes: [...state.linkedRecipes, action.recipe] };
+    }
+    case 'REMOVE_LINKED_RECIPE':
+      return { ...state, linkedRecipes: state.linkedRecipes.filter((r) => r.id !== action.id) };
+    case 'TOGGLE_LINKED_PLACEMENT':
+      return {
+        ...state,
+        linkedRecipes: state.linkedRecipes.map((r) => {
+          if (r.id !== action.id) return r;
+          const next = { ...r, [action.field]: !r[action.field] };
+          // A link must surface somewhere — refuse to turn off the
+          // last active placement (remove the link instead).
+          if (!next.inIngredients && !next.inMethod) return r;
+          return next;
+        }),
+      };
     case 'HYDRATE':
       return coerceState(action.state);
     case 'RESET':
@@ -756,7 +788,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     if (controller.signal.aborted) return;
     setAiEditBusy(false);
     if (res.ok && res.meal) {
-      dispatch({ type: 'HYDRATE', state: fromHomeMeal(res.meal) });
+      // The AI round-trip may drop fields it doesn't know about —
+      // re-attach the linked recipes so an AI edit can't sever them.
+      dispatch({ type: 'HYDRATE', state: { ...fromHomeMeal(res.meal), linkedRecipes: state.linkedRecipes } });
       hasUserInputRef.current = true;
       setAiEditText('');
       setAiEditOpen(false);
@@ -829,6 +863,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       notes: cleanNotes,
       stepDetails: method.stepDetails,
       stepGroups: method.stepGroups,
+      linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
       builderVersion: 'advanced',
       createdWithAi: state.createdWithAi || undefined,
     };
@@ -866,8 +901,8 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       case 0: return <StepBasics state={state} dispatch={dispatch} />;
       case 1: return <StepDetails state={state} dispatch={dispatch} />;
       case 2: return <StepTiming state={state} dispatch={dispatch} />;
-      case 3: return <StepIngredients state={state} dispatch={dispatch} />;
-      case 4: return <StepMethod state={state} dispatch={dispatch} />;
+      case 3: return <StepIngredients state={state} dispatch={dispatch} existingId={existing?.id} />;
+      case 4: return <StepMethod state={state} dispatch={dispatch} existingId={existing?.id} />;
       case 5: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
       case 6: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
       default: return null;

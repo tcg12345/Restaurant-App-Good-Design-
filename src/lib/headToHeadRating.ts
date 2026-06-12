@@ -42,14 +42,30 @@ export type CandidateMetaResolver = (
 
 /* ── Similarity-aware selection tunables ───────────────────────────────── */
 
-/** Max real comparisons (choices + ties) before we finalize by interpolation. */
-export const DEFAULT_BUDGET = 6;
+/** Max real comparisons (choices + ties) before we finalize by interpolation.
+ *  Plain bisection resolves up to 2^8−1 = 255 candidates in 8 probes, and the
+ *  budget guard in `pickComparisonIndex` only allows similarity-biased (off-
+ *  midpoint) pivots while the remaining budget still covers the worst case —
+ *  so for any realistic pool the search always closes the window completely
+ *  and the final position is exactly what plain binary search would produce. */
+export const DEFAULT_BUDGET = 8;
 /** Effectively no cap — used by the tie-break flow to preserve old behavior. */
 export const UNLIMITED_BUDGET = Number.POSITIVE_INFINITY;
-/** Selection weight on information-gain ramps from MIN (relevance-led, early)
- *  to MAX (convergence-led, late) as the search progresses. */
-export const W_INFO_MIN = 0.35;
-export const W_INFO_MAX = 0.9;
+/** Pivots may only come from this centered fraction of the live window, so
+ *  every answer is guaranteed to cut the window by at least ~25%. Never pick
+ *  outside it (no matter how similar a candidate is) — a degenerate answer
+ *  sequence could otherwise blow the comparison count past the budget. */
+export const MIDDLE_BAND_FRACTION = 0.5;
+/** Warm start: for the first comparisons, when the user has a real peer
+ *  cohort, widen the pivot band so an especially relevant opponent slightly
+ *  off-center is reachable. Still bounded — worst case ~10% cut per answer
+ *  for at most WARM_START_COMPARISONS rounds, and only when the budget guard
+ *  says we can afford it. */
+export const WARM_START_BAND_FRACTION = 0.8;
+export const WARM_START_COMPARISONS = 2;
+export const WARM_START_MIN_PEERS = 5;
+/** Windows at or below this size just bisect — biasing buys nothing there. */
+export const SMALL_WINDOW_SIZE = 4;
 /** Rounds at which the schedule's round-progress signal saturates. */
 export const SCHEDULE_ROUNDS_FULL = 4;
 /** How hard a budget-capped final score is pulled toward the peer prior. */
@@ -147,6 +163,12 @@ export function isHotelRating(cuisine: string | undefined): boolean {
   return c === 'hotel breakfast' || c === 'hotel';
 }
 
+/** Deterministic order for equal scores, so the same inputs always produce
+ *  the same candidate list (and therefore the same comparison sequence). */
+function byId(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function ratingToCandidate(r: RestaurantRating): H2HCandidate {
   return {
     restaurantId: r.restaurantId,
@@ -226,7 +248,7 @@ export function initH2H(
     .filter((r) => r.restaurantId !== excludeId)
     .filter((r) => isHotelRating(r.cuisine) === wantHotel)
     .filter((r) => r.score >= min && r.score <= max)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score || byId(a.restaurantId, b.restaurantId))
     .map(ratingToCandidate)
     .map((c) => enrichCandidate(c, resolveMeta));
   const { similarity, locationScores } = computeRelevance(target ?? null, candidates);
@@ -270,7 +292,7 @@ export function initH2HTieBreak(
   );
   const tiedRaw = others
     .filter((r) => round1(r.score) === targetRounded)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score || byId(a.restaurantId, b.restaurantId));
   if (tiedRaw.length === 0) return null;
   const candidates = tiedRaw.map(ratingToCandidate);
 
@@ -322,85 +344,120 @@ function activeIndices(state: H2HState): number[] {
   return out;
 }
 
-/** Median index of the peer cohort across the whole pool — used once, at the
- *  first comparison, to open near where similar restaurants already sit in the
- *  tier's sorted list. Returns null when there are no peers. */
-function peerSeedIndex(state: H2HState): number | null {
-  const peers: number[] = [];
-  for (let i = state.lo; i <= state.hi; i++) {
-    if ((state.similarity[i] ?? NEUTRAL_SIMILARITY) >= PEER_SIMILARITY_THRESHOLD) peers.push(i);
+/** Count of peers (similarity ≥ threshold) across the whole pool — gates the
+ *  warm start: with a real cohort of similar restaurants, the first couple of
+ *  comparisons may search a wider band to reach an especially relevant one. */
+function peerCount(state: H2HState): number {
+  let n = 0;
+  for (const s of state.similarity) {
+    if (s >= PEER_SIMILARITY_THRESHOLD) n++;
   }
-  if (peers.length === 0) return null;
-  return peers[Math.floor((peers.length - 1) / 2)]; // lower median (deterministic)
+  return n;
 }
 
 /** How far the search has progressed, in [0,1]: the max of round-count and
- *  window-shrinkage signals. Drives both the info/relevance balance and the
- *  early location bias. 0 = just started (relevance- and location-led), 1 =
- *  converging (information-gain-led). */
+ *  window-shrinkage signals. Drives the early location bias. 0 = just started
+ *  (location-led matchups), 1 = converging (overall similarity only). */
 function selectionProgress(state: H2HState): number {
-  const roundProgress = clamp(state.history.length / SCHEDULE_ROUNDS_FULL, 0, 1);
+  const roundProgress = clamp(comparisonsMade(state) / SCHEDULE_ROUNDS_FULL, 0, 1);
   const countInWindow = activeIndices(state).length;
   const denom = Math.max(1, state.initialPoolSize - 1);
   const windowProgress = 1 - clamp((countInWindow - 1) / denom, 0, 1);
   return Math.max(roundProgress, windowProgress);
 }
 
-/** Weight on information-gain vs. relevance. Ramps toward MAX as the search
- *  progresses, so early asks are relevant and late asks converge. */
-function infoWeight(progress: number): number {
-  return W_INFO_MIN + (W_INFO_MAX - W_INFO_MIN) * progress;
-}
-
 /**
- * Choose the next index to compare against. Among in-window, non-excluded
- * candidates we maximize `w_info·informationGain + w_relevance·relevance`,
- * where `relevance` blends overall similarity with a location-only term that
- * dominates early (so opening matchups favor the same area) and fades as the
- * search converges. Information gain peaks at the (integer) window midpoint, so
- * selection never prunes the window — it only picks *which* in-window item to
- * ask about, keeping the binary-search correctness invariant intact (every
- * answer still moves exactly one boundary). With neutral/uniform similarity
- * this reduces to the classic midpoint walk. Returns null when nothing remains.
+ * Choose the next index to compare against — binary search structure with a
+ * similarity-biased pivot.
+ *
+ * Instead of always probing the exact midpoint, we consider the candidates in
+ * the centered middle band of the live window (middle 50%; middle 80% for the
+ * first couple of comparisons when a peer cohort exists) and pick the most
+ * *relevant* one — overall similarity blended with a location term that
+ * dominates early and fades as the search converges. Ties break by proximity
+ * to the true midpoint, then by lower index, so selection is deterministic
+ * and flat similarity reduces exactly to the classic midpoint walk.
+ *
+ * Two hard guardrails keep the binary search honest:
+ *  - The pivot NEVER leaves the middle band, no matter how similar an edge
+ *    candidate is — every answer cuts the window by at least the band margin.
+ *  - A budget guard only allows off-midpoint pivots while the remaining
+ *    budget still covers the worst-case window they could leave behind;
+ *    otherwise we fall back to the exact midpoint. Consequently any pool of
+ *    ≤ 2^budget−1 candidates always resolves fully within budget, and the
+ *    final position is identical to plain binary search.
+ *
+ * Selection only picks *which* in-window item to ask about — it never prunes
+ * the window itself, so every answer still moves exactly one boundary and
+ * placement correctness is preserved by construction. Returns null when
+ * nothing valid remains.
  */
 function pickComparisonIndex(state: H2HState): number | null {
   if (state.lo > state.hi) return null;
   const idxs = activeIndices(state);
   if (idxs.length === 0) return null;
 
-  // Center information gain on the geometric midpoint, except on the very
-  // first comparison, where we seed near the peer cohort's central position.
-  const seed = state.history.length === 0 ? peerSeedIndex(state) : null;
-  const center = seed ?? Math.floor((state.lo + state.hi) / 2);
-  const half = Math.max(1, (state.hi - state.lo) / 2);
+  const mid = Math.floor((state.lo + state.hi) / 2);
+  const span = state.hi - state.lo + 1;
+  const made = comparisonsMade(state);
+  const budgetLeft = state.budget - made;
 
-  const progress = selectionProgress(state);
-  const wInfo = infoWeight(progress);
-  const wRel = 1 - wInfo;
-  // Early on, most of the relevance signal is pure location; this decays to 0.
-  const locBias = LOCATION_EARLY_BIAS * (1 - progress);
-
-  let best = idxs[0];
-  let bestScore = -Infinity;
-  let bestInfo = -Infinity;
-  for (const i of idxs) {
-    const info = clamp(1 - Math.abs(i - center) / half, 0, 1);
-    const sim = state.similarity[i] ?? NEUTRAL_SIMILARITY;
-    const loc = state.locationScores[i] ?? sim;
-    const rel = locBias * loc + (1 - locBias) * sim;
-    const s = wInfo * info + wRel * rel;
-    // Deterministic preference: higher blended score, then higher info gain
-    // (closer to center), then lower index.
-    const better =
-      s > bestScore + EPS ||
-      (Math.abs(s - bestScore) <= EPS && info > bestInfo + EPS);
-    if (better) {
-      best = i;
-      bestScore = s;
-      bestInfo = info;
+  if (span > SMALL_WINDOW_SIZE) {
+    const warm = made < WARM_START_COMPARISONS && peerCount(state) >= WARM_START_MIN_PEERS;
+    // Try the widest affordable band: warm-start band first (when active),
+    // then the standard middle band.
+    const fractions = warm
+      ? [WARM_START_BAND_FRACTION, MIDDLE_BAND_FRACTION]
+      : [MIDDLE_BAND_FRACTION];
+    for (const bandFraction of fractions) {
+      const margin = Math.floor((span * (1 - bandFraction)) / 2);
+      const bandLo = state.lo + margin;
+      const bandHi = state.hi - margin;
+      // Budget guard: the worst case after an off-midpoint pivot is the larger
+      // side of the most off-center pick in the band. Only bias while the
+      // remaining budget can still bisect that window to completion.
+      const worstRemaining = Math.max(bandHi - state.lo, state.hi - bandLo);
+      const worstStepsAfter = Math.ceil(Math.log2(worstRemaining + 1));
+      if (budgetLeft - 1 < worstStepsAfter) continue; // too wide — try narrower
+      const progress = selectionProgress(state);
+      // Early on, most of the relevance signal is pure location; decays to 0.
+      const locBias = LOCATION_EARLY_BIAS * (1 - progress);
+      let best = -1;
+      let bestRel = -Infinity;
+      let bestDist = Infinity;
+      for (const i of idxs) {
+        if (i < bandLo || i > bandHi) continue;
+        const sim = state.similarity[i] ?? NEUTRAL_SIMILARITY;
+        const loc = state.locationScores[i] ?? sim;
+        const rel = locBias * loc + (1 - locBias) * sim;
+        const dist = Math.abs(i - mid);
+        // Deterministic: higher relevance, then closer to the midpoint, then
+        // lower index (idxs are ascending, so first-seen wins remaining ties).
+        const better =
+          rel > bestRel + EPS || (Math.abs(rel - bestRel) <= EPS && dist < bestDist);
+        if (better) {
+          best = i;
+          bestRel = rel;
+          bestDist = dist;
+        }
+      }
+      if (best !== -1) return best;
+      // Whole band excluded by ties/skips (a narrower band would be too) —
+      // fall through to the midpoint walk.
+      break;
     }
   }
-  return best;
+
+  // Plain bisection: walk outward from the midpoint, skipping excluded.
+  const excludedSet = new Set(state.excluded);
+  for (let offset = 0; offset <= state.hi - state.lo; offset++) {
+    const probes = offset === 0 ? [mid] : [mid - offset, mid + offset];
+    for (const idx of probes) {
+      if (idx < state.lo || idx > state.hi) continue;
+      if (!excludedSet.has(idx)) return idx;
+    }
+  }
+  return null;
 }
 
 export function pickComparison(state: H2HState): H2HCandidate | null {

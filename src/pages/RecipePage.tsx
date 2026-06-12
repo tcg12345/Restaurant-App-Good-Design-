@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useLists, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, type HomeMeal, type LinkedRecipeRef } from '../contexts/ListsContext';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
   getPublicHomeMealById,
@@ -153,6 +153,48 @@ function formatMinutes(mins: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
+// Linked component recipes (sauce / dough / side) attached by the
+// Advanced builder. Rendered inside the ingredients card and/or the
+// directions column per each ref's placement flags; tapping navigates
+// to the linked recipe's own page. Shared between the desktop (rd-*)
+// and phone (rdm-*) layouts — the classes are layout-agnostic.
+const LinkedRecipeCards: React.FC<{ refs: LinkedRecipeRef[] }> = ({ refs }) => {
+  if (refs.length === 0) return null;
+  return (
+    <div className="rd-linked-block">
+      <h3 className="rd-linked-heading">Linked recipes</h3>
+      <div className="rd-linked-list">
+        {refs.map((r) => {
+          const time = r.totalTimeMin ? formatMinutes(r.totalTimeMin) : '';
+          return (
+            <Link key={r.id} to={`/recipe/${r.ownerId}/${r.id}`} className="rd-linked-card">
+              {r.coverPhoto && (
+                <span className="rd-linked-thumb">
+                  <img
+                    src={r.coverPhoto}
+                    alt=""
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none'; }}
+                  />
+                </span>
+              )}
+              <span className="rd-linked-main">
+                <span className="rd-linked-title">{r.title || 'Untitled recipe'}</span>
+                <span className="rd-linked-sub">
+                  {r.authorName ? `by ${r.authorName}` : 'Recipe'}
+                  {time ? ` · ${time}` : ''}
+                </span>
+              </span>
+              <ChevronRight />
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // Same 90-min threshold as formatMinutes, but rendered as the stat-strip
 // value — big numbers with small `.unit` labels (e.g. "16 hr 48 min").
 // Returns the "—" placeholder when there's no time.
@@ -222,6 +264,10 @@ type UnifiedRecipe = {
   stepGroups?: Array<{ name: string; steps: Array<{ title?: string; body: string; durationMin?: number; tip?: string }> }>;
   /** Labeled callouts (Chef's Tip / Make Ahead / etc.). */
   notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+  /** Component recipes attached by the Advanced builder. Rendered as
+   *  tappable cards inside the ingredients card and/or the directions
+   *  column per each ref's placement flags. */
+  linkedRecipes?: LinkedRecipeRef[];
   /** When this recipe is a copy saved from another user, the original
    *  author's display name and username. Used as a fallback byline
    *  while their live profile is still loading (or if it can't be
@@ -311,6 +357,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     stepDetails?: Array<{ title?: string; body: string; durationMin?: number; tip?: string }>;
     stepGroups?: Array<{ name: string; steps: Array<{ title?: string; body: string; durationMin?: number; tip?: string }> }>;
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
+    linkedRecipes?: LinkedRecipeRef[];
     createdWithAi?: boolean;
   };
   // If this meal was saved from another user, the original author owns
@@ -352,6 +399,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     stepDetails: adv.stepDetails,
     stepGroups: adv.stepGroups,
     notes: adv.notes,
+    linkedRecipes: adv.linkedRecipes,
     createdWithAi: adv.createdWithAi,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
@@ -1210,6 +1258,7 @@ export const RecipePage: React.FC = () => {
               </div>
             </>
           )}
+          <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inIngredients)} />
               </>
             );
           })()}
@@ -1242,6 +1291,8 @@ export const RecipePage: React.FC = () => {
               </ul>
             </div>
           )}
+
+          <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inMethod)} />
 
           {(() => {
             // One step row, keyed + numbered by its GLOBAL index so the
@@ -2328,6 +2379,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             </div>
           </>
         )}
+        <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inIngredients)} />
       </section>
 
       {/* Directions */}
@@ -2348,6 +2400,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             </ul>
           </div>
         )}
+        <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inMethod)} />
         {(() => {
           // One phone step row, keyed/numbered by GLOBAL index.
           const renderRow = (

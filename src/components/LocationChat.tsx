@@ -52,7 +52,7 @@ import {
 import { RecipeDraftCard } from './chat/RecipeDraftCard';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
-import { refineRecipe } from '../lib/build-recipe-client';
+import { refineRecipe, editRecipeIngredient, type IngredientEdit, type IngredientEditResult } from '../lib/build-recipe-client';
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
@@ -1214,6 +1214,25 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       return { ok: true };
     }
     return { ok: false, error: res.error };
+  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+
+  // Remove or substitute one ingredient in the open draft. Patches both the
+  // draft and the rawInput (like a refine) so the conversation round-trips
+  // the latest version. The AI may decline — the sheet shows its reason and
+  // the draft stays untouched.
+  const handleIngredientEditDraft = useCallback(async (edit: IngredientEdit): Promise<IngredientEditResult> => {
+    if (!openDraftToolUseId) return { ok: false, error: 'No recipe to update.' };
+    const current = openDraftBlock?.draft;
+    if (!current) return { ok: false, error: 'No recipe to update.' };
+    const res = await editRecipeIngredient(current, edit);
+    if (res.ok && res.meal) {
+      patchDraftBlock(openDraftToolUseId, (b) => ({
+        ...b,
+        draft: res.meal!,
+        rawInput: res.recipe ?? b.rawInput,
+      }));
+    }
+    return res;
   }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
 
   // Generate an AI hero photo of the finished dish for the open draft. The
@@ -2611,6 +2630,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         onCoverPhotoChange={handleCoverPhotoChange}
         onRefine={handleRefineDraft}
         onGenerateImage={handleGenerateDraftImage}
+        onIngredientEdit={handleIngredientEditDraft}
       />
     </>
   );

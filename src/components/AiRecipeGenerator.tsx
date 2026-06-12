@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Sparkles, ArrowUp, ArrowRight, ChefHat, AlertCircle, X, PenLine, Gauge, Eye, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { generateRecipe } from '../lib/build-recipe-client';
+import { generateRecipe, type RecipeConstraints } from '../lib/build-recipe-client';
 import type { HomeMeal } from '../contexts/ListsContext';
 
 interface AiRecipeGeneratorProps {
@@ -124,39 +124,53 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
 
   const hasGuidelines = !!(difficulty || timeBudget || servings || course || dietary.length);
 
-  // Fold the free-text prompt + any guideline choices into one instruction the
-  // recipe generator can honor.
-  const composePrompt = (): string => {
+  // Guidelines travel to the API as STRUCTURED constraints (difficulty,
+  // time budget, servings, course, dietary) rather than being folded into
+  // the prompt prose — the server renders them as an explicit hard-
+  // requirement checklist the model must satisfy and re-check, which is
+  // far more reliable than hoping it notices "ready in under 1 hr" inside
+  // a sentence.
+  const composeConstraints = (): RecipeConstraints | undefined => {
+    const c: RecipeConstraints = {};
+    if (timeBudget) c.totalTimeMax = Number(timeBudget);
+    if (servings) c.servings = servings;
+    if (course) c.course = course;
+    if (dietary.length) c.dietary = dietary;
+    return Object.keys(c).length > 0 ? c : undefined;
+  };
+
+  // Human-readable description of the full request — used as the prompt
+  // when the user typed nothing, and as the chat-history label.
+  const describeRequest = (): string => {
     const base = prompt.trim();
-    const reqs: string[] = [];
-    if (course) reqs.push(`a ${course.toLowerCase()} dish`);
-    if (dietary.length) reqs.push(dietary.map((d) => d.toLowerCase()).join(', '));
-    if (servings) reqs.push(`serves ${servings}`);
-    if (timeBudget) reqs.push(`ready in ${(TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? `${timeBudget} min`).toLowerCase()}`);
-    // Difficulty is passed to the server as a structured field (see
-    // handleGenerate) rather than blended into the prose, so the model
-    // calibrates depth to it reliably.
-    if (!base && reqs.length === 0 && !difficulty) return '';
-    const head = base || 'A recipe';
-    return reqs.length ? `${head}. Requirements: ${reqs.join('; ')}.` : head;
+    const parts: string[] = [];
+    if (course) parts.push(`a ${course.toLowerCase()} dish`);
+    if (dietary.length) parts.push(dietary.map((d) => d.toLowerCase()).join(', '));
+    if (servings) parts.push(`serves ${servings}`);
+    if (timeBudget) parts.push(`ready in ${(TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? `${timeBudget} min`).toLowerCase()}`);
+    if (difficulty) parts.push(`${difficulty.toLowerCase()} difficulty`);
+    if (base) return parts.length ? `${base} (${parts.join('; ')})` : base;
+    return parts.length ? `A recipe: ${parts.join('; ')}` : '';
   };
 
   const handleGenerate = async () => {
-    const finalPrompt = composePrompt();
-    if (!finalPrompt || loading) return;
+    const base = prompt.trim();
+    if ((!base && !hasGuidelines) || loading) return;
+    // With no free text, ask for the model's best pick within the
+    // guidelines (which travel separately as hard requirements).
+    const finalPrompt = base || 'Pick a great dish that fits the requirements and write the recipe for it.';
     setError(null);
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const result = await generateRecipe(
-      finalPrompt,
-      controller.signal,
-      (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
-    );
+    const result = await generateRecipe(finalPrompt, controller.signal, {
+      difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
+      constraints: composeConstraints(),
+    });
     abortRef.current = null;
     setLoading(false);
     if (result.ok && result.meal) {
-      onGenerated(result.meal, { prompt: finalPrompt, rawInput: result.recipe });
+      onGenerated(result.meal, { prompt: describeRequest() || finalPrompt, rawInput: result.recipe });
     } else {
       setError(result.error || 'Something went wrong. Try again.');
     }

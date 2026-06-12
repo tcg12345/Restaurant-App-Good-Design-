@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../contexts/SettingsContext';
-import type { HomeMeal } from '../../contexts/ListsContext';
+import type { HomeMeal, RecipeIngredient } from '../../contexts/ListsContext';
+import type { IngredientEdit } from '../../lib/build-recipe-client';
 
 interface RecipeDraftSheetProps {
   open: boolean;
@@ -33,6 +34,18 @@ interface RecipeDraftSheetProps {
    *  compresses it and applies it via `onCoverPhotoChange` (same path as an
    *  upload). Omit to hide the AI generation option. */
   onGenerateImage?: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
+  /** Remove or substitute ONE ingredient. When provided (and the draft is
+   *  unpublished), every ingredient row becomes tappable and opens a small
+   *  remove/swap panel — separate from the free-text "Refine with AI"
+   *  composer. The AI may DECLINE the change when it would compromise the
+   *  dish; resolve `{ ok: false, declined: true, declineReason }` in that
+   *  case and the sheet explains it without touching the draft. */
+  onIngredientEdit?: (edit: IngredientEdit) => Promise<{
+    ok: boolean;
+    declined?: boolean;
+    declineReason?: string;
+    error?: string;
+  }>;
 }
 
 /** Downsize an image (given as a data-URL / object-URL `src`) to fit within
@@ -90,6 +103,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   publishLabel = 'Publish to my cookbook',
   onRefine,
   onGenerateImage,
+  onIngredientEdit,
 }) => {
   const { phoneMode } = useSettings();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -113,6 +127,17 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   const [refineError, setRefineError] = useState<string | null>(null);
   const refineInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Ingredient remove/swap: tapping an ingredient row selects it and opens
+  // a compact action card under the list. Remove fires immediately; Swap
+  // expands an inline replacement input. The AI may decline the change —
+  // `ingNotice` carries its explanation (or a success/error message).
+  const [ingTarget, setIngTarget] = useState<string | null>(null);
+  const [ingSwapOpen, setIngSwapOpen] = useState(false);
+  const [ingReplacement, setIngReplacement] = useState('');
+  const [ingBusy, setIngBusy] = useState(false);
+  const [ingNotice, setIngNotice] = useState<{ kind: 'success' | 'declined' | 'error'; text: string } | null>(null);
+  const ingSwapInputRef = useRef<HTMLInputElement>(null);
+
   // Reset transient state any time the sheet opens with a new draft.
   React.useEffect(() => {
     if (open) {
@@ -124,8 +149,21 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
       setRefineText('');
       setRefining(false);
       setRefineError(null);
+      setIngTarget(null);
+      setIngSwapOpen(false);
+      setIngReplacement('');
+      setIngBusy(false);
+      setIngNotice(null);
     }
   }, [open, draft?.id]);
+
+  // Focus the swap input the moment it expands.
+  React.useEffect(() => {
+    if (ingSwapOpen) {
+      const t = setTimeout(() => ingSwapInputRef.current?.focus(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [ingSwapOpen]);
 
   // Focus the composer when it expands.
   React.useEffect(() => {
@@ -147,6 +185,47 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
       setRefineOpen(false);
     } else {
       setRefineError(res.error || "Couldn't apply that. Try rephrasing.");
+    }
+  };
+
+  // Select / deselect an ingredient row for the remove/swap card.
+  const toggleIngredientTarget = (name: string) => {
+    if (ingBusy) return;
+    setIngNotice(null);
+    setIngSwapOpen(false);
+    setIngReplacement('');
+    setIngTarget((cur) => (cur === name ? null : name));
+  };
+
+  const submitIngredientEdit = async (action: 'remove' | 'substitute') => {
+    if (!ingTarget || ingBusy || !onIngredientEdit) return;
+    const target = ingTarget;
+    const replacement = action === 'substitute' ? ingReplacement.trim() : '';
+    setIngBusy(true);
+    setIngNotice(null);
+    const res = await onIngredientEdit({
+      action,
+      ingredient: target,
+      replacement: replacement || undefined,
+    });
+    setIngBusy(false);
+    if (res.ok) {
+      setIngTarget(null);
+      setIngSwapOpen(false);
+      setIngReplacement('');
+      setIngNotice({
+        kind: 'success',
+        text: action === 'remove'
+          ? `Removed ${target} and rebalanced the recipe.`
+          : `Swapped ${target}${replacement ? ` for ${replacement}` : ''} and updated the recipe.`,
+      });
+    } else if (res.declined) {
+      setIngNotice({
+        kind: 'declined',
+        text: res.declineReason || 'That change would compromise the recipe, so it was left unchanged.',
+      });
+    } else {
+      setIngNotice({ kind: 'error', text: res.error || 'Something went wrong. Try again.' });
     }
   };
 
@@ -469,38 +548,199 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
               )}
 
               <Section title="Ingredients">
-                {draft.ingredientGroups && draft.ingredientGroups.length > 0 ? (
-                  draft.ingredientGroups.map((g) => (
-                    <div key={g.name} className="mb-4 last:mb-0">
-                      {(draft.ingredientGroups!.length > 1 || g.name !== 'Ingredients') && (
-                        <h4 className="text-[12px] font-semibold uppercase tracking-wider text-on-surface/50 mb-2">
-                          {g.name}
-                        </h4>
-                      )}
-                      <ul className="space-y-1.5">
-                        {g.ingredients.map((i, idx) => (
-                          <li key={idx} className="text-[14px] text-on-surface/85 leading-relaxed">
-                            <span className="font-medium text-on-surface">
-                              {[i.amount, i.unit].filter(Boolean).join(' ')}
-                            </span>{' '}
-                            {i.name}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))
-                ) : (
-                  <ul className="space-y-1.5">
-                    {draft.ingredients?.map((i, idx) => (
-                      <li key={idx} className="text-[14px] text-on-surface/85 leading-relaxed">
+                {(() => {
+                  const canIngredientEdit = !!onIngredientEdit && !publishedMealId;
+                  const renderIngredient = (i: RecipeIngredient, key: string) => {
+                    const inner = (
+                      <>
                         <span className="font-medium text-on-surface">
                           {[i.amount, i.unit].filter(Boolean).join(' ')}
                         </span>{' '}
                         {i.name}
+                      </>
+                    );
+                    if (!canIngredientEdit) {
+                      return (
+                        <li key={key} className="text-[14px] text-on-surface/85 leading-relaxed">
+                          {inner}
+                        </li>
+                      );
+                    }
+                    const selected = ingTarget === i.name;
+                    return (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          onClick={() => toggleIngredientTarget(i.name)}
+                          disabled={ingBusy}
+                          className={cn(
+                            'group w-full flex items-start gap-2 text-left text-[14px] leading-relaxed rounded-lg px-2 py-1 -mx-2 transition-colors disabled:opacity-60',
+                            selected
+                              ? 'bg-primary/[0.08] text-on-surface'
+                              : 'text-on-surface/85 hover:bg-on-surface/[0.04]',
+                          )}
+                        >
+                          <span className="flex-1 min-w-0">{inner}</span>
+                          <Repeat
+                            size={13}
+                            className={cn(
+                              'flex-shrink-0 mt-1 transition-opacity',
+                              selected ? 'text-primary opacity-100' : 'text-on-surface/35 opacity-0 group-hover:opacity-100',
+                            )}
+                          />
+                        </button>
                       </li>
-                    ))}
-                  </ul>
-                )}
+                    );
+                  };
+
+                  return (
+                    <>
+                      {canIngredientEdit && (
+                        <p className="text-[11.5px] text-on-surface/45 -mt-1 mb-2.5">
+                          Tap an ingredient to remove it or swap it for something else.
+                        </p>
+                      )}
+                      {draft.ingredientGroups && draft.ingredientGroups.length > 0 ? (
+                        draft.ingredientGroups.map((g) => (
+                          <div key={g.name} className="mb-4 last:mb-0">
+                            {(draft.ingredientGroups!.length > 1 || g.name !== 'Ingredients') && (
+                              <h4 className="text-[12px] font-semibold uppercase tracking-wider text-on-surface/50 mb-2">
+                                {g.name}
+                              </h4>
+                            )}
+                            <ul className="space-y-1.5">
+                              {g.ingredients.map((i, idx) => renderIngredient(i, `${g.name}-${idx}`))}
+                            </ul>
+                          </div>
+                        ))
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {draft.ingredients?.map((i, idx) => renderIngredient(i, String(idx)))}
+                        </ul>
+                      )}
+
+                      {/* Remove / swap action card for the selected row —
+                          one tap on Remove fires immediately; Swap expands
+                          an inline replacement input. */}
+                      <AnimatePresence>
+                        {canIngredientEdit && ingTarget && (
+                          <motion.div
+                            key="ing-panel"
+                            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                            className="mt-3 rounded-[20px] bg-on-surface text-surface p-2 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.45)]"
+                          >
+                            {ingBusy ? (
+                              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                                <Loader2 size={15} className="animate-spin text-surface/80 flex-shrink-0" />
+                                <span className="text-[13px] font-medium text-surface/90 truncate">
+                                  Updating the recipe…
+                                </span>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2 px-3 pt-1.5 pb-2">
+                                  <Sparkles size={12} className="text-surface/55 flex-shrink-0" />
+                                  <span className="text-[12.5px] font-semibold text-surface truncate flex-1">
+                                    {ingTarget}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setIngTarget(null)}
+                                    aria-label="Close"
+                                    className="w-6 h-6 -mr-0.5 rounded-full hover:bg-surface/10 flex items-center justify-center text-surface/55 hover:text-surface transition-colors flex-shrink-0"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                                {ingSwapOpen ? (
+                                  <div className="flex items-center gap-1.5 rounded-[14px] bg-surface/10 pl-3 pr-1 py-1">
+                                    <input
+                                      ref={ingSwapInputRef}
+                                      type="text"
+                                      value={ingReplacement}
+                                      onChange={(e) => setIngReplacement(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') { e.preventDefault(); submitIngredientEdit('substitute'); }
+                                        if (e.key === 'Escape') setIngSwapOpen(false);
+                                      }}
+                                      placeholder="Swap with… (blank = AI picks)"
+                                      className="flex-1 min-w-0 bg-transparent text-[13px] text-surface placeholder:text-surface/40 focus:outline-none py-1.5"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => submitIngredientEdit('substitute')}
+                                      aria-label="Apply swap"
+                                      className="w-8 h-8 rounded-full bg-surface text-on-surface flex items-center justify-center hover:opacity-90 transition-opacity flex-shrink-0"
+                                    >
+                                      <ArrowUp size={14} strokeWidth={2.5} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => submitIngredientEdit('remove')}
+                                      className="flex-1 h-9 rounded-[14px] bg-surface/10 hover:bg-surface/[0.16] text-surface text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 transition-colors"
+                                    >
+                                      <Trash2 size={13} />
+                                      Remove
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setIngSwapOpen(true)}
+                                      className="flex-1 h-9 rounded-[14px] bg-surface/10 hover:bg-surface/[0.16] text-surface text-[13px] font-semibold inline-flex items-center justify-center gap-1.5 transition-colors"
+                                    >
+                                      <Repeat size={13} />
+                                      Swap
+                                    </button>
+                                  </div>
+                                )}
+                                <p className="px-3 pt-2 pb-1 text-[10.5px] leading-snug text-surface/45">
+                                  AI keeps the dish authentic — it declines changes that would hurt it.
+                                </p>
+                              </>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Result of the last ingredient edit: applied, declined
+                          (recipe untouched, with the AI's reason), or error. */}
+                      <AnimatePresence>
+                        {canIngredientEdit && ingNotice && (
+                          <motion.div
+                            key={`ing-notice-${ingNotice.kind}`}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 6 }}
+                            transition={{ duration: 0.16 }}
+                            className={cn(
+                              'mt-3 flex gap-2.5 text-[13px] leading-relaxed p-3 rounded-2xl',
+                              ingNotice.kind === 'success' && 'bg-emerald-50 text-emerald-900',
+                              ingNotice.kind === 'declined' && 'bg-amber-50 text-amber-900',
+                              ingNotice.kind === 'error' && 'bg-red-50 text-red-900',
+                            )}
+                          >
+                            {ingNotice.kind === 'success' ? (
+                              <CheckCircle2 size={14} className="flex-shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                            )}
+                            <span>
+                              {ingNotice.kind === 'declined' && (
+                                <span className="font-semibold">Kept as is. </span>
+                              )}
+                              {ingNotice.text}
+                            </span>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </>
+                  );
+                })()}
               </Section>
 
               <Section title="Steps">

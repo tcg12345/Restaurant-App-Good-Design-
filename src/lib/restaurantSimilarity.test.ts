@@ -4,6 +4,8 @@ import {
   relevanceHint,
   CUISINE_RELATED_CREDIT,
   NEUTRAL_SIMILARITY,
+  PRICE_BAND_CREDIT,
+  REGION_MATCH_CREDIT,
   type SimilarityInput,
 } from './restaurantSimilarity';
 
@@ -38,9 +40,19 @@ describe('computeSimilarity — price (isolated)', () => {
     expect(r.score).toBeCloseTo(1.0, 6);
   });
 
-  it('two tiers apart scores 0.5', () => {
+  it('one tier apart earns partial credit', () => {
+    const r = computeSimilarity(si({ price: '$$' }), si({ price: '$$$' }));
+    expect(r.score).toBeCloseTo(PRICE_BAND_CREDIT[1], 6);
+  });
+
+  it('two tiers apart scores near zero', () => {
     const r = computeSimilarity(si({ price: '$$' }), si({ price: '$$$$' }));
-    expect(r.score).toBeCloseTo(0.5, 6);
+    expect(r.score).toBeCloseTo(PRICE_BAND_CREDIT[2], 6);
+  });
+
+  it('$ vs $$$$ scores 0', () => {
+    const r = computeSimilarity(si({ price: '$' }), si({ price: '$$$$' }));
+    expect(r.score).toBeCloseTo(0, 6);
   });
 
   it('one side unknown drops the component (→ neutral when nothing else)', () => {
@@ -80,6 +92,27 @@ describe('computeSimilarity — location (isolated)', () => {
     expect(r.score).toBeCloseTo(0, 6);
   });
 
+  it('different city in the same region earns partial credit', () => {
+    const r = computeSimilarity(si({ city: 'Boston, MA' }), si({ city: 'Cambridge, MA' }));
+    expect(r.present.location).toBe(true);
+    expect(r.score).toBeCloseTo(REGION_MATCH_CREDIT, 6);
+  });
+
+  it('region tier works from raw addresses too', () => {
+    const r = computeSimilarity(
+      si({ address: '100 Main St, Boston, MA 02110, USA' }),
+      si({ address: '5 Brattle St, Cambridge, MA 02138, USA' }),
+    );
+    expect(r.score).toBeCloseTo(REGION_MATCH_CREDIT, 6);
+  });
+
+  it('same region in different countries does not match', () => {
+    const r = computeSimilarity(si({ city: 'Paris, France' }), si({ city: 'Lyon, France' }));
+    expect(r.score).toBeCloseTo(REGION_MATCH_CREDIT, 6);
+    const cross = computeSimilarity(si({ city: 'Paris, France' }), si({ city: 'Rome, Italy' }));
+    expect(cross.score).toBeCloseTo(0, 6);
+  });
+
   it('same city but different neighborhood blends to 0.7', () => {
     const r = computeSimilarity(
       si({ city: 'nyc', neighborhood: 'West Village' }),
@@ -91,14 +124,14 @@ describe('computeSimilarity — location (isolated)', () => {
 
 describe('computeSimilarity — renormalization', () => {
   it('blends only the present components and renormalizes weights', () => {
-    // cuisine exact (1.0, w=0.25) + price two-apart (0.5, w=0.15), nothing else.
-    // (0.25*1 + 0.15*0.5) / 0.40 = 0.325 / 0.40 = 0.8125
+    // cuisine exact (1.0, w=0.25) + price two-apart (0.15, w=0.25), nothing else.
+    // (0.25*1 + 0.25*0.15) / 0.50 = 0.2875 / 0.50 = 0.575
     const r = computeSimilarity(
       si({ cuisine: 'Italian', price: '$$$' }),
       si({ cuisine: 'Italian', price: '$' }),
     );
     expect(r.present).toEqual({ location: false, cuisine: true, price: true, tags: false });
-    expect(r.score).toBeCloseTo(0.325 / 0.4, 6);
+    expect(r.score).toBeCloseTo(0.2875 / 0.5, 6);
   });
 
   it('weights location above cuisine', () => {

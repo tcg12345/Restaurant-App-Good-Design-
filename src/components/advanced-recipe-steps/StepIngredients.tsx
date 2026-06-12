@@ -27,11 +27,14 @@ import {
   normalizeUnit,
   UNITS,
 } from '../../lib/ingredient-parsing';
+import { LinkedRecipesEditor } from './LinkedRecipesEditor';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
 
 interface Props {
   state: AdvancedRecipeState;
   dispatch: React.Dispatch<Action>;
+  /** Id of the meal being edited (so the link picker excludes it). */
+  existingId?: string | null;
 }
 
 interface RowProps {
@@ -195,7 +198,7 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
   );
 };
 
-export const StepIngredients: React.FC<Props> = ({ state, dispatch }) => {
+export const StepIngredients: React.FC<Props> = ({ state, dispatch, existingId }) => {
   const [bulkOpen, setBulkOpen] = useState<number | null>(null); // group index for bulk paste
   const [bulkText, setBulkText] = useState('');
 
@@ -308,6 +311,13 @@ export const StepIngredients: React.FC<Props> = ({ state, dispatch }) => {
       >
         <Plus size={16} /> Add another section
       </button>
+
+      <LinkedRecipesEditor
+        state={state}
+        dispatch={dispatch}
+        defaultPlacement="ingredients"
+        excludeId={existingId}
+      />
     </>
   );
 };

@@ -134,7 +134,10 @@
 .location-page-root .lp-page {
   max-width: none;
   margin: 0;
-  padding: 8px 24px 96px;
+  /* No top padding on desktop: the sticky filter bar is the first child
+     and should sit flush under the global header at rest, so the two
+     read as one continuous chrome block. (Mobile overrides below.) */
+  padding: 0 24px 96px;
 }
 /* Mobile redesign uses tighter side padding so guide cards, list
    items, and the editorial hero can breathe out closer to the
@@ -192,41 +195,62 @@
 .location-page-root .loc-switch svg { width: 11px; height: 11px; }
 
 /* ============ STICKY FILTER BAR ============ */
+/* One quiet frosted band — the page's single chrome strip on desktop
+   (the back arrow lives inside it, far left). Controls read as tonal
+   text-chips on the shared surface rather than individually outlined
+   boxes — hover gets a soft wash, active gets the solid ink pill.
+   Color/background-only transitions keep every interaction
+   compositor-cheap.
+
+   Sticky offset: sits flush under the global DesktopHeader. The header
+   measures 67px tall (py-2.5 + content + border); 66px overlaps the
+   border seam by 1px so no gap ever shows between the two bars. */
 .location-page-root .loc-filterbar {
   position: sticky;
-  top: 56px;
-  z-index: 9;
+  top: 66px;
+  z-index: 20;
   background: var(--loc-bar-bg);
-  backdrop-filter: saturate(150%) blur(14px);
-  -webkit-backdrop-filter: saturate(150%) blur(14px);
-  margin: 0 -24px 20px;
-  padding: 10px 24px;
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  margin: 0 -24px 22px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 14px 28px -26px rgba(31, 26, 23, 0.35);
+  display: flex; align-items: center; gap: 4px;
   /* Never scroll the bar — at narrow widths chips wrap to a new row
      instead. overflow:visible is critical so the .fb-menu dropdown
      opening below a chip isn't clipped by the bar's bounds. */
   flex-wrap: wrap;
   overflow: visible;
 }
-.location-page-root .fb-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 36px; padding: 0 14px;
+.location-page-root .fb-back {
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  margin-left: -6px;
+  display: grid; place-items: center;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 13px; font-weight: 500;
+  color: var(--ink-2);
+  transition: background-color .18s ease, color .18s ease;
+}
+.location-page-root .fb-back:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
+.location-page-root .fb-back svg { width: 18px; height: 18px; }
+.location-page-root .fb-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 12px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  font-size: 13px; font-weight: 600;
   color: var(--ink-2);
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all .15s;
+  transition: background-color .18s ease, color .18s ease;
 }
-.location-page-root .fb-chip:hover { border-color: var(--border-strong); color: var(--ink); }
+.location-page-root .fb-chip:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
 .location-page-root .fb-chip.active {
   background: var(--ink); color: var(--bg);
-  border-color: var(--ink);
 }
-.location-page-root .fb-chip svg { width: 13px; height: 13px; }
+.location-page-root .fb-chip svg { width: 13px; height: 13px; opacity: .8; }
 .location-page-root .fb-chip .count {
   font-size: 11px;
   color: var(--muted);
@@ -248,27 +272,27 @@
   letter-spacing: 0;
   margin-left: 4px;
 }
-.location-page-root .fb-divider { width: 1px; height: 22px; background: var(--border-strong); margin: 0 6px; flex-shrink: 0; }
+.location-page-root .fb-divider { width: 1px; height: 16px; background: var(--border-strong); margin: 0 5px; flex-shrink: 0; }
 .location-page-root .fb-toggle {
   display: inline-flex; align-items: center; gap: 8px;
-  height: 36px; padding: 0 14px;
+  height: 34px; padding: 0 11px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 13px; font-weight: 500;
+  background: transparent;
+  border: none;
+  font-size: 13px; font-weight: 600;
   color: var(--ink-2);
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all .15s;
+  transition: background-color .18s ease, color .18s ease;
 }
-.location-page-root .fb-toggle:hover { border-color: var(--border-strong); color: var(--ink); }
-.location-page-root .fb-toggle.active { color: var(--ink); border-color: var(--ink); }
+.location-page-root .fb-toggle:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
+.location-page-root .fb-toggle.active { color: var(--green); background: var(--green-soft); }
 .location-page-root .fb-toggle .sw {
   width: 28px; height: 16px;
   background: var(--border-strong);
   border-radius: 999px;
   position: relative;
-  transition: background .15s;
+  transition: background .22s ease;
 }
 .location-page-root .fb-toggle .sw::after {
   content: '';
@@ -277,30 +301,31 @@
   border-radius: 50%;
   background: #fff;
   top: 2px; left: 2px;
-  transition: left .15s;
+  transition: left .22s cubic-bezier(.3, .7, .3, 1);
 }
 .location-page-root .fb-toggle.active .sw { background: var(--green); }
 .location-page-root .fb-toggle.active .sw::after { left: 14px; }
 .location-page-root .fb-spacer { flex: 1; }
 .location-page-root .fb-view-group {
   display: flex; gap: 2px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: rgba(31, 26, 23, 0.06);
+  border: none;
   border-radius: 999px;
   padding: 3px;
   flex-shrink: 0;
 }
 .location-page-root .fb-view-btn {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 12px;
+  height: 28px; padding: 0 11px;
   border-radius: 999px;
   font-size: 12.5px; font-weight: 600;
   color: var(--muted);
-  transition: all .15s;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
 }
 .location-page-root .fb-view-btn:hover { color: var(--ink); }
 .location-page-root .fb-view-btn.active {
-  background: var(--ink); color: var(--bg);
+  background: var(--surface); color: var(--ink);
+  box-shadow: 0 1px 3px rgba(31, 26, 23, 0.12);
 }
 .location-page-root .fb-view-btn svg { width: 13px; height: 13px; }
 
@@ -308,14 +333,16 @@
 .location-page-root .fb-sort {
   position: relative;
   display: inline-flex; align-items: center; gap: 6px;
-  height: 36px; padding: 0 14px;
+  height: 34px; padding: 0 11px;
   border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 13px; font-weight: 500;
+  background: transparent;
+  border: none;
+  font-size: 13px; font-weight: 600;
   color: var(--ink);
   flex-shrink: 0;
+  transition: background-color .18s ease;
 }
+.location-page-root .fb-sort:hover { background: rgba(31, 26, 23, 0.06); }
 .location-page-root .fb-sort .label {
   color: var(--muted);
   font-weight: 500;
@@ -351,6 +378,7 @@
 /* ============ MINI MAP ============ */
 .location-page-root .minimap {
   position: relative;
+  z-index: 1;
   border-radius: var(--radius-lg);
   /* Clip the always-expanded canvas inside so the collapsed strip
      shows only the centre slice — Mapbox keeps the full 590px-tall
@@ -890,6 +918,52 @@
   border: 1.5px solid rgba(255,255,255,0.4);
 }
 
+/* End-of-rail "Browse all guides" tile. Dashed accent outline (echoing
+   Discover's create-a-guide tile) so it reads as an action, not another
+   photo card. */
+.location-page-root .gd-browse-all {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 18px;
+  text-align: left;
+  background: rgba(193, 73, 44, 0.05);
+  border: 1.5px dashed rgba(193, 73, 44, 0.32);
+  cursor: pointer;
+}
+.location-page-root .gd-browse-all:hover {
+  background: rgba(193, 73, 44, 0.09);
+  border-color: var(--accent);
+}
+.location-page-root .gd-browse-all-icon {
+  width: 40px; height: 40px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(31,26,23,0.08);
+  display: grid; place-items: center;
+  color: var(--accent);
+  margin-bottom: auto;
+}
+.location-page-root .gd-browse-all-icon svg { width: 18px; height: 18px; }
+.location-page-root .gd-browse-all-title {
+  font-family: var(--serif);
+  font-size: 18px; font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.location-page-root .gd-browse-all-sub {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 12px; font-weight: 600;
+  color: var(--ink-2);
+}
+.location-page-root .gd-browse-all-sub svg { width: 13px; height: 13px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all { padding: 14px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all-title { font-size: 15px; }
+.location-page-root .gd-row.is-mobile .gd-browse-all-sub { font-size: 11px; }
+
 /* Smaller, denser guide cards on the mobile layout — matches the
    compact card sizing the desktop Discover Guides rail uses. The
    snap-mandatory behavior is also dropped so the user can stop the
@@ -1162,28 +1236,58 @@
 .location-page-root .chip:hover .x { color: var(--ink); }
 
 /* ============ RESTAURANT LIST ============ */
-.location-page-root .r-list { background: transparent; border: 0; }
+/* Rows render as proper cards (white surface, soft hairline, generous
+   radius) to match the app's card language. The hover treatment is
+   compositor-only: a translateY lift plus a pre-rendered shadow that
+   fades in via ::after opacity. The old version animated padding +
+   negative margins, which re-laid-out the whole list on every hover
+   and read as choppy. */
+.location-page-root .r-list {
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .location-page-root .r-list-item {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto auto;
   gap: 20px;
   align-items: center;
-  padding: 20px 0;
-  border-top: 1px solid var(--border);
+  padding: 18px 22px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
   cursor: pointer;
   position: relative;
-  transition: background .15s, padding .15s;
+  transform: translateZ(0);
+  transition:
+    transform .3s cubic-bezier(.23, .72, .26, 1),
+    border-color .3s ease,
+    background-color .3s ease;
 }
-.location-page-root .r-list-item:first-child { border-top: 0; }
+.location-page-root .r-list-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  box-shadow:
+    0 18px 38px -22px rgba(31, 26, 23, 0.28),
+    0 6px 16px -10px rgba(31, 26, 23, 0.10);
+  opacity: 0;
+  transition: opacity .3s ease;
+  pointer-events: none;
+}
 .location-page-root .r-list-item:hover {
-  background: rgba(31, 26, 23, 0.025);
-  padding-left: 16px;
-  padding-right: 16px;
-  margin-left: -16px;
-  margin-right: -16px;
-  border-radius: 14px;
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
-.location-page-root .r-list-item:hover + .r-list-item { border-top-color: transparent; }
+.location-page-root .r-list-item:hover::after { opacity: 1; }
+.location-page-root .r-list-item:active {
+  transform: translateY(0) scale(0.997);
+  transition-duration: .12s;
+}
 .location-page-root .r-list-rank {
   font-family: var(--serif);
   font-size: 18px;
@@ -1938,15 +2042,19 @@
 
 /* ============ RESPONSIVE ============ */
 @media (max-width: 900px) {
-  .location-page-root .lp-page { padding: 8px 16px 96px; }
-  .location-page-root .loc-filterbar { margin: 0 -16px 20px; padding: 10px 16px; }
+  .location-page-root .lp-page { padding: 0 16px 96px; }
+  .location-page-root .loc-filterbar { margin: 0 -16px 20px; padding: 12px 16px; }
   .location-page-root .loc-title { font-size: 32px; }
   .location-page-root .loc-region { font-size: 18px; }
   .location-page-root .loc-section-head h2 { font-size: 24px; }
+  .location-page-root .r-list { gap: 8px; }
   .location-page-root .r-list-item {
     grid-template-columns: 32px minmax(0, 1fr) auto;
     gap: 14px;
+    padding: 14px 16px;
+    border-radius: 18px;
   }
+  .location-page-root .r-list-item::after { border-radius: 18px; }
   .location-page-root .r-list-distance .item.drive,
   .location-page-root .r-list-distance .item.walk { display: none; }
   .location-page-root .r-list-name { font-size: 18px; }

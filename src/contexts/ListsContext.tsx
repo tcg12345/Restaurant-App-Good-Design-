@@ -204,6 +204,28 @@ export interface RecipeStepGroup {
   steps: RecipeStepDetail[];
 }
 
+/** A reference to another recipe attached to this one — a component
+ *  sub-recipe like a sauce, dough, or side. Carries denormalized display
+ *  data (title / cover / author) so cards render without a fetch; the
+ *  id + ownerId pair routes to /recipe/{ownerId}/{id}, which resolves
+ *  both home meals and formal recipes-table rows. */
+export interface LinkedRecipeRef {
+  id: string;
+  /** Author user id — the routing prefix for the recipe page. */
+  ownerId: string;
+  /** Which store the recipe lives in ('homeMeal' = pantry / home_meals,
+   *  'recipe' = the formal recipes table). Display-only hint. */
+  source: 'homeMeal' | 'recipe';
+  title: string;
+  coverPhoto?: string;
+  authorName?: string;
+  totalTimeMin?: number;
+  /** Placement on the recipe page: in the ingredients card, in the
+   *  directions column, or both. At least one is always true. */
+  inIngredients: boolean;
+  inMethod: boolean;
+}
+
 export interface HomeMeal {
   id: string;
   name: string;
@@ -261,6 +283,10 @@ export interface HomeMeal {
    *  numbered) steps. Advanced publish dual-writes the flat
    *  `stepDetails` / `steps` arrays so legacy consumers keep working. */
   stepGroups?: RecipeStepGroup[];
+  /** Other recipes attached as components of this one (sauce / dough /
+   *  side). Written by the Advanced builder; rendered on the recipe page
+   *  inside the ingredients card and/or directions per each ref's flags. */
+  linkedRecipes?: LinkedRecipeRef[];
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
