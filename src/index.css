@@ -152,7 +152,7 @@
    fixed panels (the AI chat) size to this so their composer sits exactly
    above the keyboard regardless of iOS's flaky position:fixed + keyboard
    behavior. Falls back to the dynamic viewport height on web. */
-:root { --app-vh: 100dvh; }
+:root { --app-vh: 100dvh; --kb-height: 0px; }
 
 @layer utilities {
   /* iOS safe-area helpers. Apply to any sticky/fixed top header so
@@ -183,6 +183,13 @@
   /* `mb-safe` for content that scrolls behind a fixed bottom nav: lets
      callers offset their last item without inlining a calc() string. */
   .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+
+  /* When the keyboard is open the home indicator is covered, so the
+     Messages composer's pb-safe-4 cushion is just a dead gap between the
+     input and the keyboard — collapse it so the bar sits right above the
+     keys. `kb-open` is toggled on <html> by native-keyboard.ts and only
+     while a native keyboard is showing. Mirrors the AI chat's treatment. */
+  html.kb-open .msg-composer-bar { padding-bottom: 0.5rem; }
 }
 
 @layer base {

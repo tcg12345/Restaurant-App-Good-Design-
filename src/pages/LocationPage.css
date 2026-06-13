@@ -2152,27 +2152,30 @@
 }
 .lp-chat-island.is-phone {
   /* Full-screen takeover on phones (no longer a draggable bottom sheet).
-     Height is driven by --app-vh (the VisualViewport height published by
-     native-keyboard.ts) rather than 100vh/inset:0, because iOS's position:
-     fixed + keyboard behavior is unreliable — left to itself the panel ends
-     up short and pins the composer to the top. Sizing to the visible area
-     means the header stays at the top and the composer sits exactly above
-     the keyboard. Closed with the header ✕. Entrance animation is opacity-
-     only (a transform on a fixed element breaks iOS keyboard positioning). */
+     The panel stays pinned to all four edges so its opaque background
+     always covers the WHOLE screen — including the region behind the
+     keyboard. (The iOS keyboard is translucent; if the panel only
+     reached the top of the keyboard, you'd see the page it was opened
+     over bleeding through the keys.) Instead of shrinking the panel, we
+     push its CONTENT up with padding-bottom = the keyboard height, so the
+     composer sits just above the keyboard while the background fills
+     behind it. Entrance animation is opacity-only (a transform on a fixed
+     element breaks iOS keyboard positioning). Closed with the header ✕. */
   top: 0;
   left: 0;
   right: 0;
-  bottom: auto;
+  bottom: 0;
   width: auto;
-  height: var(--app-vh, 100dvh);
+  height: auto;
   max-width: none;
   max-height: none;
   border-radius: 0;
-  /* --app-vh jumps to the above-keyboard height the moment
-     keyboardWillShow fires (native-keyboard.ts); easing the height over
-     ~the keyboard's own animation time makes the composer ride up with
-     the keyboard instead of teleporting. */
-  transition: height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  /* --kb-height jumps to the keyboard height the moment keyboardWillShow
+     fires (native-keyboard.ts) and back to 0 on hide; easing it over ~the
+     keyboard's own animation time makes the composer glide up with the
+     keyboard instead of teleporting. */
+  padding-bottom: var(--kb-height, 0px);
+  transition: padding-bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* While the keyboard is up the home indicator is covered, so the
    composer's safe-area cushion would just be a dead gap between the
