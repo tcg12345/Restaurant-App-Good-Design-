@@ -85,9 +85,13 @@ export async function configureNativeKeyboard(
   };
   document.addEventListener('pointerdown', onPointerDown, true);
 
-  // Publish the *visible* viewport height (the area above the keyboard) as
-  // --app-vh. Full-screen fixed panels (the AI chat) size to this so their
-  // composer sits exactly above the keyboard.
+  // Publish two CSS variables so keyboard-aware panels can react:
+  //   --app-vh    the visible viewport height (area above the keyboard)
+  //   --kb-height the keyboard's height (0 when closed)
+  // A full-screen panel can stay pinned to all four edges (so its opaque
+  // background covers behind the translucent iOS keyboard) and simply pad
+  // its content up by --kb-height; a panel that prefers to size itself can
+  // use --app-vh instead.
   //
   // With Keyboard.resize:"none" the WKWebView is never resized, and its
   // VisualViewport does NOT shrink for the keyboard — so the keyboard
@@ -99,6 +103,7 @@ export async function configureNativeKeyboard(
   // (rotation, split view) while the keyboard is closed.
   const root = document.documentElement;
   const setAppVh = (h: number) => root.style.setProperty('--app-vh', `${Math.round(h)}px`);
+  const setKbHeight = (h: number) => root.style.setProperty('--kb-height', `${Math.round(h)}px`);
   let keyboardHeight = 0;
   const vv = window.visualViewport;
   const syncViewportHeight = () => {
@@ -110,12 +115,14 @@ export async function configureNativeKeyboard(
     vv.addEventListener('scroll', syncViewportHeight);
     syncViewportHeight();
   }
+  setKbHeight(0);
 
   const handles = await Promise.all([
     Keyboard.addListener('keyboardWillShow', (info) => {
       keyboardHeight = info?.keyboardHeight ?? 0;
       if (keyboardHeight > 0) {
         setAppVh(window.innerHeight - keyboardHeight);
+        setKbHeight(keyboardHeight);
         root.classList.add('kb-open');
       }
       options.onKeyboardChange?.(true);
@@ -123,6 +130,7 @@ export async function configureNativeKeyboard(
     Keyboard.addListener('keyboardWillHide', () => {
       keyboardHeight = 0;
       root.classList.remove('kb-open');
+      setKbHeight(0);
       setAppVh(vv?.height ?? window.innerHeight);
     }),
     Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
