@@ -4,6 +4,7 @@ import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
+  Shield, LifeBuoy,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,6 +24,7 @@ import { cn } from '../lib/utils';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
 
 type SettingsPage = 'main' | 'edit' | 'account';
 
@@ -2051,6 +2053,22 @@ export const Profile: React.FC = () => {
                           toggle
                           toggleValue={darkMode}
                           onClick={toggleDarkMode}
+                          isLast
+                        />
+                      </SettingsSection>
+
+                      <SettingsSection label="About">
+                        <SettingsRow
+                          icon={<Shield size={17} />}
+                          label="Privacy Policy"
+                          hint="How your data is collected and used"
+                          onClick={() => openExternalUrl(PRIVACY_URL)}
+                        />
+                        <SettingsRow
+                          icon={<LifeBuoy size={17} />}
+                          label="Support"
+                          hint="Get help or contact us"
+                          onClick={() => openExternalUrl(SUPPORT_URL)}
                           isLast
                         />
                       </SettingsSection>
