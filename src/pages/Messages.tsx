@@ -1049,7 +1049,7 @@ const ChatView: React.FC<{
 
       {/* Composer */}
       {phoneMode ? (
-        <div className="flex flex-col gap-2 px-3 pt-2.5 pb-safe-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
+        <div className="msg-composer-bar flex flex-col gap-2 px-3 pt-2.5 pb-safe-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
           {/* Share buttons */}
           <div className="flex items-center gap-2">
             <button onClick={() => setRestPickerOpen(true)}
@@ -1607,7 +1607,18 @@ export const Messages: React.FC = () => {
   /* ═══ Mobile: single-pane list ↔ thread ═══ */
   if (activeConversation || draftFriendId) {
     return (
-      <div className="h-screen flex flex-col bg-surface">
+      // Height is driven by --app-vh (the above-keyboard height published
+      // by native-keyboard.ts) rather than h-screen/100vh, because under
+      // Keyboard.resize:"none" the WKWebView never shrinks for the
+      // keyboard — so a 100vh column would keep the composer pinned to the
+      // bottom of the full screen, behind the keyboard. Sizing to --app-vh
+      // means the flex column shrinks when the keyboard opens and the
+      // composer rides up with it. The eased height matches the keyboard's
+      // own animation so it glides rather than jumps.
+      <div
+        className="flex flex-col bg-surface"
+        style={{ height: 'var(--app-vh, 100dvh)', transition: 'height 0.25s cubic-bezier(0.22, 1, 0.36, 1)' }}
+      >
         {activeConversation ? (
           <ChatView conversation={activeConversation} profiles={profiles} onBack={clearSelection} />
         ) : (
