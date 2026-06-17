@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
 import {
   listPosts,
@@ -123,6 +124,7 @@ const PostsContext = createContext<PostsContextValue | null>(null);
 
 export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const userId = user?.id ?? null;
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
@@ -180,7 +182,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const togglePostLike = useCallback(async (postId: string) => {
     const me = userIdRef.current;
-    if (!me) return;
+    if (!me) { requireSignIn('Sign in to like'); return; }
     let nextLiked: boolean | null = null;
     setPosts((prev) => prev.map((p) => {
       if (p.id !== postId) return p;
@@ -199,7 +201,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const togglePostSave = useCallback(async (postId: string) => {
     const me = userIdRef.current;
-    if (!me) return;
+    if (!me) { requireSignIn('Sign in to save'); return; }
     let nextSaved: boolean | null = null;
     setPosts((prev) => prev.map((p) => {
       if (p.id !== postId) return p;
@@ -302,9 +304,10 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, []);
 
   const openAddPostModal = useCallback(() => {
+    if (!userIdRef.current) { requireSignIn('Sign in to post'); return; }
     setEditingPostId(null);
     setAddPostModalOpen(true);
-  }, []);
+  }, [requireSignIn]);
   const openEditPostModal = useCallback((postId: string) => {
     setEditingPostId(postId);
     setAddPostModalOpen(true);

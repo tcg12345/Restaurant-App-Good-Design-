@@ -9,6 +9,8 @@
  */
 import React, { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import type { Guide } from '../lib/supabase-guides';
+import { useAuth } from './AuthContext';
+import { useSignInModal } from './SignInModalContext';
 
 interface GuideCreatorContextValue {
   isOpen: boolean;
@@ -20,13 +22,16 @@ interface GuideCreatorContextValue {
 const GuideCreatorContext = createContext<GuideCreatorContextValue | null>(null);
 
 export const GuideCreatorProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { isSignedIn } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const [isOpen, setIsOpen] = useState(false);
   const [initialGuide, setInitialGuide] = useState<Guide | null>(null);
 
   const openGuideCreator = useCallback((g?: Guide | null) => {
+    if (!isSignedIn) { requireSignIn('Sign in to create a guide'); return; }
     setInitialGuide(g ?? null);
     setIsOpen(true);
-  }, []);
+  }, [isSignedIn, requireSignIn]);
 
   const closeGuideCreator = useCallback(() => {
     setIsOpen(false);

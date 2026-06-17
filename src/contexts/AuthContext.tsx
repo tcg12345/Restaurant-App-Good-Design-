@@ -23,6 +23,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 interface AuthContextType {
   isSignedIn: boolean;
+  /** True when the user chose "Browse without an account". Lets App.tsx
+   *  render the app for a signed-out guest (App Store Guideline 5.1.1(v) —
+   *  non-account features must be reachable without registering). Cleared
+   *  automatically once a real session appears, and on sign-out. */
+  isGuest: boolean;
+  /** Enter guest mode (from the Auth screen's "Browse without an account"). */
+  continueAsGuest: () => void;
   user: User | null;
   profile: UserProfile | null;
   profileComplete: boolean;
@@ -47,6 +54,11 @@ interface AuthContextType {
 
 /** Which user this device's localStorage caches belong to. */
 const ACTIVE_USER_KEY = 'gourmad-active-user';
+
+/** Persisted flag for "Browse without an account" so guest mode survives
+ *  navigation and reloads (App.tsx would otherwise re-show Auth on every
+ *  paint because there's no Supabase session). */
+const GUEST_MODE_KEY = 'gourmad-guest-mode';
 
 /**
  * Cross-account leak guard. Several stores cache personal data in
@@ -78,6 +90,8 @@ function guardDeviceAccount(newUserId: string): boolean {
 
 const AuthContext = createContext<AuthContextType>({
   isSignedIn: false,
+  isGuest: false,
+  continueAsGuest: () => {},
   user: null,
   profile: null,
   profileComplete: false,
@@ -99,6 +113,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [isGuest, setIsGuest] = useState<boolean>(() => {
+    try { return localStorage.getItem(GUEST_MODE_KEY) === '1'; } catch { return false; }
+  });
+
+  const continueAsGuest = useCallback(() => {
+    try { localStorage.setItem(GUEST_MODE_KEY, '1'); } catch { /* storage unavailable */ }
+    setIsGuest(true);
+  }, []);
+
+  // Drop guest mode the moment a real session exists (or is gone after
+  // sign-out) so the flag never lingers into a signed-in session.
+  const clearGuest = useCallback(() => {
+    try { localStorage.removeItem(GUEST_MODE_KEY); } catch { /* noop */ }
+    setIsGuest(false);
+  }, []);
 
   const loadProfile = useCallback(async (userId: string) => {
     try {
@@ -136,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // before any provider sees the new identity.
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
-        if (u) await loadProfile(u.id);
+        if (u) { clearGuest(); await loadProfile(u.id); }
       } catch {
         // Session check failed / timed out — fall through to signed-out so
         // the splash clears and the user lands on the auth screen instead
@@ -150,13 +179,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const u = session?.user ?? null;
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
-        if (u) loadProfile(u.id);
+        if (u) { clearGuest(); loadProfile(u.id); }
         else { setProfile(null); setPendingRequestCount(0); }
       }
     );
 
     return () => { mounted = false; subscription.unsubscribe(); };
-  }, [loadProfile]);
+  }, [loadProfile, clearGuest]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -218,7 +247,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setProfile(null);
     setPendingRequestCount(0);
-  }, []);
+    clearGuest();
+  }, [clearGuest]);
 
   const refreshProfile = useCallback(async () => {
     if (user?.id) await loadProfile(user.id);
@@ -263,7 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
       {children}
     </AuthContext.Provider>
   );

@@ -14,6 +14,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, saveGuide, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
@@ -74,6 +75,7 @@ export const GuideDetail: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { requireSignIn } = useSignInModal();
   const { isWishlisted, toggleWishlist, openAddToListModal, getRestaurantInfo } = useLists();
   const isDesktop = useIsDesktop();
 
@@ -152,7 +154,8 @@ export const GuideDetail: React.FC = () => {
   }, []);
 
   const onToggleSave = async () => {
-    if (!user?.id || !guide || savingToggle) return;
+    if (!user?.id) { requireSignIn('Sign in to save guides'); return; }
+    if (!guide || savingToggle) return;
     setSavingToggle(true);
     const ok = saved
       ? await removeGuideBookmark(user.id, guide.id)

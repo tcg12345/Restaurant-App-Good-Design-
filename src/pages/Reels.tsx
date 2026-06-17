@@ -7,6 +7,7 @@ import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
@@ -226,6 +227,7 @@ interface ReelSlideProps {
 }
 
 const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+  const { requireSignIn } = useSignInModal();
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -263,7 +265,8 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
 
   const onToggleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!currentUserId || isMine || followBusy) return;
+    if (!currentUserId) { requireSignIn('Sign in to follow'); return; }
+    if (isMine || followBusy) return;
     setFollowBusy(true);
     const wasFollowing = isFollowing;
     setIsFollowing(!wasFollowing); // optimistic
@@ -1193,6 +1196,7 @@ interface CommentsBodyProps {
 /** State + composer + list. The wrapper (sheet/panel) decides chrome. */
 export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, variant, loadComments, addComment, deleteComment, currentUserId }) => {
   const { showToast } = useToast();
+  const { requireSignIn } = useSignInModal();
   const [comments, setComments] = useState<UnifiedComment[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1222,7 +1226,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   const onSubmit = async () => {
     if (!draft.trim() || posting) return;
     if (!currentUserId) {
-      showToast('Sign in to comment');
+      requireSignIn('Sign in to comment');
       return;
     }
     setPosting(true);
@@ -1333,8 +1337,12 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+          // Guests can tap the box to be prompted to sign in (readOnly stops
+          // typing); never a silent dead-end.
+          onMouseDown={() => { if (!currentUserId) requireSignIn('Sign in to comment'); }}
           placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
-          disabled={!currentUserId || posting}
+          readOnly={!currentUserId}
+          disabled={posting}
           maxLength={500}
           className={cn('flex-1 focus:outline-none disabled:opacity-50', composerInputCls)}
         />
@@ -1540,6 +1548,7 @@ export const Reels: React.FC = () => {
   } = usePosts();
   const { phoneMode, setHideBottomNav } = useSettings();
   const { showToast } = useToast();
+  const { requireSignIn } = useSignInModal();
 
   // Tab can be deep-linked via ?kind=explore|recipe. Older deep links
   // (?kind=restaurant or ?kind=post) collapse into Explore.
@@ -2130,11 +2139,11 @@ export const Reels: React.FC = () => {
                   hideDetailsOverlay={opts.hideDetailsOverlay}
                   onActiveVideoChange={opts.onActiveVideoChange}
                   onLike={() => {
-                    if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                    if (!currentUserId) { requireSignIn('Sign in to like reels'); return; }
                     toggleLike(item.reel.id);
                   }}
                   onSave={() => {
-                    if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                    if (!currentUserId) { requireSignIn('Sign in to save reels'); return; }
                     toggleSave(item.reel.id);
                   }}
                   onComment={() => openReelComments(item.reel.id)}
@@ -2158,11 +2167,11 @@ export const Reels: React.FC = () => {
                   // screen would race to write into the same state.
                   onActiveItemChange={isActive ? setActivePostItemIdx : undefined}
                   onLike={() => {
-                    if (!currentUserId) { showToast('Sign in to like posts'); return; }
+                    if (!currentUserId) { requireSignIn('Sign in to like posts'); return; }
                     togglePostLike(item.post.id);
                   }}
                   onSave={() => {
-                    if (!currentUserId) { showToast('Sign in to save posts'); return; }
+                    if (!currentUserId) { requireSignIn('Sign in to save posts'); return; }
                     togglePostSave(item.post.id);
                   }}
                   onComment={() => openPostComments(item.post.id)}
@@ -2315,11 +2324,11 @@ export const Reels: React.FC = () => {
                 reel={activeReel}
                 isMine={!!currentUserId && activeReel.authorId === currentUserId}
                 onLike={() => {
-                  if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                  if (!currentUserId) { requireSignIn('Sign in to like reels'); return; }
                   toggleLike(activeReel.id);
                 }}
                 onSave={() => {
-                  if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                  if (!currentUserId) { requireSignIn('Sign in to save reels'); return; }
                   toggleSave(activeReel.id);
                 }}
                 onComment={() => openReelComments(activeReel.id)}
@@ -2332,11 +2341,11 @@ export const Reels: React.FC = () => {
                 post={activePost}
                 isMine={!!currentUserId && activePost.userId === currentUserId}
                 onLike={() => {
-                  if (!currentUserId) { showToast('Sign in to like posts'); return; }
+                  if (!currentUserId) { requireSignIn('Sign in to like posts'); return; }
                   togglePostLike(activePost.id);
                 }}
                 onSave={() => {
-                  if (!currentUserId) { showToast('Sign in to save posts'); return; }
+                  if (!currentUserId) { requireSignIn('Sign in to save posts'); return; }
                   togglePostSave(activePost.id);
                 }}
                 onComment={() => openPostComments(activePost.id)}

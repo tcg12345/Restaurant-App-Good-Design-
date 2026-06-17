@@ -3,6 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, type UserAppData } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
+import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
 
@@ -769,6 +770,7 @@ const ListsContext = createContext<ListsContextValue | null>(null);
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, profile: authProfile } = useAuth();
   const { showToast } = useToast();
+  const { requireSignIn } = useSignInModal();
   const userId = user?.id ?? null;
 
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
@@ -1274,10 +1276,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRecipeModalRecipe, setAddRecipeModalRecipe] = useState<Recipe | null>(null);
 
   const openAddRecipeModal = useCallback((listId: string, recipe?: Recipe) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to save recipes'); return; }
     setAddRecipeModalListId(listId);
     setAddRecipeModalRecipe(recipe || null);
     setAddRecipeModalOpen(true);
-  }, []);
+  }, [requireSignIn]);
 
   const closeAddRecipeModal = useCallback(() => {
     setAddRecipeModalOpen(false);
@@ -2043,28 +2046,32 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to rate restaurants'); return; }
     cacheRestaurantMeta(restaurant);
     setRatingModalRestaurant(restaurant);
     setRatingModalOpen(true);
-  }, [cacheRestaurantMeta]);
+  }, [cacheRestaurantMeta, requireSignIn]);
   const closeRatingModal = useCallback(() => { setRatingModalOpen(false); setRatingModalRestaurant(null); }, []);
 
   const openAddToListModal = useCallback((restaurantId: string, meta?: RestaurantMeta) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to save to a list'); return; }
     if (meta) cacheRestaurantMeta(meta);
     setAddToListRestaurantId(restaurantId);
     setAddToListModalOpen(true);
-  }, [cacheRestaurantMeta]);
+  }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddToListModal = useCallback(() => { setAddToListModalOpen(false); setAddToListRestaurantId(null); }, []);
 
   const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta, initialPage?: string) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to rate restaurants'); return; }
     cacheRestaurantMeta(restaurant);
     setAddRestaurantModalMeta(restaurant);
     setAddRestaurantModalInitialPage(initialPage || null);
     setAddRestaurantModalOpen(true);
-  }, [cacheRestaurantMeta]);
+  }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
   const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void }) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);
     // Store as a value-returning thunk so React doesn't treat the
     // callback as a state updater.

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,11 +24,42 @@ export const ProfileSetup: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Pre-fill the name from whatever the identity provider already gave us so
+  // we never ask the user to type it (App Store Guideline 4 — Sign in with
+  // Apple provides name/email via Authentication Services and we must not
+  // re-collect them). Sign in with Apple writes `full_name` to user metadata
+  // on first auth (see native-apple.ts); Google populates `full_name`/`name`.
+  // Falls back to the email local-part, skipping Apple's private-relay
+  // address (which is just an opaque token, not a real name). Seeded once,
+  // and only while the field is still untouched so we never clobber edits.
+  useEffect(() => {
+    if (!user || displayName) return;
+    const md = (user.user_metadata ?? {}) as Record<string, unknown>;
+    const metaName = (
+      (md.full_name as string) ||
+      (md.name as string) ||
+      [md.given_name, md.family_name].filter(Boolean).join(' ')
+    ).trim();
+    const email = user.email ?? '';
+    const isPrivateRelay = /@privaterelay\.appleid\.com$/i.test(email);
+    const emailPrefix = isPrivateRelay ? '' : (email.split('@')[0] ?? '');
+    const seed = metaName || emailPrefix;
+    if (seed) {
+      setDisplayName(seed);
+      // Suggest a username from the same seed when the user hasn't typed one.
+      setUsername((prev) => prev || seed.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20));
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
 
-    if (!displayName.trim()) { setError('Please enter your name'); return; }
+    // Name is intentionally NOT required: Sign in with Apple already provides
+    // it, so re-collecting it would violate Guideline 4. If the field is
+    // somehow empty, fall back to the username so `display_name` is never
+    // blank (keeps `profileComplete` satisfiable) — the user is never blocked
+    // on typing a name.
     if (!username.trim()) { setError('Please choose a username'); return; }
     if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
     if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
@@ -49,7 +80,7 @@ export const ProfileSetup: React.FC = () => {
       : undefined;
     const result = await saveProfile(
       user.id,
-      displayName.trim(),
+      displayName.trim() || username.trim(),
       username.trim(),
       '',
       isPublic,

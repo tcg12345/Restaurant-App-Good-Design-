@@ -84,7 +84,31 @@ export async function signInWithAppleNative(): Promise<{ error: string | null }>
       // Raw nonce — Supabase hashes it and matches against the token claim.
       nonce: rawNonce,
     });
-    return { error: error?.message ?? null };
+    if (error) return { error: error.message };
+
+    // Apple returns the user's name ONLY on the very first authorization for
+    // this Apple ID + app; subsequent sign-ins return null. So when it's
+    // present, persist it to Supabase user metadata immediately (must run
+    // after the token exchange creates the session). ProfileSetup reads
+    // `user_metadata.full_name` to pre-fill the name — App Store Guideline 4
+    // forbids re-asking for the name the Authentication Services framework
+    // already provided. `full_name` mirrors the key Google sign-in writes,
+    // so ProfileSetup has one unified lookup.
+    const givenName = result.response?.givenName ?? null;
+    const familyName = result.response?.familyName ?? null;
+    const fullName = [givenName, familyName].filter(Boolean).join(' ').trim();
+    if (fullName) {
+      try {
+        await supabase.auth.updateUser({
+          data: { full_name: fullName, given_name: givenName, family_name: familyName },
+        });
+      } catch (metaErr) {
+        // A metadata write failure must never turn a successful sign-in into
+        // an error — the name simply falls back to the email/username path.
+        console.warn('[native-apple] could not persist Apple name:', metaErr);
+      }
+    }
+    return { error: null };
   } catch (e) {
     // The plugin rejects when the user taps Cancel on the sheet — treat
     // that as a no-op rather than an error.

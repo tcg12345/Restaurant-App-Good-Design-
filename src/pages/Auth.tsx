@@ -182,10 +182,14 @@ type SharedProps = {
   oauthPending: 'google' | 'apple' | null;
   keepSignedIn: boolean;
   setKeepSignedIn: (v: boolean) => void;
+  /** When set, the email step shows a prominent "Browse without an account"
+   *  button. As the first screen it enters guest mode; inside the on-demand
+   *  sign-in overlay it dismisses the overlay. */
+  onBrowseAsGuest?: () => void;
 };
 
 const StepEmail: React.FC<SharedProps> = ({
-  email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending,
+  email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending, onBrowseAsGuest,
 }) => (
   <div className="space-y-4">
     <header>
@@ -233,6 +237,20 @@ const StepEmail: React.FC<SharedProps> = ({
 
       <PrimaryButton loading={submitting}>Continue</PrimaryButton>
     </form>
+
+    {onBrowseAsGuest && (
+      <>
+        <Divider>or</Divider>
+        <button
+          type="button"
+          onClick={onBrowseAsGuest}
+          className="group w-full flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface text-[15px] font-semibold hover:bg-on-surface/[0.07] hover:border-on-surface/25 transition-colors cursor-pointer"
+        >
+          <span>Browse without an account</span>
+          <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+        </button>
+      </>
+    )}
   </div>
 );
 
@@ -402,7 +420,7 @@ const StepSignup: React.FC<SharedProps> = ({
 };
 
 // ── Main page ────────────────────────────────────────────────────────────
-export const Auth: React.FC = () => {
+export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGuest }) => {
   const { signIn, signUp, signInWithOAuth, checkEmailExists } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
 
@@ -488,6 +506,7 @@ export const Auth: React.FC = () => {
     onOAuth: handleOAuth,
     oauthPending,
     keepSignedIn, setKeepSignedIn,
+    onBrowseAsGuest,
   };
 
   const stepContent = (
@@ -764,6 +783,16 @@ export const Auth: React.FC = () => {
           {step === 'password' && 'Sign in'}
           {step === 'signup' && 'Create account'}
         </MobilePrimaryButton>
+        {step === 'email' && onBrowseAsGuest && (
+          <button
+            type="button"
+            onClick={onBrowseAsGuest}
+            className="mt-3 w-full flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-on-surface/[0.05] border-2 border-on-surface/15 text-on-surface text-[15px] font-semibold active:bg-on-surface/[0.09] transition-colors"
+          >
+            <span>Browse without an account</span>
+            <ArrowRight size={17} />
+          </button>
+        )}
         {step === 'signup' && (
           <p className="text-[11px] text-on-surface/45 text-center leading-snug mt-3 px-2">
             By continuing you agree to our{' '}
