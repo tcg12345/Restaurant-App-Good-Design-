@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -50,6 +51,7 @@ export const UserProfile: React.FC = () => {
   const { username } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const { reels } = useReels();
   const { posts } = usePosts();
   const { phoneMode } = useSettings();
@@ -399,7 +401,8 @@ export const UserProfile: React.FC = () => {
   }, [showMapPage, userRatings, resolvedCoords, navigate]);
 
   const handleFollow = async () => {
-    if (!userId || !profile) return;
+    if (!userId) { requireSignIn('Sign in to follow'); return; }
+    if (!profile) return;
     if (profile.is_public) {
       const ok = await followPublicAccount(userId, profile.user_id);
       if (ok) { setIsFollowing(true); setFollowers((f) => f + 1); }

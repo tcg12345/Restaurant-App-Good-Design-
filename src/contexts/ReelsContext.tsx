@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
 import {
   listReels,
@@ -159,6 +160,7 @@ const ReelsContext = createContext<ReelsContextValue | null>(null);
 
 export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const userId = user?.id ?? null;
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
@@ -219,7 +221,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const toggleLike = useCallback(async (reelId: string) => {
     const me = userIdRef.current;
-    if (!me) return;
+    if (!me) { requireSignIn('Sign in to like'); return; }
     let nextLiked: boolean | null = null;
     setReels((prev) => prev.map((r) => {
       if (r.id !== reelId) return r;
@@ -239,7 +241,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const toggleSave = useCallback(async (reelId: string) => {
     const me = userIdRef.current;
-    if (!me) return;
+    if (!me) { requireSignIn('Sign in to save'); return; }
     let nextSaved: boolean | null = null;
     setReels((prev) => prev.map((r) => {
       if (r.id !== reelId) return r;
@@ -323,15 +325,17 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   /* ── Modals ────────────────────────────────────────────────────── */
 
   const openAddReelModal = useCallback((kind?: ReelKind) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to post a reel'); return; }
     setEditingReelId(null);
     setAddReelInitialKind(kind ?? null);
     setAddReelModalOpen(true);
-  }, []);
+  }, [requireSignIn]);
   const openEditReelModal = useCallback((reelId: string) => {
+    if (!userIdRef.current) { requireSignIn('Sign in to edit your reel'); return; }
     setEditingReelId(reelId);
     setAddReelInitialKind(null);
     setAddReelModalOpen(true);
-  }, []);
+  }, [requireSignIn]);
   const closeAddReelModal = useCallback(() => {
     setAddReelModalOpen(false);
     setAddReelInitialKind(null);

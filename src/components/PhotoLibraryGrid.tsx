@@ -159,8 +159,8 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
     return (
       <PermissionPrimer
         title="Show your photos here"
-        body="Grant access to your camera roll so you can pick something to share without leaving this screen."
-        cta="Allow access"
+        body="Pick a photo or video from your library to share — right here, without leaving this screen."
+        cta="Continue"
         onAction={requestPermission}
         className={className}
       />

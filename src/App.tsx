@@ -63,6 +63,8 @@ import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { SignInModalProvider } from './contexts/SignInModalContext';
+import { RequireAuthRoute } from './components/RequireAuthRoute';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -128,13 +130,13 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { isSignedIn, loading, profileComplete } = useAuth();
+  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
-  // Sidebar mode: real desktop viewport, signed in, profile complete.
-  // `phoneMode` is now fully viewport/runtime-derived (≤768px or native),
-  // so it can never be true at the same time as `isDesktop` (≥1024px) —
-  // the !phoneMode guard is kept for clarity.
-  const useSidebar = isDesktop && !phoneMode && isSignedIn && profileComplete;
+  // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
+  // can navigate the app (it renders a "Sign in" affordance instead of a
+  // profile). `phoneMode` is viewport/runtime-derived (≤768px or native), so
+  // it can never be true at the same time as `isDesktop` (≥1024px).
+  const useSidebar = isDesktop && !phoneMode;
 
   if (loading) {
     return (
@@ -146,12 +148,17 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!isSignedIn) {
+  // Auth is the first screen, but it offers "Browse without an account"
+  // (Guideline 5.1.1(v) — non-account features must be reachable without
+  // registering). Once the user is signed in OR has chosen guest mode, the
+  // full app renders; account-only routes/actions then prompt sign-in
+  // on demand via the SignInModal overlay.
+  if (!isSignedIn && !isGuest) {
     return (
       <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
         <Routes location={location}>
           <Route path="/import" element={<ImportRestaurants />} />
-          <Route path="*" element={<Auth />} />
+          <Route path="*" element={<Auth onBrowseAsGuest={continueAsGuest} />} />
         </Routes>
       </div>
     );
@@ -195,8 +202,8 @@ const AppContent: React.FC = () => {
           <Route path="/" element={<Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
           <Route path="/auth" element={<Navigate to="/" replace />} />
-          <Route path="/circle" element={<Circle />} />
-          <Route path="/create" element={<Create />} />
+          <Route path="/circle" element={<RequireAuthRoute reason="Sign in to see your circle"><Circle /></RequireAuthRoute>} />
+          <Route path="/create" element={<RequireAuthRoute reason="Sign in to create"><Create /></RequireAuthRoute>} />
           <Route path="/search" element={<Search />} />
           <Route path="/search/main" element={<SearchMain />} />
           <Route path="/reels" element={<Reels />} />
@@ -205,19 +212,19 @@ const AppContent: React.FC = () => {
               post-<id>). Bottom nav is hidden and a back arrow is
               shown so it reads as a "look at this one" surface. */}
           <Route path="/r/:focusKey" element={<Reels />} />
-          <Route path="/activity" element={<Activity />} />
-          <Route path="/activity/saved" element={<Activity />} />
-          <Route path="/activity/likes" element={<Activity />} />
-          <Route path="/activity/comments" element={<Activity />} />
-          <Route path="/activity/drafts" element={<Activity />} />
+          <Route path="/activity" element={<RequireAuthRoute reason="Sign in to see your activity"><Activity /></RequireAuthRoute>} />
+          <Route path="/activity/saved" element={<RequireAuthRoute reason="Sign in to see your saved items"><Activity /></RequireAuthRoute>} />
+          <Route path="/activity/likes" element={<RequireAuthRoute reason="Sign in to see your likes"><Activity /></RequireAuthRoute>} />
+          <Route path="/activity/comments" element={<RequireAuthRoute reason="Sign in to see your comments"><Activity /></RequireAuthRoute>} />
+          <Route path="/activity/drafts" element={<RequireAuthRoute reason="Sign in to see your drafts"><Activity /></RequireAuthRoute>} />
           <Route path="/experts" element={<Experts />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/pantry" element={<Pantry />} />
+          <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
+          <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
           <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/import" element={<ImportRestaurants />} />
-          <Route path="/reorder" element={<ReorderRatings />} />
+          <Route path="/reorder" element={<RequireAuthRoute reason="Sign in to reorder your ratings"><ReorderRatings /></RequireAuthRoute>} />
           <Route path="/recipes-for-you" element={<RecipesForYou />} />
           {/* Canonical recipe detail page; the /recipe/:id (legacy) and
               /meal/:userId/:mealId aliases below keep existing links
@@ -225,10 +232,10 @@ const AppContent: React.FC = () => {
           <Route path="/recipe/:userId/:id" element={<RecipePage />} />
           <Route path="/recipe/:id" element={<RecipePage />} />
           <Route path="/guides/:id" element={<GuideDetail />} />
-          <Route path="/guides/:id/edit" element={<GuideEdit />} />
+          <Route path="/guides/:id/edit" element={<RequireAuthRoute reason="Sign in to edit guides"><GuideEdit /></RequireAuthRoute>} />
           <Route path="/meal/:userId/:mealId" element={<RecipePage />} />
           <Route path="/user/:username" element={<UserProfile />} />
-          <Route path="/messages" element={<Messages />} />
+          <Route path="/messages" element={<RequireAuthRoute reason="Sign in to message"><Messages /></RequireAuthRoute>} />
           <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
           <Route path="/location" element={<LocationPage />} />
           <Route path="/location/map" element={<LocationMap />} />
@@ -308,6 +315,11 @@ export default function App() {
       <AuthProvider>
         <SettingsProvider>
           <ToastProvider>
+            {/* SignInModalProvider sits above the action contexts (Lists/
+                Reels/Posts/GuideCreator) so their openers can call
+                requireSignIn for guests, and below Auth/Settings/Toast so
+                the overlay's <Auth> screen has what it needs. */}
+            <SignInModalProvider>
             <ListsProvider>
               <RecipesProvider>
                 <ChatProvider>
@@ -333,6 +345,7 @@ export default function App() {
                 </ChatProvider>
               </RecipesProvider>
             </ListsProvider>
+            </SignInModalProvider>
           </ToastProvider>
         </SettingsProvider>
       </AuthProvider>
