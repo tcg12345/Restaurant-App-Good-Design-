@@ -13,8 +13,8 @@ import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
-  getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
-  sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
+  getProfileByUsername, getFollowCounts, canViewProfile, getFriendshipStatus,
+  sendFriendRequest, followPublicAccount, removeFriend, getUserRatings, getUserPhotos, getUserLists,
   getUserWishlist, publishCommunityRating, getUserPublicHomeMeals, getExpertRecommendationCount,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
@@ -36,7 +36,8 @@ import { ProfilePostsSection, ProfileReelsSection, ProfileGuidesSection } from '
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
   profile: UserProfileType; canView: boolean; followers: number; following: number;
-  isFollowing: boolean; ratings: CommunityRating[]; photos: CommunityPhoto[];
+  isFollowing: boolean; followSent: boolean; theyFollowMe: boolean;
+  ratings: CommunityRating[]; photos: CommunityPhoto[];
   lists: { id: string; name: string; emoji: string; restaurantIds: string[] }[];
   wishlistItems: { restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[];
   publicHomeMeals: HomeMeal[];
@@ -64,6 +65,9 @@ export const UserProfile: React.FC = () => {
   const [following, setFollowing] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followSent, setFollowSent] = useState(false);
+  // They follow me (their edge → me is accepted) but I don't follow them yet —
+  // drives the "Follow back" state on the button.
+  const [theyFollowMe, setTheyFollowMe] = useState(false);
 
   const [userRatings, setUserRatings] = useState<CommunityRating[]>([]);
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
@@ -108,6 +112,8 @@ export const UserProfile: React.FC = () => {
       setFollowers(cached.followers);
       setFollowing(cached.following);
       setIsFollowing(cached.isFollowing);
+      setFollowSent(cached.followSent ?? false);
+      setTheyFollowMe(cached.theyFollowMe ?? false);
       setUserRatings(cached.ratings);
       setUserPhotos(cached.photos);
       setUserLists(cached.lists);
@@ -133,6 +139,7 @@ export const UserProfile: React.FC = () => {
         ratings: [], photos: [], lists: [], wishlistItems: [],
         publicHomeMeals: [], guides: [], followers: 0, following: 0,
         canView: !isAuthed && !!p.is_public, isFollowing: false,
+        followSent: false, theyFollowMe: false,
       };
       const promises: Promise<void>[] = [];
 
@@ -187,11 +194,17 @@ export const UserProfile: React.FC = () => {
           setCanView(v);
           fSnapshot.canView = v;
         }));
-        promises.push(getFriends(userId!).then((friends) => {
+        promises.push(getFriendshipStatus(userId!, p.user_id).then((st) => {
           if (cancelled) return;
-          const isFollowing = (friends || []).some((f: any) => f.friend_id === p.user_id);
-          setIsFollowing(isFollowing);
-          fSnapshot.isFollowing = isFollowing;
+          const following = st.iFollow === 'accepted';
+          const sent = st.iFollow === 'pending';
+          const followsMe = st.theyFollow === 'accepted';
+          setIsFollowing(following);
+          setFollowSent(sent);
+          setTheyFollowMe(followsMe);
+          fSnapshot.isFollowing = following;
+          fSnapshot.followSent = sent;
+          fSnapshot.theyFollowMe = followsMe;
         }));
         promises.push(getUserPhotos(p.user_id).then((photos) => {
           if (cancelled) return;
@@ -220,6 +233,8 @@ export const UserProfile: React.FC = () => {
           followers: fSnapshot.followers ?? 0,
           following: fSnapshot.following ?? 0,
           isFollowing: fSnapshot.isFollowing ?? false,
+          followSent: fSnapshot.followSent ?? false,
+          theyFollowMe: fSnapshot.theyFollowMe ?? false,
           ratings: fSnapshot.ratings ?? [],
           photos: fSnapshot.photos ?? [],
           lists: fSnapshot.lists ?? [],
@@ -400,16 +415,77 @@ export const UserProfile: React.FC = () => {
     return () => { map.remove(); mapRef.current = null; };
   }, [showMapPage, userRatings, resolvedCoords, navigate]);
 
+  const invalidateProfileCache = () => {
+    if (username) delete profileCache[`${username}_${userId}`];
+  };
+
+  // Follow (or follow back). Respects the target's privacy: public/expert
+  // accounts follow instantly; private accounts get a pending request they
+  // must approve before you can see their content.
   const handleFollow = async () => {
     if (!userId) { requireSignIn('Sign in to follow'); return; }
     if (!profile) return;
-    if (profile.is_public) {
+    const immediate = !!(profile.is_public || profile.is_expert);
+    if (immediate) {
       const ok = await followPublicAccount(userId, profile.user_id);
-      if (ok) { setIsFollowing(true); setFollowers((f) => f + 1); }
+      if (ok) {
+        setIsFollowing(true);
+        setFollowSent(false);
+        setFollowers((f) => f + 1);
+        setCanView(true);
+        invalidateProfileCache();
+      }
     } else {
       const ok = await sendFriendRequest(userId, profile.user_id);
-      if (ok) setFollowSent(true);
+      if (ok) { setFollowSent(true); invalidateProfileCache(); }
     }
+  };
+
+  const handleUnfollow = async () => {
+    if (!userId || !profile) return;
+    const ok = await removeFriend(userId, profile.user_id);
+    if (ok) {
+      setIsFollowing(false);
+      setFollowers((f) => Math.max(0, f - 1));
+      // Lose access when the account is private (canViewProfile = public OR
+      // I-follow-them; removing my follow revokes the private view).
+      if (!profile.is_public) setCanView(false);
+      invalidateProfileCache();
+    }
+  };
+
+  // Single source of truth for the Follow control so the header and the
+  // private-account state stay in lockstep:
+  //   Following (tap to unfollow) · Requested (pending) · Follow back · Follow
+  const renderFollowButton = (variant: 'header' | 'block') => {
+    const base = variant === 'header'
+      ? 'h-10 px-6 rounded-full text-[13.5px] font-semibold inline-flex items-center justify-center gap-1.5 transition-all flex-1 md:flex-none'
+      : 'h-11 px-8 rounded-full text-[14px] font-semibold inline-flex items-center justify-center gap-1.5 transition-all';
+    if (isFollowing) {
+      return (
+        <button
+          onClick={handleUnfollow}
+          className={cn(base, 'bg-[var(--color-paper)] text-on-surface border border-[var(--color-line-2)] hover:bg-primary/5 hover:border-primary hover:text-primary')}
+        >
+          <Check size={14} /> Following
+        </button>
+      );
+    }
+    if (followSent) {
+      return (
+        <button disabled className={cn(base, 'bg-on-surface/[0.06] text-[var(--color-ink-3)] cursor-default')}>
+          Requested
+        </button>
+      );
+    }
+    return (
+      <button
+        onClick={handleFollow}
+        className={cn(base, 'bg-on-surface text-surface hover:bg-primary hover:-translate-y-px')}
+      >
+        {theyFollowMe ? 'Follow back' : 'Follow'}
+      </button>
+    );
   };
 
   // Close sort dropdown on outside click
@@ -541,22 +617,7 @@ export const UserProfile: React.FC = () => {
           {userId && !isOwnProfile && (
             <div className="flex flex-col gap-2 pt-2 md:pt-3.5 min-w-0 md:min-w-[160px] justify-self-center md:justify-self-end">
               <div className="flex gap-2">
-                {isFollowing ? (
-                  <button className="h-10 px-5 rounded-full bg-[var(--color-paper)] text-on-surface border border-[var(--color-line-2)] text-[13.5px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-primary/5 hover:border-primary hover:text-primary transition-colors flex-1 md:flex-none">
-                    <Check size={14} /> Following
-                  </button>
-                ) : followSent ? (
-                  <button disabled className="h-10 px-5 rounded-full bg-on-surface/[0.06] text-[var(--color-ink-3)] text-[13.5px] font-semibold flex-1 md:flex-none">
-                    Request Sent
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleFollow}
-                    className="h-10 px-6 rounded-full bg-on-surface text-surface text-[13.5px] font-semibold hover:bg-primary hover:-translate-y-px transition-all flex-1 md:flex-none"
-                  >
-                    {profile.is_public ? 'Follow' : 'Send Request'}
-                  </button>
-                )}
+                {renderFollowButton('header')}
                 <button
                   type="button"
                   title="Message"
@@ -591,8 +652,9 @@ export const UserProfile: React.FC = () => {
           ))}
         </div>
 
-        {/* CUISINE STRIP — "Most rated" */}
-        {topCuisines.length > 0 && (
+        {/* CUISINE STRIP — "Most rated" (hidden for gated private profiles —
+            it's derived from their rating activity). */}
+        {canView && topCuisines.length > 0 && (
           <div className="flex items-center gap-3.5 py-4 border-b border-[var(--color-line)] overflow-x-auto scrollbar-hide touch-pan-x">
             <span className="text-[11.5px] font-bold tracking-[0.1em] uppercase text-[var(--color-ink-3)] flex-shrink-0">
               Most rated
@@ -615,7 +677,9 @@ export const UserProfile: React.FC = () => {
           </div>
         )}
 
-        {/* TAB BAR */}
+        {/* TAB BAR — only when content is viewable (public, or you follow a
+            private account). Gated profiles get the Private state instead. */}
+        {canView && (
         <div className="flex items-end gap-5 md:gap-7 pt-5 border-b border-[var(--color-line)] mb-5 overflow-x-auto scrollbar-hide touch-pan-x">
           {tabs.map((t) => {
             const active = viewTab === t.key;
@@ -650,6 +714,7 @@ export const UserProfile: React.FC = () => {
             </button>
           )}
         </div>
+        )}
 
         {/* TAB CONTENT */}
         {canView ? (
@@ -877,10 +942,23 @@ export const UserProfile: React.FC = () => {
             )}
           </>
         ) : (
-          <section className="text-center py-20">
-            <Lock size={32} className="mx-auto text-[var(--color-ink-4)] mb-3" />
-            <p className="text-sm font-medium text-[var(--color-ink-3)]">This account is private</p>
-            <p className="text-xs text-[var(--color-ink-4)] mt-1">Follow this user to see their profile</p>
+          <section className="max-w-md mx-auto text-center pt-14 pb-20 px-6">
+            <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center mb-4">
+              <Lock size={26} className="text-[var(--color-ink-3)]" />
+            </div>
+            <h3 className="font-serif text-[20px] font-semibold text-on-surface mb-1.5">
+              This account is private
+            </h3>
+            <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-3)] mb-6">
+              {followSent
+                ? <>Your follow request is pending. Once {profile.display_name} approves it, you'll see their ratings, recipes, posts and activity.</>
+                : <>Follow {profile.display_name} to see their ratings, recipes, posts and activity. They'll need to approve your request.</>}
+            </p>
+            {userId && !isOwnProfile && (
+              <div className="flex justify-center">
+                {renderFollowButton('block')}
+              </div>
+            )}
           </section>
         )}
       </div>

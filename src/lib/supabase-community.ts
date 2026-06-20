@@ -461,6 +461,52 @@ export async function isFollowingUser(userId: string, targetId: string): Promise
   } catch { return false; }
 }
 
+export type FollowState = 'none' | 'pending' | 'accepted';
+export interface FriendshipStatus {
+  /** My edge toward them (user_id=me, friend_id=them). */
+  iFollow: FollowState;
+  /** Their edge toward me (user_id=them, friend_id=me). */
+  theyFollow: FollowState;
+}
+
+/**
+ * Full directional relationship between `userId` (me) and `targetId` (them),
+ * read in a single query. Drives the Follow / Following / Requested /
+ * Follow-back button states:
+ *   - iFollow='accepted'                    → Following
+ *   - iFollow='pending'                     → Requested
+ *   - iFollow='none' && theyFollow='accepted' → Follow back
+ *   - both 'none'                           → Follow
+ * Mutual friends = iFollow==='accepted' && theyFollow==='accepted'.
+ */
+export async function getFriendshipStatus(userId: string, targetId: string): Promise<FriendshipStatus> {
+  const none: FriendshipStatus = { iFollow: 'none', theyFollow: 'none' };
+  if (!supabaseConfigured || !userId || !targetId || userId === targetId) return none;
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('user_id, friend_id, status')
+      .or(`and(user_id.eq.${userId},friend_id.eq.${targetId}),and(user_id.eq.${targetId},friend_id.eq.${userId})`);
+    if (error) { console.error('[Friends] getFriendshipStatus error:', error); return none; }
+    let iFollow: FollowState = 'none';
+    let theyFollow: FollowState = 'none';
+    for (const row of (data || []) as Array<{ user_id: string; friend_id: string; status: string }>) {
+      const st: FollowState = row.status === 'accepted' ? 'accepted' : row.status === 'pending' ? 'pending' : 'none';
+      if (st === 'none') continue;
+      if (row.user_id === userId && row.friend_id === targetId) iFollow = st;
+      else if (row.user_id === targetId && row.friend_id === userId) theyFollow = st;
+    }
+    return { iFollow, theyFollow };
+  } catch (err) { console.error('[Friends] getFriendshipStatus exception:', err); return none; }
+}
+
+/** IDs of mutual friends — users you follow who also follow you back. */
+export async function getMutualFriendIds(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  const [following, followers] = await Promise.all([getFriends(userId), getFollowerIds(userId)]);
+  const followerSet = new Set(followers);
+  return following.filter((f) => followerSet.has(f.friend_id)).map((f) => f.friend_id);
+}
+
 /** Follow a public account instantly (no request needed) */
 export async function followPublicAccount(userId: string, targetId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
@@ -826,6 +872,20 @@ export async function getPendingRequests(userId: string): Promise<FriendRequest[
   } catch (err) { console.error('[Friends] getPendingRequests exception:', err); return []; }
 }
 
+/** IDs of users the given user has SENT a still-pending friend request to
+ *  (the outgoing side: rows where user_id = me and status = 'pending').
+ *  Used by the Add-a-friend sheet to show "Requested" instead of an "Add"
+ *  button that would violate the unique(user_id, friend_id) constraint. */
+export async function getSentRequestIds(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('friend_id').eq('user_id', userId).eq('status', 'pending');
+    if (error) { console.error('[Friends] getSentRequestIds error:', error); return []; }
+    return (data || []).map((r) => (r as { friend_id: string }).friend_id);
+  } catch (err) { console.error('[Friends] getSentRequestIds exception:', err); return []; }
+}
+
 /** Send a friend request (status = 'pending') */
 export async function sendFriendRequest(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
@@ -837,26 +897,39 @@ export async function sendFriendRequest(userId: string, friendId: string): Promi
   } catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }
 }
 
-/** Accept a friend request (updates status and creates reverse follow) */
-export async function acceptFriendRequest(requestId: string, userId: string, requesterId: string): Promise<boolean> {
+/**
+ * Accept an incoming follow request. This is ONE-DIRECTIONAL (Instagram-style):
+ * it only marks the requester's edge `accepted` — they now follow you. It does
+ * NOT make you follow them back. Becoming mutual friends requires you to follow
+ * them back separately (which they must accept if their account is private).
+ *
+ * RLS permits this UPDATE because you're the `friend_id` on the row
+ * ("Users can update incoming requests" → `auth.uid() = friend_id`).
+ */
+export async function acceptFriendRequest(requestId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
   try {
-    // Update the request to accepted
-    const { error: updateErr } = await supabase.from('user_friends')
+    const { error } = await supabase.from('user_friends')
       .update({ status: 'accepted' }).eq('id', requestId);
-    if (updateErr) { console.error('[Friends] accept update error:', updateErr); return false; }
-    // Create reverse friendship (so both can see each other)
-    await supabase.from('user_friends')
-      .upsert({ user_id: userId, friend_id: requesterId, status: 'accepted' }, { onConflict: 'user_id,friend_id' });
+    if (error) { console.error('[Friends] accept error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] accept exception:', err); return false; }
 }
 
-/** Decline/delete a friend request */
+/**
+ * Decline a friend request. We UPDATE the row to status='declined' rather
+ * than DELETE it: the table's RLS only lets the request's SENDER delete a
+ * row (`auth.uid() = user_id`), but the person declining is the RECIPIENT
+ * (`auth.uid() = friend_id`). The UPDATE policy *does* allow the recipient
+ * to change the row, and getPendingRequests filters to status='pending',
+ * so a declined request drops out of the incoming list and stops counting
+ * toward the badge. A DELETE here silently affected zero rows.
+ */
 export async function declineFriendRequest(requestId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
   try {
-    const { error } = await supabase.from('user_friends').delete().eq('id', requestId);
+    const { error } = await supabase.from('user_friends')
+      .update({ status: 'declined' }).eq('id', requestId);
     if (error) { console.error('[Friends] decline error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] decline exception:', err); return false; }
@@ -1325,7 +1398,11 @@ export async function saveVisitRecord(
       photos: data.photos,
       friend_ids: data.friendIds,
     });
-    if (error) { console.error('[VisitHistory] saveVisitRecord error:', error); return false; }
+    // PGRST205 = the visit_history table doesn't exist on this deployment.
+    // History is persisted durably via the user_app_data blob instead
+    // (ListsContext.__visit_history__), so treat a missing table as a no-op
+    // rather than spamming the console on every save.
+    if (error) { if ((error as { code?: string }).code !== 'PGRST205') console.error('[VisitHistory] saveVisitRecord error:', error); return false; }
     return true;
   } catch (err) { console.error('[VisitHistory] saveVisitRecord exception:', err); return false; }
 }
@@ -1337,7 +1414,7 @@ export async function getVisitHistory(userId: string, restaurantId: string): Pro
     const { data, error } = await supabase.from('visit_history')
       .select('*').eq('user_id', userId).eq('restaurant_id', restaurantId)
       .order('created_at', { ascending: false });
-    if (error) { console.error('[VisitHistory] getVisitHistory error:', error); return []; }
+    if (error) { if ((error as { code?: string }).code !== 'PGRST205') console.error('[VisitHistory] getVisitHistory error:', error); return []; }
     return (data || []) as VisitRecord[];
   } catch (err) { console.error('[VisitHistory] getVisitHistory exception:', err); return []; }
 }
@@ -1348,7 +1425,7 @@ export async function deleteVisitRecord(userId: string, recordId: string): Promi
   try {
     const { error } = await supabase.from('visit_history')
       .delete().eq('user_id', userId).eq('id', recordId);
-    if (error) { console.error('[VisitHistory] deleteVisitRecord error:', error); return false; }
+    if (error) { if ((error as { code?: string }).code !== 'PGRST205') console.error('[VisitHistory] deleteVisitRecord error:', error); return false; }
     return true;
   } catch (err) { console.error('[VisitHistory] deleteVisitRecord exception:', err); return false; }
 }
@@ -1365,7 +1442,7 @@ export async function deleteAllVisitRecordsForRestaurant(
   try {
     const { error } = await supabase.from('visit_history')
       .delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
-    if (error) { console.error('[VisitHistory] deleteAllVisitRecordsForRestaurant error:', error); return false; }
+    if (error) { if ((error as { code?: string }).code !== 'PGRST205') console.error('[VisitHistory] deleteAllVisitRecordsForRestaurant error:', error); return false; }
     return true;
   } catch (err) { console.error('[VisitHistory] deleteAllVisitRecordsForRestaurant exception:', err); return false; }
 }

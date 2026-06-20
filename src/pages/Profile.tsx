@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
   Shield, LifeBuoy,
 } from 'lucide-react';
@@ -746,6 +746,10 @@ export const Profile: React.FC = () => {
   const { openGuideCreator, isOpen: guideCreatorOpen } = useGuideCreator();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
 
+  // Dismiss the friend-request banner for this session (reappears on reload
+  // while requests are still pending, so a real request isn't lost).
+  const [friendReqDismissed, setFriendReqDismissed] = useState(false);
+
   // Reels and posts authored by the signed-in user. Both come from their
   // respective contexts (loaded once at mount), filtered locally.
   const myReels = useMemo(
@@ -1276,12 +1280,37 @@ export const Profile: React.FC = () => {
           content is already slimmer than the cap. */}
       <div className="mx-auto w-full max-w-[1280px]">
 
-      {pendingRequestCount > 0 && (
-        <div className="mx-5 mt-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
-          <span className="text-xs font-semibold text-amber-900">
-            {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
-          </span>
-          <Heart size={14} className="text-amber-700 flex-shrink-0" />
+      {pendingRequestCount > 0 && !friendReqDismissed && (
+        <div className="mx-5 mt-4">
+          {/* Tap anywhere to view & respond in the Circle requests section. */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/circle')}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/circle'); } }}
+            className="group flex items-center gap-3 pl-3 pr-2.5 py-2.5 rounded-2xl bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] cursor-pointer transition-colors"
+          >
+            <span className="flex-shrink-0 w-9 h-9 rounded-full bg-primary/12 grid place-items-center text-primary">
+              <UserPlus size={16} strokeWidth={2.2} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13.5px] font-semibold text-on-surface leading-tight">
+                {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''}
+              </p>
+              <p className="text-[12px] text-on-surface/50 leading-tight mt-0.5">
+                Tap to view and respond
+              </p>
+            </div>
+            <ChevronRight size={17} className="flex-shrink-0 text-on-surface/30 group-hover:text-on-surface/55 transition-colors" />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setFriendReqDismissed(true); }}
+              aria-label="Dismiss"
+              className="flex-shrink-0 w-7 h-7 rounded-full grid place-items-center text-on-surface/35 hover:text-on-surface/70 hover:bg-on-surface/[0.06] transition-colors"
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
       )}
 

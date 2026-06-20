@@ -2785,50 +2785,90 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (() => {
-          // Matches the Discover filter-chip recipe. Border applied
-          // inline because the .location-page-root button reset zeroes
-          // out Tailwind's border class otherwise.
-          const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors';
-          const idleStyle: React.CSSProperties = {
-            background: 'var(--surface)',
-            color: 'var(--ink-2)',
-            border: '1px solid var(--border-strong)',
+          // ── Filter chips, fully rewritten ───────────────────────────────
+          // The page's button reset — `.location-page-root button { padding:0;
+          // border:0; background:none; font:inherit }` — has higher specificity
+          // than Tailwind utilities, so it silently strips `px-*`, `border-*`,
+          // `text-*` and `font-*` off these buttons (that's why the text was
+          // jammed against the pill edges). Every visual property therefore
+          // lives in inline styles here, which outrank the reset. The colours
+          // ride the theme tokens (--ink / --cream / --overlay-ink) so the
+          // chips flip correctly in dark mode.
+          const chipBase: React.CSSProperties = {
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            height: '34px',
+            paddingLeft: '14px',
+            paddingRight: '14px',
+            borderRadius: '9999px',
+            fontSize: '13px',
+            fontWeight: 500,
+            lineHeight: 1,
+            letterSpacing: '-0.01em',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+            transition: 'background-color .15s ease, color .15s ease, border-color .15s ease',
           };
-          const activeStyle: React.CSSProperties = {
+          const chipIdle: React.CSSProperties = {
+            ...chipBase,
+            background: 'rgba(var(--overlay-ink), 0.06)',
+            color: 'var(--ink-2)',
+            border: '1px solid transparent',
+          };
+          const chipActive: React.CSSProperties = {
+            ...chipBase,
             background: 'var(--ink)',
             color: 'var(--cream)',
             border: '1px solid var(--ink)',
           };
           return (
-          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
+          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-3 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={pillBase}
-              style={neighborhood !== 'all' ? activeStyle : idleStyle}
+              style={neighborhood !== 'all' ? chipActive : chipIdle}
             >
-              <MapIcon size={14} />
+              <MapIcon size={13} style={{ opacity: 0.7, flexShrink: 0 }} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={14} />
+              <ChevronDown size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
             </button>
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={pillBase}
-              style={openNow ? activeStyle : idleStyle}
+              style={openNow ? chipActive : chipIdle}
             >
-              <span className={cn(
-                'relative w-[24px] h-[14px] rounded-full transition-colors',
-                openNow ? 'bg-emerald-500' : 'bg-on-surface/25',
-              )}>
-                <span className={cn(
-                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
-                  openNow ? 'left-[12px]' : 'left-[2px]',
-                )} />
+              <span
+                style={{
+                  position: 'relative',
+                  width: '22px',
+                  height: '13px',
+                  borderRadius: '9999px',
+                  flexShrink: 0,
+                  background: openNow ? '#10b981' : 'rgba(var(--overlay-ink), 0.25)',
+                  transition: 'background-color .15s ease',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '2px',
+                    left: openNow ? '11px' : '2px',
+                    width: '9px',
+                    height: '9px',
+                    borderRadius: '9999px',
+                    background: '#fff',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                    transition: 'left .15s ease',
+                  }}
+                />
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'rgba(28, 24, 22, 0.14)' }} />
+            <span
+              style={{ flexShrink: 0, alignSelf: 'center', width: '1px', height: '16px', background: 'var(--border-strong)' }}
+            />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2836,8 +2876,7 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={pillBase}
-                  style={active ? activeStyle : idleStyle}
+                  style={active ? chipActive : chipIdle}
                 >
                   {c.label}
                 </button>
@@ -2853,7 +2892,7 @@ export const LocationPage: React.FC = () => {
           {isMobile ? (
             <div className="flex items-center gap-2 mb-4 px-3">
               <div className="flex-1 min-w-0 relative">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'rgba(28, 24, 22, 0.55)' }} />
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
                 <input
                   type="text"
                   value={searchQuery}
@@ -2863,9 +2902,9 @@ export const LocationPage: React.FC = () => {
                   autoCorrect="off"
                   className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium focus:outline-none transition-colors"
                   style={{
-                    background: '#FFFFFF',
+                    background: 'var(--surface)',
                     color: 'var(--ink)',
-                    border: '1px solid rgba(28, 24, 22, 0.12)',
+                    border: '1px solid var(--border-strong)',
                   }}
                 />
                 {searchQuery && (
@@ -2874,27 +2913,61 @@ export const LocationPage: React.FC = () => {
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
                     className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
-                    style={{ color: 'rgba(28, 24, 22, 0.55)' }}
+                    style={{ color: 'var(--muted)' }}
                   >
                     <X size={13} />
                   </button>
                 )}
               </div>
+              {/* Filters pill — same inline-style recipe as the filter chips
+                  above (so padding/shape/font survive the .location-page-root
+                  button reset), but with a surface background + border so it
+                  reads as the distinct action next to the search field rather
+                  than a tinted filter chip. */}
               <button
                 type="button"
                 onClick={() => setFilterSheetOpen(true)}
                 aria-label="Filters"
-                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors"
                 style={{
-                  background: '#FFFFFF',
-                  color: 'rgba(28, 24, 22, 0.75)',
-                  border: '1px solid rgba(28, 24, 22, 0.12)',
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  height: '40px',
+                  paddingLeft: '16px',
+                  paddingRight: '16px',
+                  borderRadius: '9999px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  lineHeight: 1,
+                  letterSpacing: '-0.01em',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  background: 'var(--surface)',
+                  color: 'var(--ink-2)',
+                  border: '1px solid var(--border-strong)',
+                  transition: 'background-color .15s ease, color .15s ease, border-color .15s ease',
                 }}
               >
-                <SlidersHorizontal size={14} />
+                <SlidersHorizontal size={15} style={{ opacity: 0.7, flexShrink: 0 }} />
                 Filters
                 {activeFilterCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full text-[11px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
+                  <span
+                    style={{
+                      display: 'inline-grid',
+                      placeItems: 'center',
+                      minWidth: '20px',
+                      height: '20px',
+                      paddingLeft: '6px',
+                      paddingRight: '6px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: '#fff',
+                      background: 'var(--accent)',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
                     {activeFilterCount}
                   </span>
                 )}

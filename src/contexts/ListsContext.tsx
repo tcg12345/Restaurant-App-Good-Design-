@@ -436,6 +436,20 @@ interface ListsContextValue {
 }
 
 const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
+// Ids of cookbook recipes the user has deleted. The home-meals cloud sync is a
+// union (local ∪ cloud) with no way to express a removal, so we keep an explicit
+// tombstone set and subtract it from the union — otherwise a deleted recipe that
+// still lingers in any store gets resurrected on the next load.
+const STORAGE_KEY_DELETED_MEALS = 'gourmad-deleted-meals';
+// Unified deletion tombstones for everything that lives in the user_app_data
+// JSON blob (ratings, lists, list memberships, wishlist, trips). That blob is
+// synced with a union+reconcile that can't express a removal, so without
+// tombstones a deleted item lingering in any store (localStorage, the cloud
+// row, or another device) gets resurrected — and a half-resurrected restaurant
+// (id back in a list but its rating/meta gone) renders as a broken card. We
+// persist the deleted keys here and subtract them on load. (Cookbook recipes
+// use the separate STORAGE_KEY_DELETED_MEALS set above.)
+const STORAGE_KEY_TOMBSTONES = 'gourmad-tombstones';
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
 const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
@@ -655,6 +669,49 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
 // Migration: ensure every home meal has a unique id. A previous version of
 // Convert a Recipe (stored inside a recipe sub-list) to a HomeMeal so it
 // can live in the "All Recipes" cookbook pool too. The Recipe is the
+// ── Deletion tombstones ──
+// One set per deletable entity that lives in the user_app_data blob. `members`
+// is keyed by `${listId}::${restaurantId}` to represent "removed from this one
+// list" (vs. `restaurants`, which means the rating was deleted everywhere).
+interface Tombstones {
+  restaurants: Set<string>;
+  lists: Set<string>;
+  members: Set<string>;
+  wishlist: Set<string>;
+  trips: Set<string>;
+}
+const TOMBSTONE_CATS = ['restaurants', 'lists', 'members', 'wishlist', 'trips'] as const;
+function newTombstones(): Tombstones {
+  return { restaurants: new Set(), lists: new Set(), members: new Set(), wishlist: new Set(), trips: new Set() };
+}
+function tombstonesToJSON(t: Tombstones): Record<string, string[]> {
+  return {
+    restaurants: [...t.restaurants], lists: [...t.lists], members: [...t.members],
+    wishlist: [...t.wishlist], trips: [...t.trips],
+  };
+}
+function tombstonesFromJSON(o: unknown): Tombstones {
+  const t = newTombstones();
+  if (o && typeof o === 'object') {
+    for (const cat of TOMBSTONE_CATS) {
+      const arr = (o as Record<string, unknown>)[cat];
+      if (Array.isArray(arr)) for (const v of arr) if (typeof v === 'string') t[cat].add(v);
+    }
+  }
+  return t;
+}
+/** Merge `src` into `dst`; returns true if `dst` gained any new entries. */
+function mergeTombstones(dst: Tombstones, src: Tombstones): boolean {
+  let grew = false;
+  for (const cat of TOMBSTONE_CATS) {
+    for (const v of src[cat]) if (!dst[cat].has(v)) { dst[cat].add(v); grew = true; }
+  }
+  return grew;
+}
+function memberKey(listId: string, restaurantId: string): string {
+  return `${listId}::${restaurantId}`;
+}
+
 // source of truth; the HomeMeal is a mirror that shares its id.
 function recipeToHomeMeal(r: Recipe): HomeMeal {
   return {
@@ -796,6 +853,29 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // recipe stash — before loadUserData could read it. localStorage still saves
   // locally; the next successful load unions local + cloud and backfills.
   const cloudReadyRef = useRef(false);
+  // Deletion tombstones for the "All Recipes" cookbook. Subtracted from the
+  // home-meals union at load time so a delete sticks even though the recipe may
+  // still be sitting in localStorage, the home_meals column, or the
+  // __home_meals__ meta stash. Persisted to localStorage + the durable
+  // __deleted_meals__ meta stash; cleared when the same id is re-added and on
+  // user switch. Loaded lazily so we only touch localStorage once.
+  const deletedMealIdsRef = useRef<Set<string>>(new Set());
+  const deletedMealsLoadedRef = useRef(false);
+  if (!deletedMealsLoadedRef.current) {
+    deletedMealsLoadedRef.current = true;
+    for (const id of loadFromStorage<string[]>(STORAGE_KEY_DELETED_MEALS, [])) {
+      deletedMealIdsRef.current.add(id);
+    }
+  }
+  // Unified tombstones for restaurants / lists / list-memberships / wishlist /
+  // trips (see STORAGE_KEY_TOMBSTONES). Loaded lazily from localStorage; merged
+  // with the cloud copy and applied in the load reconciliation below.
+  const tombstonesRef = useRef<Tombstones>(newTombstones());
+  const tombstonesLoadedRef = useRef(false);
+  if (!tombstonesLoadedRef.current) {
+    tombstonesLoadedRef.current = true;
+    mergeTombstones(tombstonesRef.current, tombstonesFromJSON(loadFromStorage(STORAGE_KEY_TOMBSTONES, null)));
+  }
 
   // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
@@ -822,6 +902,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_TRIPS);
       localStorage.removeItem(STORAGE_KEY_CUSTOM_ORDER);
       localStorage.removeItem(STORAGE_KEY_HOME_MEALS);
+      localStorage.removeItem(STORAGE_KEY_DELETED_MEALS);
+      localStorage.removeItem(STORAGE_KEY_TOMBSTONES);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
       setRatings([]);
@@ -831,6 +913,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setTrips([]);
       setCustomOrderState([]);
       setHomeMeals([]);
+      deletedMealIdsRef.current = new Set();
+      tombstonesRef.current = newTombstones();
     }
     try { localStorage.setItem('gourmad-user-id', userId); } catch { /* quota — best-effort */ }
 
@@ -856,7 +940,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (cloud) {
         // Cloud row found — use cloud data, merging with any local data that might be newer
         const localRatings = loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []);
-        const localLists = loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, []);
+        const localLists = loadFromStorage<CustomList[]>(STORAGE_KEY_LISTS, []);
         const localWishlist = loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []);
         const localHomeMeals = loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, []);
 
@@ -889,7 +973,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
 
         // Use cloud data, but if cloud is empty and local has content, keep local
-        const cloudRatings = migrateRatings(
+        let cloudRatings = migrateRatings(
           cloud.ratings.length > 0 ? cloud.ratings : localRatings.length > 0 ? localRatings : recoveredRatings
         );
         const baseCloudLists = migrateLists(
@@ -941,17 +1025,75 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // reloads see it without relying on local cache again.
         const listsMergedFromLocal = cloudLists.length !== baseCloudLists.length
           || cloudLists.some((l, i) => l !== baseCloudLists[i]);
-        const cloudWishlist = migrateWishlist(
+        let cloudWishlist = migrateWishlist(
           cloud.wishlist.length > 0 ? cloud.wishlist : localWishlist.length > 0 ? localWishlist : []
         );
         const cloudMeta = cloud.restaurantMeta || {};
         // Restore trips: try dedicated column first, fall back to __trips__ in meta
-        const cloudTrips = ((cloud as any).trips && (cloud as any).trips.length > 0)
+        let cloudTrips: Trip[] = ((cloud as any).trips && (cloud as any).trips.length > 0)
           ? (cloud as any).trips
           : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
         // Restore custom order from meta
-        const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
+        let cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
+
+        // ── Merge + apply unified deletion tombstones ──
+        // Pull the cloud's tombstone stash, union it into this device's set, and
+        // persist the merged result. Then strip every tombstoned entity from the
+        // resolved data so a deletion can't be resurrected by a stale copy in
+        // any store. `members` (listId::restaurantId) also clears the matching
+        // rating.listIds so the list reconciliation below won't re-add it.
+        const tomb = tombstonesRef.current;
+        const cloudTomb = tombstonesFromJSON((cloudMeta as Record<string, unknown>).__tombstones__);
+        const tombGrew = mergeTombstones(tomb, cloudTomb);
+        saveToStorage(STORAGE_KEY_TOMBSTONES, tombstonesToJSON(tomb));
+        const cloudTombHadFewer =
+          TOMBSTONE_CATS.reduce((n, c) => n + cloudTomb[c].size, 0)
+          !== TOMBSTONE_CATS.reduce((n, c) => n + tomb[c].size, 0);
+        const memberDeleted = (listId: string, rid: string) => tomb.members.has(memberKey(listId, rid));
+
+        const ratingsBeforeTomb = cloudRatings.length;
+        cloudRatings = cloudRatings
+          .filter((r) => !tomb.restaurants.has(r.restaurantId))
+          .map((r) => {
+            const keptListIds = r.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, r.restaurantId));
+            return keptListIds.length === r.listIds.length ? r : { ...r, listIds: keptListIds };
+          });
+        cloudWishlist = cloudWishlist
+          .filter((w) => !tomb.wishlist.has(w.restaurantId))
+          .map((w) => {
+            const keptListIds = w.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, w.restaurantId));
+            return keptListIds.length === w.listIds.length ? w : { ...w, listIds: keptListIds };
+          });
+        cloudTrips = cloudTrips.filter((t) => !tomb.trips.has(t.id));
+        cloudCustomOrder = cloudCustomOrder.filter((id) => !tomb.restaurants.has(id));
+        let tombstonesRemovedData = cloudRatings.length !== ratingsBeforeTomb;
+
+        // ── Restore visit history from the durable stash ──
+        // The dedicated `visit_history` table isn't present on every deployment
+        // (it errors with PGRST205), so visit records are mirrored into
+        // restaurant_meta.__visit_history__. Merge the cloud stash with this
+        // device's localStorage blob (by record id, per restaurant) and write
+        // it back to localStorage so the detail page — which seeds history from
+        // local — shows it after a reload, a new deploy, or on another device.
+        const rawCloudVisitHistory = (cloudMeta as Record<string, unknown>).__visit_history__;
+        const cloudVisitHistory: Record<string, LocalVisitRecord[]> =
+          rawCloudVisitHistory && typeof rawCloudVisitHistory === 'object' && !Array.isArray(rawCloudVisitHistory)
+            ? (rawCloudVisitHistory as Record<string, LocalVisitRecord[]>)
+            : {};
+        const localVisitHistory = loadLocalVisitHistory();
+        const mergedVisitHistory: Record<string, LocalVisitRecord[]> = {};
+        for (const rid of new Set([...Object.keys(localVisitHistory), ...Object.keys(cloudVisitHistory)])) {
+          const byId = new Map<string, LocalVisitRecord>();
+          for (const rec of (cloudVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
+          for (const rec of (localVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
+          const arr = Array.from(byId.values());
+          if (arr.length) mergedVisitHistory[rid] = arr;
+        }
+        saveToStorage(STORAGE_KEY_VISIT_HISTORY, mergedVisitHistory);
+        const cloudVHCount = Object.values(cloudVisitHistory).reduce((n, a) => n + (a?.length || 0), 0);
+        const mergedVHCount = Object.values(mergedVisitHistory).reduce((n, a) => n + a.length, 0);
+        const visitHistoryStale = mergedVHCount !== cloudVHCount;
         // Home meals recovery order:
         //   1. dedicated home_meals column (may be missing on some schemas)
         //   2. restaurant_meta.__home_meals__ fallback (always works)
@@ -974,7 +1116,31 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const mergedById = new Map<string, HomeMeal>();
         for (const m of localHomeMeals) if (m && m.id) mergedById.set(m.id, m);
         for (const m of baseCloudHomeMeals) if (m && m.id) mergedById.set(m.id, m);
-        const cloudHomeMeals = migrateHomeMeals(Array.from(mergedById.values()));
+
+        // ── Apply deletion tombstones ──
+        // The merge above is a pure union and can't represent a removal: a
+        // deleted recipe still present in localStorage, the home_meals column,
+        // or the __home_meals__ meta stash would be resurrected here. Subtract
+        // the tombstoned ids — this device's localStorage set unioned with the
+        // durable __deleted_meals__ meta stash — so deletes stick and converge
+        // across devices, then write the merged set back to both stores below.
+        const cloudDeletedIds = Array.isArray((cloudMeta as Record<string, unknown>).__deleted_meals__)
+          ? ((cloudMeta as Record<string, unknown>).__deleted_meals__ as string[])
+          : [];
+        const mergedDeletedIds = new Set<string>(deletedMealIdsRef.current);
+        for (const id of cloudDeletedIds) if (id) mergedDeletedIds.add(id);
+        deletedMealIdsRef.current = mergedDeletedIds;
+        saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(mergedDeletedIds));
+
+        const unionedHomeMeals = migrateHomeMeals(Array.from(mergedById.values()));
+        const cloudHomeMeals = mergedDeletedIds.size > 0
+          ? unionedHomeMeals.filter((m) => !mergedDeletedIds.has(m.id))
+          : unionedHomeMeals;
+        // Re-push when the union actually contained tombstoned rows (cloud still
+        // had them) or the cloud's tombstone list is behind this device's, so
+        // the deletion lands in the always-present home_meals/meta columns.
+        const tombstonesRemovedSomething = cloudHomeMeals.length !== unionedHomeMeals.length;
+        const cloudTombstonesStale = cloudDeletedIds.length !== mergedDeletedIds.size;
         // We need to push back to cloud whenever local had something cloud
         // didn't — that's how the unioned set lands in the dedicated column.
         const localOnlyIds = localHomeMeals.filter((m) => m && m.id && !baseCloudHomeMeals.some((c) => c.id === m.id));
@@ -994,14 +1160,39 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         });
         const listsChanged = reconciledLists.some((l, i) => l !== cloudLists[i]);
 
-        // Carry the home-meals union inside the durable restaurant_meta stash
-        // (__home_meals__) so recipes persist even on schemas without a
-        // dedicated home_meals column — and so a device that still has them in
-        // localStorage unions them in here and backs them up to the cloud.
-        const cloudMetaWithMeals = { ...migrateMeta(cloudMeta), __home_meals__: cloudHomeMeals as unknown as RestaurantMeta };
+        // Strip tombstoned lists + memberships from the reconciled set so a
+        // deleted list, a restaurant removed from one list, or a deleted
+        // cookbook recipe can't survive inside the lists blob.
+        const listsBeforeTomb = listsChanged ? reconciledLists : cloudLists;
+        const finalLists = listsBeforeTomb
+          .filter((l) => !tomb.lists.has(l.id))
+          .map((l) => {
+            const restaurantIds = (l.restaurantIds || []).filter((id) => !tomb.restaurants.has(id) && !memberDeleted(l.id, id));
+            const wishlistIds = (l.wishlistIds || []).filter((id) => !tomb.wishlist.has(id) && !memberDeleted(l.id, id));
+            const recipes = (l.recipes || []).filter((r) => !(r && r.id && (mergedDeletedIds.has(r.id) || memberDeleted(l.id, r.id))));
+            const changed = restaurantIds.length !== (l.restaurantIds?.length || 0)
+              || wishlistIds.length !== (l.wishlistIds?.length || 0)
+              || recipes.length !== (l.recipes?.length || 0);
+            return changed ? { ...l, restaurantIds, wishlistIds, recipes } : l;
+          });
+        if (finalLists.length !== listsBeforeTomb.length
+            || finalLists.some((l, i) => l !== listsBeforeTomb[i])) {
+          tombstonesRemovedData = true;
+        }
+
+        // Carry the home-meals union + every tombstone stash inside the durable
+        // restaurant_meta blob so they persist on schemas without dedicated
+        // columns and converge across devices.
+        const cloudMetaWithMeals = {
+          ...migrateMeta(cloudMeta),
+          __home_meals__: cloudHomeMeals as unknown as RestaurantMeta,
+          __deleted_meals__: Array.from(mergedDeletedIds) as unknown as RestaurantMeta,
+          __tombstones__: tombstonesToJSON(tomb) as unknown as RestaurantMeta,
+          __visit_history__: mergedVisitHistory as unknown as RestaurantMeta,
+        };
 
         setRatings(cloudRatings);
-        setLists(ensureDefaultRecipeList(listsChanged ? reconciledLists : cloudLists));
+        setLists(ensureDefaultRecipeList(finalLists));
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMetaWithMeals);
         setTrips(cloudTrips as Trip[]);
@@ -1010,7 +1201,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
-        saveToStorage(STORAGE_KEY_LISTS, listsChanged ? reconciledLists : cloudLists);
+        saveToStorage(STORAGE_KEY_LISTS, finalLists);
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMetaWithMeals);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
@@ -1021,15 +1212,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
 
         // If we used local fallback data (cloud was empty but local had
-        // content), reconciled, or merged local-only list contents into
-        // cloud lists, push the union back so subsequent reloads see it
-        // even if localStorage gets cleared.
-        const finalLists = listsChanged ? reconciledLists : cloudLists;
+        // content), reconciled, merged local-only list contents into cloud
+        // lists, or stripped any tombstoned entity, push the cleaned union back
+        // so subsequent reloads (and other devices) see it.
         // Also re-persist when the durable __home_meals__ stash is out of sync
         // with the resolved union, so recipes are backed up into a column that
         // is always present (covers schemas missing the home_meals column).
         const metaStashStale = metaHomeMeals.length !== cloudHomeMeals.length;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale) {
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale || tombstonesRemovedSomething || cloudTombstonesStale || tombGrew || tombstonesRemovedData || cloudTombHadFewer || visitHistoryStale) {
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
@@ -1057,7 +1247,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       } else {
         // No cloud row exists — keep any existing local data and push it to cloud
         const localRatings = migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []));
-        const localLists = migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS));
+        const localLists = migrateLists(loadFromStorage<CustomList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []));
         const localMeta = migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {}));
         const localTrips = loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []);
@@ -1089,7 +1279,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           // by the snapshot we captured at the top of this branch.
           await saveUserData(userId, {
             ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
-            lists: migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
+            lists: migrateLists(loadFromStorage<CustomList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
             wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
             restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
             recentViews: [],
@@ -1134,6 +1324,46 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
   }, []);
+
+  // Persist the unified tombstone set to localStorage (always) and the durable
+  // __tombstones__ meta stash (cloud, when ready) so deletions stick locally
+  // and converge across devices.
+  const persistTombstones = useCallback(() => {
+    const json = tombstonesToJSON(tombstonesRef.current);
+    saveToStorage(STORAGE_KEY_TOMBSTONES, json);
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __tombstones__: json as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
+  // Record a deletion. `tombstone('restaurants', id)`, `tombstone('members',
+  // memberKey(listId, id))`, etc.
+  const tombstone = useCallback((cat: keyof Tombstones, key: string) => {
+    tombstonesRef.current[cat].add(key);
+    persistTombstones();
+  }, [persistTombstones]);
+  // Undo a tombstone when the same entity is re-added (re-rate, re-add to list,
+  // re-wishlist) so it isn't filtered straight back out on the next load.
+  const untombstone = useCallback((cat: keyof Tombstones, key: string) => {
+    if (tombstonesRef.current[cat].delete(key)) persistTombstones();
+  }, [persistTombstones]);
+
+  // Mirror the whole local visit-history blob into the durable user_app_data
+  // stash (restaurant_meta.__visit_history__). The dedicated `visit_history`
+  // table isn't present on every deployment (it errors with PGRST205), so
+  // without this the history is localStorage-only and disappears on a new
+  // origin / device. Call after any local visit-history mutation.
+  const syncVisitHistoryToCloud = useCallback(() => {
+    const blob = loadLocalVisitHistory();
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __visit_history__: blob as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [persistTombstones]);
   const syncTripsToCloud = useCallback((data: Trip[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
       // Save trips via the dedicated column (may fail if column doesn't exist)
@@ -1184,13 +1414,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncTripsToCloud]);
 
   const deleteTrip = useCallback((id: string) => {
+    tombstone('trips', id);
     setTrips((prev) => {
       const next = prev.filter((t) => t.id !== id);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
       return next;
     });
-  }, [syncTripsToCloud]);
+  }, [syncTripsToCloud, tombstone]);
 
   const addRestaurantToTrip = useCallback((tripId: string, restaurant: TripRestaurant) => {
     setTrips((prev) => {
@@ -1303,7 +1534,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!cloudReadyRef.current) return;
     saveHomeMeals(userIdRef.current, data);
     setRestaurantMeta((prev) => {
-      const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
+      const next = {
+        ...prev,
+        __home_meals__: data as unknown as RestaurantMeta,
+        // Carry deletion tombstones in the same durable stash so removals reach
+        // the cloud and survive the union on every device.
+        __deleted_meals__: Array.from(deletedMealIdsRef.current) as unknown as RestaurantMeta,
+      };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
@@ -1316,6 +1553,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // drops the entry from the sub-list — the recipe lives on in the
   // "All Recipes" cookbook so the user can still find it after reorg.
   const addRecipe = useCallback((listId: string, recipe: Recipe) => {
+    // Saving a recipe back into a list re-adds it to the cookbook mirror, so
+    // clear any tombstone for this id (un-delete).
+    if (deletedMealIdsRef.current.delete(recipe.id)) {
+      saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(deletedMealIdsRef.current));
+    }
+    untombstone('members', memberKey(listId, recipe.id));
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId ? { ...l, recipes: [...(l.recipes || []), recipe] } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
@@ -1329,7 +1572,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncHomeMealsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud, syncHomeMealsToCloud]);
+  }, [syncListsToCloud, syncHomeMealsToCloud, untombstone]);
 
   const updateRecipe = useCallback((listId: string, recipeId: string, updates: Partial<Recipe>) => {
     setLists((prev) => {
@@ -1348,13 +1591,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud, syncHomeMealsToCloud]);
 
   const removeRecipe = useCallback((listId: string, recipeId: string) => {
+    // Tombstone this recipe's membership in this list so the union can't re-add
+    // it from a stale cloud copy. (It stays in the "All Recipes" cookbook.)
+    tombstone('members', memberKey(listId, recipeId));
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).filter((r) => r.id !== recipeId) } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+  }, [syncListsToCloud, tombstone]);
 
   // ── Save-a-recipe-to-a-list helpers (used by the recipe detail page) ──
   // These work in terms of a HomeMeal — the canonical recipe shape the
@@ -1378,6 +1624,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // membership checks + later sub-list saves dedupe cleanly) and carries
   // its source-author attribution. No-op if already present.
   const addRecipeToCookbook = useCallback((meal: HomeMeal) => {
+    // Re-adding a previously deleted recipe must clear its tombstone, else the
+    // load-time filter would strip it straight back out.
+    if (deletedMealIdsRef.current.delete(meal.id)) {
+      saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(deletedMealIdsRef.current));
+    }
     setHomeMeals((prev) => {
       if (prev.some((m) => m.id === meal.id)) return prev;
       const next = [...prev, { ...meal, createdAt: meal.createdAt || Date.now() }];
@@ -1390,6 +1641,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Remove a recipe from the cookbook pool. Used to un-save a recipe that
   // was saved from another user from the "All Recipes" target.
   const removeRecipeFromCookbook = useCallback((recipeId: string) => {
+    deletedMealIdsRef.current.add(recipeId);
+    saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(deletedMealIdsRef.current));
     setHomeMeals((prev) => {
       if (!prev.some((m) => m.id === recipeId)) return prev;
       const next = prev.filter((m) => m.id !== recipeId);
@@ -1448,6 +1701,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncHomeMealsToCloud]);
 
   const deleteHomeMeal = useCallback((id: string) => {
+    // Tombstone the id first so the load-time union can't resurrect it from a
+    // store that didn't get this update (or a write that hasn't landed yet).
+    deletedMealIdsRef.current.add(id);
+    saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(deletedMealIdsRef.current));
     setHomeMeals((prev) => {
       const next = prev.filter((m) => m.id !== id);
       saveToStorage(STORAGE_KEY_HOME_MEALS, next);
@@ -1538,46 +1795,53 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // (or absent), this call is just editing the current rating in
     // place — we replace the row and leave visit history alone.
     const isNewVisit = options?.isNewVisit === true;
+    // Re-rating a previously-deleted restaurant clears its tombstone so it
+    // isn't filtered straight back out on the next load.
+    untombstone('restaurants', rating.restaurantId);
     // Capture previous-state context for the toast: was this restaurant
     // already rated? Read from the closure ratings (committed state) since
     // the setRatings updater below runs during render — by then it's too
     // late to know the prior value.
     const wasRated = ratings.some((r) => r.restaurantId === rating.restaurantId);
-    setRatings((prev) => {
-      const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
-      // Only archive the existing rating when this is genuinely a new
-      // visit. Skipping this on edits is what stops "Update Current"
-      // from creating a phantom history entry every time the user
-      // tweaks a note or a tag. The write goes to BOTH localStorage
-      // (synchronous, persists across reloads / sign-out) and Supabase
-      // (async, cross-device) so visit records survive either way.
-      if (existing && isNewVisit) {
-        appendLocalVisitRecord(existing.restaurantId, {
-          score: existing.score,
-          notes: existing.notes,
-          visit_date: existing.visitDate,
-          tags: existing.tags,
-          would_return: existing.wouldReturn,
-          photos: (existing.photos || []).map((p) => ({
-            url: p.url,
-            caption: p.caption || '',
-            isFavorite: !!p.isFavorite,
-          })),
-          friend_ids: existing.friendIds || [],
-        });
-        if (userIdRef.current) {
-          saveVisitRecord(userIdRef.current, {
-            restaurantId: existing.restaurantId,
-            score: existing.score,
-            notes: existing.notes,
-            visitDate: existing.visitDate,
-            tags: existing.tags,
-            wouldReturn: existing.wouldReturn,
-            photos: existing.photos || [],
-            friendIds: existing.friendIds || [],
-          }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
-        }
+    // Only archive the existing rating when this is genuinely a new visit.
+    // Skipping this on edits is what stops "Update Current" from creating a
+    // phantom history entry every time the user tweaks a note or a tag. Done
+    // OUTSIDE the setRatings updater (using the committed `ratings` closure, the
+    // same source `wasRated` reads) so the localStorage blob is updated before
+    // we mirror it to the cloud, and so we don't run side effects in a render
+    // updater. The write goes to localStorage (synchronous, survives reloads),
+    // the durable user_app_data stash (cross-device, always works), AND the
+    // best-effort visit_history table (a no-op where the table is absent).
+    const existingForArchive = ratings.find((r) => r.restaurantId === rating.restaurantId);
+    if (existingForArchive && isNewVisit) {
+      appendLocalVisitRecord(existingForArchive.restaurantId, {
+        score: existingForArchive.score,
+        notes: existingForArchive.notes,
+        visit_date: existingForArchive.visitDate,
+        tags: existingForArchive.tags,
+        would_return: existingForArchive.wouldReturn,
+        photos: (existingForArchive.photos || []).map((p) => ({
+          url: p.url,
+          caption: p.caption || '',
+          isFavorite: !!p.isFavorite,
+        })),
+        friend_ids: existingForArchive.friendIds || [],
+      });
+      syncVisitHistoryToCloud();
+      if (userIdRef.current) {
+        saveVisitRecord(userIdRef.current, {
+          restaurantId: existingForArchive.restaurantId,
+          score: existingForArchive.score,
+          notes: existingForArchive.notes,
+          visitDate: existingForArchive.visitDate,
+          tags: existingForArchive.tags,
+          wouldReturn: existingForArchive.wouldReturn,
+          photos: existingForArchive.photos || [],
+          friendIds: existingForArchive.friendIds || [],
+        }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
       }
+    }
+    setRatings((prev) => {
       const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
@@ -1636,7 +1900,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast]);
+  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast, untombstone, syncVisitHistoryToCloud]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
@@ -1648,10 +1912,32 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncRatingsToCloud]);
 
   const removeRating = useCallback((restaurantId: string) => {
+    // Tombstone the restaurant so the load-time union can't resurrect it from a
+    // stale cloud copy (which is what produced the broken, nameless cards).
+    tombstone('restaurants', restaurantId);
     setRatings((prev) => {
       const next = prev.filter((r) => r.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
+      return next;
+    });
+    // A deleted rating must also leave every list it was in — otherwise the
+    // list keeps a dangling id that the reconciliation renders as an empty
+    // "Location unavailable" card after reload.
+    setLists((prev) => {
+      let changed = false;
+      const next = prev.map((l) => {
+        const restaurantIds = l.restaurantIds.filter((id) => id !== restaurantId);
+        const wishlistIds = (l.wishlistIds || []).filter((id) => id !== restaurantId);
+        if (restaurantIds.length !== l.restaurantIds.length || wishlistIds.length !== (l.wishlistIds || []).length) {
+          changed = true;
+          return { ...l, restaurantIds, wishlistIds };
+        }
+        return l;
+      });
+      if (!changed) return prev;
+      saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
     setCustomOrderState((prev) => {
@@ -1667,6 +1953,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // mirror and the Supabase visit_history table outlive the
     // current rating row.
     clearLocalVisitHistory(restaurantId);
+    syncVisitHistoryToCloud();
     if (userIdRef.current) {
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
@@ -1674,7 +1961,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         console.warn('[VisitHistory] Failed to delete visit records for', restaurantId);
       });
     }
-  }, [syncRatingsToCloud]);
+  }, [syncRatingsToCloud, syncListsToCloud, tombstone, syncVisitHistoryToCloud]);
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);
 
@@ -1708,6 +1995,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       // Pull the promoted record OUT of history (both stores) so it
       // doesn't appear twice once it becomes the active rating.
       removeLocalVisitRecord(restaurantId, promote.id);
+      syncVisitHistoryToCloud();
       if (userIdRef.current && !String(promote.id).startsWith('local-')) {
         deleteVisitRecord(userIdRef.current, promote.id).catch(() => {});
       }
@@ -1765,6 +2053,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     // Historical visit — just drop it from both stores.
     removeLocalVisitRecord(restaurantId, visitId);
+    syncVisitHistoryToCloud();
     if (userIdRef.current && !String(visitId).startsWith('local-')) {
       deleteVisitRecord(userIdRef.current, visitId).catch(() => {});
     }
@@ -1779,7 +2068,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
-  }, [removeRating, syncRatingsToCloud]);
+  }, [removeRating, syncRatingsToCloud, syncVisitHistoryToCloud]);
 
   // Lists
   const createList = useCallback((name: string, emoji: string, type?: CustomList['type']): CustomList => {
@@ -1796,13 +2085,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const deleteList = useCallback((id: string) => {
     // Built-in Want to Cook list is permanent — silently no-op.
     if (id === DEFAULT_WANT_TO_COOK_ID) return;
+    tombstone('lists', id);
     setLists((prev) => {
       const next = prev.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+  }, [syncListsToCloud, tombstone]);
 
   const renameList = useCallback((id: string, name: string, emoji: string) => {
     if (id === DEFAULT_WANT_TO_COOK_ID) return;
@@ -1815,6 +2105,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const addToList = useCallback((listId: string, restaurantId: string) => {
+    // Re-adding clears any "removed from this list" / "deleted restaurant"
+    // tombstone so the load reconciliation won't strip it back out.
+    untombstone('members', memberKey(listId, restaurantId));
+    untombstone('restaurants', restaurantId);
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId && !l.restaurantIds.includes(restaurantId)
         ? { ...l, restaurantIds: [...l.restaurantIds, restaurantId] }
@@ -1839,9 +2133,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud, syncRatingsToCloud]);
+  }, [syncListsToCloud, syncRatingsToCloud, untombstone]);
 
   const removeFromList = useCallback((listId: string, restaurantId: string) => {
+    // Tombstone this membership so the reconciliation can't re-add it from a
+    // stale rating.listIds in the cloud.
+    tombstone('members', memberKey(listId, restaurantId));
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId
         ? { ...l, restaurantIds: l.restaurantIds.filter((r) => r !== restaurantId) }
@@ -1866,9 +2163,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud, syncRatingsToCloud]);
+  }, [syncListsToCloud, syncRatingsToCloud, tombstone]);
 
   const addToWishlistInList = useCallback((listId: string, restaurantId: string) => {
+    untombstone('members', memberKey(listId, restaurantId));
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId && !l.wishlistIds.includes(restaurantId)
         ? { ...l, wishlistIds: [...l.wishlistIds, restaurantId] }
@@ -1891,9 +2189,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncWishlistToCloud(next);
       return next;
     });
-  }, [syncListsToCloud, syncWishlistToCloud]);
+  }, [syncListsToCloud, syncWishlistToCloud, untombstone]);
 
   const removeFromWishlistInList = useCallback((listId: string, restaurantId: string) => {
+    tombstone('members', memberKey(listId, restaurantId));
     setLists((prev) => {
       const next = prev.map((l) => l.id === listId
         ? { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== restaurantId) }
@@ -1916,7 +2215,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncWishlistToCloud(next);
       return next;
     });
-  }, [syncListsToCloud, syncWishlistToCloud]);
+  }, [syncListsToCloud, syncWishlistToCloud, tombstone]);
 
   const getListsForRestaurant = useCallback((restaurantId: string) => lists.filter((l) => l.restaurantIds.includes(restaurantId)), [lists]);
 
@@ -1942,6 +2241,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Wishlist
   const addToWishlist = useCallback((item: WishlistItem) => {
+    untombstone('wishlist', item.restaurantId);
     setWishlist((prev) => {
       const existing = prev.find((w) => w.restaurantId === item.restaurantId);
       const next = existing
@@ -1968,9 +2268,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
     cacheRestaurantMeta({ id: item.restaurantId, name: item.name, image: item.image, cuisine: item.cuisine, price: item.price, address: item.address });
-  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud]);
+  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, untombstone]);
 
   const removeFromWishlist = useCallback((restaurantId: string) => {
+    tombstone('wishlist', restaurantId);
     setWishlist((prev) => {
       const next = prev.filter((w) => w.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_WISHLIST, next);
@@ -1985,7 +2286,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncListsToCloud(next);
       return next;
     });
-  }, [syncWishlistToCloud, syncListsToCloud]);
+  }, [syncWishlistToCloud, syncListsToCloud, tombstone]);
 
   const isWishlisted = useCallback((restaurantId: string) => wishlist.some((w) => w.restaurantId === restaurantId), [wishlist]);
 
@@ -1999,6 +2300,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
     cacheRestaurantMeta(restaurant);
     const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
+    // Removing tombstones the entry; re-adding clears it.
+    if (isOn) tombstone('wishlist', restaurant.id);
+    else untombstone('wishlist', restaurant.id);
     setWishlist((prev) => {
       // Re-check inside the updater so two fast taps still produce the
       // right end state — prev is the most up-to-date queue value.
@@ -2042,7 +2346,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       subtitle: restaurant.name,
       variant: isOn ? 'wishlist-remove' : 'wishlist-add',
     });
-  }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast]);
+  }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast, tombstone, untombstone]);
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {

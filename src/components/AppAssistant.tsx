@@ -84,7 +84,7 @@ function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
      this returns true. Phone-mode-only because desktop sidebars
      don't collide with the FAB. ─────────────────────────────── */
 const HIDE_BOTTOM_NAV_PATHS = new Set<string>([
-  '/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create',
+  '/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create',
 ]);
 
 function routeShowsBottomNav(pathname: string): boolean {

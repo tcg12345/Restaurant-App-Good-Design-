@@ -135,12 +135,14 @@ export const MethodChooser: React.FC<{
         title="Slider"
         subtitle="Pick a score from 1–10 yourself"
         onClick={() => onPick('slider')}
+        iconClass="bg-gradient-to-br from-primary/15 to-primary/[0.05] text-primary"
       />
       <ChooserCard
         icon={<Swords size={22} />}
         title="Head-to-Head"
         subtitle="Compare to restaurants you've already rated"
         onClick={() => onPick('h2h')}
+        iconClass="bg-gradient-to-br from-secondary/20 to-secondary/[0.06] text-secondary"
       />
     </div>
   </motion.div>
@@ -151,23 +153,27 @@ const ChooserCard: React.FC<{
   title: string;
   subtitle: string;
   onClick: () => void;
-}> = ({ icon, title, subtitle, onClick }) => (
+  iconClass?: string;
+}> = ({ icon, title, subtitle, onClick, iconClass = 'bg-on-surface/[0.05] text-on-surface/75' }) => (
   <motion.button
     type="button"
     onClick={onClick}
     whileHover={{ y: -2 }}
     whileTap={{ scale: 0.98 }}
     transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/10 text-left shadow-sm hover:shadow-md hover:border-on-surface/25 transition-all"
+    className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white border border-on-surface/10 text-left shadow-sm hover:shadow-md hover:border-on-surface/20 transition-all"
   >
-    <div className="w-12 h-12 rounded-xl bg-on-surface/[0.05] flex items-center justify-center flex-shrink-0 text-on-surface/75">
+    <div className={cn(
+      "w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ring-1 ring-inset ring-black/[0.04]",
+      iconClass,
+    )}>
       {icon}
     </div>
     <div className="flex-1 min-w-0">
       <div className="font-serif font-bold text-[17px] mb-0.5">{title}</div>
       <div className="text-[12px] text-on-surface/55 leading-snug">{subtitle}</div>
     </div>
-    <ChevronRight size={18} className="text-on-surface/25 flex-shrink-0" />
+    <ChevronRight size={18} className="text-on-surface/25 flex-shrink-0 group-hover:translate-x-0.5 group-hover:text-on-surface/40 transition-all" />
   </motion.button>
 );
 
