@@ -785,7 +785,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               ? 'h-full rounded-none'
               : 'h-[94%] sm:max-w-[1080px] sm:max-h-[94vh] sm:h-[860px] rounded-3xl',
           )}
-          style={{ backgroundColor: 'var(--cream, #EDE7D9)' }}
+          style={{ backgroundColor: 'var(--cream, #FFFFFF)' }}
         >
           <div className={`guide-creator${isPhone ? ' is-phone' : ''}`}>
             {!isPhone && (

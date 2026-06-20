@@ -11,13 +11,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Crown, Plus, Filter, ArrowLeft, Check } from 'lucide-react';
+import { Search, X, Crown, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getFriends, getProfilesByIds, getFriendActivity, getExpertProfiles,
   getUserRatings, getFollowCounts, followPublicAccount, removeFriend,
-  type FriendInfo, type UserProfile, type CommunityRating,
+  getPendingRequests, acceptFriendRequest, declineFriendRequest,
+  getFollowerIds, getSentRequestIds, sendFriendRequest, searchUsersByUsername,
+  type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating,
 } from '../lib/supabase-community';
 import { ScoreBadge } from './ScoreBadge';
 import { AddFriendSheet } from './AddFriendSheet';
@@ -73,18 +75,41 @@ interface CirclePanelProps {
 
 export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
 
   const [tab, setTab] = useState<Tab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [addOpen, setAddOpen] = useState(false);
 
+  // Incoming friend requests (rows where the current user is the friend_id
+  // and status is still 'pending'). Surfaced as a dedicated section so they
+  // can be accepted/declined — previously there was no UI for this.
+  const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [requestProfiles, setRequestProfiles] = useState<Record<string, UserProfile>>({});
+  const [requestBusy, setRequestBusy] = useState<Set<string>>(new Set());
+  // Follow-back flow: once you accept a request the row stays visible and its
+  // button becomes "Follow back" (Instagram-style — mutual needs both sides).
+  const [acceptedReqIds, setAcceptedReqIds] = useState<Set<string>>(new Set());
+  // My follow status toward each requester (after a follow-back): 'pending'
+  // (they're private, awaiting their approval) or 'accepted' (now mutual).
+  const [followBackState, setFollowBackState] = useState<Record<string, 'pending' | 'accepted'>>({});
+  // Users I've already sent a (still-pending) follow request to.
+  const [sentRequestIds, setSentRequestIds] = useState<Set<string>>(new Set());
+
   const [friends, setFriends] = useState<FriendInfo[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [activityProfiles, setActivityProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
+
+  // Global people search — finds ANY user on the app (not just friends /
+  // experts / activity), shown as a "People" section with a follow button.
+  const [peopleResults, setPeopleResults] = useState<UserProfile[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleBusy, setPeopleBusy] = useState<Set<string>>(new Set());
+  // Who follows me (their accepted edge → me) — drives "Follow back".
+  const [followerIds, setFollowerIds] = useState<Set<string>>(new Set());
 
   const [experts, setExperts] = useState<UserProfile[]>([]);
   const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
@@ -103,13 +128,22 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const friendList = await getFriends(userId);
+      // "My friends" = MUTUAL friends (people I follow who also follow me).
+      // `followedIds` stays = everyone I follow (one-directional), so the
+      // Experts list still shows Follow/Following correctly.
+      const [followingList, followerIds] = await Promise.all([
+        getFriends(userId),
+        getFollowerIds(userId),
+      ]);
       if (cancelled) return;
-      setFriends(friendList);
-      setFollowedIds(new Set(friendList.map((f) => f.friend_id)));
+      const followerSet = new Set(followerIds);
+      const mutual = followingList.filter((f) => followerSet.has(f.friend_id));
+      setFriends(mutual);
+      setFollowedIds(new Set(followingList.map((f) => f.friend_id)));
+      setFollowerIds(followerSet);
 
-      if (friendList.length > 0) {
-        const ids = friendList.map((f) => f.friend_id);
+      if (mutual.length > 0) {
+        const ids = mutual.map((f) => f.friend_id);
         const [profs, act] = await Promise.all([
           getProfilesByIds(ids),
           getFriendActivity(ids, 30),
@@ -186,6 +220,153 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     setExpertFollowerCounts((prev) => ({ ...prev, [expertId]: Math.max(0, (prev[expertId] || 0) - 1) }));
   }, [userId]);
 
+  // ── Incoming friend requests ──────────────────────────────────────────
+  const loadRequests = useCallback(async () => {
+    if (!userId) { setRequests([]); return; }
+    const [reqs, sentIds] = await Promise.all([
+      getPendingRequests(userId),
+      getSentRequestIds(userId),
+    ]);
+    setRequests(reqs);
+    setSentRequestIds(new Set(sentIds));
+    const ids = [...new Set(reqs.map((r) => r.user_id))];
+    if (ids.length > 0) {
+      const profs = await getProfilesByIds(ids);
+      setRequestProfiles((prev) => ({ ...prev, ...profs }));
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => { if (!cancelled) await loadRequests(); })();
+    return () => { cancelled = true; };
+  }, [loadRequests]);
+
+  // Accept is ONE-DIRECTIONAL: the requester now follows me. The row stays
+  // visible and flips to "Follow back" so I can make it mutual.
+  const handleAcceptRequest = useCallback(async (req: FriendRequest) => {
+    if (!userId || requestBusy.has(req.id)) return;
+    setRequestBusy((prev) => new Set(prev).add(req.id));
+    const ok = await acceptFriendRequest(req.id);
+    if (ok) {
+      setAcceptedReqIds((prev) => new Set(prev).add(req.id));
+      void refreshPendingRequests();
+    } else {
+      alert("Couldn't accept that request. Try again.");
+    }
+    setRequestBusy((prev) => { const next = new Set(prev); next.delete(req.id); return next; });
+  }, [userId, requestBusy, refreshPendingRequests]);
+
+  // Follow back the requester — respects their privacy (public/expert →
+  // instant + now mutual; private → pending request they must approve).
+  const handleFollowBackRequest = useCallback(async (req: FriendRequest) => {
+    if (!userId || requestBusy.has(req.id)) return;
+    const prof = requestProfiles[req.user_id];
+    const immediate = !!(prof?.is_public || prof?.is_expert);
+    setRequestBusy((prev) => new Set(prev).add(req.id));
+    const ok = immediate
+      ? await followPublicAccount(userId, req.user_id)
+      : await sendFriendRequest(userId, req.user_id);
+    if (ok) {
+      if (immediate) {
+        // Now mutual — reflect in followedIds + My friends.
+        setFollowBackState((prev) => ({ ...prev, [req.user_id]: 'accepted' }));
+        setFollowedIds((prev) => new Set(prev).add(req.user_id));
+        setFriends((prev) => prev.some((f) => f.friend_id === req.user_id)
+          ? prev
+          : [...prev, { friend_id: req.user_id, status: 'accepted' }]);
+        if (prof) setFriendProfiles((prev) => ({ ...prev, [req.user_id]: prof }));
+      } else {
+        setFollowBackState((prev) => ({ ...prev, [req.user_id]: 'pending' }));
+      }
+    } else {
+      alert("Couldn't follow back. Try again.");
+    }
+    setRequestBusy((prev) => { const next = new Set(prev); next.delete(req.id); return next; });
+  }, [userId, requestBusy, requestProfiles]);
+
+  const handleDeclineRequest = useCallback(async (req: FriendRequest) => {
+    if (!userId || requestBusy.has(req.id)) return;
+    setRequestBusy((prev) => new Set(prev).add(req.id));
+    const ok = await declineFriendRequest(req.id);
+    if (ok) {
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      void refreshPendingRequests();
+    } else {
+      alert("Couldn't decline that request. Try again.");
+    }
+    setRequestBusy((prev) => { const next = new Set(prev); next.delete(req.id); return next; });
+  }, [userId, requestBusy, refreshPendingRequests]);
+
+  // ── Global people search ──────────────────────────────────────────────
+  // Debounced lookup of ANY user by username/name once there's a query.
+  useEffect(() => {
+    if (!userId) { setPeopleResults([]); return; }
+    const query = searchQuery.trim();
+    if (!query) { setPeopleResults([]); setPeopleLoading(false); return; }
+    let cancelled = false;
+    setPeopleLoading(true);
+    const handle = setTimeout(async () => {
+      const res = await searchUsersByUsername(query, userId);
+      if (!cancelled) { setPeopleResults(res); setPeopleLoading(false); }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [searchQuery, userId]);
+
+  // Incoming pending request id keyed by requester, so a search result that
+  // already sent ME a request shows "Accept".
+  const incomingByUser = useMemo(() => {
+    const m: Record<string, string> = {};
+    requests.forEach((r) => { m[r.user_id] = r.id; });
+    return m;
+  }, [requests]);
+
+  // Follow a person from search — respects their privacy (public/expert →
+  // instant; private → pending request). Becomes mutual immediately if they
+  // already follow me.
+  const followPerson = useCallback(async (p: UserProfile) => {
+    if (!userId || peopleBusy.has(p.user_id)) return;
+    if (followedIds.has(p.user_id) || sentRequestIds.has(p.user_id)) return;
+    setPeopleBusy((prev) => new Set(prev).add(p.user_id));
+    const immediate = !!(p.is_public || p.is_expert);
+    const ok = immediate
+      ? await followPublicAccount(userId, p.user_id)
+      : await sendFriendRequest(userId, p.user_id);
+    setPeopleBusy((prev) => { const next = new Set(prev); next.delete(p.user_id); return next; });
+    if (ok) {
+      if (immediate) {
+        setFollowedIds((prev) => new Set(prev).add(p.user_id));
+        if (followerIds.has(p.user_id)) {
+          // They already follow me → now mutual.
+          setFriends((prev) => prev.some((f) => f.friend_id === p.user_id)
+            ? prev : [...prev, { friend_id: p.user_id, status: 'accepted' }]);
+          setFriendProfiles((prev) => ({ ...prev, [p.user_id]: p }));
+        }
+      } else {
+        setSentRequestIds((prev) => new Set(prev).add(p.user_id));
+      }
+    } else {
+      alert("Couldn't follow. Try again.");
+    }
+  }, [userId, peopleBusy, followedIds, sentRequestIds, followerIds]);
+
+  // Accept a request from a search result (they sent me one) — one-directional;
+  // afterwards the row offers "Follow back".
+  const acceptPerson = useCallback(async (p: UserProfile) => {
+    const reqId = incomingByUser[p.user_id];
+    if (!userId || !reqId || peopleBusy.has(p.user_id)) return;
+    setPeopleBusy((prev) => new Set(prev).add(p.user_id));
+    const ok = await acceptFriendRequest(reqId);
+    setPeopleBusy((prev) => { const next = new Set(prev); next.delete(p.user_id); return next; });
+    if (ok) {
+      setAcceptedReqIds((prev) => new Set(prev).add(reqId));
+      setFollowerIds((prev) => new Set(prev).add(p.user_id));
+      void refreshPendingRequests();
+    } else {
+      alert("Couldn't accept. Try again.");
+    }
+  }, [userId, incomingByUser, peopleBusy, refreshPendingRequests]);
+
   const q = searchQuery.trim().toLowerCase();
   const friendsFiltered = useMemo(() => {
     if (!q) return friends;
@@ -247,6 +428,189 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const expertsCount = experts.length;
 
   // ── Section renderers ─────────────────────────────────────────────
+  // People search results — anyone on the app matching the query, each with a
+  // follow control. Only rendered while there's a search query.
+  const renderPeople = () => (
+    <section>
+      <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55 mb-3">
+        People
+      </h4>
+      {peopleLoading && peopleResults.length === 0 ? (
+        <ul className="space-y-3.5">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-on-surface/[0.05] animate-pulse" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3 w-32 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : peopleResults.length === 0 ? (
+        <p className="text-[12.5px] text-on-surface/40">No people match &ldquo;{searchQuery.trim()}&rdquo;.</p>
+      ) : (
+        <ul className="space-y-3.5">
+          {peopleResults.map((p) => {
+            const color = avatarColor(p.user_id);
+            const initial = initialOf(p.display_name || p.username);
+            const busy = peopleBusy.has(p.user_id);
+            const reqId = incomingByUser[p.user_id];
+            const status: 'following' | 'requested' | 'incoming' | 'followback' | 'none' =
+              followedIds.has(p.user_id) ? 'following'
+              : sentRequestIds.has(p.user_id) ? 'requested'
+              : (reqId && !acceptedReqIds.has(reqId)) ? 'incoming'
+              : followerIds.has(p.user_id) ? 'followback'
+              : 'none';
+            const pillNeutral = 'inline-flex items-center gap-1.5 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 flex-shrink-0';
+            const pillPrimary = 'inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0';
+            return (
+              <li key={p.user_id} className="flex items-center gap-3">
+                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="relative flex-shrink-0">
+                  <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
+                    <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
+                  </div>
+                  {p.is_expert && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center ring-2 ring-surface">
+                      <Crown size={9} className="text-white" strokeWidth={2.4} />
+                    </span>
+                  )}
+                </Link>
+                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 group">
+                  <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
+                    {p.display_name || p.username || 'User'}
+                  </p>
+                  <p className="text-[12px] text-on-surface/55 truncate mt-0.5">@{p.username}</p>
+                </Link>
+                {status === 'following' ? (
+                  <span className={pillNeutral}><Check size={13} /> Following</span>
+                ) : status === 'requested' ? (
+                  <span className={pillNeutral}><Check size={13} /> Requested</span>
+                ) : status === 'incoming' ? (
+                  <button type="button" onClick={() => acceptPerson(p)} disabled={busy} className={pillPrimary}>
+                    {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />} Accept
+                  </button>
+                ) : status === 'followback' ? (
+                  <button type="button" onClick={() => followPerson(p)} disabled={busy} className={pillPrimary}>
+                    {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />} Follow back
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => followPerson(p)} disabled={busy} className={pillPrimary}>
+                    {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />} Follow
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+
+  // Incoming friend requests — a distinct, highlighted card so it's
+  // obvious where to accept/decline. Hidden entirely when there are none.
+  const renderRequests = () => {
+    if (requests.length === 0) return null;
+    return (
+      <section className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="inline-grid place-items-center min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[11px] font-bold tabular-nums">
+            {requests.length}
+          </span>
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/70">
+            Friend request{requests.length === 1 ? '' : 's'}
+          </h4>
+        </div>
+        <ul className="space-y-3">
+          {requests.map((r) => {
+            const p = requestProfiles[r.user_id];
+            const name = p?.display_name || p?.username || 'Someone';
+            const color = avatarColor(r.user_id);
+            const initial = initialOf(name);
+            const busy = requestBusy.has(r.id);
+            const accepted = acceptedReqIds.has(r.id);
+            // My follow status toward this requester (drives the post-accept
+            // button): explicit follow-back state wins, else derive from what
+            // I already follow / have requested.
+            const myFollow: 'none' | 'pending' | 'accepted' =
+              followBackState[r.user_id]
+              ?? (followedIds.has(r.user_id) ? 'accepted'
+                : sentRequestIds.has(r.user_id) ? 'pending'
+                : 'none');
+            return (
+              <li key={r.id} className="flex items-center gap-3">
+                <Link
+                  to={`/user/${p?.username || ''}`}
+                  onClick={() => onClose?.()}
+                  className="flex-shrink-0"
+                >
+                  <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
+                    <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
+                  </div>
+                </Link>
+                <Link
+                  to={`/user/${p?.username || ''}`}
+                  onClick={() => onClose?.()}
+                  className="flex-1 min-w-0 group"
+                >
+                  <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
+                    {name}
+                  </p>
+                  <p className="text-[12px] text-on-surface/55 truncate mt-0.5">
+                    {p?.username ? `@${p.username}` : 'wants to be friends'}
+                    {r.created_at && <span className="text-on-surface/30"> · {timeAgoShort(r.created_at)}</span>}
+                  </p>
+                </Link>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {!accepted ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptRequest(r)}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                      >
+                        {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeclineRequest(r)}
+                        disabled={busy}
+                        aria-label={`Decline request from ${name}`}
+                        className="w-8 h-8 rounded-full border border-on-surface/15 grid place-items-center text-on-surface/55 hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors disabled:opacity-60"
+                      >
+                        <X size={15} />
+                      </button>
+                    </>
+                  ) : myFollow === 'accepted' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55">
+                      <Check size={13} /> Friends
+                    </span>
+                  ) : myFollow === 'pending' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55">
+                      <Check size={13} /> Requested
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleFollowBackRequest(r)}
+                      disabled={busy}
+                      className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                    >
+                      {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} strokeWidth={2.6} />}
+                      Follow back
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  };
+
   const renderFriendsAvatars = () => (
     <section>
       <div className="flex items-center justify-between mb-3.5">
@@ -669,19 +1033,26 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       <div className="flex-1 overflow-y-auto px-6 pt-5 pb-6">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
-        ) : tab === 'all' ? (
-          <div className="space-y-7">
-            {renderFriendsAvatars()}
-            {renderExpertsList(true)}
-            {renderActivity()}
-          </div>
-        ) : tab === 'friends' ? (
-          <div className="space-y-7">
-            {renderFriendsAvatars()}
-          </div>
         ) : (
           <div className="space-y-7">
-            {renderExpertsList(false)}
+            {/* People search — anyone on the app — shown first whenever the
+                search box has a query, across every tab. */}
+            {q && renderPeople()}
+            {tab === 'all' && (
+              <>
+                {renderRequests()}
+                {renderFriendsAvatars()}
+                {renderExpertsList(true)}
+                {renderActivity()}
+              </>
+            )}
+            {tab === 'friends' && (
+              <>
+                {renderRequests()}
+                {renderFriendsAvatars()}
+              </>
+            )}
+            {tab === 'experts' && renderExpertsList(false)}
           </div>
         )}
       </div>

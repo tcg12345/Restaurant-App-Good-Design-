@@ -245,12 +245,14 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
   const setOpen = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
-    setOpenInternal((prev) => {
-      const value = typeof next === 'function' ? (next as (p: boolean) => boolean)(prev) : next;
-      if (onOpenChange) onOpenChange(value);
-      return value;
-    });
-  }, [onOpenChange]);
+    // Resolve against the current (merged) open value, then fire both state
+    // updates directly. Calling onOpenChange *inside* the setOpenInternal
+    // updater warned "Cannot update a component while rendering a different
+    // component" when a parent owns the open state (controlled mode).
+    const value = typeof next === 'function' ? (next as (p: boolean) => boolean)(open) : next;
+    setOpenInternal(value);
+    if (onOpenChange) onOpenChange(value);
+  }, [onOpenChange, open]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HomeLocation[]>([]);
   const [searching, setSearching] = useState(false);

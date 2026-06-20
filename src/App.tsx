@@ -134,8 +134,9 @@ const AppContent: React.FC = () => {
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a
-  // profile). `phoneMode` is viewport/runtime-derived (≤768px or native), so
-  // it can never be true at the same time as `isDesktop` (≥1024px).
+  // profile). `phoneMode` is viewport/runtime-derived (<1024px or native) — the
+  // exact inverse of `isDesktop` (≥1024px), so every viewport is either phone
+  // or desktop-sidebar with no intermediate "tablet" layout in between.
   const useSidebar = isDesktop && !phoneMode;
 
   if (loading) {

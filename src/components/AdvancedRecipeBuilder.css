@@ -9,7 +9,7 @@
   flex-direction: column;
   height: 100%;
   width: 100%;
-  background: var(--cream, #EDE7D9);
+  background: var(--cream, #FFFFFF);
   color: var(--ink, #1C1816);
   font-family: var(--sans, 'Inter', system-ui, sans-serif);
 }
@@ -36,7 +36,7 @@
   display: flex;
   flex-direction: column;
   padding: 32px 24px 20px;
-  background: var(--surface-2, #FBF7F0);
+  background: var(--surface-2, #F7F7F7);
   border-right: 1px solid var(--border, rgba(31,26,23,0.08));
 }
 
@@ -133,7 +133,7 @@
 .arb-rail-step.is-current .arb-rail-step-circle {
   background: var(--ink, #1C1816);
   border-color: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
 }
 
 .arb-rail-step-text { min-width: 0; }
@@ -195,7 +195,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: var(--surface-2, #FBF7F0);
+  background: var(--surface-2, #F7F7F7);
   border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
 }
 .arb-phone-strip-progress {
@@ -230,7 +230,7 @@
 .arb-phone-strip-dot.is-current {
   background: var(--ink, #1C1816);
   border-color: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
 }
 .arb-phone-strip-label {
   font-size: 13px;
@@ -402,7 +402,7 @@
 .arb-chip:hover { background: rgba(var(--overlay-ink),0.04); }
 .arb-chip.is-active {
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
 }
 
 /* ── Difficulty cards ────────────────────────────────────────── */
@@ -770,7 +770,7 @@
 .advanced-recipe-builder.is-phone .arb-ingr-input { padding: 10px 9px; }
 .arb-ingr-input {
   padding: 10px 12px;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   border: 1.5px solid transparent;
   border-radius: 10px;
   font: inherit;
@@ -936,7 +936,7 @@
   padding: 10px;
   border-radius: 14px;
   border: 1px solid var(--border, rgba(31,26,23,0.08));
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   margin-bottom: 8px;
 }
 .arb-linked-thumb {
@@ -1084,7 +1084,7 @@
   height: 36px;
   border-radius: 50%;
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1513,14 +1513,14 @@
   align-items: center;
   gap: 14px;
   padding: 14px 18px;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   border: 1.5px solid transparent;
   border-radius: 14px;
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s, background 0.15s;
 }
-.arb-visibility-card:hover { background: var(--surface-2, #FBF7F0); }
+.arb-visibility-card:hover { background: var(--surface-2, #F7F7F7); }
 .arb-visibility-card.is-active {
   border-color: var(--ink, #1C1816);
   background: var(--surface);
@@ -1554,7 +1554,7 @@
   gap: 12px;
   padding: 18px 40px;
   border-top: 1px solid var(--border, rgba(31,26,23,0.08));
-  background: var(--cream, #EDE7D9);
+  background: var(--cream, #FFFFFF);
 }
 .advanced-recipe-builder.is-phone .arb-foot {
   padding: 14px 16px max(14px, env(safe-area-inset-bottom));
@@ -1587,7 +1587,7 @@
   padding: 12px 22px;
   border-radius: 999px;
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
   font-size: 14px;
   font-weight: 600;
   display: inline-flex;
@@ -1649,7 +1649,7 @@
 }
 .arb-draft-actions .resume {
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
 }
 .arb-draft-actions .discard {
   background: rgba(var(--overlay-ink),0.06);
@@ -1783,7 +1783,7 @@
 .arb-aiedit-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 .arb-aiedit-apply {
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
 }
 .arb-aiedit-apply:disabled { opacity: 0.5; cursor: not-allowed; }
 .arb-spin { animation: arb-spin 0.8s linear infinite; }
@@ -1837,7 +1837,7 @@
 
 .arb-m-header {
   flex-shrink: 0;
-  background: var(--surface-2, #FBF7F0);
+  background: var(--surface-2, #F7F7F7);
   border-bottom: 1px solid var(--border, rgba(31,26,23,0.08));
   /* Carry the iOS safe-area inset so the header clears the notch / status
      bar in the Capacitor app instead of sliding underneath it. */
@@ -1955,7 +1955,7 @@
   flex: 1;
   height: 5px;
   border-radius: 999px;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -2020,7 +2020,7 @@
   padding: 7px 20px;
   border-radius: 999px;
   background: var(--ink, #1C1816);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2062,7 +2062,7 @@
 .arb-cuisine-sheet {
   width: 100%;
   max-height: 88vh;
-  background: var(--cream, #EDE7D9);
+  background: var(--cream, #FFFFFF);
   border-radius: 22px 22px 0 0;
   display: flex;
   flex-direction: column;
@@ -2442,7 +2442,7 @@
   margin-bottom: 16px;
   border-radius: 16px;
   border: 1.5px dashed var(--border-strong, rgba(31,26,23,0.16));
-  background: var(--surface-2, #FBF7F0);
+  background: var(--surface-2, #F7F7F7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2558,7 +2558,7 @@
   height: 6px;
   margin-top: 20px;
   border-radius: 999px;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   cursor: pointer;
 }
 .arb-rating-slider::-webkit-slider-thumb {
@@ -2610,7 +2610,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   color: var(--ink-2, #4A423C);
   flex-shrink: 0;
 }
@@ -2656,7 +2656,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   color: var(--ink-2, #4A423C);
   flex-shrink: 0;
 }
@@ -2754,7 +2754,7 @@
   font-weight: 700;
   padding: 3px 7px;
   border-radius: 6px;
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   color: var(--ink-2, #4A423C);
 }
 .arb-prompt-send {
@@ -2771,7 +2771,7 @@
   transition: opacity 0.15s, transform 0.08s;
 }
 .arb-prompt-send:disabled {
-  background: var(--cream-2, #E6DFCE);
+  background: var(--cream-2, #F1F1F1);
   color: var(--muted-2, #B8AFA4);
   cursor: default;
 }
@@ -2990,7 +2990,7 @@
   padding: 8px 22px;
   border-radius: 999px;
   background: var(--accent, #A8392A);
-  color: var(--cream, #EDE7D9);
+  color: var(--cream, #FFFFFF);
   font-family: var(--serif, Georgia, serif);
   font-size: 14.5px;
   font-weight: 600;

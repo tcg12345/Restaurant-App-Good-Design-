@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark } from 'lucide-react';
+import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -305,7 +305,7 @@ function placeholderGradient(seed: string, sat = 50, light = 52): string {
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setHideBottomNav, phoneMode } = useSettings();
+  const { setHideBottomNav, phoneMode, darkMode } = useSettings();
   // Michelin dataset readiness. michCuisinePrice() overrides a place's
   // cuisine/price from the Guide data when matched (no marker on cards — that's
   // detail-page only); falls back to the supplied Google-derived values.
@@ -601,9 +601,30 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (navClickRef.current) { navClickRef.current = false; return; }
     setNavHistory([selectedPlace.id]);
   }, [selectedPlace]);
-  const [activeStyle, setActiveStyle] = useState<string>('light');
+  // Default the map theme to the app's current mode (dark app → dark map).
+  // The user can still override via the style picker.
+  const [activeStyle, setActiveStyle] = useState<string>(darkMode ? 'dark' : 'light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
+  // Refs so the map-init closure and the dark-mode sync effect read live values
+  // without forcing the heavy map effect to re-run.
+  const darkModeRef = useRef(darkMode);
+  darkModeRef.current = darkMode;
+  const activeStyleRef = useRef(activeStyle);
+  activeStyleRef.current = activeStyle;
+  // Follow the app's dark-mode toggle while the map is open — but only when on a
+  // basic light/dark theme, so a manual satellite/streets choice is respected.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const cur = activeStyleRef.current;
+    if (cur !== 'light' && cur !== 'dark') return;
+    const targetId = darkMode ? 'dark' : 'light';
+    if (cur === targetId) return;
+    const target = MAP_STYLES.find((s) => s.id === targetId);
+    if (target) { try { map.setStyle(target.style); } catch { /* style swap best-effort */ } setActiveStyle(targetId); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [darkMode]);
   const [places, setPlaces] = useState<PlaceResult[]>(() => tabDataCache.discoverPlaces);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
@@ -656,7 +677,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [showSearchHere, setShowSearchHere] = useState(false);
   // Dismissible first-time hint that explains the map-mode tabs. State-only —
   // resets on every mount so we don't need to plumb anything into storage.
-  const [showModeHint, setShowModeHint] = useState(true);
 
   // Location search
   const [locationSearchOpen, setLocationSearchOpen] = useState(false);
@@ -735,20 +755,45 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const isDraggingRef = useRef(false);
   // Peek shows the sheet header (title + search + tabs) plus a glimpse of the
   // first result, matching the reference's map-prominent layout.
-  const PEEK_HEIGHT = 300;
+  // Collapsed height: just the drag handle + the "Discover" title peeking at the
+  // bottom, so the map gets almost the whole screen. Drag up for the list.
+  const PEEK_HEIGHT = 104;
   const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  // On the map page the sheet's tallest state is 'half' — capped so the map
-  // always stays visible above it (the user can't drag it fully up). Home keeps
-  // the taller sheet since it has no map underneath.
-  const HALF_HEIGHT = (typeof window !== 'undefined' ? window.innerHeight : 800) * (mode === 'map' ? 0.55 : 0.85);
+  // Safe-area inset at the top (status bar / notch), read once. The map sheet's
+  // top edge never rises above this, so it can't slide under the notch.
+  const safeTopRef = useRef<number | null>(null);
+  if (safeTopRef.current === null) {
+    safeTopRef.current = typeof window !== 'undefined'
+      ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat-top')) || 0)
+      : 0;
+  }
+  // On the map page the sheet is a true bottom sheet: it expands to ~88% of the
+  // screen (its tallest state, 'half') but its top always stays clear of the
+  // safe area — it can never reach a full-screen state or slide into the notch.
+  // The top edge sits at the larger of 12% of the screen or the safe-area inset
+  // plus a small gap. Home has no map underneath, so it keeps the 85% partial.
+  const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTopRef.current + 12);
+  const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
-    // Hard cap on the map page: the sheet can never rise above its 'half'
-    // position, so the map underneath is always visible — no matter what
-    // state it's in or how far it's dragged.
+    // Hard cap on the map page: the sheet top can never rise above its 'half'
+    // position (≈88%, below the safe area), so the map stays visible and the
+    // sheet never enters the notch — no matter the state or how far it's dragged.
     if (mode === 'map') y = Math.max(y, FULL_HEIGHT - HALF_HEIGHT);
     return y;
   };
+
+  // Single source of truth for the sheet's vertical position. Driving one motion
+  // value (instead of swapping inline transforms) keeps every transition — taps,
+  // marker selection, drag-release snap-back, programmatic opens — a smooth
+  // spring with no instant jumps.
+  const SHEET_SPRING = { type: 'spring' as const, damping: 32, stiffness: 300, mass: 0.8 };
+  const sheetY = useMotionValue(getSheetY(mode === 'map' ? 'peek' : 'full'));
+  useEffect(() => {
+    const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
+    return () => controls.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetState, mode, FULL_HEIGHT]);
 
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
@@ -1623,39 +1668,42 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     myLocalRatings.forEach((r) => { lookup[r.restaurantId] = Number(r.score) || 0; });
     return lookup;
   }, [myLocalRatings]);
+  // Ref so the marker builder (stable callback) can read the latest ratings
+  // without being re-created — which would rebuild every marker on each rating.
+  const userRatingMapRef = useRef(userRatingMap);
+  userRatingMapRef.current = userRatingMap;
 
-  // Create a marker element for a place — plain pin on the discover map.
-  // We intentionally do NOT surface the user's own rating here; only expert
-  // rating markers (rendered via the expert overlay) should appear alongside
-  // discover results. User-rated markers live on the My Ratings map.
+  // Create a marker element for a place — a score badge matching the location
+  // map: a filled, score-coloured circle with the rating in white. Shows the
+  // user's own rating if they've rated it, otherwise the Google rating mapped
+  // to the 0–10 scale; unrated places fall back to a neutral pin. The coloured
+  // fill reads softly on both light and dark map themes (vs. a stark white pin).
   const createMarkerElement = useCallback((place: PlaceResult) => {
-    const hasRating = false;
-    const size = 36;
-    const iconSize = Math.round(size * 0.5);
+    const userScore = userRatingMapRef.current[place.id] || 0;
+    const score = userScore > 0 ? userScore : (place.rating > 0 ? place.rating * 2 : 0);
+    const color = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : score > 0 ? '#ef4444' : '#94a3b8';
+    const label = score > 0
+      ? `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`
+      : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
 
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
     el.innerHTML = `
-      <div class="marker-pin" data-id="${place.id}" style="
-        width: ${size}px;
-        height: ${size}px;
-        border-radius: 50%;
-        background: white;
-        border: 2px solid transparent;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      <div class="marker-pin" data-id="${place.id}" data-base-color="${color}" style="
+        width: 36px;
+        height: 36px;
+        border-radius: 9999px;
+        background: ${color};
+        border: 2px solid #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.28);
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         opacity: 0;
         transform: scale(0.4);
-        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-      ">
-        <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-          <circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+      ">${label}</div>
     `;
 
     el.addEventListener('mouseenter', () => {
@@ -1823,8 +1871,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const el = document.createElement('div');
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:white;border:2.5px solid #d4a017;box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
-      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#d4a017;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
       el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
@@ -2053,7 +2101,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      // Match the app theme on first load (dark app → dark map).
+      style: darkModeRef.current ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11',
       center: initialCenter,
       zoom: initialZoom,
       attributionControl: false,
@@ -2196,18 +2245,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
       const isSelected = id === selectedMarker;
-      if (isSelected) {
-        pin.style.background = 'var(--color-primary, #8B4513)';
-        pin.style.color = 'white';
-      } else {
-        pin.style.background = 'white';
-        pin.style.color = 'currentColor';
-      }
-      const svg = pin.querySelector('svg');
-      if (svg) {
-        svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
-        svg.setAttribute('fill', isSelected ? 'white' : 'none');
-      }
+      // Selected → brand primary; otherwise restore the marker's own score
+      // colour. Content (white score / pin glyph) stays white in both states.
+      pin.style.background = isSelected
+        ? 'var(--color-primary, #9f3012)'
+        : (pin.dataset.baseColor || '#94a3b8');
       el.style.zIndex = isSelected ? '5' : '';
     });
     // Ratings markers (myratings / friends / experts) — flat array, each
@@ -2770,29 +2812,30 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const iconSz = Math.round(markerSize * 0.42);
       const el = document.createElement('div');
 
-      // Friends: warm ring + friend initial; Experts: gold ring + star icon; MyRatings: score-colored with decimal
-      let borderStyle = '2px solid transparent';
+      // Filled, score/identity-coloured circle with white content + a thin white
+      // border — matches the location map's score pins and reads softly on both
+      // light and dark map themes (vs. the old stark-white circles).
+      let fillColor = '#94a3b8';
       let iconHtml = '';
       if (mapMode === 'friends') {
         const profile = friendProfiles[r.user_id];
         const initial = profile?.display_name?.charAt(0)?.toUpperCase() || '?';
-        borderStyle = `2.5px solid ${strokeColor}`;
-        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:${strokeColor};line-height:1;">${initial}</span>`;
+        fillColor = strokeColor;
+        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:#fff;line-height:1;">${initial}</span>`;
       } else if (mapMode === 'experts') {
-        borderStyle = `2.5px solid #d4a017`;
-        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        fillColor = '#d4a017';
+        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
       } else {
         // myratings: check if wishlisted (no rating) vs rated
         const wishlisted = isWishlisted(r.restaurant_id);
         if (wishlisted && score === 0) {
-          // Wishlist item — show heart icon
-          borderStyle = `2.5px solid #f87171`;
-          iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#f87171" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+          // Wishlist item — heart
+          fillColor = '#f87171';
+          iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
         } else {
-          // Rated item — score color with decimal
-          const sc = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
-          borderStyle = `2.5px solid ${sc}`;
-          iconHtml = `<span style="font-size:${Math.round(markerSize * 0.30)}px;font-weight:800;color:${sc};line-height:1;">${score.toFixed(1)}</span>`;
+          // Rated item — score color with the rating in white
+          fillColor = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : '#ef4444';
+          iconHtml = `<span style="font-size:${Math.round(markerSize * 0.32)}px;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`;
         }
       }
 
@@ -2801,7 +2844,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const inner = document.createElement('div');
       inner.className = 'marker-pin';
       inner.dataset.placeId = r.restaurant_id;
-      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease, box-shadow 0.2s ease;`;
+      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:${fillColor};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease, box-shadow 0.2s ease;`;
       inner.innerHTML = iconHtml;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
@@ -4069,13 +4112,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        animate={{ y: getSheetY(sheetState) }}
-        initial={{ y: getSheetY(mode === 'home' ? 'full' : 'peek') }}
-        transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
-        style={{ height: FULL_HEIGHT }}
+        style={{ y: sheetY, height: FULL_HEIGHT }}
         className={cn(
-          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
-          sheetState === 'full' ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none") : "glass rounded-t-[3rem]"
+          // NB: the white top hairline (frosted-glass edge) is applied only to
+          // the glass sheet states below — NOT the home full state. On the home
+          // page the sheet is full-height bg-surface, so a `border-white/40`
+          // there rendered as a stray grayish line across the very top in dark
+          // mode (only `bg-white`, not `border-white`, is remapped to the dark
+          // paper token).
+          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 flex flex-col will-change-transform",
+          sheetState === 'full'
+            ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
+            : "glass rounded-t-[3rem] border-t border-white/40"
         )}
       >
         {/* Handle — only this area is draggable (hidden in full state) */}
@@ -4098,29 +4146,29 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             if (!isDraggingRef.current) return;
             const delta = e.touches[0].clientY - dragStartYRef.current;
             dragCurrentYRef.current = delta;
-            const el = sheetRef.current;
-            if (!el) return;
             const baseY = getSheetY(sheetState);
             const minY = mode === 'map' ? getSheetY('half') : 0;
             const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
-            el.style.transform = `translateY(${clamped}px)`;
-            el.style.transition = 'none';
+            sheetY.set(clamped);
           }}
           onTouchEnd={() => {
             if (!isDraggingRef.current) return;
             isDraggingRef.current = false;
             const delta = dragCurrentYRef.current;
-            const el = sheetRef.current;
-            if (el) { el.style.transform = ''; el.style.transition = ''; }
+            let next = sheetState;
             if (sheetState === 'half') {
-              if (delta > 60) setSheetState('peek');
+              if (delta > 60) next = 'peek';
               else if (delta < -60 && mode !== 'map') {
                 if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
-                setSheetState('full');
+                next = 'full';
               }
             } else {
-              if (delta < -50) setSheetState('half');
+              if (delta < -50) next = 'half';
             }
+            setSheetState(next);
+            // Spring from the dragged position to the resolved snap (also covers
+            // the "no state change" case, which the state effect wouldn't fire).
+            animate(sheetY, getSheetY(next), SHEET_SPRING);
           }}
           onMouseDown={(e) => {
             e.preventDefault();
@@ -4131,28 +4179,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               if (!isDraggingRef.current) return;
               const delta = ev.clientY - dragStartYRef.current;
               dragCurrentYRef.current = delta;
-              const el = sheetRef.current;
-              if (!el) return;
               const baseY = getSheetY(sheetState);
               const minY = mode === 'map' ? getSheetY('half') : 0;
               const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
-              el.style.transform = `translateY(${clamped}px)`;
-              el.style.transition = 'none';
+              sheetY.set(clamped);
             };
             const onMouseUp = () => {
               isDraggingRef.current = false;
               const delta = dragCurrentYRef.current;
-              const el = sheetRef.current;
-              if (el) { el.style.transform = ''; el.style.transition = ''; }
+              let next = sheetState;
               if (sheetState === 'half') {
-                if (delta > 60) setSheetState('peek');
+                if (delta > 60) next = 'peek';
                 else if (delta < -60 && mode !== 'map') {
                   if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
-                  setSheetState('full');
+                  next = 'full';
                 }
               } else {
-                if (delta < -50) setSheetState('half');
+                if (delta < -50) next = 'half';
               }
+              setSheetState(next);
+              animate(sheetY, getSheetY(next), SHEET_SPRING);
               window.removeEventListener('mousemove', onMouseMove);
               window.removeEventListener('mouseup', onMouseUp);
             };
@@ -5421,34 +5467,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             <h2 className="font-serif font-bold text-[26px] leading-none tracking-tight">{activePanelMode.label}</h2>
             <span className="text-[13px] font-semibold text-on-surface/45">{panelResultCount} result{panelResultCount === 1 ? '' : 's'}</span>
           </div>
-          {/* First-time mode hint — dismissible banner above the tabs */}
-          <AnimatePresence initial={false}>
-            {showModeHint && !showSearchInput && (
-              <motion.div
-                key="mode-hint"
-                initial={{ opacity: 0, y: -6, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -6, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="mb-3 flex items-center gap-2.5 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3.5 py-2.5">
-                  <Info size={15} className="text-primary flex-shrink-0" />
-                  <p className="flex-1 text-[12px] font-medium text-on-surface/75 leading-snug">
-                    Tap the tabs below to switch between different map views — your ratings, friends, experts, hotels and more.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowModeHint(false)}
-                    className="w-7 h-7 -mr-1 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface/70 hover:bg-on-surface/[0.05] transition-colors flex-shrink-0"
-                    aria-label="Dismiss hint"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form

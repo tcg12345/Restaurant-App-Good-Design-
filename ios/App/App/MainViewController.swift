@@ -20,7 +20,7 @@ class MainViewController: CAPBridgeViewController {
     private let appBackground = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 19.0 / 255.0, green: 19.0 / 255.0, blue: 20.0 / 255.0, alpha: 1.0)   // #131314
-            : UIColor(red: 237.0 / 255.0, green: 231.0 / 255.0, blue: 217.0 / 255.0, alpha: 1.0) // #EDE7D9
+            : UIColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)                              // #FFFFFF
     }
 
     override func viewDidLoad() {

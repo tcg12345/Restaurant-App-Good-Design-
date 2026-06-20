@@ -118,11 +118,17 @@ export const AddRestaurantModal: React.FC = () => {
       setPriceAmount('');
       // Caller-requested initial page wins (e.g. opening directly to "notes"
       // from RestaurantPanel); otherwise the modal always opens on main.
+      // NOTE: `initialPage` doubles as a mode hint — 'new-visit' means "open the
+      // main chooser in Log-New-Visit mode" (handled via `startAsNewVisit`
+      // above), NOT a sub-page. Anything that isn't a real Page must fall back
+      // to 'main', else `setPage('new-visit')` renders a blank body (no case
+      // matches) — which is exactly what broke the Re-rate button.
+      const VALID_PAGES: Page[] = ['main', 'notes', 'tags', 'photos', 'price', 'date', 'friends', 'favorite-dishes'];
       const requestedInitial = addRestaurantModalInitialPage as Page | null;
-      setPage(requestedInitial && requestedInitial !== 'main' ? requestedInitial : 'main');
-      // Show the prominent chooser when there are other rated restaurants to
-      // compare against; otherwise jump straight to the slider since H2H
-      // wouldn't have a pool.
+      setPage(requestedInitial && requestedInitial !== 'main' && VALID_PAGES.includes(requestedInitial) ? requestedInitial : 'main');
+      // Make the user pick a method first (no default) when there are other
+      // rated restaurants to compare against; jump straight to the slider only
+      // when there's no pool for head-to-head.
       const othersOnOpen = ratings.filter((r) => r.restaurantId !== restaurant.id);
       setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
@@ -390,17 +396,19 @@ export const AddRestaurantModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                    <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-lg truncate">
-                        {existing ? (isNewVisit ? 'New Visit' : 'Update Rating') : 'Rate Restaurant'}
-                        {existing && visitCount > 0 && (
-                          <span className="text-xs font-normal text-on-surface/30 ml-1.5">Visit #{visitCount + (isNewVisit ? 2 : 1)}</span>
-                        )}
-                      </h2>
-                      <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
-                    </div>
-                    <button onClick={closeAddRestaurantModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+                  <div className="px-5 pt-safe-4 sm:pt-5 pb-1 flex items-center justify-end flex-shrink-0">
+                    <button onClick={closeAddRestaurantModal} aria-label="Close"
+                      className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.08] transition-colors">
+                      <X size={18} />
+                    </button>
+                  </div>
+                  <div className="px-5 pb-4 flex-shrink-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary/75 mb-2">
+                      {existing ? (isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : 'Update rating') : 'Rate'}
+                    </p>
+                    <h2 className="font-serif font-bold text-[27px] leading-[1.08] tracking-[-0.015em] text-on-surface">
+                      How was {restaurant.name}?
+                    </h2>
                   </div>
 
                   {/* New Visit vs Update toggle */}
@@ -553,23 +561,25 @@ export const AddRestaurantModal: React.FC = () => {
                               )}
                             </AnimatePresence>
                           )}
-                          <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                            <div className="text-center">
-                              <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
-                              <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
+                          {/* Editorial score — clean number, no heavy ring */}
+                          <div className="text-center mb-4">
+                            <div className={cn("font-serif font-bold tabular-nums leading-none text-[40px] sm:text-[44px] transition-colors duration-300", scoreClr)}>
+                              {score.toFixed(1)}
                             </div>
+                            <span className={cn("inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-gradient-to-b", scoreBg, scoreClr)}>
+                              {score >= 9 ? 'Exceptional' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                            </span>
                           </div>
-                          <div className="w-full max-w-[260px] mb-1.5">
+                          <div className="w-full max-w-[320px] mb-2">
                             <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                              className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                            <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
+                              className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="flex justify-between mt-2 text-[10px] text-on-surface/25 font-semibold px-0.5">
                               <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
                             </div>
                           </div>
-                          <p className="text-xs font-medium text-on-surface/40 mb-3">
-                            {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                          </p>
-                          <RankingContext score={score} ratings={ratings} excludeId={restaurant.id} />
+                          <div className="mt-3">
+                            <RankingContext score={score} ratings={ratings} excludeId={restaurant.id} />
+                          </div>
                         </motion.div>
                       ) : (
                         <motion.div
@@ -611,33 +621,33 @@ export const AddRestaurantModal: React.FC = () => {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Add details</p>
-                      <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                        <DetailBtn icon={<StickyNote size={14} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
-                        <DetailBtn icon={<ChefHat size={14} />} label="Favorite dishes" active={hasDishes} sub={hasDishes ? `${favoriteDishes.length} added` : undefined} onClick={() => setPage('favorite-dishes')} />
-                        <DetailBtn icon={<DollarSign size={14} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
+                    <div className="border-t border-on-surface/[0.07] pt-5 mt-5">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-on-surface/40 font-bold mb-1.5 px-1">Add details</p>
+                      <div className="flex flex-col">
+                        <DetailBtn icon={<StickyNote size={15} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
+                        <DetailBtn icon={<ChefHat size={15} />} label="Favorite dishes" active={hasDishes} sub={hasDishes ? `${favoriteDishes.length} added` : undefined} onClick={() => setPage('favorite-dishes')} />
+                        <DetailBtn icon={<DollarSign size={15} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
                         <DetailBtn
-                          icon={<CalendarDays size={14} />}
+                          icon={<CalendarDays size={15} />}
                           label={isNewVisit ? 'Date *' : 'Date'}
                           active={hasDate}
                           sub={dateLabel || (isNewVisit && !hasDate ? 'Required' : undefined)}
                           onClick={() => setPage('date')}
                           error={dateError && isNewVisit && !hasDate}
                         />
-                        <DetailBtn icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                        <DetailBtn icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Users size={14} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} isLast />
+                        <DetailBtn icon={<Tag size={15} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailBtn icon={<Image size={15} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailBtn icon={<Users size={15} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} isLast />
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                  <div className="px-5 pt-3 pb-safe-4 flex-shrink-0 bg-surface space-y-2">
                     {dateError && isNewVisit && !hasDate && (
                       <p className="text-xs text-red-600 font-medium text-center">
                         Pick a visit date to save this visit.
                       </p>
                     )}
-                    <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                    <button onClick={handleSaveRating} className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform">
                       {existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
@@ -1032,20 +1042,20 @@ const DetailBtn: React.FC<{
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
-      !isLast && "border-b border-on-surface/6",
+      "group/detail w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-on-surface/[0.03] transition-colors",
+      !isLast && "border-b border-on-surface/[0.06]",
       error && "bg-red-50",
     )}
   >
     <span className={cn(
-      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
-      error ? "bg-red-100 text-red-600" : active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
+      "w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0 transition-transform group-active/detail:scale-95",
+      error ? "bg-red-100 text-red-600" : active ? "bg-on-surface/[0.08] text-on-surface/70" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
       {icon}
     </span>
-    <span className={cn("text-[13px] font-medium flex-1", error ? "text-red-600" : active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
-    {sub && <span className={cn("text-[11px] flex-shrink-0", error ? "text-red-600 font-semibold" : "text-primary/70")}>{sub}</span>}
-    <ChevronRight size={13} className={cn("flex-shrink-0", error ? "text-red-500" : "text-on-surface/25")} />
+    <span className={cn("text-[13px] font-medium flex-1", error ? "text-red-600" : active ? "text-on-surface" : "text-on-surface/70")}>{label}</span>
+    {sub && <span className={cn("text-[11px] flex-shrink-0 font-medium", error ? "text-red-600 font-semibold" : "text-on-surface/45")}>{sub}</span>}
+    <ChevronRight size={14} className={cn("flex-shrink-0", error ? "text-red-500" : "text-on-surface/25")} />
   </button>
 );
 
@@ -1055,7 +1065,10 @@ const SubPage: React.FC<{
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
     className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
-    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+    {/* pt-safe-4 (not plain pt-4) so the back-arrow/title row clears the iOS
+        status bar / notch — the full-screen sub-page sits at the very top of
+        the WebView on phone, same as the main modal header. */}
+    <div className="px-5 pt-safe-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
         <ChevronLeft size={22} />
       </button>

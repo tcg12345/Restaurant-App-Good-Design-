@@ -80,7 +80,7 @@ function renderDetachedFallback() {
   // If React already painted something, leave it to the boundary.
   if (!root || root.childElementCount > 0) return;
   const dark = document.documentElement.classList.contains('dark');
-  const bg = dark ? '#0e0e0f' : '#ede7d9';
+  const bg = dark ? '#0e0e0f' : '#ffffff';
   const fg = dark ? '#ededed' : '#1e1b1a';
   root.innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 32px;text-align:center;background:${bg};color:${fg};font-family:Manrope,system-ui,sans-serif;">

@@ -1,11 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, UserPlus, Check, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { searchUsersByUsername, sendFriendRequest, type UserProfile } from '../lib/supabase-community';
+import {
+  searchUsersByUsername, sendFriendRequest, getFriends, getSentRequestIds,
+  getPendingRequests, getFollowerIds, acceptFriendRequest, followPublicAccount,
+  type UserProfile,
+} from '../lib/supabase-community';
 
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -29,25 +34,63 @@ interface Props {
   onClose: () => void;
 }
 
+// Directional relationship per user, drives the trailing control:
+//   following  → I follow them              → "Following"
+//   requested  → I sent them a pending req  → "Requested"
+//   incoming   → they sent ME a pending req → "Accept"
+//   followback → they follow me, I don't    → "Follow back"
+//   (absent)   → no edge                    → "Add"
+type Relationship = 'following' | 'requested' | 'incoming' | 'followback';
+
 export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
-  const { user } = useAuth();
+  const { user, refreshPendingRequests } = useAuth();
   const { phoneMode } = useSettings();
+  const navigate = useNavigate();
   const userId = user?.id ?? null;
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [requested, setRequested] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Set<string>>(new Set());
+  // Relationship per user id, loaded on open and updated as actions happen.
+  const [relationships, setRelationships] = useState<Record<string, Relationship>>({});
+  // Incoming request id per requester, so "Accept" can resolve their request.
+  const [incomingReqIds, setIncomingReqIds] = useState<Record<string, string>>({});
 
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!open) return;
-    setQuery(''); setResults([]); setRequested(new Set()); setPending(new Set());
+    setQuery(''); setResults([]); setPending(new Set());
     const t = setTimeout(() => inputRef.current?.focus(), phoneMode ? 280 : 200);
     return () => clearTimeout(t);
   }, [open, phoneMode]);
+
+  // Load all directional edges when the sheet opens so each result shows the
+  // right state. Precedence: I follow them > I requested them > they requested
+  // me (Accept) > they follow me (Follow back).
+  useEffect(() => {
+    if (!open || !userId) return;
+    let cancelled = false;
+    (async () => {
+      const [following, sentIds, incoming, followerIds] = await Promise.all([
+        getFriends(userId),
+        getSentRequestIds(userId),
+        getPendingRequests(userId),
+        getFollowerIds(userId),
+      ]);
+      if (cancelled) return;
+      const map: Record<string, Relationship> = {};
+      following.forEach((f) => { map[f.friend_id] = 'following'; });
+      sentIds.forEach((id) => { if (!map[id]) map[id] = 'requested'; });
+      const inc: Record<string, string> = {};
+      incoming.forEach((r) => { if (!map[r.user_id]) map[r.user_id] = 'incoming'; inc[r.user_id] = r.id; });
+      followerIds.forEach((id) => { if (!map[id]) map[id] = 'followback'; });
+      setRelationships(map);
+      setIncomingReqIds(inc);
+    })();
+    return () => { cancelled = true; };
+  }, [open, userId]);
 
   // Debounced search — fires 300ms after the user stops typing. Empty
   // query lists "suggested" users (the function returns the first 20
@@ -66,21 +109,48 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
     return () => { cancelled = true; clearTimeout(handle); setLoading(false); };
   }, [query, open, userId]);
 
-  const handleAdd = useCallback(async (target: UserProfile) => {
-    if (!userId || requested.has(target.user_id) || pending.has(target.user_id)) return;
+  // Follow someone — the "Add" / "Follow back" action. Respects their privacy:
+  // public/expert accounts follow immediately; private accounts get a pending
+  // request they must approve.
+  const followUser = useCallback(async (target: UserProfile) => {
+    if (!userId || pending.has(target.user_id)) return;
+    const rel = relationships[target.user_id];
+    if (rel === 'following' || rel === 'requested') return;
     setPending((prev) => new Set(prev).add(target.user_id));
-    const ok = await sendFriendRequest(userId, target.user_id);
-    setPending((prev) => {
-      const next = new Set(prev);
-      next.delete(target.user_id);
-      return next;
-    });
+    const immediate = !!(target.is_public || target.is_expert);
+    const ok = immediate
+      ? await followPublicAccount(userId, target.user_id)
+      : await sendFriendRequest(userId, target.user_id);
+    setPending((prev) => { const next = new Set(prev); next.delete(target.user_id); return next; });
     if (ok) {
-      setRequested((prev) => new Set(prev).add(target.user_id));
+      setRelationships((prev) => ({ ...prev, [target.user_id]: immediate ? 'following' : 'requested' }));
     } else {
-      alert("Couldn't send that friend request. Try again.");
+      alert("Couldn't send that request. Try again.");
     }
-  }, [userId, requested, pending]);
+  }, [userId, pending, relationships]);
+
+  // Accept an incoming request (one-directional): they now follow you, and the
+  // control becomes "Follow back" so you can make it mutual.
+  const handleAccept = useCallback(async (target: UserProfile) => {
+    const reqId = incomingReqIds[target.user_id];
+    if (!userId || !reqId || pending.has(target.user_id)) return;
+    setPending((prev) => new Set(prev).add(target.user_id));
+    const ok = await acceptFriendRequest(reqId);
+    setPending((prev) => { const next = new Set(prev); next.delete(target.user_id); return next; });
+    if (ok) {
+      setRelationships((prev) => ({ ...prev, [target.user_id]: 'followback' }));
+      void refreshPendingRequests();
+    } else {
+      alert("Couldn't accept that request. Try again.");
+    }
+  }, [userId, incomingReqIds, pending, refreshPendingRequests]);
+
+  // Tapping a result's avatar/name opens that user's profile.
+  const openProfile = useCallback((target: UserProfile) => {
+    if (!target.username) return;
+    onClose();
+    navigate(`/user/${target.username}`);
+  }, [navigate, onClose]);
 
   const hasQuery = query.trim().length > 0;
   const emptyCopy = useMemo(() => {
@@ -184,29 +254,59 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                   {results.map((p) => {
                     const color = avatarColor(p.user_id);
                     const initial = initialOf(p.display_name || p.username);
-                    const isRequested = requested.has(p.user_id);
                     const isPending = pending.has(p.user_id);
+                    const status = relationships[p.user_id];
                     return (
                       <li key={p.user_id} className="flex items-center gap-3 py-2.5">
-                        <div className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
-                          <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[14px] font-bold text-on-surface truncate leading-tight">
-                            {p.display_name || p.username || 'User'}
-                          </p>
-                          <p className="text-[12px] text-on-surface/55 truncate mt-0.5">@{p.username}</p>
-                        </div>
-                        {isRequested ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55">
-                            <Check size={13} /> Sent
+                        <button
+                          type="button"
+                          onClick={() => openProfile(p)}
+                          className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+                        >
+                          <div className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+                            <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
+                              {p.display_name || p.username || 'User'}
+                            </p>
+                            <p className="text-[12px] text-on-surface/55 truncate mt-0.5">@{p.username}</p>
+                          </div>
+                        </button>
+                        {status === 'following' ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55 flex-shrink-0">
+                            <Check size={13} /> Following
                           </span>
+                        ) : status === 'requested' ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55 flex-shrink-0">
+                            <Check size={13} /> Requested
+                          </span>
+                        ) : status === 'incoming' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleAccept(p)}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+                          >
+                            {isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
+                            Accept
+                          </button>
+                        ) : status === 'followback' ? (
+                          <button
+                            type="button"
+                            onClick={() => followUser(p)}
+                            disabled={isPending}
+                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+                          >
+                            {isPending ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
+                            Follow back
+                          </button>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => handleAdd(p)}
+                            onClick={() => followUser(p)}
                             disabled={isPending}
-                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
                           >
                             {isPending ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
                             Add

@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { applyNativeTheme } from '../lib/native-theme';
 
 interface SettingsContextType {
-  /** True on a real phone — either the Capacitor native runtime or a
-   *  phone-sized browser viewport (≤768px). Fully automatic: there is
-   *  no manual toggle; the value tracks live viewport resizes. */
+  /** True on a real phone — either the Capacitor native runtime or any
+   *  browser viewport below the desktop-sidebar breakpoint (<1024px).
+   *  Fully automatic: there is no manual toggle and no intermediate
+   *  "tablet" layout — the value tracks live viewport resizes. */
   phoneMode: boolean;
   /** True when the app is running inside a Capacitor native shell
    *  (iOS / Android). Surfaced for native-only concerns (keyboard
@@ -47,9 +48,13 @@ function isNativePlatform(): boolean {
   return !!(cap?.isNativePlatform?.());
 }
 
-/** Phone-sized viewport breakpoint — matches the (max-width: 768px)
- *  convention used by LocationPage / LocationMap / RestaurantDetail. */
-const NARROW_QUERY = '(max-width: 768px)';
+/** Phone/narrow viewport breakpoint. Deliberately the exact inverse of the
+ *  desktop-sidebar query in App.tsx (`min-width: 1024px`) so there is NO gap
+ *  between the two: every viewport is either phone (this) or desktop-sidebar.
+ *  Without this, 769–1023px fell through both and rendered a third "tablet"
+ *  layout (floating pill navbar + title header) that should never exist.
+ *  1023.98px (not 1023px) closes the sub-pixel seam on fractional widths. */
+const NARROW_QUERY = '(max-width: 1023.98px)';
 
 function loadDarkMode(): boolean {
   try {

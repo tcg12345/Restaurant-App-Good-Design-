@@ -10,25 +10,27 @@
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Surface palette — warmer Gourmet Canvas cream. Single source of
-     truth for the app background; `cream` aliases it for the editorial
-     tokens below. */
-  --color-surface: #ede7d9;
+  /* Surface palette — clean neutral white. Single source of truth for
+     the app background; `cream` aliases it for the editorial tokens
+     below. (The `cream`/`paper` names are historical — the light theme
+     is now a near-pure white rather than the old beige.) */
+  --color-surface: #ffffff;
   --color-on-surface: #1e1b1a;
   --color-primary: #9f3012;
   --color-secondary: #5c6144;
   --color-accent: #d4a373;
-  --color-muted: #e7e6e2;
+  --color-muted: #f1f1f1;
 
   /* Editorial tokens used by the restaurant detail redesign.
      `cream` is the page bg, `paper` is the card fill, `ink-*`
      are text tones, and `olive`/`clay`/`persimmon` map the
-     score-coded accents. */
-  --color-cream: #ede7d9;
-  --color-cream-2: #e6dfce;
-  --color-paper: #fdfaf0;
-  --color-line: #e2dfd5;
-  --color-line-2: #d2cec0;
+     score-coded accents. On white, `cream-2` is the recessed/hover
+     tone and `line`/`line-2` are neutral hairline borders. */
+  --color-cream: #ffffff;
+  --color-cream-2: #f1f1f1;
+  --color-paper: #ffffff;
+  --color-line: #eaeaea;
+  --color-line-2: #dcdcdc;
   --color-ink: #1e1b1a;
   --color-ink-2: #3d3835;
   --color-ink-3: #6b6359;
@@ -62,10 +64,10 @@
 .dark {
   color-scheme: dark;
 }
-/* Pure-white card surfaces (bg-white and its alphas) read too harsh
-   against the warmer cream page background. Remap to the soft paper
-   token so every card / pill / dropdown across the app sits in the
-   same warm family. Dark mode override below still wins. */
+/* Route literal `bg-white` card surfaces (and its alphas) through the
+   `paper` token so every card / pill / dropdown tracks the theme. In
+   light mode paper is pure white (a no-op); the remap exists so the same
+   selectors flip to the dark paper tone in dark mode (override below). */
 .bg-white,
 .bg-white\/95,
 .bg-white\/92,
@@ -279,12 +281,16 @@
   font-size: max(12px, 1em);
 }
 
+/* `bg-paper/80` (not literal `bg-white/80`) so these frosted surfaces follow
+   the theme — the `paper` token flips to a dark tone in dark mode, whereas a
+   literal white applied via @apply isn't caught by the bg-white→paper remap
+   above and would stay white (unreadable) on dark backgrounds. */
 .card-interactive {
-  @apply bg-white/80 backdrop-blur-sm rounded-xl border border-on-surface/8 shadow-sm;
+  @apply bg-paper/80 backdrop-blur-sm rounded-xl border border-on-surface/8 shadow-sm;
 }
 
 .glass {
-  @apply bg-white/80 backdrop-blur-xl;
+  @apply bg-paper/80 backdrop-blur-xl;
 }
 
 .stagger-grid {

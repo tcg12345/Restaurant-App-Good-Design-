@@ -69,6 +69,11 @@ mapboxgl.workerClass = MapboxWorker;
 const RADIUS_MILES = 8; // matches /location's fetch radius
 const RADIUS_DEG_LAT = RADIUS_MILES / 69; // ≈ 0.116°
 
+// Map styles, keyed to the app's light/dark mode so the canvas matches
+// the rest of the UI (same pair the home Discover map uses).
+const MAP_STYLE_LIGHT = 'mapbox://styles/mapbox/light-v11';
+const MAP_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
+
 function buildBboxBounds(lat: number, lng: number): mapboxgl.LngLatBoundsLike {
   const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
   const dLat = RADIUS_DEG_LAT;
@@ -136,7 +141,7 @@ function markerColor(googleRating: number): string {
 export const LocationMap: React.FC = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { phoneMode } = useSettings();
+  const { phoneMode, darkMode } = useSettings();
   const { user } = useAuth();
   const { isWishlisted, toggleWishlist } = useLists();
   // Michelin dataset readiness — list rows override cuisine/price for
@@ -188,6 +193,10 @@ export const LocationMap: React.FC = () => {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [minScore, setMinScore] = useState(0);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // Mobile header drives the location picker through HomeLocationBar's
+  // headless/controlled mode so we can render our own compact pill trigger
+  // (matching the back arrow) instead of its stacked "Dining in / label" block.
+  const [locPickerOpen, setLocPickerOpen] = useState(false);
   const toggleCuisine = useCallback((type: string) => {
     setSelectedCuisines((prev) =>
       prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type],
@@ -304,6 +313,11 @@ export const LocationMap: React.FC = () => {
   // below applies subsequent changes to the live map instance.
   const initialCoordsRef = useRef({ hasCoords, lat, lng });
   initialCoordsRef.current = { hasCoords, lat, lng };
+  // Latest dark-mode flag in a ref so the mount-only init effect reads the
+  // current value without taking it as a dependency (which would tear down
+  // and rebuild the whole map on every theme toggle).
+  const darkModeRef = useRef(darkMode);
+  darkModeRef.current = darkMode;
 
   const clearMarkers = useCallback(() => {
     for (const m of Object.values(markersRef.current) as mapboxgl.Marker[]) m.remove();
@@ -323,7 +337,7 @@ export const LocationMap: React.FC = () => {
       : [-73.99, 40.74];
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: darkModeRef.current ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
       center,
       zoom: 12,
       attributionControl: false,
@@ -338,7 +352,22 @@ export const LocationMap: React.FC = () => {
       // canvas at half height and the user sees "the map didn't load".
       map.resize();
     });
+    // The container often reaches its final height AFTER the map has
+    // already measured itself (the `fixed inset-0` overlay lays out a
+    // frame or two later, and on iOS the safe-area insets resolve late).
+    // When that happens the canvas stays stuck at its initial half-height
+    // and the bottom of the map is blank white. A ResizeObserver re-syncs
+    // the canvas to the container every time the box settles, which fixes
+    // the partial-load reliably regardless of timing.
+    let rafId = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => mapRef.current?.resize());
+    });
+    ro.observe(containerRef.current);
     return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
       clearMarkers();
       map.remove();
       mapRef.current = null;
@@ -346,6 +375,26 @@ export const LocationMap: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Follow the app's light/dark mode — swap the Mapbox style when the
+  // user toggles the theme. DOM markers survive a setStyle (Mapbox only
+  // rebuilds the GL layers, not the marker overlay) so we don't need to
+  // re-add them. Guarded so it never runs on the very first render (the
+  // init effect already picks the right style from darkModeRef).
+  const didInitStyleRef = useRef(false);
+  useEffect(() => {
+    if (!didInitStyleRef.current) {
+      didInitStyleRef.current = true;
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      map.setStyle(darkMode ? MAP_STYLE_DARK : MAP_STYLE_LIGHT);
+    } catch {
+      /* style swap is best-effort */
+    }
+  }, [darkMode]);
 
   // Re-bound + re-centre on location change. We clear maxBounds before
   // moving the camera and re-apply afterwards because a flyTo whose
@@ -515,7 +564,7 @@ export const LocationMap: React.FC = () => {
 
   // Cuisine + price chips, shared by the desktop panel and the mobile
   // floating strip — only the container styling differs per surface.
-  const renderFilterChips = (overlay: boolean) => {
+  const renderFilterChips = (overlay: boolean, includeFiltersButton = true) => {
     const base = overlay
       ? 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-white/95 shadow-sm text-on-surface/70'
       : 'flex-shrink-0 inline-flex items-center h-8 px-3.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap transition-colors bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70';
@@ -553,22 +602,26 @@ export const LocationMap: React.FC = () => {
             {'$'.repeat(tier)}
           </button>
         ))}
-        <span className={cn('flex-shrink-0 w-px h-4 self-center', overlay ? 'bg-on-surface/20' : 'bg-on-surface/15')} />
-        {/* Full Filters sheet — same popup chrome as the rest of the app. */}
-        <button
-          type="button"
-          onClick={() => setFilterSheetOpen(true)}
-          aria-label="Open filters"
-          className={cn(base, 'gap-1.5')}
-        >
-          <SlidersHorizontal size={13} className="opacity-80" />
-          Filters
-          {activeFilterCount > 0 && (
-            <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
-              {activeFilterCount}
-            </span>
-          )}
-        </button>
+        {includeFiltersButton && (
+          <>
+            <span className={cn('flex-shrink-0 w-px h-4 self-center', overlay ? 'bg-on-surface/20' : 'bg-on-surface/15')} />
+            {/* Full Filters sheet — same popup chrome as the rest of the app. */}
+            <button
+              type="button"
+              onClick={() => setFilterSheetOpen(true)}
+              aria-label="Open filters"
+              className={cn(base, 'gap-1.5')}
+            >
+              <SlidersHorizontal size={13} className="opacity-80" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </>
+        )}
       </>
     );
   };
@@ -890,9 +943,11 @@ export const LocationMap: React.FC = () => {
       {/* Map container — fills the viewport beneath the floating UI */}
       <div ref={containerRef} className="absolute inset-0" style={{ position: 'absolute', inset: 0 }} />
 
-      {/* Sticky top bar — back to /location on the left, location picker
-          centred so the user can swap cities without leaving the map. */}
-      <div className="absolute top-0 inset-x-0 z-20 px-3 pt-safe-4 pb-3 bg-gradient-to-b from-surface/95 via-surface/85 to-transparent backdrop-blur-sm">
+      {/* Top bar — fully transparent (no gradient, no blur) so the map
+          shows through to the very top. The controls float over it as
+          individual pills: back arrow, a compact location pill that matches
+          the arrow, and the Filters trigger pulled up beside them. */}
+      <div className="absolute top-0 inset-x-0 z-20 px-3 pt-safe-4 pb-3">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -902,18 +957,49 @@ export const LocationMap: React.FC = () => {
           >
             <ArrowLeft size={20} />
           </button>
-          <div className="flex-1 min-w-0 px-3 py-2 rounded-2xl bg-white/95 shadow-sm">
-            <HomeLocationBar
-              location={currentLocation}
-              onChange={handleLocationChange}
-              onUseCurrent={handleUseCurrent}
-            />
-          </div>
+          {/* Compact location pill — hugs its label (no "Dining in" eyebrow,
+              no full-width stretch). Opens the picker via the headless
+              HomeLocationBar rendered below. */}
+          <button
+            type="button"
+            onClick={() => setLocPickerOpen(true)}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 h-10 pl-3 pr-3.5 rounded-full bg-white/95 shadow-sm text-on-surface min-w-0 max-w-[58%]"
+            aria-label="Change location"
+          >
+            <MapPin size={15} className="text-on-surface/55 flex-shrink-0" />
+            <span className="font-serif font-bold text-[15px] leading-none truncate">{cityDisplay}</span>
+            <ChevronDown size={15} className="text-on-surface/45 flex-shrink-0" />
+          </button>
+          {/* Filters — moved up from the row below, sits to the right. */}
+          <button
+            type="button"
+            onClick={() => setFilterSheetOpen(true)}
+            aria-label="Filters"
+            className="flex-shrink-0 ml-auto inline-flex items-center gap-1.5 h-10 px-3.5 rounded-full bg-white/95 shadow-sm text-on-surface/75 text-[13px] font-semibold"
+          >
+            <SlidersHorizontal size={15} className="opacity-75" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
         </div>
-        {/* Cuisine + price filters — trim the sheet list and the markers. */}
+        {/* Cuisine + price chips — the Filters button now lives on the row
+            above, so it's omitted here. */}
         <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar -mx-3 px-3">
-          {renderFilterChips(true)}
+          {renderFilterChips(true, false)}
         </div>
+        {/* Headless location picker — driven by the compact pill above. */}
+        <HomeLocationBar
+          variant="headless"
+          location={currentLocation}
+          onChange={handleLocationChange}
+          onUseCurrent={handleUseCurrent}
+          open={locPickerOpen}
+          onOpenChange={setLocPickerOpen}
+        />
       </div>
 
       {/* Empty / loading state — overlay near the top once the bar has

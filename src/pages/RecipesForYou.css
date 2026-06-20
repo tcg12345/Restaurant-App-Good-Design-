@@ -6,10 +6,10 @@
    auditable. */
 
 .recipes-page-root {
-  --bg: #EDE7D9;
-  --bg-2: #E6DFCE;
+  --bg: #FFFFFF;
+  --bg-2: #F1F1F1;
   --surface: #FFFFFF;
-  --surface-2: #FBF7F0;
+  --surface-2: #F7F7F7;
   --border: rgba(31, 26, 23, 0.08);
   --border-strong: rgba(31, 26, 23, 0.14);
   --ink: #1C1816;
@@ -1056,7 +1056,7 @@
 
 /* Loading skeleton */
 .recipes-page-root .skeleton {
-  background: linear-gradient(90deg, var(--bg-2) 0%, rgba(230, 223, 206, 0.5) 50%, var(--bg-2) 100%);
+  background: linear-gradient(90deg, var(--bg-2) 0%, rgba(255, 255, 255, 0.6) 50%, var(--bg-2) 100%);
   background-size: 200% 100%;
   animation: recipes-skel 1.4s ease-in-out infinite;
   border-radius: var(--radius-md);
@@ -1088,7 +1088,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(237, 231, 217, 0.92);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: saturate(150%) blur(14px);
   -webkit-backdrop-filter: saturate(150%) blur(14px);
   border-bottom: 1px solid var(--border);
