@@ -8,6 +8,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Heart, Loader2, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -120,10 +121,11 @@ const QUICK_CUISINES: Array<{ label: string; type: string }> = [
 
 const PRICE_TIERS = [1, 2, 3, 4] as const;
 
+// Match the shared ScoreBadge palette (soft pastel circle, green/amber/red)
+// so the map's score rings read identically to scores everywhere else. The
+// ring keeps a neutral "—" placeholder for the many unrated city results.
 const scoreBadgeClass = (score: number): string => {
-  if (score >= 8) return 'border-emerald-600/50 bg-emerald-600/10 text-emerald-700';
-  if (score >= 5) return 'border-amber-500/50 bg-amber-500/10 text-amber-700';
-  if (score > 0) return 'border-red-500/50 bg-red-500/10 text-red-600';
+  if (score > 0) return cn(scoreBadgeBg(score), scoreColor(score));
   return 'border-on-surface/15 bg-on-surface/[0.04] text-on-surface/50';
 };
 
@@ -875,7 +877,7 @@ export const LocationMap: React.FC = () => {
                       >
                         <div
                           className={cn(
-                            'w-11 h-11 rounded-full border-2 grid place-items-center font-serif font-bold text-[13.5px] tabular-nums flex-shrink-0',
+                            'w-11 h-11 rounded-full border grid place-items-center font-serif font-bold text-[13.5px] tabular-nums flex-shrink-0',
                             scoreBadgeClass(score),
                           )}
                         >
@@ -885,7 +887,7 @@ export const LocationMap: React.FC = () => {
                           <h3 className="font-serif text-[15.5px] font-bold text-on-surface leading-snug line-clamp-1">
                             {place.name}
                           </h3>
-                          <p className="mt-0.5 text-[11px] text-on-surface/55 font-semibold uppercase tracking-wider flex items-center min-w-0">
+                          <p className="mt-0.5 text-[12.5px] text-on-surface/55 font-medium flex items-center min-w-0">
                             <span className="truncate">
                               {cuisine || 'Restaurant'}
                               {priceLabel && <span className="text-on-surface/25 mx-1.5">·</span>}
@@ -1084,7 +1086,7 @@ export const LocationMap: React.FC = () => {
                           <h3 className="font-serif text-[15px] font-bold text-on-surface line-clamp-1">
                             {place.name}
                           </h3>
-                          <p className="mt-0.5 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider truncate">
+                          <p className="mt-0.5 text-[12.5px] text-on-surface/55 font-medium truncate">
                             {cuisine || 'Restaurant'}
                             {priceLabel && <span className="text-on-surface/25 mx-1.5">·</span>}
                             {priceLabel}
@@ -1095,7 +1097,7 @@ export const LocationMap: React.FC = () => {
                         {score > 0 && (
                           <div
                             className={cn(
-                              'mt-0.5 w-9 h-9 rounded-full border-2 grid place-items-center text-xs font-bold tabular-nums flex-shrink-0',
+                              'mt-0.5 w-9 h-9 rounded-full border grid place-items-center text-xs font-bold tabular-nums flex-shrink-0',
                               scoreBadgeClass(score),
                             )}
                           >

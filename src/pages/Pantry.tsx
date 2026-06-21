@@ -1,15 +1,18 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { createPortal } from 'react-dom';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
+import { ScoreRing } from '../components/cards';
+import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
-import { useLists, DEFAULT_WANT_TO_COOK_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
@@ -558,6 +561,75 @@ function useBackfillLocationComponents(restaurantId: string, hasFullData: boolea
 }
 
 /* ── Restaurant row card ── */
+/* ── Clean, centered confirmation dialog for destructive actions (swipe /
+   menu Delete). Rendered through a portal so it's always viewport-centered,
+   never clipped by a card's overflow or swipe transform. ── */
+const ConfirmDeleteDialog: React.FC<{ name: string; onCancel: () => void; onConfirm: () => void }> = ({ name, onCancel, onConfirm }) =>
+  createPortal(
+    <motion.div
+      className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        role="alertdialog"
+        aria-modal="true"
+        className="w-full max-w-[320px] rounded-2xl bg-surface p-6 text-center shadow-[0_24px_70px_-20px_rgba(0,0,0,0.5)]"
+      >
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500">
+          <Trash2 size={20} />
+        </div>
+        <h3 className="line-clamp-2 font-serif text-[19px] font-bold leading-snug text-on-surface">Delete {name}?</h3>
+        <p className="mt-1.5 text-[13.5px] leading-snug text-on-surface/55">This can’t be undone.</p>
+        <div className="mt-5 flex gap-2.5">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-xl bg-on-surface/[0.06] py-3 text-[14px] font-semibold text-on-surface/70 transition-colors hover:bg-on-surface/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 rounded-xl bg-red-500 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-red-600 active:scale-[0.98]"
+          >
+            Delete
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>,
+    document.body,
+  );
+
+/* ── Open/Closed + today's-hours status line (Restaurant Cards Redesign).
+   Dot + Open/Closed + the next boundary ("opens 5:00 PM" / "closes 10:00 PM"),
+   the split-day schedule, and an optional trailing value (distance). ── */
+const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: string }> = ({ hours, trailing, className }) => {
+  const s = getOpenStatus(hours);
+  if (!s.label && !s.detail && !trailing) return null;
+  return (
+    <div className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] font-semibold', className)}>
+      {s.label && (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? '#10b981' : '#ef4444' }} />
+          <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
+        </span>
+      )}
+      {s.detail && <span className="font-medium text-on-surface/40">{s.detail}</span>}
+      {trailing && (
+        <>
+          <span className="text-on-surface/20">·</span>
+          <span className="font-medium tabular-nums text-on-surface/55">{trailing}</span>
+        </>
+      )}
+    </div>
+  );
+};
+
 const RestaurantRow: React.FC<{
   restaurantId: string;
   name: string;
@@ -566,6 +638,8 @@ const RestaurantRow: React.FC<{
   price: string;
   address: string;
   score?: number;
+  /** Position in the list (1-based) — shown as the rank prefix/gutter. */
+  rank?: number;
   tags?: string[];
   notes?: string;
   visitDate?: string;
@@ -577,14 +651,20 @@ const RestaurantRow: React.FC<{
   /** Show the Michelin distinction mark — only true while a Michelin filter
    *  is active, so it never appears unfiltered. */
   showMichelin?: boolean;
-}> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel, showMichelin = false }) => {
+}> = ({ restaurantId, name, cuisine, price, address, score, rank, onEdit, onRemove, showMichelin = false }) => {
   const { phoneMode } = useSettings();
   const { restaurantMeta } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [swiped, setSwiped] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-
-  const [isDragging, setIsDragging] = useState(false);
+  // Pointer-driven swipe-to-reveal (smooth in the iOS WKWebView, unlike
+  // framer-motion's drag): `tx` is the live translateX, `open` snaps it to the
+  // revealed position, and the refs track the in-flight gesture.
+  const [tx, setTx] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; base: number; moved: boolean; horizontal: boolean } | null>(null);
+  const txRef = useRef(0);
+  const justSwipedRef = useRef(false);
 
   // Resolve a "City, ST" / "City, Country" label from the address. Use the
   // Beli-style hierarchical label — neighborhood + borough/city + state
@@ -601,6 +681,9 @@ const RestaurantRow: React.FC<{
   const location = address || meta?.address
     ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
     : '';
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
+  const metaTop = [cuisineLabel, showPrice ? mich.price : ''].filter(Boolean).join('  ·  ');
 
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
@@ -625,163 +708,179 @@ const RestaurantRow: React.FC<{
   const hasEdit = !!onEdit;
   const hasRemove = !!onRemove;
   const actionCount = (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
-  const revealWidth = actionCount * 64;
+  const revealWidth = actionCount * 76;
 
-  return (
-    <div className="relative">
-      {/* Swipe-revealed action buttons (underneath) — Edit + Delete */}
-      {phoneMode && actionCount > 0 && (swiped || isDragging) && (
-        <div
-          className="absolute inset-y-0 right-0 flex items-stretch"
-          style={{ width: revealWidth }}
-        >
-          {hasEdit && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setSwiped(false); onEdit?.(); }}
-              className="w-16 flex flex-col items-center justify-center gap-0.5 bg-blue-500 text-white active:bg-blue-600 transition-colors"
-              aria-label="Edit"
-            >
-              <Edit3 size={16} />
-              <span className="text-[10px] font-semibold">Edit</span>
-            </button>
-          )}
-          {hasRemove && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
-              className="w-16 flex flex-col items-center justify-center gap-0.5 bg-red-500 text-white active:bg-red-600 transition-colors"
-              aria-label="Delete"
-            >
-              <Trash2 size={16} />
-              <span className="text-[10px] font-semibold">Delete</span>
-            </button>
-          )}
-        </div>
-      )}
+  const metaLoc = [location, distanceLabel].filter(Boolean).join('  ·  ');
 
-      <motion.div
-        drag={phoneMode && actionCount > 0 ? 'x' : false}
-        dragConstraints={{ left: -revealWidth - 20, right: 0 }}
-        dragElastic={0.1}
-        onDragStart={() => setIsDragging(true)}
-        onDragEnd={(_: any, info: any) => {
-          setTimeout(() => setIsDragging(false), 50);
-          if (info.offset.x < -revealWidth / 2) setSwiped(true);
-          else setSwiped(false);
-        }}
-        animate={{ x: swiped ? -revealWidth : 0 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        style={{ touchAction: 'pan-y' }}
-        className={cn("relative z-10", phoneMode && "bg-surface")}
-      >
-        <Link
-          to={`/restaurant/${restaurantId}`}
-          className={cn(
-            "block group",
-            // Desktop list view: render each row as a card that matches the
-            // grid tiles — white surface, hairline border, rounded corners,
-            // and a subtle lift on hover. Phone keeps the flat, divided rows.
-            !phoneMode &&
-              "rounded-2xl bg-white border border-on-surface/[0.07] transition-all duration-200 hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px",
-          )}
-          onClick={(e) => {
-            if (isDragging || swiped) {
-              e.preventDefault();
-              if (swiped) setSwiped(false);
-            }
-          }}
-        >
-          <div className={cn(
-            "flex gap-3 transition-transform",
-            phoneMode ? "items-start py-3 active:scale-[0.99]" : "items-center gap-4 px-4 py-3.5",
-          )}>
-            {/* Image thumbnail — only when there's an actual photo. The
-                no-image monogram tile is intentionally gone so the row
-                stays clean and lets the location read as its own line. */}
-            {image && (
-              <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-                <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-              </div>
+  // ── Pointer-event swipe (mobile). Capture only once the gesture is clearly
+  //    horizontal so vertical scrolling (touch-action: pan-y) is never hijacked,
+  //    then translate the foreground over the Edit/Delete actions. ──
+  const onSwipeDown = (e: React.PointerEvent) => {
+    if (actionCount === 0) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, base: open ? -revealWidth : 0, moved: false, horizontal: false };
+  };
+  const onSwipeMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.horizontal) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { dragRef.current = null; return; } // vertical → let the page scroll
+      d.horizontal = true;
+      setDragging(true);
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not supported */ }
+    }
+    d.moved = true;
+    const next = Math.max(-revealWidth, Math.min(0, d.base + dx));
+    txRef.current = next;
+    setTx(next);
+  };
+  const onSwipeEnd = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || !d.horizontal) { setDragging(false); return; }
+    justSwipedRef.current = d.moved;
+    setDragging(false);
+    const shouldOpen = txRef.current < -revealWidth / 2;
+    const snapped = shouldOpen ? -revealWidth : 0;
+    txRef.current = snapped;
+    setTx(snapped);
+    setOpen(shouldOpen);
+  };
+  const closeSwipe = () => { justSwipedRef.current = false; txRef.current = 0; setTx(0); setOpen(false); };
+  // Swallow the click that follows a swipe; tapping an open row closes it.
+  const onForegroundClick = (e: React.MouseEvent) => {
+    if (justSwipedRef.current) { e.preventDefault(); justSwipedRef.current = false; return; }
+    if (open) { e.preventDefault(); closeSwipe(); }
+  };
+
+  // ── Mobile: flat row, swipe left to reveal Edit (grey) + Delete (red) ──
+  if (phoneMode) {
+    return (
+      <div className="relative overflow-hidden">
+        {actionCount > 0 && (
+          <div className="absolute inset-y-0 right-0 z-0 flex items-stretch" style={{ width: revealWidth }}>
+            {hasEdit && (
+              <button
+                onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
+                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
+                style={{ background: '#7a7a79' }}
+                aria-label="Edit"
+              >
+                <Edit3 size={19} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Edit</span>
+              </button>
             )}
-            <div className="flex-1 min-w-0 flex flex-col justify-center">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <h3 className={cn("font-serif font-bold leading-tight truncate", phoneMode ? "text-[15px]" : "text-[16px]")}>{name}</h3>
-                  <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
-                    {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
-                    {showMichelin && mich.michelin && (
-                      <span className="inline-flex items-center align-middle ml-1.5">
-                        <MichelinMark michelin={mich.michelin} size={12} />
-                      </span>
-                    )}
-                  </p>
-                  {location && (
-                    <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
-                      {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
-                    </p>
-                  )}
-                </div>
-                <div className={cn("flex items-center flex-shrink-0", phoneMode ? "gap-2" : "gap-1")}>
-                  {score !== undefined && <ScoreBadge rating={score} size={phoneMode ? "sm" : "md"} />}
-                  {onEdit && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                      className={cn(
-                        "p-1.5 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-all",
-                        // On desktop the action controls stay hidden until the
-                        // card is hovered so the resting state reads clean.
-                        !phoneMode && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                      )}
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                  )}
-                  {onRemove && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); phoneMode ? handleDelete() : setConfirmDelete(true); }}
-                      className={cn(
-                        "p-1.5 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all",
-                        !phoneMode && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-                      )}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {tags && tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {tags.slice(0, 3).map((tag) => (
-                    <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{tag}</span>
-                  ))}
-                  {tags.length > 3 && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{tags.length - 3}</span>
-                  )}
-                </div>
-              )}
-              {listBadges && listBadges.length > 0 && (
-                <div className="flex gap-1 mt-1 overflow-hidden">
-                  {listBadges.slice(0, 2).map((l, i) => (
-                    <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/8 text-secondary/60 font-medium whitespace-nowrap">
-                      {l.emoji} {l.name}
-                    </span>
-                  ))}
-                  {listBadges.length > 2 && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{listBadges.length - 2}</span>
-                  )}
-                </div>
-              )}
-            </div>
+            {hasRemove && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
+                style={{ background: '#c0392b' }}
+                aria-label="Delete"
+              >
+                <Trash2 size={19} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Delete</span>
+              </button>
+            )}
           </div>
-        </Link>
-      </motion.div>
-
-      {/* Desktop delete confirmation */}
-      {confirmDelete && (
-        <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-3">
-          <p className="text-xs text-on-surface/60 font-medium">Delete this restaurant?</p>
-          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
-          <button onClick={handleDelete} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+        )}
+        <div
+          onPointerDown={onSwipeDown}
+          onPointerMove={onSwipeMove}
+          onPointerUp={onSwipeEnd}
+          onPointerCancel={onSwipeEnd}
+          style={{
+            transform: `translateX(${tx}px)`,
+            transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1)',
+            touchAction: 'pan-y',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+          }}
+          className="relative z-10 bg-surface"
+        >
+          <Link
+            to={`/restaurant/${restaurantId}`}
+            onClick={onForegroundClick}
+            draggable={false}
+            className="flex items-start gap-[15px] px-1 py-[18px]"
+          >
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em]">
+                {rank != null && <span className="text-[16px] text-on-surface/40">{rank}. </span>}{name}
+              </h3>
+              {metaTop && (
+                <p className="mt-[5px] text-[13px] font-semibold leading-[1.3] text-on-surface/70">
+                  {metaTop}
+                  {showMichelin && mich.michelin && (
+                    <span className="ml-1.5 inline-flex items-center align-middle"><MichelinMark michelin={mich.michelin} size={12} /></span>
+                  )}
+                </p>
+              )}
+              {metaLoc && <p className="mt-[3px] truncate text-[12.5px] font-medium leading-[1.3] text-on-surface/40">{metaLoc}</p>}
+              <StatusLine hours={meta?.hours} className="mt-[9px]" />
+            </div>
+            <ScoreRing score={score} size={46} className="mt-0.5" />
+          </Link>
         </div>
+        {confirmDelete && (
+          <ConfirmDeleteDialog
+            name={name}
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // ── Desktop: boxed list card with rank gutter + inset-ring score ──
+  return (
+    <div className="group relative">
+      <Link
+        to={`/restaurant/${restaurantId}`}
+        className="card-surface card-surface-hover flex items-center gap-[22px] px-[26px] py-[22px] shadow-sm"
+      >
+        {rank != null && (
+          <div className="min-w-[26px] flex-shrink-0 text-center text-[20px] font-bold leading-none tabular-nums text-on-surface/40">{rank}</div>
+        )}
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-serif text-[22px] font-bold leading-[1.15] tracking-[-0.01em]">{name}</h3>
+          {metaTop && (
+            <p className="mt-1.5 text-[13px] font-semibold leading-[1.3] text-on-surface/70">
+              {metaTop}
+              {showMichelin && mich.michelin && (
+                <span className="ml-1.5 inline-flex items-center align-middle"><MichelinMark michelin={mich.michelin} size={12} /></span>
+              )}
+            </p>
+          )}
+          {metaLoc && <p className="mt-[3px] truncate text-[12.5px] font-medium leading-[1.3] text-on-surface/40">{metaLoc}</p>}
+          <StatusLine hours={meta?.hours} className="mt-[9px]" />
+        </div>
+        {(onEdit || onRemove) && (
+          <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {onEdit && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }} aria-label="Edit"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary">
+                <Edit3 size={15} />
+              </button>
+            )}
+            {onRemove && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }} aria-label="Delete"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/25 transition-colors hover:bg-red-50 hover:text-red-500">
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        )}
+        <ScoreRing score={score} size={48} />
+      </Link>
+      {confirmDelete && (
+        <ConfirmDeleteDialog
+          name={name}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
+        />
       )}
     </div>
   );
@@ -838,7 +937,7 @@ const WishlistRow: React.FC<{
           <Link to={`/restaurant/${restaurantId}`}>
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
-          <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
+          <p className="text-[12.5px] text-on-surface/55 font-medium mt-0.5">
             {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
           </p>
           {location && (
@@ -942,7 +1041,7 @@ const WishlistGridCard: React.FC<{
 
         {/* Cuisine · price */}
         {(cuisineLabel || showPrice) && (
-          <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+          <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium">
             {cuisineLabel}
             {cuisineLabel && showPrice ? ' · ' : ''}
             {showPrice && mich.price}
@@ -1049,235 +1148,146 @@ const RestaurantGridCard: React.FC<{
     return () => document.removeEventListener('mousedown', onDoc);
   }, [moreOpen]);
 
-  // ── No-image variant ──────────────────────────────────────────────
-  // Same airy editorial tile as the wishlist card, just with the
-  // numeric score in the top-right slot instead of a heart pip. Big
-  // serif name, CUISINE·PRICE, breathing-room middle, footer with the
-  // street address + distance. Edit / more controls fade in on hover.
-  if (!image) {
-    // Display label uses the same Beli-style helper as the rest of the
-    // app — "Neighborhood, Borough" / "Neighborhood, City, ST" /
-    // "City, ST" depending on what address components are cached.
-    const streetCity = locationLabel;
+  // Text-only boxed card per the Restaurant Cards Redesign — no photo. Score
+  // ring top-right, name, cuisine · price, Add Notes affordance, location, and
+  // the Open/Closed + hours · distance status line. Edit / more fade in on hover.
+  return (
+    <div className="group relative">
+      <Link
+        to={`/restaurant/${restaurantId}`}
+        className="relative flex flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-[22px] pb-5 pt-[22px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+      >
+        {/* Score — inset ring, top-right */}
+        {hasScore && (
+          <div className="absolute right-[22px] top-[22px]"><ScoreRing score={score} size={44} /></div>
+        )}
 
-    return (
-      <div className="group relative">
-        <Link
-          to={`/restaurant/${restaurantId}`}
-          className={cn(
-            'block rounded-2xl bg-white border border-on-surface/[0.07]',
-            'p-5 transition-all duration-200',
-            'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
-            'flex flex-col',
-          )}
-        >
-          {/* Top row: name + score */}
-          <div className="flex items-start justify-between gap-4">
-            <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
-              {name}
-            </h3>
-            {hasScore && <ScoreBadge rating={score!} size="lg" />}
-          </div>
+        <h3 className="line-clamp-2 pr-14 font-serif text-[21px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
+          {name}
+        </h3>
 
-          {/* Cuisine · price */}
-          {(cuisineLabel || showPrice || (showMichelin && mich.michelin)) && (
-            <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
-              {cuisineLabel}
-              {cuisineLabel && showPrice ? ' · ' : ''}
-              {showPrice && mich.price}
-              {showMichelin && mich.michelin && (
-                <span className="inline-flex items-center align-middle ml-1.5">
-                  <MichelinMark michelin={mich.michelin} size={12} />
-                </span>
-              )}
-            </p>
-          )}
+        {(cuisineLabel || showPrice || (showMichelin && mich.michelin)) && (
+          <p className="mt-1.5 text-[13px] font-semibold text-on-surface/70">
+            {cuisineLabel}
+            {cuisineLabel && showPrice ? '  ·  ' : ''}
+            {showPrice && mich.price}
+            {showMichelin && mich.michelin && (
+              <span className="ml-1.5 inline-flex items-center align-middle">
+                <MichelinMark michelin={mich.michelin} size={12} />
+              </span>
+            )}
+          </p>
+        )}
 
-          {/* Notes affordance — sits in the same slot the italic quote
-              used to occupy.
-                • If the restaurant has notes, render a Notes dropdown
-                  that expands the quoted text in place.
-                • Otherwise, render an "Add notes" button that opens the
-                  rating modal jumped straight to its Notes sub-page. */}
-          {hasNotes ? (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setNotesOpen((v) => !v);
-                }}
-                aria-expanded={notesOpen}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/55 hover:text-on-surface transition-colors"
-              >
-                <StickyNote size={12} className="text-on-surface/45" />
-                <span>Notes</span>
-                <ChevronDown
-                  size={12}
-                  className={cn('transition-transform', notesOpen && 'rotate-180')}
-                />
-              </button>
-              <AnimatePresence initial={false}>
-                {notesOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                    className="overflow-hidden"
-                  >
-                    <p className="mt-1.5 text-[12px] text-on-surface/65 italic leading-snug whitespace-pre-wrap">
-                      &ldquo;{trimmedNotes}&rdquo;
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          ) : onEditNotes ? (
+        {/* Notes affordance — Notes dropdown when present, else "Add Notes". */}
+        {hasNotes ? (
+          <div className="mt-3.5">
             <button
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onEditNotes();
-              }}
-              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/35 hover:text-primary transition-colors"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotesOpen((v) => !v); }}
+              aria-expanded={notesOpen}
+              className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 hover:text-on-surface transition-colors"
             >
-              <Plus size={12} />
-              <span>Add notes</span>
+              <StickyNote size={12} className="text-on-surface/45" />
+              <span>Notes</span>
+              <ChevronDown size={12} className={cn('transition-transform', notesOpen && 'rotate-180')} />
             </button>
-          ) : null}
+            <AnimatePresence initial={false}>
+              {notesOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  <p className="mt-1.5 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
+                    &ldquo;{trimmedNotes}&rdquo;
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ) : onEditNotes ? (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEditNotes(); }}
+            className="mt-3.5 inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 hover:text-primary transition-colors"
+          >
+            <Plus size={14} />
+            <span>Add Notes</span>
+          </button>
+        ) : null}
 
-          {/* Footer: pin + location (line-clamp 2 so the full Beli-style
-              label is never cut off), then a second line with the
-              distance label and the hover-revealed action icons. */}
-          <div className="mt-3 text-[12.5px] text-on-surface/55">
-            <div className="flex items-start gap-1.5 min-w-0">
-              <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
-              <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between gap-2 min-h-[28px]">
-              {(todayHours || distanceLabel) ? (
-                <span className="flex items-center gap-1.5 min-w-0">
-                  {todayHours && (
-                    <span className={cn(
-                      'inline-flex items-center gap-1 min-w-0',
-                      todayHours.toLowerCase() === 'closed' ? 'text-on-surface/40' : 'text-on-surface/55',
-                    )}>
-                      <Clock size={11} className="flex-shrink-0" />
-                      <span className="truncate">{todayHours}</span>
-                    </span>
-                  )}
-                  {todayHours && distanceLabel && <span className="text-on-surface/20 flex-shrink-0">·</span>}
-                  {distanceLabel && (
-                    <span className="tabular-nums text-on-surface/45 flex-shrink-0">{distanceLabel}</span>
-                  )}
-                </span>
-              ) : <span />}
-              {(onEdit || onRemove) && (
-                <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                  {onEdit && (
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                      aria-label="Edit"
-                      className="w-7 h-7 rounded-full text-on-surface/35 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
-                    >
-                      <Edit3 size={13} />
-                    </button>
-                  )}
-                  {onRemove && (
-                    <div className="relative" ref={moreRef}>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
-                        aria-label="More options"
-                        aria-haspopup="menu"
-                        aria-expanded={moreOpen}
-                        className={cn(
-                          'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
-                          moreOpen
-                            ? 'text-on-surface bg-on-surface/[0.06]'
-                            : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
-                        )}
+        {/* Location */}
+        {locationLabel && (
+          <div className="mt-3.5 flex items-center gap-1.5 text-[12.5px] font-medium text-on-surface/55">
+            <MapPin size={14} className="flex-shrink-0 text-on-surface/40" />
+            <span className="truncate">{locationLabel}</span>
+          </div>
+        )}
+
+        {/* Open/Closed + hours · distance, with hover edit/more on the right */}
+        <div className="mt-2 flex min-h-[28px] items-center justify-between gap-2">
+          <StatusLine hours={meta?.hours} trailing={distanceLabel} />
+          {(onEdit || onRemove) && (
+            <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              {onEdit && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                  aria-label="Edit"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary"
+                >
+                  <Edit3 size={13} />
+                </button>
+              )}
+              {onRemove && (
+                <div className="relative" ref={moreRef}>
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                    aria-label="More options"
+                    aria-haspopup="menu"
+                    aria-expanded={moreOpen}
+                    className={cn(
+                      'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                      moreOpen ? 'bg-on-surface/[0.06] text-on-surface' : 'text-on-surface/35 hover:bg-on-surface/[0.05] hover:text-on-surface',
+                    )}
+                  >
+                    <MoreHorizontal size={14} />
+                  </button>
+                  <AnimatePresence>
+                    {moreOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                        transition={{ duration: 0.12, ease: 'easeOut' }}
+                        role="menu"
+                        className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
                       >
-                        <MoreHorizontal size={14} />
-                      </button>
-                      <AnimatePresence>
-                        {moreOpen && (
-                          <motion.div
-                            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                            transition={{ duration: 0.12, ease: 'easeOut' }}
-                            role="menu"
-                            className="absolute right-0 bottom-full mb-1.5 z-30 min-w-[140px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
-                          >
-                            <button
-                              role="menuitem"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
-                              className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
-                            >
-                              <Trash2 size={13} /> Delete
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
+                        <button
+                          role="menuitem"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
             </div>
-          </div>
-        </Link>
-
-        {confirmDelete && (
-          <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4">
-            <p className="text-sm text-on-surface/70 font-medium text-center">Delete this restaurant?</p>
-            <div className="flex gap-2">
-              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 text-xs font-semibold text-on-surface/55 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
-              <button onClick={() => { if (onRemove) onRemove(); }} className="px-4 py-2 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── With-image variant (existing layout) ──────────────────────────
-  return (
-    <div className="group relative">
-      <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/[0.05]">
-        <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
+          )}
+        </div>
       </Link>
-      <div className="pt-2.5 pb-1">
-        <div className="flex items-start justify-between gap-2">
-          <Link to={`/restaurant/${restaurantId}`} className="min-w-0 flex-1">
-            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
-          </Link>
-          <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
-            {hasScore && <ScoreBadge rating={score!} size="xs" />}
-            {onEdit && (
-              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                className="p-1 text-on-surface/30 hover:text-primary rounded-lg transition-colors"><Edit3 size={12} /></button>
-            )}
-            {onRemove && (
-              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
-                className="p-1 text-on-surface/20 hover:text-red-500 rounded-lg transition-colors"><Trash2 size={12} /></button>
-            )}
-          </div>
-        </div>
-        <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-          {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && mich.price}
-        </p>
-      </div>
+
       {confirmDelete && (
-        <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-2 p-3">
-          <p className="text-xs text-on-surface/60 font-medium text-center">Delete this restaurant?</p>
-          <div className="flex gap-2">
-            <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
-            <button onClick={() => { if (onRemove) onRemove(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
-          </div>
-        </div>
+        <ConfirmDeleteDialog
+          name={name}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => { setConfirmDelete(false); if (onRemove) onRemove(); }}
+        />
       )}
     </div>
   );
@@ -2603,54 +2613,27 @@ const ListDetailView: React.FC<{
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
-            {filteredRecipes.map((recipe) => {
-              return (
-                <button key={recipe.id} onClick={() => openAddRecipeModal(list.id, recipe)}
-                  className="w-full flex items-center gap-3 p-3 bg-white border border-on-surface/8 rounded-2xl hover:shadow-md transition-all text-left">
-                  {recipe.coverPhoto ? (
-                    <img src={recipe.coverPhoto} alt={recipe.title} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0">
-                      <span className="text-2xl">🍳</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-on-surface/80 truncate">{recipe.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {recipe.cuisine && <span className="text-[11px] text-on-surface/40">{recipe.cuisine}</span>}
-                      {recipe.difficulty && <span className="text-[11px] text-on-surface/30">· {recipe.difficulty}</span>}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1">
-                      {(recipe.prepTime > 0 || recipe.cookTime > 0) && (
-                        <span className="text-[10px] text-on-surface/35">{recipe.prepTime + recipe.cookTime} min</span>
-                      )}
-                      {recipe.ingredients.length > 0 && (
-                        <span className="text-[10px] text-on-surface/35">{recipe.ingredients.length} ingredients</span>
-                      )}
-                      {recipe.tags.length > 0 && (
-                        <span className="text-[10px] text-on-surface/35">{recipe.tags[0]}{recipe.tags.length > 1 ? ` +${recipe.tags.length - 1}` : ''}</span>
-                      )}
-                    </div>
-                    {(recipe.sourceAuthorUsername || recipe.sourceAuthorName) && (
-                      <p className="text-[10.5px] text-on-surface/40 italic mt-1 truncate">
-                        by {recipe.sourceAuthorUsername ? `@${recipe.sourceAuthorUsername}` : recipe.sourceAuthorName}
-                      </p>
-                    )}
-                  </div>
-                  <ScoreBadge rating={recipe.score} size="sm" />
-                </button>
-              );
-            })}
+          <>
+            <div className={phoneMode ? 'divide-y divide-on-surface/[0.06]' : 'space-y-2.5'}>
+              {filteredRecipes.map((recipe) => (
+                <RecipeRow
+                  key={recipe.id}
+                  {...recipeToCardData(recipe)}
+                  onClick={() => openAddRecipeModal(list.id, recipe)}
+                  onEdit={() => openAddRecipeModal(list.id, recipe)}
+                  onDelete={() => removeRecipe(list.id, recipe.id)}
+                />
+              ))}
+            </div>
             {/* Add more button — phone only. On desktop the header's
                 "Add Recipe" CTA replaces this footer. */}
             {phoneMode && (
               <button onClick={() => openAddRecipeModal(list.id)}
-                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+                className="mt-3 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
                 <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
               </button>
             )}
-          </div>
+          </>
         )
       ) : totalCount === 0 ? (
         <div className="text-center py-16">
@@ -2672,7 +2655,7 @@ const ListDetailView: React.FC<{
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
               <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
-                {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
+                {ratedRestaurants.map(({ id, info, rating }, idx) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
                     restaurantId={id}
@@ -2691,6 +2674,7 @@ const ListDetailView: React.FC<{
                   <RestaurantRow
                     key={id}
                     restaurantId={id}
+                    rank={idx + 1}
                     name={info?.name ?? id}
                     image={info?.image ?? ''}
                     cuisine={info?.cuisine ?? ''}
@@ -2749,7 +2733,7 @@ const ListDetailView: React.FC<{
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
-                    <WishlistGridCard
+                    <RestaurantGridCard
                       key={id}
                       restaurantId={id}
                       name={info?.name ?? id}
@@ -2765,7 +2749,7 @@ const ListDetailView: React.FC<{
               ) : (
                 <div className="divide-y divide-on-surface/[0.06]">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
-                    <WishlistRow
+                    <RestaurantRow
                       key={id}
                       restaurantId={id}
                       name={info?.name ?? id}
@@ -5385,7 +5369,7 @@ const HomeCookingTab: React.FC<{
           {filteredMeals.map((meal) => (
             <RecipeGridCard
               key={meal.id}
-              meal={meal}
+              {...homeMealToCardData(meal)}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
               onDelete={() => onDeleteMeal(meal.id)}
@@ -5393,17 +5377,17 @@ const HomeCookingTab: React.FC<{
           ))}
         </div>
       ) : (
-        <ul className="space-y-2.5">
+        <div className={phoneMode ? 'divide-y divide-on-surface/[0.06]' : 'space-y-2.5'}>
           {filteredMeals.map((meal) => (
             <RecipeRow
               key={meal.id}
-              meal={meal}
+              {...homeMealToCardData(meal)}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
               onDelete={() => onDeleteMeal(meal.id)}
             />
           ))}
-        </ul>
+        </div>
       )}
 
       {/* Recipe filter sheet — Spotlight popup on desktop, bottom sheet
@@ -5427,283 +5411,396 @@ const HomeCookingTab: React.FC<{
   );
 };
 
-/* ── Recipe row (list view) ──
-   List view drops the cover image — just title + meta + score on a
-   single line. The cover photo is already the headline element of the
-   grid view, so the list view stays compact and text-first. */
-/* ── Recipe list row ──
-   Editorial card matching the rest of the program: cover thumbnail
-   on the left, title + chip-style meta + ingredient preview in the
-   middle, score badge on the right. Hover lifts the surface and
-   reveals Edit / Delete actions; both share the same focus-within
-   target so keyboard users get them too. */
-const RecipeRow: React.FC<{
-  meal: HomeMeal;
+/* ── Recipe meta string ──
+   Builds the "Cuisine · 45 min · Easy" line shared by every recipe
+   card. Falls back to a dish count when there's no time/difficulty so
+   the line never reads empty. */
+function recipeMetaText(opts: { cuisine?: string; totalTime?: number; difficulty?: string; dishCount?: number }): string {
+  const { cuisine, totalTime = 0, difficulty, dishCount = 0 } = opts;
+  return [
+    cuisine || null,
+    totalTime > 0 ? formatDuration(totalTime) : null,
+    difficulty || null,
+    dishCount > 0 && totalTime === 0 && !difficulty
+      ? `${dishCount} dish${dishCount !== 1 ? 'es' : ''}`
+      : null,
+  ].filter(Boolean).join('  ·  ');
+}
+
+interface RecipeCardData {
+  recipeId: string;
+  name: string;
+  coverPhoto?: string;
+  cuisine?: string;
+  totalTime?: number;
+  difficulty?: string;
+  dishCount?: number;
+  score?: number;
+  ingredientText?: string;
+  ingredientOverflow?: boolean;
+  byline?: string;
+  /** Recipes saved from another user can't be edited — only removed. */
+  canEdit?: boolean;
+}
+
+/** Adapt a saved home-cooked meal to the shared recipe-card shape. */
+function homeMealToCardData(meal: HomeMeal): RecipeCardData {
+  const ingredients = meal.ingredients ?? [];
+  const preview = ingredients.slice(0, 6);
+  return {
+    recipeId: meal.id,
+    name: meal.name,
+    coverPhoto: getMealCoverUrl(meal),
+    cuisine: meal.cuisine,
+    totalTime: (meal.prepTime ?? 0) + (meal.cookTime ?? 0),
+    difficulty: meal.difficulty,
+    dishCount: meal.dishes.length,
+    score: meal.score,
+    ingredientText: preview.map((i) => i.name).filter(Boolean).join(', '),
+    ingredientOverflow: ingredients.length > preview.length,
+    byline: (meal.sourceAuthorUsername || meal.sourceAuthorName)
+      ? `by ${meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}`
+      : undefined,
+    canEdit: !isSavedFromOtherUser(meal),
+  };
+}
+
+/** Adapt a recipe saved into a recipe list to the shared card shape. */
+function recipeToCardData(recipe: Recipe): RecipeCardData {
+  const ingredients = recipe.ingredients ?? [];
+  const preview = ingredients.slice(0, 6);
+  return {
+    recipeId: recipe.id,
+    name: recipe.title,
+    coverPhoto: recipe.coverPhoto || undefined,
+    cuisine: recipe.cuisine,
+    totalTime: (recipe.prepTime ?? 0) + (recipe.cookTime ?? 0),
+    difficulty: recipe.difficulty,
+    score: recipe.score,
+    ingredientText: preview.map((i) => i.name).filter(Boolean).join(', '),
+    ingredientOverflow: ingredients.length > preview.length,
+    byline: (recipe.sourceAuthorUsername || recipe.sourceAuthorName)
+      ? `by ${recipe.sourceAuthorUsername ? `@${recipe.sourceAuthorUsername}` : recipe.sourceAuthorName}`
+      : undefined,
+    canEdit: !(recipe.sourceAuthorUsername || recipe.sourceAuthorName),
+  };
+}
+
+/* ── Recipe thumbnail / chef-hat placeholder ── */
+const RecipeThumb: React.FC<{ coverPhoto?: string; name: string; size: number }> = ({ coverPhoto, name, size }) => (
+  <div
+    className="flex-shrink-0 overflow-hidden"
+    style={{ width: size, height: size, borderRadius: 14, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}
+  >
+    {coverPhoto ? (
+      <img src={coverPhoto} alt={name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-emerald-50">
+        <ChefHat size={Math.round(size * 0.45)} className="text-emerald-500" strokeWidth={1.7} />
+      </div>
+    )}
+  </div>
+);
+
+/* ── Recipe list row (Recipe Cards Redesign) ──
+   Mobile: flat hairline-divided row, swipe left to reveal Edit (grey) +
+   Delete (red), matching the restaurant rows. Desktop: boxed card that
+   lifts on hover with inline edit/delete. Cover thumbnail on the left,
+   serif title + clock-meta + ingredient preview in the middle, tiered
+   ScoreRing on the right. */
+const RecipeRow: React.FC<RecipeCardData & {
   onClick: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
-}> = ({ meal, onClick, onEdit, onDelete }) => {
-  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-  const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
-  const ingredientText = ingredientPreview.map((i) => i.name).filter(Boolean).join(', ');
-  const ingredientOverflow = (meal.ingredients?.length ?? 0) > ingredientPreview.length;
-  const coverPhoto = getMealCoverUrl(meal);
-  // Recipes saved from another user can't be edited — only removed.
-  const isSavedCopy = isSavedFromOtherUser(meal);
+}> = ({
+  name, coverPhoto, cuisine, totalTime = 0, difficulty, dishCount = 0,
+  score, ingredientText, ingredientOverflow, byline, canEdit = true,
+  onClick, onEdit, onDelete,
+}) => {
+  const { phoneMode } = useSettings();
   const [confirmDelete, setConfirmDelete] = useState(false);
-  return (
-    <li className="relative group/row">
-      <button
-        onClick={onClick}
-        className="w-full text-left flex items-center gap-4 p-3 sm:p-3.5 rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/15 hover:shadow-[0_6px_18px_-10px_rgba(0,0,0,0.18)] active:scale-[0.995] transition-all"
-      >
-        {/* Cover thumbnail. Mirrors the grid card's chef-hat placeholder
-            on bg-emerald-50 so a cookbook without photos still feels
-            warm and intentional instead of empty. */}
-        <div className="w-[68px] h-[68px] sm:w-[76px] sm:h-[76px] rounded-xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 ring-1 ring-on-surface/[0.05]">
-          {coverPhoto ? (
-            <img
-              src={coverPhoto}
-              alt={meal.name}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
-              <ChefHat size={26} className="text-emerald-300" strokeWidth={1.6} />
-            </div>
-          )}
-        </div>
+  const [dismissed, setDismissed] = useState(false);
+  const [tx, setTx] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; base: number; moved: boolean; horizontal: boolean } | null>(null);
+  const txRef = useRef(0);
+  const justSwipedRef = useRef(false);
 
-        {/* Body */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-3">
-            <h3 className="font-serif font-bold text-[15.5px] leading-snug line-clamp-2 flex-1 text-on-surface">
-              {meal.name}
-            </h3>
-            <div className="flex-shrink-0 -mt-0.5">
-              {meal.score > 0 ? (
-                <ScoreBadge rating={meal.score} size="sm" />
-              ) : (
-                <span className="text-on-surface/20 text-lg font-serif font-bold leading-none">—</span>
-              )}
-            </div>
+  const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
+  const hasEdit = !!onEdit && canEdit;
+  const hasRemove = !!onDelete;
+
+  const handleDelete = () => {
+    if (!onDelete) return;
+    setDismissed(true);
+    setTimeout(() => onDelete(), 300);
+  };
+
+  if (dismissed) return null;
+
+  const actionCount = (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
+  const revealWidth = actionCount * 76;
+
+  // ── Pointer-event swipe (mobile), identical to the restaurant rows so
+  //    vertical scrolling is never hijacked (touch-action: pan-y). ──
+  const onSwipeDown = (e: React.PointerEvent) => {
+    if (actionCount === 0) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, base: open ? -revealWidth : 0, moved: false, horizontal: false };
+  };
+  const onSwipeMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.horizontal) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) >= Math.abs(dx)) { dragRef.current = null; return; }
+      d.horizontal = true;
+      setDragging(true);
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not supported */ }
+    }
+    d.moved = true;
+    const next = Math.max(-revealWidth, Math.min(0, d.base + dx));
+    txRef.current = next;
+    setTx(next);
+  };
+  const onSwipeEnd = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || !d.horizontal) { setDragging(false); return; }
+    justSwipedRef.current = d.moved;
+    setDragging(false);
+    const shouldOpen = txRef.current < -revealWidth / 2;
+    const snapped = shouldOpen ? -revealWidth : 0;
+    txRef.current = snapped;
+    setTx(snapped);
+    setOpen(shouldOpen);
+  };
+  const closeSwipe = () => { justSwipedRef.current = false; txRef.current = 0; setTx(0); setOpen(false); };
+  const onForegroundClick = (e: React.MouseEvent) => {
+    if (justSwipedRef.current) { e.preventDefault(); justSwipedRef.current = false; return; }
+    if (open) { e.preventDefault(); closeSwipe(); return; }
+    onClick();
+  };
+
+  // ── Mobile: flat row, swipe left to reveal Edit + Delete ──
+  if (phoneMode) {
+    return (
+      <div className="relative overflow-hidden">
+        {actionCount > 0 && (
+          <div className="absolute inset-y-0 right-0 z-0 flex items-stretch" style={{ width: revealWidth }}>
+            {hasEdit && (
+              <button
+                onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
+                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
+                style={{ background: '#7a7a79' }}
+                aria-label="Edit"
+              >
+                <Edit3 size={19} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Edit</span>
+              </button>
+            )}
+            {hasRemove && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
+                style={{ background: '#c0392b' }}
+                aria-label="Delete"
+              >
+                <Trash2 size={19} />
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Delete</span>
+              </button>
+            )}
           </div>
-
-          {/* Meta chips — soft pills, not uppercase prose, so the row
-              reads as a polished card instead of plain text. */}
-          {(meal.cuisine || totalTime > 0 || meal.difficulty || meal.dishes.length > 0) && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {meal.cuisine && (
-                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
-                  {meal.cuisine}
-                </span>
+        )}
+        <div
+          onPointerDown={onSwipeDown}
+          onPointerMove={onSwipeMove}
+          onPointerUp={onSwipeEnd}
+          onPointerCancel={onSwipeEnd}
+          style={{
+            transform: `translateX(${tx}px)`,
+            transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1)',
+            touchAction: 'pan-y',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+          }}
+          className="relative z-10 bg-surface"
+        >
+          <button
+            onClick={onForegroundClick}
+            className="flex w-full items-start gap-[15px] px-1 py-4 text-left"
+          >
+            <RecipeThumb coverPhoto={coverPhoto} name={name} size={58} />
+            <div className="min-w-0 flex-1">
+              <h3 className="font-serif text-[18px] font-bold leading-[1.18] tracking-[-0.01em] text-on-surface" style={{ textWrap: 'pretty' } as React.CSSProperties}>{name}</h3>
+              {metaText && (
+                <p className="mt-[5px] flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/70">
+                  {totalTime > 0 && <Clock size={13} className="flex-shrink-0 text-on-surface/40" />}
+                  <span className="truncate">{metaText}</span>
+                </p>
               )}
-              {totalTime > 0 && (
-                <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
-                  <Clock size={10} className="opacity-70" />
-                  {formatDuration(totalTime)}
-                </span>
+              {ingredientText && (
+                <p className="mt-[7px] text-[12.5px] font-medium leading-[1.45] text-on-surface/40 line-clamp-2">
+                  {ingredientText}{ingredientOverflow ? '…' : ''}
+                </p>
               )}
-              {meal.difficulty && (
-                <span className={cn(
-                  'inline-flex items-center text-[10.5px] font-semibold px-2 py-0.5 rounded-full',
-                  meal.difficulty === 'Easy' && 'bg-emerald-50 text-emerald-700',
-                  meal.difficulty === 'Medium' && 'bg-amber-50 text-amber-700',
-                  meal.difficulty === 'Hard' && 'bg-rose-50 text-rose-700',
-                )}>
-                  {meal.difficulty}
-                </span>
-              )}
-              {meal.dishes.length > 0 && totalTime === 0 && !meal.difficulty && (
-                <span className="inline-flex items-center text-[10.5px] font-semibold text-on-surface/65 bg-on-surface/[0.05] px-2 py-0.5 rounded-full">
-                  {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
-                </span>
-              )}
+              {byline && <p className="mt-1 truncate text-[11px] italic text-on-surface/45">{byline}</p>}
             </div>
-          )}
+            <ScoreRing score={score} size={44} className="mt-0.5" />
+          </button>
+        </div>
+        {confirmDelete && (
+          <ConfirmDeleteDialog
+            name={name}
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
+          />
+        )}
+      </div>
+    );
+  }
 
+  // ── Desktop: boxed list card with hover edit/delete + inset-ring score ──
+  // The clickable surface is a role="button" div (not a <button>) so the
+  // inline Edit/Delete buttons can nest without invalid-DOM warnings.
+  return (
+    <div className="group relative">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+        className="card-surface card-surface-hover flex w-full cursor-pointer items-center gap-5 px-[22px] py-[18px] text-left shadow-sm"
+      >
+        <RecipeThumb coverPhoto={coverPhoto} name={name} size={76} />
+        <div className="min-w-0 flex-1">
+          <h3 className="font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface line-clamp-2">{name}</h3>
+          {metaText && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/70">
+              {totalTime > 0 && <Clock size={13} className="flex-shrink-0 text-on-surface/40" />}
+              <span className="truncate">{metaText}</span>
+            </p>
+          )}
           {ingredientText && (
-            <p className="text-[12.5px] text-on-surface/55 mt-1.5 leading-snug line-clamp-1 sm:line-clamp-2 pr-1">
+            <p className="mt-[7px] text-[13px] font-medium leading-[1.5] text-on-surface/40 line-clamp-2">
               {ingredientText}{ingredientOverflow ? '…' : ''}
             </p>
           )}
-          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
-            <p className="text-[11px] text-on-surface/45 mt-1 italic truncate">
-              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
-            </p>
-          )}
+          {byline && <p className="mt-1 truncate text-[11px] italic text-on-surface/45">{byline}</p>}
         </div>
-      </button>
-
-      {/* Hover actions — sit on the surface of the card without
-          covering the score badge. Always visible on touch (no
-          hover), fade in on hover for pointer users. */}
-      <div className="absolute top-2 right-2 flex items-center gap-1 sm:opacity-0 sm:group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
-        {!isSavedCopy && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            aria-label={`Edit ${meal.name}`}
-            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors flex items-center justify-center"
-          >
-            <Edit3 size={13} />
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-            aria-label={`Delete ${meal.name}`}
-            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors flex items-center justify-center"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
-
-      {confirmDelete && onDelete && (
-        <div
-          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col sm:flex-row items-center justify-center gap-3 px-4 py-3 border border-on-surface/10 shadow-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-sm text-on-surface/80 font-medium text-center">
-            Delete <span className="font-serif font-bold">{meal.name}</span>?
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => { setConfirmDelete(false); onDelete(); }}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
-            >
-              Delete
-            </button>
+        {(hasEdit || hasRemove) && (
+          <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {hasEdit && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit?.(); }} aria-label={`Edit ${name}`}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary">
+                <Edit3 size={15} />
+              </button>
+            )}
+            {hasRemove && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }} aria-label={`Delete ${name}`}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/25 transition-colors hover:bg-red-50 hover:text-red-500">
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
-        </div>
+        )}
+        <ScoreRing score={score} size={46} />
+      </div>
+      {confirmDelete && (
+        <ConfirmDeleteDialog
+          name={name}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
+        />
       )}
-    </li>
+    </div>
   );
 };
 
-/* ── Recipe grid card ──
-   Mirrors RestaurantGridCard: editorial tile with the cover image on
-   top (or a soft chef-hat placeholder), title underneath, meta row,
-   and a score chip. Edit pencil fades in on hover. */
-const RecipeGridCard: React.FC<{
-  meal: HomeMeal;
+/* ── Recipe grid card (Recipe Cards Redesign) ──
+   Desktop editorial tile: 4:3 cover (or soft chef-hat placeholder) with
+   the tiered ScoreRing overlaid bottom-left, serif title + clock-meta
+   below. Hover lifts the surface and reveals Edit / Delete. */
+const RecipeGridCard: React.FC<RecipeCardData & {
   onClick: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
-}> = ({ meal, onClick, onEdit, onDelete }) => {
-  const coverPhoto = getMealCoverUrl(meal);
-  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-  // Recipes saved from another user can't be edited — only removed.
-  const isSavedCopy = isSavedFromOtherUser(meal);
+}> = ({
+  name, coverPhoto, cuisine, totalTime = 0, difficulty, dishCount = 0,
+  score, byline, canEdit = true, onClick, onEdit, onDelete,
+}) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
+  const hasEdit = !!onEdit && canEdit;
+  const hasRemove = !!onDelete;
   return (
     <div className="group relative">
       <button
         onClick={onClick}
-        className="w-full text-left active:scale-[0.99] transition-transform"
+        className="w-full text-left card-surface card-surface-hover active:scale-[0.99]"
       >
         {/* Cover image / placeholder */}
-        <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] mb-3 relative">
+        <div className="relative aspect-[4/3] overflow-hidden bg-emerald-50">
           {coverPhoto ? (
-            <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+            <img src={coverPhoto} alt={name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
-              <ChefHat size={44} className="text-emerald-300" strokeWidth={1.6} />
+            <div className="flex h-full w-full items-center justify-center">
+              <ChefHat size={46} className="text-emerald-500" strokeWidth={1.5} />
             </div>
           )}
-          {meal.score > 0 && (
-            <span className={cn(
-              'absolute top-2 right-2 px-2 py-0.5 rounded-full text-[12px] font-serif font-bold tabular-nums shadow-sm',
-              meal.score >= 8.5 ? 'bg-emerald-600 text-white'
-                : meal.score >= 7 ? 'bg-emerald-500 text-white'
-                : meal.score >= 5 ? 'bg-amber-400 text-on-surface'
-                : 'bg-red-400 text-white',
-            )}>
-              {meal.score.toFixed(1)}
-            </span>
-          )}
+          <ScoreRing score={score} size={44} onPhoto className="absolute bottom-3 left-3" />
         </div>
 
         {/* Body */}
-        <div className="px-0.5">
-          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 text-on-surface">
-            {meal.name}
+        <div className="px-[18px] pb-[17px] pt-[15px]">
+          <h3 className="font-serif text-[19px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface line-clamp-2">
+            {name}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider">
-            {meal.cuisine && <span>{meal.cuisine}</span>}
-            {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
-            {totalTime > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <Clock size={11} />{formatDuration(totalTime)}
-              </span>
-            )}
-            {(meal.cuisine || totalTime > 0) && meal.difficulty && <span className="text-on-surface/25">·</span>}
-            {meal.difficulty && <span>{meal.difficulty}</span>}
-          </div>
-          {(meal.sourceAuthorUsername || meal.sourceAuthorName) && (
-            <p className="mt-1 text-[11px] text-on-surface/45 italic normal-case tracking-normal truncate">
-              by {meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}
+          {metaText && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/70">
+              {totalTime > 0 && <Clock size={13} className="flex-shrink-0 text-on-surface/40" />}
+              <span className="truncate">{metaText}</span>
             </p>
+          )}
+          {byline && (
+            <p className="mt-1 truncate text-[11px] italic text-on-surface/45">{byline}</p>
           )}
         </div>
       </button>
-      {/* Hover actions: Edit (top-left) and Delete (top-left, just under
-          edit). Stacked vertically so they don't crowd the score chip
-          on the right. */}
-      <div className="absolute top-2 left-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-        {!isSavedCopy && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            aria-label={`Edit ${meal.name}`}
-            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-colors"
-          >
-            <Edit3 size={13} className="mx-auto" />
-          </button>
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-            aria-label={`Delete ${meal.name}`}
-            className="w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-600 hover:bg-white transition-colors"
-          >
-            <Trash2 size={13} className="mx-auto" />
-          </button>
-        )}
-      </div>
-      {confirmDelete && onDelete && (
-        <div
-          className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <p className="text-sm text-on-surface/80 font-medium text-center leading-snug">
-            Delete this recipe?
-          </p>
-          <div className="flex gap-2">
+      {/* Hover actions: Edit + Delete, stacked top-left so they don't
+          crowd the score overlay on the bottom-left or the title. */}
+      {(hasEdit || hasRemove) && (
+        <div className="absolute right-2 top-2 flex flex-col gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          {hasEdit && (
             <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-3 py-1.5 text-xs font-semibold text-on-surface/60 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10"
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onEdit?.(); }}
+              aria-label={`Edit ${name}`}
+              className="h-7 w-7 rounded-full bg-white/90 text-on-surface/55 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-emerald-600"
             >
-              Cancel
+              <Edit3 size={13} className="mx-auto" />
             </button>
+          )}
+          {hasRemove && (
             <button
-              onClick={() => { setConfirmDelete(false); onDelete(); }}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600"
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
+              aria-label={`Delete ${name}`}
+              className="h-7 w-7 rounded-full bg-white/90 text-on-surface/55 shadow-sm backdrop-blur-sm transition-colors hover:bg-white hover:text-red-600"
             >
-              Delete
+              <Trash2 size={13} className="mx-auto" />
             </button>
-          </div>
+          )}
         </div>
+      )}
+      {confirmDelete && (
+        <ConfirmDeleteDialog
+          name={name}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => { setConfirmDelete(false); onDelete?.(); }}
+        />
       )}
     </div>
   );
@@ -7424,6 +7521,7 @@ export const Pantry: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <RestaurantRow
                               restaurantId={r.restaurantId}
+                              rank={isCustom ? undefined : idx + 1}
                               name={r.name}
                               image={r.image}
                               cuisine={r.cuisine}
@@ -7436,6 +7534,7 @@ export const Pantry: React.FC = () => {
                               wouldReturn={r.wouldReturn}
                               listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
                               onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                              onRemove={() => removeRating(r.restaurantId)}
                               showMichelin={michelinFilter.length > 0}
                             />
                           </div>

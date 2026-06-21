@@ -365,7 +365,7 @@ export const SearchMain: React.FC = () => {
                             const label = mich ? mich.cuisine : (location || 'Restaurant');
                             const priceText = mich ? michelinPriceDisplay(mich) : price;
                             return (
-                              <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                              <p className="mt-0.5 text-[12.5px] text-on-surface/55 font-medium truncate">
                                 {label}
                                 {priceText && <><span className="text-on-surface/25 mx-1.5">·</span>{priceText}</>}
                               </p>

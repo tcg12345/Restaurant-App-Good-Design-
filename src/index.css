@@ -289,6 +289,17 @@
   @apply bg-paper/80 backdrop-blur-sm rounded-xl border border-on-surface/8 shadow-sm;
 }
 
+/* Canonical desktop "boxed" card chrome used by the unified card kit
+   (src/components/cards). Kept here so the exact border / shadow / lift values
+   live in one place — previously copy-pasted across Pantry's grid + list cards.
+   `bg-paper` (not literal white) so the surface tracks dark mode. */
+.card-surface {
+  @apply rounded-2xl bg-paper border border-on-surface/[0.07] transition-all duration-200 overflow-hidden;
+}
+.card-surface-hover {
+  @apply hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px;
+}
+
 .glass {
   @apply bg-paper/80 backdrop-blur-xl;
 }
