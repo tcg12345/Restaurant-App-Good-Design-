@@ -47,6 +47,8 @@ import {
   CUISINE_TYPES,
   formatLocationLabel,
   fetchLocationDataForPlace,
+  getPlaceDetails,
+  resolvePlaceIdByNameCoords,
   type PlaceResult,
 } from '../lib/places';
 import {
@@ -82,9 +84,10 @@ import {
   type QueryCursor,
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { MichelinMark } from '../components/MichelinBadge';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
 import type { MichelinChatHit } from '../components/LocationChat';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -3106,7 +3109,7 @@ export const LocationPage: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="r-list">
+              <div className={cn('r-list', isMobile && 'is-mobile')}>
                 {visible.map((place, idx) => (
                   <LocationListItem
                     key={place.id}
@@ -4107,30 +4110,53 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // place across pages is free.
   const { restaurantMeta, cacheRestaurantMeta } = useLists();
   const meta = restaurantMeta[place.id];
-  const hasFullLocationData =
-    !!meta?.addressComponents && meta?.neighborhood !== undefined;
+  // Include hours in the "fully cached" check: a place cached on an earlier
+  // visit (address + neighborhood) but without opening hours must still
+  // backfill so the Open/Closed + today's-hours status can render. Once the
+  // fetch writes hours (or an empty array when Google has none), the gate is
+  // satisfied and it won't refetch. Michelin dataset rows already carry their
+  // address/neighborhood from the dataset, so for them "done" just means hours.
+  const hasFullLocationData = isMichelinSyntheticId(place.id)
+    ? meta?.hours !== undefined
+    : !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined;
   useEffect(() => {
     if (!place.id || hasFullLocationData) return;
-    // Michelin dataset rows carry a synthetic id (no Google place id), so the
-    // backfill (a Google Places detail call) would just fail. Skip it — these
-    // rows already show city/country from the dataset. The real place id is
-    // resolved lazily when the detail page opens.
-    if (isMichelinSyntheticId(place.id)) return;
     let cancelled = false;
-    fetchLocationDataForPlace(place.id).then(
-      ({ addressComponents, neighborhood, lat: ll, lng: lg, hours }) => {
+    (async () => {
+      // Michelin dataset rows carry a synthetic id (no Google place id). The
+      // address/neighborhood already come from the dataset; resolve the real
+      // Google place (the same path the detail page uses) just to warm opening
+      // hours so the Open/Closed status can render here too.
+      if (isMichelinSyntheticId(place.id)) {
+        const parsed = parseMichelinSyntheticId(place.id);
+        const resolved = parsed
+          ? await resolvePlaceIdByNameCoords(parsed.name, parsed.lat, parsed.lng).catch(() => null)
+          : null;
         if (cancelled) return;
-        if (!addressComponents?.length && !neighborhood && ll == null && lg == null && hours == null) return;
-        cacheRestaurantMeta({
-          id: place.id,
-          ...(addressComponents?.length ? { addressComponents } : {}),
-          ...(neighborhood ? { neighborhood } : {}),
-          ...(ll != null ? { lat: ll } : {}),
-          ...(lg != null ? { lng: lg } : {}),
-          ...(hours != null ? { hours } : {}),
-        });
-      },
-    );
+        if (!resolved) {
+          // Couldn't map it to a Google place — record empty hours so we stop trying.
+          cacheRestaurantMeta({ id: place.id, hours: [] });
+          return;
+        }
+        const details = await getPlaceDetails(resolved).catch(() => null);
+        if (cancelled || !details) return;
+        cacheRestaurantMeta({ id: place.id, hours: details.hours ?? [] });
+        return;
+      }
+
+      const { addressComponents, neighborhood, lat: ll, lng: lg, hours } =
+        await fetchLocationDataForPlace(place.id);
+      if (cancelled) return;
+      if (!addressComponents?.length && !neighborhood && ll == null && lg == null && hours == null) return;
+      cacheRestaurantMeta({
+        id: place.id,
+        ...(addressComponents?.length ? { addressComponents } : {}),
+        ...(neighborhood ? { neighborhood } : {}),
+        ...(ll != null ? { lat: ll } : {}),
+        ...(lg != null ? { lng: lg } : {}),
+        ...(hours != null ? { hours } : {}),
+      });
+    })();
     return () => { cancelled = true; };
   }, [place.id, hasFullLocationData, cacheRestaurantMeta]);
 
@@ -4140,88 +4166,91 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     meta?.neighborhood,
   );
 
-  const scoreClass = score >= 8.5 ? '' : score >= 7 ? 'is-mid' : 'is-low';
-  const tags = place.types
-    .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
-    .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
-    .slice(0, 2);
+  // Real open/closed + today's hours, parsed from the backfilled Google
+  // weekdayDescriptions against the current time (replaces the old score-based
+  // heuristic). `open: null` (no hours data) hides the status chip entirely.
+  const status = getOpenStatus(meta?.hours);
+  const statusColor = status.open ? '#059669' : '#c2410c';
+  const dotColor = status.open ? '#10b981' : '#ef4444';
 
-  // Open/Closed: the page doesn't have authoritative hours data plumbed
-  // through to the list yet, so we surface a soft heuristic — a place
-  // gets "OPEN" if its score is moderately positive (a stand-in for "we
-  // wouldn't have ranked it if it was permanently closed"). Replace
-  // with real hours data when available.
-  const isOpenHeuristic = score > 0 ? (rank % 5 !== 0) : false;
+  // "3.6 mi · 22 min" — distance + drive time (walk as fallback).
+  const timePart = driveLabel || walkLabel || '';
+  const distLine = distLabel ? (timePart ? `${distLabel}  ·  ${timePart}` : distLabel) : timePart;
+
+  // Soft tiered score circle with an inset ring (per the redesign).
+  const tier =
+    score >= 8 ? { bg: '#ecfdf5', ring: 'rgba(16,185,129,0.5)', text: '#059669' }
+    : score >= 5 ? { bg: '#fffbeb', ring: 'rgba(245,158,11,0.55)', text: '#b45309' }
+    : { bg: '#fef2f2', ring: 'rgba(239,68,68,0.5)', text: '#dc2626' };
+  const scoreBadge = (size: number) => ({
+    width: size, height: size, borderRadius: 9999,
+    background: score > 0 ? tier.bg : 'var(--bg-2)',
+    boxShadow: `inset 0 0 0 1.5px ${score > 0 ? tier.ring : 'var(--border-strong)'}`,
+    color: score > 0 ? tier.text : 'var(--muted)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'var(--serif)', fontWeight: 700, fontSize: Math.round(size * 0.36),
+    fontVariantNumeric: 'tabular-nums' as const, flexShrink: 0, letterSpacing: '-0.01em',
+  });
+  const scoreText = score > 0 ? score.toFixed(1) : '—';
+
+  // Status (Open/Closed + today's hours) and distance·time, shared by both
+  // layouts; `fs` is the only size difference (12.5 mobile / 13 desktop).
+  const statusRow = (fs: number) => (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: `8px ${fs >= 13 ? 18 : 16}px`, marginTop: 12 }}>
+      {(status.label || status.detail) && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 7, fontWeight: 600, fontSize: fs }}>
+          {status.label && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
+              <span style={{ width: 7, height: 7, borderRadius: 9999, background: dotColor, flexShrink: 0 }} />
+              <span style={{ color: statusColor, fontWeight: 700 }}>{status.label}</span>
+            </span>
+          )}
+          {status.detail && <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{status.detail}</span>}
+        </span>
+      )}
+      {distLine && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: fs, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+          <Clock size={fs >= 13 ? 14 : 13} style={{ color: 'var(--muted-2)', flexShrink: 0 }} />
+          {distLine}
+        </span>
+      )}
+    </div>
+  );
+
+  // Cuisine · price (+ Michelin). Location is appended inline on desktop and
+  // shown on its own line on mobile.
+  const cuisinePrice = (fs: number, withLocation: boolean) => (
+    <div style={{ marginTop: 8, fontWeight: 600, fontSize: fs, lineHeight: 1.4 }}>
+      {cuisine && <span style={{ color: 'var(--ink-2)', fontWeight: 700, letterSpacing: '0.01em' }}>{cuisine}</span>}
+      {cuisine && priceLabel && <span style={{ color: 'var(--muted-2)' }}> · </span>}
+      {priceLabel && <span style={{ color: 'var(--ink)', fontWeight: 700 }}>{priceLabel}</span>}
+      {withLocation && locationLabel && <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {locationLabel}</span>}
+      {showMichelin && mich.michelin && (
+        <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 8 }}>
+          <MichelinMark michelin={mich.michelin} size={12} />
+        </span>
+      )}
+    </div>
+  );
 
   if (isMobile) {
     return (
-      <Link to={`/restaurant/${place.id}`} className="block py-4 px-3 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div className="grid grid-cols-[28px_1fr_auto] gap-3 items-start">
-          <div className="font-serif text-[15px] font-medium pt-1" style={{ color: 'var(--muted)' }}>
-            #{rank}
-          </div>
-          <div className="min-w-0">
-            <h3 className="font-serif font-semibold text-[19px] leading-[1.15] tracking-[-0.018em]" style={{ color: 'var(--ink)' }}>
+      <Link to={`/restaurant/${place.id}`} style={{ display: 'block', padding: '20px 26px', borderTop: '1px solid var(--border)', textDecoration: 'none', color: 'inherit' }}>
+        <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            <h3 style={{ fontFamily: 'var(--serif)', fontWeight: 700, fontSize: 21, lineHeight: 1.16, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               {place.name}
             </h3>
-            <div className="mt-1.5 flex items-center gap-2 text-[12.5px] font-medium flex-wrap" style={{ color: 'var(--muted)' }}>
-              {cuisine && (
-                <span className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: 'var(--accent)' }}>
-                  {cuisine}
-                </span>
-              )}
-              {cuisine && priceLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
-              {priceLabel && <span className="font-semibold" style={{ color: 'var(--ink)' }}>{priceLabel}</span>}
-              {locationLabel && (priceLabel || cuisine) && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
-              {locationLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin size={11} />
-                  {locationLabel}
-                </span>
-              )}
-              {showMichelin && mich.michelin && (
-                <>
-                  {(cuisine || priceLabel || locationLabel) && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
-                  <MichelinMark michelin={mich.michelin} size={12} />
-                </>
-              )}
-            </div>
-            {tags.length > 0 && (
-              <div className="mt-2 flex gap-1.5 flex-wrap">
-                {tags.map((t) => (
-                  <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-2)', color: 'var(--ink-2)' }}>
-                    {t}
-                  </span>
-                ))}
+            {cuisinePrice(12.5, false)}
+            {locationLabel && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 7, fontWeight: 500, fontSize: 13, color: 'var(--muted)' }}>
+                <MapPin size={13} style={{ color: 'var(--muted-2)', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{locationLabel}</span>
               </div>
             )}
-            <div className="mt-2 flex items-center gap-3 text-[12px] font-medium" style={{ color: 'var(--muted)' }}>
-              {distLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin size={11} />
-                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{distLabel}</span>
-                </span>
-              )}
-              {distLabel && walkLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
-              {walkLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <Clock size={11} />
-                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{walkLabel}</span>
-                </span>
-              )}
-            </div>
+            {statusRow(12.5)}
           </div>
-          <div className="flex flex-col items-end gap-2 flex-shrink-0">
-            <span className="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.08em]" style={{ color: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }} />
-              {isOpenHeuristic ? 'Open' : 'Closed'}
-            </span>
-            {score > 0 ? (
-              <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
-            ) : (
-              <div className="r-list-score is-low">—</div>
-            )}
-          </div>
+          <div style={scoreBadge(50)}>{scoreText}</div>
         </div>
       </Link>
     );
@@ -4229,61 +4258,14 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
 
   return (
     <Link to={`/restaurant/${place.id}`} className="r-list-item">
-      <div className="r-list-rank">
-        #{rank}
-        {rank <= 3 && <span className="trend">↑</span>}
+      <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+        <h3 style={{ fontFamily: 'var(--serif)', fontWeight: 700, fontSize: 23, lineHeight: 1.16, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          {place.name}
+        </h3>
+        {cuisinePrice(13, true)}
+        {statusRow(13)}
       </div>
-      <div className="r-list-info">
-        <div className="r-list-top">
-          <h3 className="r-list-name">{place.name}</h3>
-        </div>
-        <div className="r-list-meta">
-          {cuisine && <span className="cuisine">{cuisine}</span>}
-          {cuisine && priceLabel && <span className="sep" />}
-          {priceLabel && <span className="price">{priceLabel}</span>}
-          {locationLabel && (priceLabel || cuisine) && <span className="sep" />}
-          {locationLabel && (
-            <span className="pin-row">
-              <MapPin /> {locationLabel}
-            </span>
-          )}
-          {showMichelin && mich.michelin && (
-            <>
-              {(cuisine || priceLabel || locationLabel) && <span className="sep" />}
-              <MichelinMark michelin={mich.michelin} size={12} />
-            </>
-          )}
-        </div>
-        {tags.length > 0 && (
-          <div className="r-list-tags">
-            {tags.map((t) => (
-              <span key={t} className="r-list-tag">{t}</span>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="r-list-distance">
-        {distLabel && (
-          <span className="item">
-            <MapPin /> <span className="val">{distLabel}</span>
-          </span>
-        )}
-        {driveLabel && (
-          <span className="item drive">
-            <Car /> <span className="val">{driveLabel}</span>
-          </span>
-        )}
-        {walkLabel && (
-          <span className="item walk">
-            <Footprints /> <span className="val">{walkLabel}</span>
-          </span>
-        )}
-      </div>
-      {score > 0 ? (
-        <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
-      ) : (
-        <div className="r-list-score is-low">—</div>
-      )}
+      <div style={scoreBadge(56)}>{scoreText}</div>
     </Link>
   );
 };

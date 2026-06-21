@@ -413,7 +413,7 @@ const PopupRow: React.FC<{
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-bold text-on-surface leading-tight truncate">{name}</p>
+        <p className="font-serif text-[15px] font-bold text-on-surface leading-tight truncate">{name}</p>
         {sub && (
           <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{sub}</p>
         )}

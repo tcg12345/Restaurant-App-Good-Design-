@@ -170,8 +170,8 @@ export const AddHotelDiningModal: React.FC<Props> = ({
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{place.name}</p>
-                            <p className="text-[11px] text-on-surface/40 truncate">{place.address}</p>
+                            <p className="font-serif text-[15px] font-bold truncate">{place.name}</p>
+                            <p className="text-[12px] text-on-surface/55 font-medium truncate">{place.address}</p>
                             {place.rating > 0 && (
                               <p className="text-[10px] text-on-surface/30 mt-0.5">
                                 ★ {place.rating.toFixed(1)} ({place.userRatingCount})

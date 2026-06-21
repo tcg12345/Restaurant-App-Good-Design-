@@ -1247,43 +1247,35 @@
   border: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
+/* Mobile is an immersive, box-less list: cards sit flush and are separated by
+   hairline top borders (drawn per-card in the component), so kill the gap. */
+.location-page-root .r-list.is-mobile { gap: 0; }
+/* Desktop "boxed" card per the redesign — single content column + score badge,
+   no rank gutter. */
 .location-page-root .r-list-item {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto auto;
-  gap: 20px;
+  display: flex;
   align-items: center;
-  padding: 18px 22px;
+  gap: 26px;
+  padding: 22px 26px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   cursor: pointer;
-  position: relative;
-  transform: translateZ(0);
+  text-decoration: none;
+  color: inherit;
   transition:
-    transform .3s cubic-bezier(.23, .72, .26, 1),
-    border-color .3s ease,
-    background-color .3s ease;
-}
-.location-page-root .r-list-item::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 20px;
-  box-shadow:
-    0 18px 38px -22px rgba(31, 26, 23, 0.28),
-    0 6px 16px -10px rgba(31, 26, 23, 0.10);
-  opacity: 0;
-  transition: opacity .3s ease;
-  pointer-events: none;
+    box-shadow .18s var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform .18s var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)),
+    border-color .18s ease;
 }
 .location-page-root .r-list-item:hover {
-  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
   border-color: var(--border-strong);
-  background: var(--surface-2);
 }
-.location-page-root .r-list-item:hover::after { opacity: 1; }
 .location-page-root .r-list-item:active {
   transform: translateY(0) scale(0.997);
   transition-duration: .12s;
@@ -1350,11 +1342,11 @@
   flex-wrap: wrap;
 }
 .location-page-root .r-list-meta .cuisine {
-  color: var(--accent);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12.5px;
 }
 .location-page-root .r-list-meta .price { color: var(--ink); font-weight: 600; }
 .location-page-root .r-list-meta .sep {
