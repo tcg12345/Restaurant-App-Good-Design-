@@ -15,6 +15,8 @@ import { cn } from '../lib/utils';
 import { ScoreBadge } from './RestaurantCard';
 import { extractCityState } from '../lib/places';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { HoursFilterSection } from './filterPrimitives';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -77,7 +79,7 @@ type RoleFilter = 'all' | 'friends' | 'experts';
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
   const { setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, restaurantMeta } = useLists();
   const navigate = useNavigate();
 
   const [ratings, setRatings] = useState<CommunityRating[]>(() =>
@@ -98,6 +100,7 @@ export const FollowingFeed: React.FC = () => {
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
+  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   // Role filter: all followed users / friends only / experts only
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   // Optional per-person picker (user_ids). Empty array = no per-person
@@ -230,6 +233,8 @@ export const FollowingFeed: React.FC = () => {
       result = result.filter((r) => cuisineFilter.includes(r.cuisine));
     if (cityFilter.length > 0)
       result = result.filter((r) => cityFilter.includes(extractCity(r.address)));
+    if (isHoursFilterActive(hoursFilter))
+      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
 
     if (sortBy === 'highest') {
       result = [...result].sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -239,7 +244,7 @@ export const FollowingFeed: React.FC = () => {
     // 'recent' uses the natural order (updated_at DESC)
 
     return result;
-  }, [uniqueRestaurants, query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter]);
+  }, [uniqueRestaurants, query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, hoursFilter, restaurantMeta]);
 
   // Reset infinite scroll window whenever the filtered list shape changes
   useEffect(() => {
@@ -274,7 +279,8 @@ export const FollowingFeed: React.FC = () => {
     scoreRange[1] < 10 ||
     sortBy !== 'recent' ||
     roleFilter !== 'all' ||
-    personFilter.length > 0;
+    personFilter.length > 0 ||
+    isHoursFilterActive(hoursFilter);
   const activeFilterCount =
     (priceFilter ? 1 : 0) +
     (cuisineFilter.length > 0 ? 1 : 0) +
@@ -282,7 +288,8 @@ export const FollowingFeed: React.FC = () => {
     (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) +
     (sortBy !== 'recent' ? 1 : 0) +
     (roleFilter !== 'all' ? 1 : 0) +
-    (personFilter.length > 0 ? 1 : 0);
+    (personFilter.length > 0 ? 1 : 0) +
+    (isHoursFilterActive(hoursFilter) ? 1 : 0);
 
   const resetFilters = () => {
     setSortBy('recent');
@@ -290,6 +297,7 @@ export const FollowingFeed: React.FC = () => {
     setPriceFilter(null);
     setCuisineFilter([]);
     setCityFilter([]);
+    setHoursFilter(emptyHoursFilter());
     setRoleFilter('all');
     setPersonFilter([]);
   };
@@ -502,6 +510,8 @@ export const FollowingFeed: React.FC = () => {
         onCuisineFilter={setCuisineFilter}
         cityFilter={cityFilter}
         onCityFilter={setCityFilter}
+        hoursFilter={hoursFilter}
+        onHoursChange={setHoursFilter}
         allCuisines={allCuisines}
         allCities={allCities}
         roleFilter={roleFilter}
@@ -529,6 +539,8 @@ const FollowingFilterSheet: React.FC<{
   onCuisineFilter: (v: string[]) => void;
   cityFilter: string[];
   onCityFilter: (v: string[]) => void;
+  hoursFilter: HoursFilter;
+  onHoursChange: (f: HoursFilter) => void;
   allCuisines: string[];
   allCities: string[];
   roleFilter: RoleFilter;
@@ -550,6 +562,8 @@ const FollowingFilterSheet: React.FC<{
   onCuisineFilter,
   cityFilter,
   onCityFilter,
+  hoursFilter,
+  onHoursChange,
   allCuisines,
   allCities,
   roleFilter,
@@ -882,6 +896,9 @@ const FollowingFilterSheet: React.FC<{
                   ))}
                 </div>
               </div>
+
+              {/* Hours */}
+              <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
 
               {/* Cuisine */}
               <div>

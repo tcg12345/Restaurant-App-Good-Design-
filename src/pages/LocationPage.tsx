@@ -101,6 +101,8 @@ import {
 } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser } from '../components/GuidesBrowser';
+import { HoursFilterSection } from '../components/filterPrimitives';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 
 /* ── Placeholder guides ──────────────────────────────────────────────────────
    Same visual language as the Home page's horizontal guide scroller. Titles
@@ -816,6 +818,8 @@ export const LocationPage: React.FC = () => {
   const toggleMichelin = useCallback((d: string) => {
     setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   }, []);
+  // Opening-hours filter (breakfast/lunch/dinner + open now). Empty = off.
+  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const activeFilterCount =
     (selectedPrice > 0 ? 1 : 0) +
@@ -826,7 +830,8 @@ export const LocationPage: React.FC = () => {
     (selectedDriveMin > 0 ? 1 : 0) +
     (friendsOnly ? 1 : 0) +
     (expertsOnly ? 1 : 0) +
-    (selectedMichelin.length > 0 ? 1 : 0);
+    (selectedMichelin.length > 0 ? 1 : 0) +
+    (isHoursFilterActive(hoursFilter) ? 1 : 0);
 
   // User's saved home, read once and kept stable across re-renders. When
   // this is a precise street address (leading-digit heuristic), the rows'
@@ -1320,6 +1325,10 @@ export const LocationPage: React.FC = () => {
       // michelinReady is in the deps so the list re-filters once it lands).
       if (selectedMichelin.length > 0
         && !passesMichelinFilter(selectedMichelin, p.name, p.lat, p.lng, p.fullAddress || p.address)) continue;
+      // Opening-hours filter (breakfast/lunch/dinner + open now). Keeps
+      // unknown-hours places and is a no-op when the filter is inactive.
+      if (isHoursFilterActive(hoursFilter)
+        && !passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter)) continue;
       out.push(p);
     }
 
@@ -1337,7 +1346,10 @@ export const LocationPage: React.FC = () => {
           && haversineDistanceMi(h.lat, h.lng, m.lat, m.lng) < 0.12);
         if (dup) continue;
         if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
-        out.push({ ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] });
+        const mPlace: ScoredPlace = { ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] };
+        if (isHoursFilterActive(hoursFilter)
+          && !passesHoursFilter(restaurantMeta[mPlace.id]?.hours, hoursFilter)) continue;
+        out.push(mPlace);
       }
     }
     // When the user is searching, Google's text search returns a mix of
@@ -1409,6 +1421,7 @@ export const LocationPage: React.FC = () => {
     selectedRadius, friendsOnly, expertsOnly,
     friendRestaurantIds, expertRestaurantIds, debouncedSearch,
     selectedMichelin, michelinReady,
+    hoursFilter, restaurantMeta,
   ]);
 
 
@@ -3181,6 +3194,8 @@ export const LocationPage: React.FC = () => {
         onWalkMinChange={setSelectedWalkMin}
         selectedDriveMin={selectedDriveMin}
         onDriveMinChange={setSelectedDriveMin}
+        hoursFilter={hoursFilter}
+        onHoursChange={setHoursFilter}
       />
 
       <GuidesBrowser
@@ -3642,6 +3657,8 @@ interface FilterSheetProps {
   onWalkMinChange: (n: number) => void;
   selectedDriveMin: number;
   onDriveMinChange: (n: number) => void;
+  hoursFilter: HoursFilter;
+  onHoursChange: (f: HoursFilter) => void;
 }
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -3704,6 +3721,8 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onWalkMinChange,
   selectedDriveMin,
   onDriveMinChange,
+  hoursFilter,
+  onHoursChange,
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
@@ -3736,6 +3755,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onExpertsOnlyChange(false);
     onWalkMinChange(0);
     onDriveMinChange(0);
+    onHoursChange(emptyHoursFilter());
   };
 
   // Trigger label for the cuisine dropdown — "All cuisines" / "Italian" /
@@ -3830,6 +3850,9 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                   ))}
                 </div>
               </section>
+
+              {/* ── Hours (breakfast / lunch / dinner + open now) ────── */}
+              <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
 
               {/* ── Distance ────────────────────────────────────────── */}
               <section className="lp-filter-section">

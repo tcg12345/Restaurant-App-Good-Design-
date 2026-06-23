@@ -257,6 +257,19 @@ export interface Guide {
 
 export type GuideDraft = Omit<Guide, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'avgScore' | 'readMinutes'>;
 
+/**
+ * Shared guide-visibility predicates — the single source of truth so the
+ * owner Profile and the public UserProfile never drift on which guides count
+ * as "real" or "public". A guide is publicly visible only when it's both
+ * published AND set to public; a guide is real (worth rendering at all) when
+ * it has a title or any entries (filters out abandoned blank drafts).
+ */
+export const isRealGuide = (g: Guide): boolean =>
+  g.entries.length > 0 || g.title.trim().length > 0;
+
+export const isPublicGuide = (g: Guide): boolean =>
+  g.visibility === 'public' && g.isPublished && isRealGuide(g);
+
 function rowToGuide(row: Record<string, unknown>): Guide {
   return {
     id: row.id as string,
@@ -383,16 +396,27 @@ export async function deleteGuide(guideId: string): Promise<boolean> {
   }
 }
 
-/** Flip a guide between 'public' and 'private' without rewriting its entries. */
+/**
+ * Flip a guide between 'public' and 'private' without rewriting its entries.
+ *
+ * Making a guide public also marks it published: "public" is the single
+ * user-facing share control on the profile, and a public guide that wasn't
+ * also `is_published` would be invisible on the public profile (which filters
+ * on published+public) while still showing on the owner's profile — the exact
+ * drift this avoids. Making a guide private leaves `is_published` untouched so
+ * re-sharing it doesn't lose its published state.
+ */
 export async function setGuideVisibility(
   guideId: string,
   visibility: GuideVisibility,
 ): Promise<boolean> {
   if (!supabaseConfigured) return false;
   try {
+    const patch: Record<string, unknown> = { visibility, updated_at: new Date().toISOString() };
+    if (visibility === 'public') patch.is_published = true;
     const { error } = await supabase
       .from('guides')
-      .update({ visibility, updated_at: new Date().toISOString() })
+      .update(patch)
       .eq('id', guideId);
     if (error) {
       console.error('[Supabase] setGuideVisibility error:', error);

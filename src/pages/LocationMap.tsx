@@ -16,7 +16,8 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import {
   HomeLocationBar,
@@ -145,7 +146,7 @@ export const LocationMap: React.FC = () => {
   const navigate = useNavigate();
   const { phoneMode, darkMode } = useSettings();
   const { user } = useAuth();
-  const { isWishlisted, toggleWishlist } = useLists();
+  const { isWishlisted, toggleWishlist, restaurantMeta } = useLists();
   // Michelin dataset readiness — list rows override cuisine/price for
   // matched starred/Bib restaurants once it's loaded.
   const michelinReady = useMichelinIndexReady();
@@ -194,6 +195,7 @@ export const LocationMap: React.FC = () => {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [minScore, setMinScore] = useState(0);
+  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   // Mobile header drives the location picker through HomeLocationBar's
   // headless/controlled mode so we can render our own compact pill trigger
@@ -206,27 +208,35 @@ export const LocationMap: React.FC = () => {
   }, []);
   const filtersActive = selectedCuisines.length > 0 || selectedPrice > 0 || minScore > 0;
   const activeFilterCount =
-    selectedCuisines.length + (selectedPrice > 0 ? 1 : 0) + (minScore > 0 ? 1 : 0);
+    selectedCuisines.length + (selectedPrice > 0 ? 1 : 0) + (minScore > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
   const clearFilters = useCallback(() => {
     setSelectedCuisines([]);
     setSelectedPrice(0);
     setMinScore(0);
+    setHoursFilter(emptyHoursFilter());
   }, []);
 
   const filteredPlaces = useMemo(() => {
-    if (!filtersActive) return places;
+    const hoursActive = isHoursFilterActive(hoursFilter);
+    if (!filtersActive && !hoursActive) return places;
     const cuisineSet = new Set(selectedCuisines);
-    return places.filter((p) => {
-      if (selectedPrice > 0 && p.priceLevel !== selectedPrice) return false;
-      if (minScore > 0 && p.rating * 2 < minScore) return false;
-      if (cuisineSet.size > 0) {
-        let hit = false;
-        for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
-        if (!hit) return false;
-      }
-      return true;
-    });
-  }, [places, filtersActive, selectedCuisines, selectedPrice, minScore]);
+    const result = filtersActive
+      ? places.filter((p) => {
+          if (selectedPrice > 0 && p.priceLevel !== selectedPrice) return false;
+          if (minScore > 0 && p.rating * 2 < minScore) return false;
+          if (cuisineSet.size > 0) {
+            let hit = false;
+            for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
+            if (!hit) return false;
+          }
+          return true;
+        })
+      : places;
+    const out = hoursActive
+      ? result.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter))
+      : result;
+    return out;
+  }, [places, filtersActive, selectedCuisines, selectedPrice, minScore, hoursFilter, restaurantMeta]);
 
   // Hydrate from cache, then run a fallback fetch only when nothing's
   // there. This keeps the common "open list → tap map" flow cost-free.
@@ -770,6 +780,7 @@ export const LocationMap: React.FC = () => {
           ))}
         </Segment>
       </FilterSection>
+      <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
       <FilterSection label="Minimum score" sub="Google rating mapped to the app's 0–10 scale.">
         <PillRow>
           {([[0, 'Any'], [7, '7+'], [8, '8+'], [9, '9+']] as const).map(([v, l]) => (

@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark } from 'lucide-react';
+import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -36,7 +36,8 @@ import { MichelinBadge, MichelinMark } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -355,6 +356,69 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const usingDesktopHeader = isWideViewport && !phoneMode;
+
+  // Scroll-driven mobile Discover header. The full bar is *scrubbed* to the
+  // scroll position — it fades out gradually as you scroll down (speed and
+  // direction don't matter), reaching empty by the time the day/location line
+  // reaches the top. Past that point a backgroundless "mini" cluster (create /
+  // search / chat / circle) slides in on scroll-up. Motion values keep it
+  // smooth under the home feed's constant re-renders.
+  const homeHeaderRef = useRef<HTMLDivElement>(null);
+  const homeScrollRef = useRef<HTMLDivElement>(null);
+  const dayLocRef = useRef<HTMLParagraphElement>(null);
+  const lastHomeScrollY = useRef(0);
+  const miniShownRef = useRef(false);
+  const fadeDistRef = useRef(120);
+  const [homeHeaderH, setHomeHeaderH] = useState(0);
+  const headerOpacity = useMotionValue(1);
+  const headerY = useMotionValue(0);
+  const miniOpacity = useMotionValue(0);
+  const miniY = useMotionValue(-10);
+  const headerPE = useTransform(headerOpacity, (o) => (o > 0.4 ? 'auto' : 'none'));
+  const miniPE = useTransform(miniOpacity, (o) => (o > 0.5 ? 'auto' : 'none'));
+
+  const handleHomeScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const y = e.currentTarget.scrollTop;
+    const prev = lastHomeScrollY.current;
+    const fadeDist = Math.max(1, fadeDistRef.current);
+    // Full header: opacity tied to scroll position, so it eases away at the
+    // same rate however fast you scroll, and eases back in as you return.
+    const fo = Math.min(1, Math.max(0, 1 - y / fadeDist));
+    headerOpacity.set(fo);
+    headerY.set(-(1 - fo) * 10);
+    // Mini cluster: only once the full header is gone (past the fade zone),
+    // and only when scrolling up.
+    const T = { duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
+    if (y <= fadeDist) {
+      if (miniShownRef.current) { miniShownRef.current = false; animate(miniOpacity, 0, T); animate(miniY, -10, T); }
+    } else {
+      const delta = y - prev;
+      if (delta > 4 && miniShownRef.current) { miniShownRef.current = false; animate(miniOpacity, 0, T); animate(miniY, -10, T); }
+      else if (delta < -4 && !miniShownRef.current) { miniShownRef.current = true; animate(miniOpacity, 1, T); animate(miniY, 0, T); }
+    }
+    lastHomeScrollY.current = y;
+  }, [headerOpacity, headerY, miniOpacity, miniY]);
+
+  // Measure the full header (so the scroll content can clear the absolute
+  // overlay) and the fade distance — the scroll offset at which the
+  // day/location line reaches the top.
+  useLayoutEffect(() => {
+    if (!phoneMode) return;
+    const measure = () => {
+      if (homeHeaderRef.current) setHomeHeaderH(homeHeaderRef.current.offsetHeight);
+      const sc = homeScrollRef.current, el = dayLocRef.current;
+      if (sc && el) {
+        fadeDistRef.current = Math.max(40, el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop);
+      } else if (homeHeaderRef.current) {
+        fadeDistRef.current = homeHeaderRef.current.offsetHeight + 12;
+      }
+    };
+    measure();
+    const raf = requestAnimationFrame(measure); // re-measure after layout settles
+    window.addEventListener('resize', measure);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
+  }, [phoneMode, homeHeaderH]);
+
   // Map page on desktop replaces the bottom sheet with a resizable left
   // panel that sits between the nav rail and the map. Width is persisted
   // to localStorage so the user's preferred split survives reloads.
@@ -692,6 +756,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [ratingPrice, setRatingPrice] = useState<string | null>(null);
   const [ratingCities, setRatingCities] = useState<string[]>([]);
 
+  // Shared hours filter (breakfast/lunch/dinner + open now), used by every map mode.
+  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
+
   // Filter state — hotels
   const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
   const [hotelPriceFilter, setHotelPriceFilter] = useState(0);
@@ -761,12 +828,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
   const expertOverlayMarkersRef = useRef<mapboxgl.Marker[]>([]); // expert markers shown in discover mode
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[] });
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[], hoursFilter: emptyHoursFilter() });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
-    filtersRef.current = { sortBy, selectedCuisines, selectedPrice, selectedMichelin };
-  }, [sortBy, selectedCuisines, selectedPrice, selectedMichelin]);
+    filtersRef.current = { sortBy, selectedCuisines, selectedPrice, selectedMichelin, hoursFilter };
+  }, [sortBy, selectedCuisines, selectedPrice, selectedMichelin, hoursFilter]);
+  // Ref so the stable getFilteredPlaces callback can read restaurant hours
+  // (from restaurantMeta) without being re-created on every meta update.
+  const restaurantMetaRef = useRef(restaurantMeta);
+  restaurantMetaRef.current = restaurantMeta;
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
   // Home mode forces 'full' (no map); Map mode opens at 'peek' (map-forward,
@@ -1634,6 +1705,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         passesMichelinFilter(mich, p.name, p.lat, p.lng, p.fullAddress || p.address));
     }
 
+    // Filter by opening hours (breakfast/lunch/dinner + open now). Hours come
+    // from restaurantMeta, read via a ref so this stays a stable callback.
+    const hf = filtersRef.current.hoursFilter;
+    if (isHoursFilterActive(hf)) {
+      filtered = filtered.filter((p) => passesHoursFilter(restaurantMetaRef.current[p.id]?.hours, hf));
+    }
+
     // Sort
     const sorted = [...filtered];
     switch (sort) {
@@ -2466,22 +2544,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     if (mapMode === 'myratings') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     if (mapMode === 'friends') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     if (mapMode === 'experts') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     if (mapMode === 'hotels') {
-      return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0);
+      return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     return 0;
-  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy, selectedMichelin]);
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy, selectedMichelin, hoursFilter]);
 
   // Helper: filter and sort a CommunityRating array by the active rating-mode filters
   const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
@@ -2512,6 +2590,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       filtered = filtered.filter((r) =>
         passesMichelinFilter(selectedMichelin, r.restaurant_name, r.lat ?? undefined, r.lng ?? undefined, r.address));
     }
+    // Opening hours (breakfast/lunch/dinner + open now)
+    if (isHoursFilterActive(hoursFilter)) {
+      filtered = filtered.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+    }
     // Sort
     const sorted = [...filtered];
     switch (ratingSortBy) {
@@ -2521,7 +2603,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       case 'recent': default: sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
     }
     return sorted;
-  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy, selectedMichelin, michelinReady]);
+  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy, selectedMichelin, michelinReady, hoursFilter, restaurantMeta]);
 
   // Filtered ratings for each mode
   const filteredMyRatings = useMemo(() => {
@@ -2545,6 +2627,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       filtered = filtered.filter((p) => p.rating >= minRating);
     }
     if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
+    if (isHoursFilterActive(hoursFilter)) {
+      filtered = filtered.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter));
+    }
     const sorted = [...filtered];
     switch (hotelSortBy) {
       case 'rating': sorted.sort((a, b) => b.rating - a.rating); break;
@@ -2552,7 +2637,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       case 'popularity': default: sorted.sort((a, b) => b.userRatingCount - a.userRatingCount); break;
     }
     return sorted;
-  }, [hotelPlaces, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+  }, [hotelPlaces, hotelStarFilter, hotelPriceFilter, hotelSortBy, hoursFilter, restaurantMeta]);
 
   // Extract unique cuisines and cities from ratings for filter pills
   const uniqueMyRatingCuisines = useMemo(() => [...new Set(myRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [myRatings]);
@@ -3645,6 +3730,62 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     </motion.aside>
   ) : null;
 
+  // Mobile Discover header content — shared by the in-flow (tablet) header and
+  // the phone scroll-driven overlay.
+  const mobileHeaderNode = (
+    <>
+      <TopBar
+        title="Home"
+        centerLogo={phoneMode}
+        leftAction={phoneMode ? (
+          <button
+            type="button"
+            onClick={() => navigate('/create')}
+            aria-label="Create"
+            className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/80 transition-colors"
+          >
+            <Plus size={20} />
+          </button>
+        ) : undefined}
+      />
+      <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+        <button
+          type="button"
+          onClick={() => navigate('/search/main')}
+          className="flex-1 relative"
+          aria-label="Open search"
+        >
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+            Search restaurants, cuisines...
+          </div>
+        </button>
+      </div>
+    </>
+  );
+
+  // The immersed mini cluster — only the key actions, on frosted circles with
+  // no header bar, that slides back in on scroll-up.
+  const miniIconBtn = "w-10 h-10 rounded-full bg-surface/65 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.12)] flex items-center justify-center text-on-surface/85 active:scale-90 transition-transform";
+  const miniHeaderNode = (
+    <div className="flex items-center justify-between px-3 pt-safe-3 pb-2">
+      <button type="button" onClick={() => navigate('/create')} aria-label="Create" className={miniIconBtn}>
+        <Plus size={20} />
+      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => navigate('/search/main')} aria-label="Search" className={miniIconBtn}>
+          <Search size={20} />
+        </button>
+        <button type="button" onClick={() => navigate('/messages')} aria-label="Messages" className={miniIconBtn}>
+          <MessageCircle size={20} />
+        </button>
+        <button type="button" onClick={() => navigate('/circle')} aria-label="Your Circle" className={miniIconBtn}>
+          <Heart size={20} />
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -3874,6 +4015,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         onClose={() => setFilterSheetOpen(false)}
         title="Filters"
         onReset={() => {
+          setHoursFilter(emptyHoursFilter());
           if (mapMode === 'discover') {
             setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
           } else if (mapMode === 'hotels') {
@@ -3906,6 +4048,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 ))}
               </Segment>
             </FilterSection>
+            <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
             <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
               <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
             </FilterSection>
@@ -3943,6 +4086,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 ))}
               </Segment>
             </FilterSection>
+            <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
             <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
               <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
             </FilterSection>
@@ -4014,6 +4158,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 searchPlaceholder="Search cuisines"
               />
             </FilterSection>
+            <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
           </>
         )}
 
@@ -4229,44 +4374,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
         {/* ══════ FULL STATE — full-screen discover page (Home) ══════ */}
         {sheetState === 'full' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* TopBar + the inline search button are only rendered on
-                phone-frame / narrow viewports. On desktop the global
-                DesktopHeader (sidebar layout) owns both. */}
-            {!usingDesktopHeader && (
-              <TopBar
-                title="Home"
-                centerLogo={phoneMode}
-                leftAction={phoneMode ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/create')}
-                    aria-label="Create"
-                    className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/80 transition-colors"
-                  >
-                    <Plus size={20} />
-                  </button>
-                ) : undefined}
-              />
-            )}
-            {!usingDesktopHeader && (
-              <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
-                <button
-                  type="button"
-                  onClick={() => navigate('/search/main')}
-                  className="flex-1 relative"
-                  aria-label="Open search"
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {/* Header. On desktop the global DesktopHeader owns it. On narrow
+                non-phone it sits statically in flow. On phone it becomes a
+                scroll-driven overlay: the full bar at the top, and an immersed
+                mini cluster that returns on scroll-up. */}
+            {!usingDesktopHeader && !phoneMode && mobileHeaderNode}
+
+            {phoneMode && (
+              <>
+                <motion.div
+                  ref={homeHeaderRef}
+                  className="absolute top-0 inset-x-0 z-40"
+                  style={{ opacity: headerOpacity, y: headerY, pointerEvents: headerPE }}
                 >
-                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                  <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
-                    Search restaurants, cuisines...
-                  </div>
-                </button>
-              </div>
+                  {mobileHeaderNode}
+                </motion.div>
+                <motion.div
+                  className="absolute top-0 inset-x-0 z-50"
+                  style={{ opacity: miniOpacity, y: miniY, pointerEvents: miniPE }}
+                >
+                  {miniHeaderNode}
+                </motion.div>
+              </>
             )}
 
             {/* Full discover content — scrollable */}
-            <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
+            <div
+              ref={homeScrollRef}
+              onScroll={phoneMode ? handleHomeScroll : undefined}
+              className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}
+              style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
+            >
 
               {/* Search results in full state */}
               {discoverSearchActive && (
@@ -4410,7 +4549,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 return (
                   <>
                     <section className="mt-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary flex items-center gap-1">
+                      <p ref={dayLocRef} className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary flex items-center gap-1">
                         <span>{dayName}</span>
                         <span className="text-on-surface/30 font-bold">·</span>
                         <button
@@ -4785,7 +4924,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   stack of rails on wide screens. Mobile keeps the stacked
                   rails below. ── */}
               {usingDesktopHeader && (
-                <section className="mt-9 xl:grid xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
+                <section className="mt-9 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
                   {/* Left — friend activity feed */}
                   <div className="min-w-0">
                     <SocialFeed
@@ -4796,8 +4935,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     />
                   </div>
 
-                  {/* Right — Recipes for you + Featured guides */}
-                  <div className="space-y-9 mt-9 xl:mt-0">
+                  {/* Right — Recipes for you + Featured guides. Always beside
+                      the feed in desktop mode (≥1024px), never stacked below. */}
+                  <div className="space-y-9">
                     {/* Recipes for you */}
                     <div>
                       <div className="flex items-end justify-between gap-3 mb-1.5">
