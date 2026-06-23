@@ -834,8 +834,14 @@ export const Profile: React.FC = () => {
   };
   const onToggleGuideVisibility = async (guideId: string, nextIsPublic: boolean) => {
     const next = nextIsPublic ? 'public' : 'private';
-    // Optimistic flip — revert if the write fails.
-    setMyGuides((prev) => prev.map((g) => g.id === guideId ? { ...g, visibility: next } : g));
+    // Optimistic flip — revert if the write fails. Making a guide public also
+    // publishes it (mirrors setGuideVisibility) so the Draft badge clears and
+    // the public profile picks it up immediately.
+    setMyGuides((prev) => prev.map((g) =>
+      g.id === guideId
+        ? { ...g, visibility: next, isPublished: nextIsPublic ? true : g.isPublished }
+        : g,
+    ));
     const ok = await setGuideVisibility(guideId, next);
     if (!ok) {
       alert("Couldn't update that guide's visibility. Try again.");

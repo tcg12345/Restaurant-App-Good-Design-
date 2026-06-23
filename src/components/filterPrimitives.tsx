@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, Search, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { MEAL_KEYS, MEAL_LABELS, type HoursFilter, type MealKey } from '../lib/hours';
 
 /* Shared presentational primitives for filter sheets. They render the
    `fs-*` classes from filterSheet.css so every filter popup matches the
@@ -101,6 +102,33 @@ export const RangeSlider: React.FC<{
         onChange={(e) => onChange([value[0], Math.max(Number(e.target.value), value[0])])}
       />
     </div>
+  );
+};
+
+/* ── Hours / meal-time filter ──
+   A drop-in "Hours" section for any filter sheet: Open now + breakfast / lunch
+   / dinner toggle pills. The caller owns the HoursFilter value and a setter;
+   meal windows + matching live in lib/hours.ts. */
+export const HoursFilterSection: React.FC<{
+  value: HoursFilter;
+  onChange: (next: HoursFilter) => void;
+  label?: React.ReactNode;
+}> = ({ value, onChange, label = 'Hours' }) => {
+  const toggleMealKey = (m: MealKey) =>
+    onChange({ ...value, meals: value.meals.includes(m) ? value.meals.filter((x) => x !== m) : [...value.meals, m] });
+  return (
+    <FilterSection label={label} sub="Show places open for a meal.">
+      <PillRow>
+        <Pill active={value.openNow} onClick={() => onChange({ ...value, openNow: !value.openNow })}>
+          Open now
+        </Pill>
+        {MEAL_KEYS.map((m) => (
+          <Pill key={m} active={value.meals.includes(m)} onClick={() => toggleMealKey(m)}>
+            {MEAL_LABELS[m]}
+          </Pill>
+        ))}
+      </PillRow>
+    </FilterSection>
   );
 };
 

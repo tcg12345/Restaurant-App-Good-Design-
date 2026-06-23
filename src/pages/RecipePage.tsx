@@ -2195,17 +2195,15 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
     </nav>
 
     <div className="rdm-page">
-      {/* Hero image */}
-      <div className="rdm-hero-img">
-        {data.coverPhoto ? (
+      {/* Hero image — omitted entirely when the recipe has no photo (no blank placeholder). */}
+      {data.coverPhoto && (
+        <div className="rdm-hero-img">
           <img src={data.coverPhoto} alt={data.title} referrerPolicy="no-referrer" />
-        ) : (
-          <div className="ph-fallback"><ChefHat /></div>
-        )}
-        {data.sourceType === 'expert' && (
-          <div className="badge"><Sparkles /> Editor's pick</div>
-        )}
-      </div>
+          {data.sourceType === 'expert' && (
+            <div className="badge"><Sparkles /> Editor's pick</div>
+          )}
+        </div>
+      )}
 
       {/* Title block */}
       <section className="rdm-title-block">
@@ -2334,51 +2332,69 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
 
       {/* Ingredients */}
       <section className="rdm-section">
-        <h2 className="rdm-section-title">
-          Ingredients
-          <span className="count">{data.ingredients.length} item{data.ingredients.length === 1 ? '' : 's'}</span>
-        </h2>
-        {data.ingredients.length === 0 ? (
-          <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
-            No ingredients listed.
-          </p>
-        ) : (
-          <>
-            <div className="rdm-servings">
-              <div>
-                <div className="lbl">Servings</div>
-                <div className="sub">Scaled from {baseServings}</div>
-              </div>
-              <div className="rdm-stepper">
-                <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
-                <span className="v">{servings}</span>
-                <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
-              </div>
-            </div>
-            <div className="rdm-ingr-group">
-              {data.ingredients.map((ing, i) => {
-                const key = `i-${i}`;
-                const isChecked = checked.has(key);
-                const qty = formatQty(ing.amount, scale);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={cn('rdm-ingr-item', isChecked && 'checked')}
-                    onClick={() => toggleCheck(key)}
-                  >
-                    <span className="check"><Check /></span>
-                    <span className="rdm-ingr-text text">
-                      {qty && <span className="qty">{qty}</span>}
-                      {ing.unit && <span className="unit">{ing.unit}</span>}
-                      <span className="name">{ing.name}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
+        {(() => {
+          // Mirror the desktop: render explicit ingredient groups (Sauce /
+          // Dough / "For the beef", …) with their section headings when the
+          // recipe has them; otherwise a single flat list.
+          const renderGroups = (data.ingredientGroups && data.ingredientGroups.length > 0)
+            ? data.ingredientGroups
+            : [{ name: '', ingredients: data.ingredients }];
+          const totalItems = renderGroups.reduce((sum, g) => sum + g.ingredients.length, 0);
+          return (
+            <>
+              <h2 className="rdm-section-title">
+                Ingredients
+                <span className="count">{totalItems} item{totalItems === 1 ? '' : 's'}</span>
+              </h2>
+              {totalItems === 0 ? (
+                <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
+                  No ingredients listed.
+                </p>
+              ) : (
+                <>
+                  <div className="rdm-servings">
+                    <div>
+                      <div className="lbl">Servings</div>
+                      <div className="sub">Scaled from {baseServings}</div>
+                    </div>
+                    <div className="rdm-stepper">
+                      <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
+                      <span className="v">{servings}</span>
+                      <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
+                    </div>
+                  </div>
+                  {renderGroups.map((group, gi) => (
+                    <div className="rdm-ingr-group" key={gi}>
+                      {group.name && renderGroups.length > 1 && (
+                        <h3 className="rdm-ingr-group-title">{group.name}</h3>
+                      )}
+                      {group.ingredients.map((ing, ii) => {
+                        const key = `g-${gi}-i-${ii}`;
+                        const isChecked = checked.has(key);
+                        const qty = formatQty(ing.amount, scale);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={cn('rdm-ingr-item', isChecked && 'checked')}
+                            onClick={() => toggleCheck(key)}
+                          >
+                            <span className="check"><Check /></span>
+                            <span className="rdm-ingr-text text">
+                              {qty && <span className="qty">{qty}</span>}
+                              {ing.unit && <span className="unit">{ing.unit}</span>}
+                              <span className="name">{ing.name}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          );
+        })()}
         <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inIngredients)} />
       </section>
 

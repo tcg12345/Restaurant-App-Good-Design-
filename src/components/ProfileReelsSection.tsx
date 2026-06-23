@@ -11,12 +11,47 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, Star } from 'lucide-react';
+import { Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, MoreHorizontal, Play, Heart, MapPin, ArrowRight } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 import { useCardLongPress, CardActionMenu, type CardAction } from './CardActionMenu';
 import type { Reel } from '../contexts/ReelsContext';
 import type { Post } from '../contexts/PostsContext';
-import type { Guide } from '../lib/supabase-guides';
+import { isPublicGuide, type Guide } from '../lib/supabase-guides';
+
+/** Compact engagement count: 12400 → "12.4k", 980 → "980". */
+const formatCount = (n: number): string => {
+  if (!n || n < 0) return '0';
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return (k >= 10 ? Math.round(k) : Math.round(k * 10) / 10) + 'k';
+};
+
+/**
+ * Hover "⋯" affordance shown on owner tiles in the desktop layouts — long-press
+ * / right-click still work, but a visible button is the natural desktop gesture.
+ * Opens the same CardActionMenu, anchored to the button.
+ */
+const OwnerMoreButton: React.FC<{ onOpen: (rect: DOMRect) => void; className?: string }> = ({ onOpen, className }) => (
+  <button
+    type="button"
+    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onOpen(e.currentTarget.getBoundingClientRect()); }}
+    className={cn(
+      'absolute z-10 w-8 h-8 rounded-full grid place-items-center bg-black/50 backdrop-blur text-white opacity-0 group-hover:opacity-100 hover:bg-black/70 transition-opacity',
+      className,
+    )}
+    aria-label="More actions"
+  >
+    <MoreHorizontal size={16} />
+  </button>
+);
+
+/** Small translucent badge used over media (entry count, Draft/Private, etc.). */
+const MediaBadge: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <span className={cn('inline-flex items-center gap-1 px-2 h-[22px] rounded-full bg-black/55 backdrop-blur text-white text-[10.5px] font-bold tabular-nums', className)}>
+    {children}
+  </span>
+);
 
 interface ProfileReelsSectionProps {
   reels: Reel[];
@@ -54,7 +89,14 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
   posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, hideHeader = false, trailing,
 }) => {
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
   const [showAll, setShowAll] = useState(false);
+  // Long-press (or right-click) a tile to open its actions menu — owner only.
+  const [menu, setMenu] = useState<{ id: string; isPublic: boolean; rect: DOMRect } | null>(null);
+  const press = useCardLongPress<Post>((p, target) => {
+    if (!isOwn) return;
+    setMenu({ id: p.id, isPublic: p.isPublic, rect: target.getBoundingClientRect() });
+  });
   if (posts.length === 0) return null;
   const VISIBLE_LIMIT = 6;
   const visible = showAll ? posts : posts.slice(0, VISIBLE_LIMIT);
@@ -64,29 +106,98 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
     navigate(`/r/post-${p.id}`);
   };
 
-  // Long-press (or right-click) a tile to open its actions menu — owner only.
-  const [menu, setMenu] = useState<{ id: string; isPublic: boolean; rect: DOMRect } | null>(null);
-  const press = useCardLongPress<Post>((p, target) => {
-    if (!isOwn) return;
-    setMenu({ id: p.id, isPublic: p.isPublic, rect: target.getBoundingClientRect() });
-  });
+  const ownerMenu = menu && (
+    <CardActionMenu
+      rect={menu.rect}
+      onClose={() => setMenu(null)}
+      actions={[
+        ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.id) }] : []),
+        ...(onToggleVisibility ? [{
+          label: menu.isPublic ? 'Make followers-only' : 'Make public',
+          icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
+          onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
+        }] : []),
+        ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
+      ] as CardAction[]}
+    />
+  );
 
+  const seeAll = posts.length > VISIBLE_LIMIT && (
+    <div className="mt-3.5">
+      {showAll ? (
+        <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+      ) : (
+        <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+          See all {posts.length} posts <ChevronRight size={13} />
+        </button>
+      )}
+    </div>
+  );
+
+  // ── Desktop: editorial post tiles (cover + caption/likes/place overlay) ──
+  if (!phoneMode) {
+    return (
+      <section>
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
+          {posts.length} {posts.length === 1 ? 'Post' : 'Posts'}
+        </div>
+        <div className="grid grid-cols-3 gap-3.5">
+          {visible.map((p) => {
+            const cover = p.items[0];
+            const place = p.locationLabel?.trim();
+            return (
+              <div key={p.id} className="group relative">
+                <button
+                  type="button"
+                  {...(isOwn ? press.getHandlers(p) : {})}
+                  onClick={() => {
+                    if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
+                    handleClick(p);
+                  }}
+                  className="relative block w-full aspect-square overflow-hidden rounded-[18px] bg-on-surface/[0.05] select-none"
+                  aria-label={p.caption || 'Open post'}
+                >
+                  {cover?.mediaType === 'video' && cover.mediaUrl ? (
+                    <video src={cover.mediaUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  ) : cover?.mediaUrl ? (
+                    <img src={cover.mediaUrl} alt="" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  ) : (
+                    <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
+                  )}
+                  <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 58%)' }} />
+                  <div className="absolute inset-x-0 bottom-0 p-4 text-left">
+                    <div className="font-serif font-bold text-white text-[16px] leading-[1.22] text-pretty line-clamp-2">{p.caption || 'Untitled'}</div>
+                    <div className="flex items-center gap-3.5 mt-2.5 text-[12px] font-semibold text-white/[0.86]">
+                      <span className="inline-flex items-center gap-1.5"><Heart size={13} className="fill-white" />{formatCount(p.likesCount)}</span>
+                      {place && <span className="inline-flex items-center gap-1.5 min-w-0"><MapPin size={12} strokeWidth={2.4} className="flex-none" /><span className="truncate">{place}</span></span>}
+                    </div>
+                  </div>
+                  {isOwn && !p.isPublic ? (
+                    <div className="absolute top-3 left-3"><MediaBadge><Lock size={11} /> Followers</MediaBadge></div>
+                  ) : p.items.length > 1 ? (
+                    <Layers size={16} className="absolute top-3 left-3 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]" />
+                  ) : null}
+                </button>
+                {isOwn && <OwnerMoreButton onOpen={(rect) => setMenu({ id: p.id, isPublic: p.isPublic, rect })} className="top-3 right-3" />}
+              </div>
+            );
+          })}
+        </div>
+        {ownerMenu}
+        {seeAll}
+      </section>
+    );
+  }
+
+  // ── Mobile: full-bleed 3-up tiles with caption / likes overlay ───────
   return (
     <section>
-      {!hideHeader && (
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-            {title ?? (isOwn ? 'My Posts' : 'Posts')}
-            <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
-          </h3>
-          {trailing}
-        </div>
-      )}
-      {/* Instagram-style grid: three flush square tiles per row. */}
-      <div className="grid grid-cols-3 gap-px max-w-2xl">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
+        {posts.length} {posts.length === 1 ? 'Post' : 'Posts'}
+      </div>
+      <div className="grid grid-cols-3">
         {visible.map((p) => {
           const cover = p.items[0];
-          // First item drives the tile preview.
           return (
             <button
               key={p.id}
@@ -96,7 +207,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                 if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
                 handleClick(p);
               }}
-              className="group relative block w-full aspect-square overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
+              className="relative block w-full aspect-square overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
               aria-label={p.caption || 'Open post'}
             >
               {cover?.mediaType === 'video' && cover.mediaUrl ? (
@@ -104,45 +215,30 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
               ) : cover?.mediaUrl ? (
                 <img src={cover.mediaUrl} alt="" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : (
-                <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-800 to-stone-900')} />
+                <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
               )}
-              {/* Carousel marker (multi-item) */}
-              {p.items.length > 1 && (
-                <Layers size={16} className="absolute top-1.5 right-1.5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" />
-              )}
-              {/* Followers-only indicator (owner sees which are private) */}
-              {!p.isPublic && (
-                <div className="absolute bottom-1.5 right-1.5 inline-flex items-center bg-black/55 backdrop-blur rounded-full p-1 text-white">
-                  <Lock size={10} />
-                </div>
-              )}
+              <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.78), rgba(22,13,8,0) 58%)' }} />
+              <div className="absolute inset-x-0 bottom-0 p-2 text-left">
+                <div className="font-serif font-bold text-white text-[11px] leading-[1.15] text-pretty line-clamp-2">{p.caption || 'Untitled'}</div>
+                <div className="inline-flex items-center gap-1 mt-1 text-[9.5px] font-semibold text-white/[0.88]"><Heart size={10} className="fill-white" />{formatCount(p.likesCount)}</div>
+              </div>
+              {isOwn && !p.isPublic ? (
+                <div className="absolute top-1.5 right-1.5 inline-flex items-center bg-black/55 backdrop-blur rounded-full p-1 text-white"><Lock size={10} /></div>
+              ) : p.items.length > 1 ? (
+                <Layers size={14} className="absolute top-1.5 right-1.5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" />
+              ) : null}
             </button>
           );
         })}
       </div>
-      {menu && (
-        <CardActionMenu
-          rect={menu.rect}
-          onClose={() => setMenu(null)}
-          actions={[
-            ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.id) }] : []),
-            ...(onToggleVisibility ? [{
-              label: menu.isPublic ? 'Make followers-only' : 'Make public',
-              icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
-              onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
-            }] : []),
-            ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
-          ] as CardAction[]}
-        />
-      )}
+      {ownerMenu}
       {posts.length > VISIBLE_LIMIT && (
-        <div className="mt-3 max-w-2xl">
+        <div className="px-6 mt-3.5">
           {showAll ? (
-            <button type="button" onClick={() => setShowAll(false)} className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+            <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
           ) : (
-            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary">
-              See all {posts.length} posts
-              <ChevronRight size={12} />
+            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+              See all {posts.length} posts <ChevronRight size={13} />
             </button>
           )}
         </div>
@@ -165,114 +261,151 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   trailing,
 }) => {
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
   const [showAll, setShowAll] = useState(false);
-  if (reels.length === 0) return null;
-
-  const visible = showAll ? reels : reels.slice(0, VISIBLE_LIMIT);
-  const remaining = reels.length - visible.length;
-
-  const handleClick = (r: Reel) => {
-    if (onTileClick) { onTileClick(r); return; }
-    navigate(`/r/reel-${r.id}`);
-  };
-
   // Long-press (or right-click) a tile to open its actions menu — owner only.
   const [menu, setMenu] = useState<{ id: string; isPublic: boolean; rect: DOMRect } | null>(null);
   const press = useCardLongPress<Reel>((r, target) => {
     if (!isOwn) return;
     setMenu({ id: r.id, isPublic: r.isPublic, rect: target.getBoundingClientRect() });
   });
+  if (reels.length === 0) return null;
 
+  const visible = showAll ? reels : reels.slice(0, VISIBLE_LIMIT);
+
+  const handleClick = (r: Reel) => {
+    if (onTileClick) { onTileClick(r); return; }
+    navigate(`/r/reel-${r.id}`);
+  };
+
+  const ownerMenu = menu && (
+    <CardActionMenu
+      rect={menu.rect}
+      onClose={() => setMenu(null)}
+      actions={[
+        ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.id) }] : []),
+        ...(onToggleVisibility ? [{
+          label: menu.isPublic ? 'Make followers-only' : 'Make public',
+          icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
+          onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
+        }] : []),
+        ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
+      ] as CardAction[]}
+    />
+  );
+
+  const seeAll = reels.length > VISIBLE_LIMIT && (
+    <div className="mt-3.5">
+      {showAll ? (
+        <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+      ) : (
+        <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+          See all {reels.length} reels <ChevronRight size={13} />
+        </button>
+      )}
+    </div>
+  );
+
+  // ── Desktop: editorial reel tiles (9:16, play badge + caption/views) ──
+  if (!phoneMode) {
+    return (
+      <section>
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
+          {reels.length} {reels.length === 1 ? 'Reel' : 'Reels'}
+        </div>
+        <div className="grid grid-cols-3 gap-3.5">
+          {visible.map((r) => {
+            const heroTitle = r.caption?.trim() || (r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title) || 'Untitled';
+            return (
+              <div key={r.id} className="group relative">
+                <button
+                  type="button"
+                  {...(isOwn ? press.getHandlers(r) : {})}
+                  onClick={() => {
+                    if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
+                    handleClick(r);
+                  }}
+                  className="relative block w-full aspect-[9/16] overflow-hidden rounded-[18px] bg-on-surface/[0.05] select-none"
+                  aria-label={r.caption || 'Open reel'}
+                >
+                  {r.videoUrl ? (
+                    <video src={r.videoUrl} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  ) : (
+                    <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+                  )}
+                  <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 52%)' }} />
+                  {/* persistent play badge (top-right) */}
+                  <div className="absolute top-[13px] right-[13px] w-[30px] h-[30px] rounded-full bg-black/[0.34] backdrop-blur grid place-items-center text-white">
+                    <Play size={13} className="fill-white translate-x-px" />
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 p-[15px] text-left">
+                    <p className="font-serif font-bold text-white text-[15px] leading-[1.2] text-pretty line-clamp-2">{heroTitle}</p>
+                    <div className="flex items-center gap-2 mt-2 text-[11.5px] font-semibold text-white/[0.86]">
+                      <span className="inline-flex items-center gap-1.5"><Heart size={12} className="fill-white" />{formatCount(r.likes)}</span>
+                      {isOwn && !r.isPublic && <span className="inline-flex items-center gap-1"><Lock size={11} /> Followers</span>}
+                    </div>
+                  </div>
+                </button>
+                {isOwn && <OwnerMoreButton onOpen={(rect) => setMenu({ id: r.id, isPublic: r.isPublic, rect })} className="top-[13px] left-[13px]" />}
+              </div>
+            );
+          })}
+        </div>
+        {ownerMenu}
+        {seeAll}
+      </section>
+    );
+  }
+
+  // ── Mobile: full-bleed 3-up 9:16 tiles with play badge + caption ─────
   return (
     <section>
-      {!hideHeader && (
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-            {title ?? (isOwn ? 'My Reels' : 'Reels')}
-            <span className="text-on-surface/30 font-medium ml-1.5">{reels.length}</span>
-          </h3>
-          {trailing}
-        </div>
-      )}
-      {/* Instagram-style reels grid: three flush vertical tiles per row. */}
-      <div className="grid grid-cols-3 gap-px max-w-2xl">
-        {visible.map((r) => (
-          <button
-            key={r.id}
-            type="button"
-            {...(isOwn ? press.getHandlers(r) : {})}
-            onClick={() => {
-              if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
-              handleClick(r);
-            }}
-            className="group relative block w-full aspect-[9/16] overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
-            aria-label={r.caption || 'Open reel'}
-          >
-            {r.videoUrl ? (
-              <video
-                src={r.videoUrl}
-                muted
-                playsInline
-                preload="metadata"
-                className="pointer-events-none absolute inset-0 w-full h-full object-cover"
-              />
-            ) : (
-              <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-800 to-stone-900')} />
-            )}
-            {/* Bottom gradient + place / recipe label */}
-            <div className="absolute inset-x-0 bottom-0 h-[52%] bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
-            <div className="absolute inset-x-0 bottom-0 p-2">
-              <div className="flex items-center gap-1 text-white/85 text-[9px] font-bold mb-0.5">
-                <Film size={9} />
-                <span className="uppercase tracking-wider">{r.kind === 'restaurant' ? 'Place' : 'Recipe'}</span>
-              </div>
-              <p className="font-serif font-bold text-white text-[12px] leading-[1.15] line-clamp-2 drop-shadow-sm">
-                {r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title}
-              </p>
-            </div>
-            {/* Followers-only indicator */}
-            {!r.isPublic && (
-              <div className="absolute top-1.5 right-1.5 inline-flex items-center bg-black/55 backdrop-blur rounded-full p-1 text-white">
-                <Lock size={10} />
-              </div>
-            )}
-          </button>
-        ))}
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
+        {reels.length} {reels.length === 1 ? 'Reel' : 'Reels'}
       </div>
-      {menu && (
-        <CardActionMenu
-          rect={menu.rect}
-          onClose={() => setMenu(null)}
-          actions={[
-            ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.id) }] : []),
-            ...(onToggleVisibility ? [{
-              label: menu.isPublic ? 'Make followers-only' : 'Make public',
-              icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
-              onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
-            }] : []),
-            ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
-          ] as CardAction[]}
-        />
-      )}
-      {/* Expand / collapse — only when there's something to expand. */}
-      {reels.length > VISIBLE_LIMIT && (
-        <div className="mt-3 max-w-2xl">
-          {showAll ? (
+      <div className="grid grid-cols-3">
+        {visible.map((r) => {
+          const heroTitle = r.caption?.trim() || (r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title) || 'Untitled';
+          return (
             <button
+              key={r.id}
               type="button"
-              onClick={() => setShowAll(false)}
-              className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65"
+              {...(isOwn ? press.getHandlers(r) : {})}
+              onClick={() => {
+                if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
+                handleClick(r);
+              }}
+              className="relative block w-full aspect-[9/16] overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
+              aria-label={r.caption || 'Open reel'}
             >
-              Show less
+              {r.videoUrl ? (
+                <video src={r.videoUrl} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
+              ) : (
+                <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+              )}
+              <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 52%)' }} />
+              <div className="absolute top-2 right-2 w-[23px] h-[23px] rounded-full bg-black/[0.34] backdrop-blur grid place-items-center text-white">
+                <Play size={10} className="fill-white translate-x-px" />
+              </div>
+              <div className="absolute inset-x-0 bottom-0 p-2 text-left">
+                <p className="font-serif font-bold text-white text-[10.5px] leading-[1.14] text-pretty line-clamp-2">{heroTitle}</p>
+                <div className="inline-flex items-center gap-1 mt-1 text-[9px] font-semibold text-white/[0.88]"><Heart size={9} className="fill-white" />{formatCount(r.likes)}</div>
+              </div>
+              {isOwn && !r.isPublic && (
+                <div className="absolute top-2 left-2 inline-flex items-center bg-black/55 backdrop-blur rounded-full p-1 text-white"><Lock size={9} /></div>
+              )}
             </button>
+          );
+        })}
+      </div>
+      {ownerMenu}
+      {reels.length > VISIBLE_LIMIT && (
+        <div className="px-6 mt-3.5">
+          {showAll ? (
+            <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
           ) : (
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary"
-            >
-              See all {reels.length} reels
-              <ChevronRight size={12} />
+            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+              See all {reels.length} reels <ChevronRight size={13} />
             </button>
           )}
         </div>
@@ -307,7 +440,14 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
   trailing,
 }) => {
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
   const [showAll, setShowAll] = useState(false);
+  // Long-press (or right-click) a tile to open its actions menu — owner only.
+  const [menu, setMenu] = useState<{ guide: Guide; rect: DOMRect } | null>(null);
+  const press = useCardLongPress<Guide>((g, target) => {
+    if (!isOwn) return;
+    setMenu({ guide: g, rect: target.getBoundingClientRect() });
+  });
   if (guides.length === 0) return null;
 
   const visible = showAll ? guides : guides.slice(0, VISIBLE_LIMIT);
@@ -317,31 +457,123 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
     navigate(`/guides/${g.id}`);
   };
 
-  // Long-press (or right-click) a tile to open its actions menu — owner only.
-  const [menu, setMenu] = useState<{ guide: Guide; rect: DOMRect } | null>(null);
-  const press = useCardLongPress<Guide>((g, target) => {
-    if (!isOwn) return;
-    setMenu({ guide: g, rect: target.getBoundingClientRect() });
-  });
+  // "Public" on the profile means published + public (isPublicGuide) — so the
+  // toggle/label can't disagree with what the public profile actually shows.
+  const ownerMenu = menu && (
+    <CardActionMenu
+      rect={menu.rect}
+      onClose={() => setMenu(null)}
+      actions={[
+        ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.guide) }] : []),
+        ...(onToggleVisibility ? [{
+          label: isPublicGuide(menu.guide) ? 'Make private' : 'Make public',
+          icon: isPublicGuide(menu.guide) ? <Lock size={16} /> : <Globe size={16} />,
+          onClick: () => onToggleVisibility(menu.guide.id, !isPublicGuide(menu.guide)),
+        }] : []),
+        ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.guide.id), danger: true }] : []),
+      ] as CardAction[]}
+    />
+  );
 
+  const seeAll = guides.length > VISIBLE_LIMIT && (
+    <div className="mt-5">
+      {showAll ? (
+        <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+      ) : (
+        <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+          See all {guides.length} guides <ChevronRight size={13} />
+        </button>
+      )}
+    </div>
+  );
+
+  // ── Desktop: full-width editorial guide banners (text overlaid left) ──
+  if (!phoneMode) {
+    return (
+      <section>
+        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
+          {guides.length} {guides.length === 1 ? 'Guide' : 'Guides'} curated
+        </div>
+        <div className="flex flex-col gap-[18px]">
+          {visible.map((g) => {
+            const isRecipes = g.type === 'recipes';
+            const Icon = isRecipes ? ChefHat : BookOpen;
+            const entryCount = g.entries?.length ?? 0;
+            const noun = isRecipes ? (entryCount === 1 ? 'recipe' : 'recipes') : (entryCount === 1 ? 'place' : 'places');
+            const desc = (g.subtitle || g.intro || '').trim();
+            // Owner-only state badge explaining why a guide isn't live.
+            const stateBadge = isOwn ? (!g.isPublished ? 'Draft' : (g.visibility !== 'public' ? 'Private' : null)) : null;
+            return (
+              <div key={g.id} className="group relative">
+                <button
+                  type="button"
+                  {...(isOwn ? press.getHandlers(g) : {})}
+                  onClick={() => {
+                    if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
+                    handleClick(g);
+                  }}
+                  className="relative block w-full h-[236px] overflow-hidden rounded-[24px] bg-on-surface/[0.08] text-left select-none"
+                  aria-label={g.title || 'Open guide'}
+                >
+                  {g.coverPhoto ? (
+                    <img src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                  ) : (
+                    <div className={cn('absolute inset-0 grid place-items-center bg-gradient-to-br', isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900')}>
+                      <Icon size={40} className="text-white/25" />
+                    </div>
+                  )}
+                  <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(100deg, rgba(20,12,8,0.90) 0%, rgba(20,12,8,0.62) 42%, rgba(20,12,8,0.12) 100%)' }} />
+                  <div className="absolute inset-0 px-[34px] py-[30px] flex flex-col justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-white/[0.15] backdrop-blur px-3.5 py-[7px] text-[10px] font-bold tracking-[0.16em] uppercase text-white">
+                        <Layers size={12} strokeWidth={2.2} /> Guide · {entryCount} {noun}
+                      </span>
+                      {stateBadge && (
+                        <span className={cn(
+                          'inline-flex items-center gap-1 rounded-full backdrop-blur px-2.5 py-[6px] text-[10px] font-bold tracking-[0.12em] uppercase text-white',
+                          stateBadge === 'Draft' ? 'bg-amber-500/90' : 'bg-white/[0.15]',
+                        )}>
+                          {stateBadge === 'Private' && <Lock size={11} />}{stateBadge}
+                        </span>
+                      )}
+                    </div>
+                    <div className="max-w-[540px]">
+                      <h3 className="font-serif font-bold text-white text-[30px] leading-[1.08] tracking-[-0.015em] text-pretty line-clamp-2">
+                        {g.title || 'Untitled guide'}
+                      </h3>
+                      {desc && (
+                        <p className="mt-[11px] max-w-[470px] text-[14.5px] font-medium leading-[1.5] text-white/[0.82] line-clamp-2">{desc}</p>
+                      )}
+                      <span className="inline-flex items-center gap-2 mt-[17px] text-[13px] font-bold text-white">
+                        View guide <ArrowRight size={15} strokeWidth={2.4} />
+                      </span>
+                    </div>
+                  </div>
+                </button>
+                {isOwn && <OwnerMoreButton onOpen={(rect) => setMenu({ guide: g, rect })} className="top-[18px] right-[18px]" />}
+              </div>
+            );
+          })}
+        </div>
+        {ownerMenu}
+        {seeAll}
+      </section>
+    );
+  }
+
+  // ── Mobile: full-bleed 2-up square tiles with overlaid guide banner ──
   return (
     <section>
-      {!hideHeader && (
-        <div className="flex items-baseline justify-between mb-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-            {title ?? (isOwn ? 'My Guides' : 'Guides')}
-            <span className="text-on-surface/30 font-medium ml-1.5">{guides.length}</span>
-          </h3>
-          {trailing}
-        </div>
-      )}
-      {/* Instagram-style grid: three flush tiles per row. */}
-      <div className="grid grid-cols-3 gap-px max-w-2xl">
+      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
+        {guides.length} {guides.length === 1 ? 'Guide' : 'Guides'} curated
+      </div>
+      <div className="grid grid-cols-2">
         {visible.map((g) => {
           const isRecipes = g.type === 'recipes';
           const Icon = isRecipes ? ChefHat : BookOpen;
           const entryCount = g.entries?.length ?? 0;
-          const isPublic = g.visibility === 'public';
+          const noun = isRecipes ? (entryCount === 1 ? 'recipe' : 'recipes') : (entryCount === 1 ? 'place' : 'places');
+          const stateBadge = isOwn ? (!g.isPublished ? 'Draft' : (g.visibility !== 'public' ? 'Private' : null)) : null;
           return (
             <button
               key={g.id}
@@ -351,75 +583,52 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
                 if (isOwn && press.suppressClickRef.current) { press.suppressClickRef.current = false; return; }
                 handleClick(g);
               }}
-              className="group relative block w-full aspect-[4/5] overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
+              className="relative block w-full aspect-square overflow-hidden bg-on-surface/[0.08] select-none [-webkit-touch-callout:none]"
               aria-label={g.title || 'Open guide'}
             >
               {g.coverPhoto ? (
-                <img
-                  src={g.coverPhoto}
-                  alt={g.title}
-                  referrerPolicy="no-referrer"
-                  draggable={false}
-                  className="pointer-events-none absolute inset-0 w-full h-full object-cover"
-                />
+                <img src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : (
-                <div className={cn(
-                  'absolute inset-0 grid place-items-center bg-gradient-to-br',
-                  isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900',
-                )}>
-                  <Icon size={28} className="text-white/30" />
+                <div className={cn('absolute inset-0 grid place-items-center bg-gradient-to-br', isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900')}>
+                  <Icon size={30} className="text-white/25" />
                 </div>
               )}
-              <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 px-1.5 h-[20px] rounded-full bg-black/50 backdrop-blur text-white text-[10px] font-bold tabular-nums">
-                <Icon size={11} />
-                {entryCount}
-              </span>
-              {/* Title + score overlay */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 px-2 pb-2 pt-6">
-                <p className="font-serif font-bold text-white text-[12px] leading-tight line-clamp-2 drop-shadow">
-                  {g.title || 'Untitled guide'}
-                </p>
-                {g.avgScore != null && (
-                  <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-white/85">
-                    <Star size={10} className="fill-white" />
-                    {g.avgScore.toFixed(1)}
-                  </div>
-                )}
+              <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(160deg, rgba(20,12,8,0.30) 0%, rgba(20,12,8,0.45) 45%, rgba(20,12,8,0.88) 100%)' }} />
+              <div className="absolute inset-0 p-4 flex flex-col justify-between text-left">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.15] backdrop-blur px-2.5 py-[5px] text-[8px] font-bold tracking-[0.13em] uppercase text-white">
+                    <Layers size={10} strokeWidth={2.2} /> Guide · {entryCount} {noun}
+                  </span>
+                  {stateBadge && (
+                    <span className={cn(
+                      'inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-[5px] text-[8px] font-bold tracking-[0.1em] uppercase text-white',
+                      stateBadge === 'Draft' ? 'bg-amber-500/90' : 'bg-white/[0.15]',
+                    )}>
+                      {stateBadge === 'Private' && <Lock size={9} />}{stateBadge}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-white text-[17px] leading-[1.1] tracking-[-0.015em] text-pretty line-clamp-3">
+                    {g.title || 'Untitled guide'}
+                  </h3>
+                  <span className="inline-flex items-center gap-1.5 mt-2 text-[11px] font-bold text-white">
+                    View guide <ArrowRight size={13} strokeWidth={2.4} />
+                  </span>
+                </div>
               </div>
-              {/* Private indicator */}
-              {!isPublic && (
-                <div className="absolute top-1.5 right-1.5 inline-flex items-center bg-black/55 backdrop-blur rounded-full p-1 text-white">
-                  <Lock size={10} />
-                </div>
-              )}
             </button>
           );
         })}
       </div>
-      {menu && (
-        <CardActionMenu
-          rect={menu.rect}
-          onClose={() => setMenu(null)}
-          actions={[
-            ...(onEdit ? [{ label: 'Edit', icon: <Pencil size={16} />, onClick: () => onEdit(menu.guide) }] : []),
-            ...(onToggleVisibility ? [{
-              label: menu.guide.visibility === 'public' ? 'Make private' : 'Make public',
-              icon: menu.guide.visibility === 'public' ? <Lock size={16} /> : <Globe size={16} />,
-              onClick: () => onToggleVisibility(menu.guide.id, menu.guide.visibility !== 'public'),
-            }] : []),
-            ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.guide.id), danger: true }] : []),
-          ] as CardAction[]}
-        />
-      )}
+      {ownerMenu}
       {guides.length > VISIBLE_LIMIT && (
-        <div className="mt-3 max-w-2xl">
+        <div className="px-6 mt-3.5">
           {showAll ? (
-            <button type="button" onClick={() => setShowAll(false)} className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+            <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
           ) : (
-            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary">
-              See all {guides.length} guides
-              <ChevronRight size={12} />
+            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
+              See all {guides.length} guides <ChevronRight size={13} />
             </button>
           )}
         </div>

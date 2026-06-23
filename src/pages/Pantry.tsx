@@ -26,7 +26,8 @@ import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
@@ -1812,7 +1813,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -1880,6 +1881,7 @@ const ListDetailView: React.FC<{
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
   const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
   const [wishlistMichelinFilter, setWishlistMichelinFilter] = useState<string[]>([]);
+  const [wishlistHoursFilter, setWishlistHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const toggleWlMichelin = (d: string) =>
     setWishlistMichelinFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
   // Michelin dataset readiness — gates the distinction filter below so the
@@ -1899,12 +1901,14 @@ const ListDetailView: React.FC<{
     (wishlistCuisineFilter.length > 0 ? 1 : 0) +
     (wishlistCityFilter.length > 0 ? 1 : 0) +
     (wishlistPriceFilter ? 1 : 0) +
-    (wishlistMichelinFilter.length > 0 ? 1 : 0);
+    (wishlistMichelinFilter.length > 0 ? 1 : 0) +
+    (isHoursFilterActive(wishlistHoursFilter) ? 1 : 0);
   const resetWishlistFilters = () => {
     setWishlistCuisineFilter([]);
     setWishlistCityFilter([]);
     setWishlistPriceFilter(null);
     setWishlistMichelinFilter([]);
+    setWishlistHoursFilter(emptyHoursFilter());
     setWishlistSort('recent');
   };
 
@@ -2008,12 +2012,15 @@ const ListDetailView: React.FC<{
     if (wishlistPriceFilter) {
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
+    if (isHoursFilterActive(wishlistHoursFilter)) {
+      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter));
+    }
     if (wishlistMichelinFilter.length > 0) {
       out = out.filter(({ info }) => info && passesMichelinFilter(
         wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
     }
     return out;
-  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistMichelinFilter, wlMichelinReady]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
 
   const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
@@ -2079,6 +2086,9 @@ const ListDetailView: React.FC<{
     if (wishlistPriceFilter) {
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
+    if (isHoursFilterActive(wishlistHoursFilter)) {
+      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter));
+    }
     if (wishlistMichelinFilter.length > 0) {
       out = out.filter(({ info }) => info && passesMichelinFilter(
         wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
@@ -2094,7 +2104,7 @@ const ListDetailView: React.FC<{
       }
     });
     return sorted;
-  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
 
   // Apply the search input on top of the filter pipeline (wishlist view
   // only — the rated and hotel-breakfast paths already filter above).
@@ -2793,6 +2803,8 @@ const ListDetailView: React.FC<{
           onCityFilter={setWishlistCityFilter}
           priceFilter={wishlistPriceFilter}
           onPriceFilter={setWishlistPriceFilter}
+          hoursFilter={wishlistHoursFilter}
+          onHoursFilter={setWishlistHoursFilter}
           michelinFilter={wishlistMichelinFilter}
           onMichelinToggle={toggleWlMichelin}
           allCuisines={wishlistAllCuisines}
@@ -2843,12 +2855,14 @@ const FilterSheet: React.FC<{
   onCuisineFilter: (v: string[]) => void;
   priceFilter: string | null;
   onPriceFilter: (v: string | null) => void;
+  hoursFilter: HoursFilter;
+  onHoursFilter: (v: HoursFilter) => void;
   michelinFilter: string[];
   onMichelinToggle: (d: string) => void;
   allCities: string[];
   allCuisines: string[];
   onReset: () => void;
-}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, onReset }) => {
+}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, onReset }) => {
   return (
     <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset}>
       <FilterSection label="Sort by">
@@ -2876,6 +2890,8 @@ const FilterSheet: React.FC<{
           ))}
         </Segment>
       </FilterSection>
+
+      <HoursFilterSection value={hoursFilter} onChange={onHoursFilter} />
 
       <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
         <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
@@ -2923,13 +2939,15 @@ const WishlistFilterSheet: React.FC<{
   onCityFilter: (v: string[]) => void;
   priceFilter: string | null;
   onPriceFilter: (v: string | null) => void;
+  hoursFilter: HoursFilter;
+  onHoursFilter: (v: HoursFilter) => void;
   michelinFilter: string[];
   onMichelinToggle: (d: string) => void;
   allCuisines: string[];
   allCities: string[];
   onReset: () => void;
   activeCount: number;
-}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, onReset, activeCount }) => {
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, onReset, activeCount }) => {
   return (
     <FilterSheetShell
       open={open}
@@ -2962,6 +2980,8 @@ const WishlistFilterSheet: React.FC<{
           ))}
         </Segment>
       </FilterSection>
+
+      <HoursFilterSection value={hoursFilter} onChange={onHoursFilter} />
 
       <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
         <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
@@ -6425,6 +6445,7 @@ export const Pantry: React.FC = () => {
   const michelinReady = useMichelinIndexReady();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
+  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added' | 'custom'>('highest');
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -6705,6 +6726,7 @@ export const Pantry: React.FC = () => {
       });
     }
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
+    if (isHoursFilterActive(hoursFilter)) result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurantId]?.hours, hoursFilter));
 
     if (sortBy === 'custom') {
       const orderMap = new Map(customOrder.map((id, i) => [id, i]));
@@ -6718,7 +6740,7 @@ export const Pantry: React.FC = () => {
     else if (sortBy === 'added') result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, michelinFilter, michelinReady, restaurantMeta, scoreRange, sortBy, customOrder]);
+  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, michelinFilter, michelinReady, restaurantMeta, scoreRange, hoursFilter, sortBy, customOrder]);
 
   // Drag-to-reorder for custom sort
   const moveRating = useCallback((from: number, to: number) => {
@@ -6733,7 +6755,7 @@ export const Pantry: React.FC = () => {
   const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
   const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   // Seed custom order from current sort if empty when switching to custom
@@ -6747,7 +6769,7 @@ export const Pantry: React.FC = () => {
 
   const handleResetFilters = () => {
     setCityFilter([]); setCuisineFilter([]); setPriceFilter(null); setMichelinFilter([]);
-    setScoreRange([0, 10]); setSortBy('highest');
+    setScoreRange([0, 10]); setHoursFilter(emptyHoursFilter()); setSortBy('highest');
   };
 
   const toggleCityFilter = (city: string) => setCityFilter((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
@@ -7569,6 +7591,8 @@ export const Pantry: React.FC = () => {
         onCuisineFilter={setCuisineFilter}
         priceFilter={priceFilter}
         onPriceFilter={setPriceFilter}
+        hoursFilter={hoursFilter}
+        onHoursFilter={setHoursFilter}
         michelinFilter={michelinFilter}
         onMichelinToggle={toggleMichelinFilter}
         allCities={allCities}
