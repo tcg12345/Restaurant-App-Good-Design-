@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Image as ImageIcon, Smile, Mic, Store } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, firstFrameSrc } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel, type SharedPost } from '../contexts/ChatContext';
@@ -314,7 +314,7 @@ const PostShareCard: React.FC<{
     >
       <div className={cn('relative w-full aspect-[5/3] overflow-hidden bg-gradient-to-br', post.bgGradient || 'from-stone-800 to-stone-900')}>
         {post.coverUrl && post.coverMediaType === 'video' && (
-          <video src={post.coverUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+          <video src={firstFrameSrc(post.coverUrl)} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
         )}
         {post.coverUrl && post.coverMediaType === 'photo' && (
           <img src={post.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />

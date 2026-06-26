@@ -10,6 +10,7 @@ import {
   setSave as cloudSetSave,
   setReelVisibility as cloudSetReelVisibility,
   deleteReel as cloudDeleteReel,
+  backfillReelPosters,
   listComments as cloudListComments,
   addComment as cloudAddComment,
   deleteComment as cloudDeleteComment,
@@ -80,6 +81,7 @@ function rowToUi(row: ReelRow): Reel {
     authorInitials: row.author?.initials || username.slice(0, 2).toUpperCase(),
     isExpert: row.author?.isExpert ?? false,
     videoUrl: row.videoUrl || undefined,
+    posterUrl: row.posterUrl || undefined,
     bgGradient: row.bgGradient || DEFAULT_BG,
     caption: row.caption,
     audioLabel: row.audioLabel,
@@ -182,6 +184,11 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (rows) {
         setReels(rows.map(rowToUi));
         setLoadError(false);
+        // Heal posters for older reels that never had one, in the background.
+        // As each lands, swap that reel's gradient for the captured frame.
+        void backfillReelPosters(rows, (reelId, localUrl) => {
+          setReels((prev) => prev.map((r) => (r.id === reelId && !r.posterUrl ? { ...r, posterUrl: localUrl } : r)));
+        });
       } else {
         setLoadError(true);
       }

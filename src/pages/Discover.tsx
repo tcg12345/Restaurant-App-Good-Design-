@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
 import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
@@ -179,6 +180,9 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
+// Sentinel "list id" the map's My-Ratings dropdown uses for the Wishlist
+// option (so wishlisted-but-unrated places can be plotted as heart pins).
+const WISHLIST_LIST_ID = '__wishlist__';
 
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
   if (!r.lat || !r.lng) return null;
@@ -315,15 +319,6 @@ function hashToHue(str: string): number {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
   return ((h % 360) + 360) % 360;
-}
-
-/** Editorial gradient placeholder. Mirrors the styles.css mock spec
- *  (135deg, three stops, lightness drop) so it reads as a warm
- *  cinematic backdrop, not a flat color block. */
-function placeholderGradient(seed: string, sat = 50, light = 52): string {
-  const h1 = hashToHue(seed);
-  const h2 = (h1 + 25) % 360;
-  return `linear-gradient(135deg, hsl(${h1} ${sat}% ${light + 8}%) 0%, hsl(${h1} ${sat}% ${light}%) 40%, hsl(${h2} ${Math.max(sat - 10, 0)}% ${light - 18}%) 100%)`;
 }
 
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
@@ -668,6 +663,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
+  // The My-Ratings list dropdown lives inside the horizontally-scrolling
+  // filter bar (overflow-x clips it), so its menu is portaled to <body> and
+  // positioned from the trigger's rect captured here on open.
+  const mapDropdownBtnRef = useRef<HTMLButtonElement>(null);
+  const [mapDropdownPos, setMapDropdownPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
@@ -2418,6 +2418,23 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     navigate(location.pathname, { replace: true, state: null });
   }, [mode, location.state, location.pathname, mapReady, navigate]);
 
+  // Deep-link from the Pantry: `navigate('/map', { state: { listView: { id } } })`
+  // opens the map in My-Ratings mode pre-filtered to that list (id may be a
+  // list id, the wishlist sentinel, or null for all ratings). Gated on
+  // mapReady — like the focus handler above — so the selection is applied only
+  // after the page-transition + map load settle. Applying it during mount
+  // stalls framer-motion's mode="wait" exit/enter and leaves the previous page
+  // on screen. Consumed once per mount.
+  const handledListViewRef = useRef(false);
+  useEffect(() => {
+    if (mode !== 'map' || handledListViewRef.current || !mapReady) return;
+    const lv = (location.state as any)?.listView;
+    if (!lv) return;
+    handledListViewRef.current = true;
+    setSelectedListId(lv.id ?? null);
+    setMapMode('myratings');
+  }, [mode, location.state, mapReady]);
+
   // Location geocoding (debounced)
   useEffect(() => {
     if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
@@ -2605,12 +2622,89 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return sorted;
   }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy, selectedMichelin, michelinReady, hoursFilter, restaurantMeta]);
 
-  // Filtered ratings for each mode
+  // Wishlist items reshaped as score-0, rating-shaped objects so the existing
+  // My-Ratings markers (heart pins) and list rows can plot them. Coordinates
+  // come from the lazily-populated restaurantMeta cache plus the geocode
+  // backfill below.
+  const [wishlistGeo, setWishlistGeo] = useState<Record<string, { lat: number; lng: number }>>({});
+  const wishlistRatings = useMemo<CommunityRating[]>(() => {
+    return wishlist.map((w) => {
+      const meta = restaurantMeta[w.restaurantId];
+      const geo = wishlistGeo[w.restaurantId];
+      return {
+        id: `wish-${w.restaurantId}`,
+        user_id: userId || '',
+        restaurant_id: w.restaurantId,
+        restaurant_name: w.name,
+        score: 0,
+        price: w.price || '',
+        cuisine: w.cuisine || '',
+        address: w.address || '',
+        photo_url: w.image || null,
+        notes: w.notes || '',
+        lat: meta?.lat ?? geo?.lat,
+        lng: meta?.lng ?? geo?.lng,
+        created_at: new Date(w.addedAt || Date.now()).toISOString(),
+      } as unknown as CommunityRating;
+    });
+  }, [wishlist, restaurantMeta, wishlistGeo, userId]);
+
+  // Filtered ratings for each mode. selectedListId picks what "My places"
+  // shows: null = all rated; the wishlist sentinel = every wishlist item; a
+  // real list id = that list's rated + wishlisted restaurants.
   const filteredMyRatings = useMemo(() => {
-    let base = myRatings;
-    if (selectedListId) { const list = myLists.find((l: any) => l.id === selectedListId); if (list) { const ids = new Set(list.restaurantIds); base = base.filter((r) => ids.has(r.restaurant_id)); } }
+    let base: CommunityRating[];
+    if (selectedListId === WISHLIST_LIST_ID) {
+      base = wishlistRatings;
+    } else if (selectedListId) {
+      const list = myLists.find((l: any) => l.id === selectedListId);
+      if (list) {
+        const ratedIds = new Set(list.restaurantIds || []);
+        const wishIds = new Set(list.wishlistIds || []);
+        base = [
+          ...myRatings.filter((r) => ratedIds.has(r.restaurant_id)),
+          ...wishlistRatings.filter((r) => wishIds.has(r.restaurant_id)),
+        ];
+      } else {
+        base = myRatings;
+      }
+    } else {
+      base = myRatings;
+    }
     return filterRatings(base);
-  }, [myRatings, selectedListId, myLists, filterRatings]);
+  }, [myRatings, wishlistRatings, selectedListId, myLists, filterRatings]);
+
+  // Backfill coordinates for wishlist items the current view needs but that
+  // restaurantMeta doesn't have yet (mirrors the ratings geocode below). Each
+  // id is tried at most once per session.
+  const wishlistGeoTriedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (mapMode !== 'myratings') return;
+    const list = selectedListId && selectedListId !== WISHLIST_LIST_ID ? myLists.find((l: any) => l.id === selectedListId) : null;
+    const showsWishlist = selectedListId === WISHLIST_LIST_ID || !!(list && (list.wishlistIds?.length || 0) > 0);
+    if (!showsWishlist) return;
+    const missing = wishlistRatings.filter((r) => (!r.lat || !r.lng) && r.address && !wishlistGeoTriedRef.current.has(r.restaurant_id));
+    if (missing.length === 0) return;
+    missing.forEach((r) => wishlistGeoTriedRef.current.add(r.restaurant_id));
+    let cancelled = false;
+    (async () => {
+      for (const r of missing) {
+        if (cancelled) break;
+        try {
+          const query = `${r.restaurant_name} ${r.address || ''}`.trim();
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`);
+          const data = await res.json();
+          const f = data.features?.[0];
+          if (f?.center) {
+            const [lng, lat] = f.center;
+            setWishlistGeo((prev) => ({ ...prev, [r.restaurant_id]: { lat, lng } }));
+          }
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mapMode, selectedListId, wishlistRatings, myLists]);
 
   const filteredFriendRatings = useMemo(() => {
     let base = friendRatings;
@@ -2999,6 +3093,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     { id: 'experts', label: 'Experts', icon: Star },
   ];
   const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
+  // Panel/header title — in My-Ratings mode it reflects the chosen list or
+  // wishlist rather than a flat "My Ratings".
+  const panelTitle = mapMode === 'myratings'
+    ? (selectedListId === WISHLIST_LIST_ID
+        ? 'Wishlist'
+        : selectedListId
+          ? (myLists.find((l: any) => l.id === selectedListId)?.name || 'List')
+          : 'My Ratings')
+    : activePanelMode.label;
 
   // Score → green/amber/red colour bucket used by every list card.
   const scoreColors = (s: number) => s >= 8
@@ -3388,7 +3491,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
             >
               <ChevronLeft size={14} />
-              Back to {activePanelMode.label}
+              Back to {panelTitle}
             </button>
           ) : (
             <button
@@ -3509,7 +3612,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <div className="px-5 pt-5 pb-2 flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h2 className="font-serif font-bold text-[20px] text-on-surface leading-tight truncate">
-                    {activePanelMode.label}
+                    {panelTitle}
                   </h2>
                   <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
                     {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
@@ -4403,7 +4506,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             <div
               ref={homeScrollRef}
               onScroll={phoneMode ? handleHomeScroll : undefined}
-              className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}
+              className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pb-32", phoneMode ? "px-3" : "px-6")}
               style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
             >
 
@@ -4746,7 +4849,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/restaurant/${place.id}`); } }}
                           className={cn(
-                            'flex-shrink-0 snap-start text-left group cursor-pointer',
+                            // self-start so a short (photoless) card keeps its
+                            // natural height instead of stretching to match a
+                            // taller photo card in the same rail.
+                            'flex-shrink-0 self-start snap-start text-left group cursor-pointer',
                             'w-[240px]',
                           )}
                         >
@@ -4764,25 +4870,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             );
                             const metaLine = [cuisine, price, distanceLabel].filter(Boolean).join('  ·  ');
                             return (
+                              photoUrl ? (
                               <article className="card-surface card-surface-hover">
-                                {/* Cover */}
+                                {/* Cover photo */}
                                 <div className="relative aspect-[4/3] overflow-hidden bg-on-surface/[0.04]">
-                                  {photoUrl ? (
-                                    <img
-                                      src={photoUrl}
-                                      alt=""
-                                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  ) : (
-                                    // No-photo placeholder — a per-restaurant
-                                    // colour gradient (seeded from the id) so the
-                                    // image area still has variety.
-                                    <div
-                                      className="absolute inset-0"
-                                      style={{ background: placeholderGradient(place.id || place.name) }}
-                                    />
-                                  )}
+                                  <img
+                                    src={photoUrl}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                    referrerPolicy="no-referrer"
+                                  />
                                   {/* Depth — subtle radial highlight + shadow so the
                                       cover reads as finished, not flat. */}
                                   <div
@@ -4832,6 +4929,48 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   <ScoreRing score={score10} size={44} className="mt-0.5 flex-shrink-0" />
                                 </div>
                               </article>
+                              ) : (
+                              /* No photo — a compact, image-free info card. No
+                                 gradient placeholder: everything sits on two tight
+                                 rows. Top: a cuisine · price eyebrow with the
+                                 wishlist heart + rate (＋). Bottom: the serif name
+                                 beside the score ring. Sits at its short natural
+                                 height in the rail. */
+                              <article className="card-surface card-surface-hover p-3.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.13em] text-on-surface/40">
+                                    {[cuisine, price].filter(Boolean).join(' · ') || 'Restaurant'}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                      className={cn(
+                                        'w-7 h-7 rounded-full grid place-items-center bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70 transition-colors',
+                                        wishlisted && 'text-primary',
+                                      )}
+                                      aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                    >
+                                      <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                      className="w-7 h-7 rounded-full grid place-items-center bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70 transition-colors"
+                                      aria-label="Rate"
+                                    >
+                                      <Plus size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-2.5 flex items-end justify-between gap-3">
+                                  <h3 className="min-w-0 font-serif font-semibold text-on-surface text-[15.5px] leading-[1.22] tracking-[-0.01em] line-clamp-2">
+                                    {place.name}
+                                  </h3>
+                                  <ScoreRing score={score10} size={40} className="flex-shrink-0" />
+                                </div>
+                              </article>
+                              )
                             );
                           })()}
                         </div>
@@ -4879,7 +5018,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           'w-[240px]',
                         )}
                       >
-                        <div className="relative h-full min-h-[244px] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
+                        <div className="relative h-full min-h-[108px] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
                           <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
                             <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
                           </div>
@@ -5342,7 +5481,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
           {/* Sheet title — "Discover / N results", matching the reference. */}
           <div className="flex items-baseline gap-2.5 pb-3">
-            <h2 className="font-serif font-bold text-[26px] leading-none tracking-tight">{activePanelMode.label}</h2>
+            <h2 className="font-serif font-bold text-[26px] leading-none tracking-tight">{panelTitle}</h2>
             <span className="text-[13px] font-semibold text-on-surface/45">{panelResultCount} result{panelResultCount === 1 ? '' : 's'}</span>
           </div>
           <AnimatePresence mode="wait">
@@ -5447,15 +5586,78 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 ))}
 
                 {/* Map mode toggle buttons — active state is a filled pill so
-                    the selected tab is obvious against the map background. */}
-                <button
-                  onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); }}
-                  className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
-                >
-                  <Star size={16} className={mapMode === 'myratings' ? "text-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
-                </button>
+                    the selected tab is obvious against the map background. The
+                    first is a dropdown: pick My Ratings, any restaurant list,
+                    or the Wishlist to plot on the map. */}
+                <div className="relative flex-shrink-0">
+                  <button
+                    ref={mapDropdownBtnRef}
+                    onClick={() => {
+                      const willOpen = mapMode !== 'myratings' ? true : !mapModeDropdownOpen;
+                      if (mapMode !== 'myratings') { setMapMode('myratings'); setSelectedListId(null); }
+                      if (willOpen && mapDropdownBtnRef.current) {
+                        const r = mapDropdownBtnRef.current.getBoundingClientRect();
+                        const left = Math.min(Math.max(8, r.left), window.innerWidth - 238);
+                        // The filter bar usually sits near the bottom of the
+                        // map, so open the menu upward when the trigger is in
+                        // the lower half — otherwise it'd render off-screen.
+                        const openUp = r.top > window.innerHeight * 0.5;
+                        setMapDropdownPos(openUp
+                          ? { left, bottom: Math.round(window.innerHeight - r.top + 8) }
+                          : { left, top: Math.round(r.bottom + 8) });
+                      }
+                      setMapModeDropdownOpen(willOpen);
+                    }}
+                    className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
+                      mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
+                  >
+                    {selectedListId === WISHLIST_LIST_ID
+                      ? <Heart size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
+                      : <Star size={16} className={mapMode === 'myratings' ? "text-white" : "text-on-surface/50"} />}
+                    <span className="text-xs font-bold uppercase tracking-wider max-w-[150px] truncate">
+                      {mapMode !== 'myratings' || !selectedListId ? 'My Ratings'
+                        : selectedListId === WISHLIST_LIST_ID ? 'Wishlist'
+                        : (myLists.find((l: any) => l.id === selectedListId)?.name || 'List')}
+                    </span>
+                    <ChevronDown size={14} className={cn('transition-transform flex-shrink-0', mapMode === 'myratings' ? 'text-white/80' : 'text-on-surface/40', mapModeDropdownOpen && 'rotate-180')} />
+                  </button>
+                  {mapModeDropdownOpen && mapMode === 'myratings' && mapDropdownPos && createPortal(
+                      <>
+                        <div className="fixed inset-0 z-[120]" onClick={() => setMapModeDropdownOpen(false)} />
+                        <motion.div
+                          initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.14 }}
+                          style={{ position: 'fixed', left: mapDropdownPos.left, ...(mapDropdownPos.top != null ? { top: mapDropdownPos.top } : { bottom: mapDropdownPos.bottom }) }}
+                          className="z-[121] w-[230px] max-h-[340px] overflow-y-auto no-scrollbar rounded-2xl bg-paper border border-on-surface/10 shadow-xl py-1.5"
+                        >
+                          {([
+                            { id: null as string | null, label: 'My Ratings', icon: 'star' as const, emoji: null as string | null },
+                            ...myLists.filter((l: any) => l.type !== 'home-cooking' && ((l.restaurantIds?.length || 0) + (l.wishlistIds?.length || 0)) > 0).map((l: any) => ({ id: l.id as string | null, label: l.name as string, icon: 'emoji' as const, emoji: l.emoji as string | null })),
+                            { id: WISHLIST_LIST_ID as string | null, label: 'Wishlist', icon: 'heart' as const, emoji: null as string | null },
+                          ]).map((opt) => {
+                            const active = (selectedListId || null) === opt.id;
+                            return (
+                              <button
+                                key={opt.id ?? 'all'}
+                                type="button"
+                                onClick={() => { setSelectedListId(opt.id); setMapModeDropdownOpen(false); }}
+                                className={cn('w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors', active ? 'bg-primary/[0.07]' : 'hover:bg-on-surface/[0.04]')}
+                              >
+                                <span className="w-[16px] flex-shrink-0 flex items-center justify-center">
+                                  {opt.icon === 'star' && <Star size={15} className={active ? 'text-primary' : 'text-on-surface/45'} />}
+                                  {opt.icon === 'heart' && <Heart size={15} className={active ? 'text-primary fill-primary' : 'text-on-surface/45'} />}
+                                  {opt.icon === 'emoji' && <span className="text-[14px] leading-none">{opt.emoji}</span>}
+                                </span>
+                                <span className={cn('text-[13.5px] font-semibold truncate flex-1', active ? 'text-primary' : 'text-on-surface')}>{opt.label}</span>
+                                {active && <Check size={15} className="text-primary flex-shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>,
+                      document.body
+                    )}
+                </div>
 
                 <button
                   onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); }}
@@ -5484,7 +5686,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </div>
 
         {/* Results List */}
-        <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
+        <div className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
             <div className="divide-y divide-on-surface/[0.06]">

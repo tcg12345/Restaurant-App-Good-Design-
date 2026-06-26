@@ -207,6 +207,10 @@ interface ReelSlideProps {
    *  neighbour starts playback instantly instead of waiting for a fresh
    *  network round trip from preload="none". */
   near: boolean;
+  /** When true, give this slide's video a full ("auto") preload rather than
+   *  just "metadata". Reserved for the active slide + the immediate next so
+   *  bandwidth concentrates on the video about to play. */
+  preloadFull?: boolean;
   /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
@@ -226,7 +230,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadFull = false, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const { requireSignIn } = useSignInModal();
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
@@ -428,7 +432,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
               playsInline
               loop
               muted={muted}
-              preload={near ? 'auto' : 'none'}
+              preload={near ? (preloadFull ? 'auto' : 'metadata') : 'none'}
               onClick={onTapVideo}
               className={cn(
                 'absolute inset-0 w-full h-full',
@@ -625,6 +629,7 @@ const ReelSlide = React.memo(ReelSlideInner, (prev, next) =>
   prev.reel === next.reel
   && prev.active === next.active
   && prev.near === next.near
+  && prev.preloadFull === next.preloadFull
   && prev.muted === next.muted
   && prev.isMine === next.isMine
   && prev.currentUserId === next.currentUserId
@@ -1627,36 +1632,37 @@ export const Reels: React.FC = () => {
     recipe: null,
   });
 
+  // The feed-key the snap container should be programmatically scrolled to on
+  // the next genuine restore (mount / tab switch / focus / feed-length
+  // change). User scrolling never sets this, so the restore effect below can
+  // never yank the container mid-swipe — that instant-jump-per-slide was the
+  // main cause of choppy scrolling.
+  const restoreTargetRef = useRef<string | null>(null);
+
   useEffect(() => {
-    // Focused mode wins: if the URL points at a specific feed item
-    // and that item is in this tab's feed, jump straight to it. If it
-    // isn't here (e.g. a recipe reel viewed on the explore tab), try
-    // flipping the tab — otherwise fall through to the normal restore.
-    if (focused && focusKey) {
-      const match = feedItems.find((f) => f.key === focusKey);
-      if (match) {
-        setActiveKey(focusKey);
-        return;
+    // Resolve which slide this tab should be parked on, then arm a one-shot
+    // scroll to it. Priority: focused URL item → per-tab saved key →
+    // cross-mount post pointer → top of the feed.
+    let target: string | null = feedItems[0]?.key ?? null;
+    if (focused && focusKey && feedItems.some((f) => f.key === focusKey)) {
+      // Focused mode wins: the URL points at a specific feed item that's
+      // present in this tab's feed.
+      target = focusKey;
+    } else {
+      // Per-tab saved key — dropped if the underlying item is gone
+      // (deleted / no longer visible to this viewer).
+      const saved = lastKeyByTab[kind];
+      if (saved && feedItems.some((f) => f.key === saved)) {
+        target = saved;
+      } else if (lastActivePostId) {
+        // Cross-mount post pointer — useful for returning from a featured
+        // attachment detail page.
+        const match = feedItems.find((f) => f.kind === 'post' && f.post.id === lastActivePostId);
+        if (match) target = match.key;
       }
     }
-    // First try the per-tab saved key. Drop it if the underlying item
-    // is gone (deleted / no longer visible to this viewer).
-    const saved = lastKeyByTab[kind];
-    if (saved && feedItems.some((f) => f.key === saved)) {
-      setActiveKey(saved);
-      return;
-    }
-    // Cross-mount post pointer — useful for returning from a featured
-    // attachment detail page. Only meaningful on the explore tab
-    // since recipe-only filters won't carry every post.
-    if (lastActivePostId) {
-      const match = feedItems.find((f) => f.kind === 'post' && f.post.id === lastActivePostId);
-      if (match) {
-        setActiveKey(match.key);
-        return;
-      }
-    }
-    setActiveKey(feedItems[0]?.key ?? null);
+    setActiveKey(target);
+    restoreTargetRef.current = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, feedItems.length, focusKey, focused]);
 
@@ -1813,16 +1819,20 @@ export const Reels: React.FC = () => {
   // and posts now that per-tab restoration applies to either kind.
   // useLayoutEffect so the scroll happens before paint and there's no
   // flash of slide 0.
-  const restoredKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (!activeKey) return;
-    if (restoredKeyRef.current === activeKey) return;
+    // Only reposition for a genuine restore (armed via restoreTargetRef).
+    // Without this guard the effect fired on every scroll-driven activeKey
+    // change and snapped the container to block:start mid-swipe — the
+    // instant jumps that made scrolling feel choppy. User scrolling never
+    // arms the ref, so momentum/snap is left untouched.
+    const targetKey = restoreTargetRef.current;
+    if (!targetKey) return;
     const root = containerRef.current;
     if (!root) return;
-    const target = root.querySelector(`[data-feed-key="${activeKey}"]`) as HTMLElement | null;
-    if (!target) return;
+    const target = root.querySelector(`[data-feed-key="${targetKey}"]`) as HTMLElement | null;
+    if (!target) return; // not in the DOM yet — retried when feedItems length resolves
     target.scrollIntoView({ block: 'start' });
-    restoredKeyRef.current = activeKey;
+    restoreTargetRef.current = null; // consumed
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, feedItems.length]);
 
@@ -1842,25 +1852,18 @@ export const Reels: React.FC = () => {
     let raf = 0;
 
     const update = () => {
+      // Every slide is exactly one viewport tall and snap-aligned, so the
+      // active one is just round(scrollTop / slideHeight). Computing it
+      // arithmetically avoids calling getBoundingClientRect() on every
+      // slide each scroll frame — those per-frame layout reads forced
+      // reflows mid-scroll and were a major source of the choppiness.
+      const h = root.clientHeight;
+      if (h <= 0) return;
       const slides = root.querySelectorAll<HTMLDivElement>('[data-feed-key]');
       if (slides.length === 0) return;
-      const rootRect = root.getBoundingClientRect();
-      const rootCenter = rootRect.top + rootRect.height / 2;
-      let closestEl: HTMLDivElement | null = null;
-      let closestDist = Infinity;
-      slides.forEach((s) => {
-        const r = s.getBoundingClientRect();
-        const center = r.top + r.height / 2;
-        const dist = Math.abs(center - rootCenter);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestEl = s;
-        }
-      });
-      if (closestEl && (closestEl as HTMLDivElement).dataset.feedKey) {
-        const key = (closestEl as HTMLDivElement).dataset.feedKey!;
-        setActiveKey((prev) => (prev === key ? prev : key));
-      }
+      const idx = Math.max(0, Math.min(slides.length - 1, Math.round(root.scrollTop / h)));
+      const key = slides[idx]?.dataset.feedKey;
+      if (key) setActiveKey((prev) => (prev === key ? prev : key));
     };
 
     const onScroll = () => {
@@ -2111,9 +2114,17 @@ export const Reels: React.FC = () => {
             : (feedItems.length > 0 ? 0 : -1);
           return feedItems.map((item, idx) => {
             const isActive = activeKey === item.key;
-            // Eager preload window: ±1 around the active slide so a swipe
-            // in either direction lands on an already-buffered video.
-            const isNear = activeIdx >= 0 && Math.abs(idx - activeIdx) <= 1;
+            // Forward-biased preload window (Instagram-style): attach src to the
+            // previous slide and the next two so a swipe lands on a warm video.
+            const rel = activeIdx >= 0 ? idx - activeIdx : 999;
+            const isNear = rel >= -1 && rel <= 2;
+            // Only the active slide and the immediate next get a FULL preload;
+            // the rest of the window stays at "metadata". With three videos all
+            // on preload="auto" they fought for bandwidth and the NEXT reel —
+            // the one you actually swipe to — buffered slowly, leaving it stuck
+            // on its poster for a few seconds. Concentrating the full download
+            // on active + next is what makes it start playing right away.
+            const preloadFull = rel >= 0 && rel <= 1;
             return (
             // Plain div — no per-slide Framer Motion wrapper. With dozens
             // of items in the feed, even idle motion.div instances impose
@@ -2130,6 +2141,7 @@ export const Reels: React.FC = () => {
                   reel={item.reel}
                   active={isActive}
                   near={isNear}
+                  preloadFull={preloadFull}
                   muted={muted}
                   setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
@@ -2156,6 +2168,7 @@ export const Reels: React.FC = () => {
                   post={item.post}
                   active={isActive}
                   near={isNear}
+                  preloadFull={preloadFull}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
                   currentUserId={currentUserId}

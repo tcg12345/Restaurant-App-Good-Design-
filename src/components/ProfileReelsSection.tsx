@@ -12,7 +12,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, MoreHorizontal, Play, Heart, MapPin, ArrowRight } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, firstFrameSrc } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCardLongPress, CardActionMenu, type CardAction } from './CardActionMenu';
 import type { Reel } from '../contexts/ReelsContext';
@@ -157,13 +157,14 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                   className="relative block w-full aspect-square overflow-hidden rounded-[18px] bg-on-surface/[0.05] select-none"
                   aria-label={p.caption || 'Open post'}
                 >
+                  {/* Warm gradient base so the tile never reads as bare gray
+                      while the media decodes. */}
+                  <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
                   {cover?.mediaType === 'video' && cover.mediaUrl ? (
-                    <video src={cover.mediaUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                    <video src={firstFrameSrc(cover.mediaUrl)} poster={cover.posterUrl || undefined} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   ) : cover?.mediaUrl ? (
-                    <img src={cover.mediaUrl} alt="" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                  ) : (
-                    <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
-                  )}
+                    <img src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                  ) : null}
                   <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 58%)' }} />
                   <div className="absolute inset-x-0 bottom-0 p-4 text-left">
                     <div className="font-serif font-bold text-white text-[16px] leading-[1.22] text-pretty line-clamp-2">{p.caption || 'Untitled'}</div>
@@ -210,13 +211,12 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
               className="relative block w-full aspect-square overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
               aria-label={p.caption || 'Open post'}
             >
+              <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
               {cover?.mediaType === 'video' && cover.mediaUrl ? (
-                <video src={cover.mediaUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
+                <video src={firstFrameSrc(cover.mediaUrl)} poster={cover.posterUrl || undefined} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : cover?.mediaUrl ? (
-                <img src={cover.mediaUrl} alt="" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
-              ) : (
-                <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
-              )}
+                <img src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
+              ) : null}
               <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.78), rgba(22,13,8,0) 58%)' }} />
               <div className="absolute inset-x-0 bottom-0 p-2 text-left">
                 <div className="font-serif font-bold text-white text-[11px] leading-[1.15] text-pretty line-clamp-2">{p.caption || 'Untitled'}</div>
@@ -328,10 +328,9 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
                   className="relative block w-full aspect-[9/16] overflow-hidden rounded-[18px] bg-on-surface/[0.05] select-none"
                   aria-label={r.caption || 'Open reel'}
                 >
-                  {r.videoUrl ? (
-                    <video src={r.videoUrl} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                  ) : (
-                    <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+                  <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+                  {r.videoUrl && (
+                    <video src={firstFrameSrc(r.videoUrl)} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   )}
                   <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 52%)' }} />
                   {/* persistent play badge (top-right) */}
@@ -378,10 +377,9 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
               className="relative block w-full aspect-[9/16] overflow-hidden bg-on-surface/[0.05] select-none [-webkit-touch-callout:none]"
               aria-label={r.caption || 'Open reel'}
             >
-              {r.videoUrl ? (
-                <video src={r.videoUrl} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
-              ) : (
-                <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+              <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-700 to-stone-900')} />
+              {r.videoUrl && (
+                <video src={firstFrameSrc(r.videoUrl)} poster={r.posterUrl} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               )}
               <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 52%)' }} />
               <div className="absolute top-2 right-2 w-[23px] h-[23px] rounded-full bg-black/[0.34] backdrop-blur grid place-items-center text-white">

@@ -14,6 +14,7 @@ import {
   listPostComments as cloudListPostComments,
   addPostComment as cloudAddPostComment,
   deletePostComment as cloudDeletePostComment,
+  backfillPostPosters,
   readVideoDuration,
   POST_MAX_ITEMS,
   POST_VIDEO_MAX_DURATION_SECONDS,
@@ -155,6 +156,14 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       if (rows) {
         setPosts(rows.map(decoratePost));
         setLoadError(false);
+        // Heal posters for older video items in the background; swap each
+        // item's gradient for the captured frame as it lands.
+        void backfillPostPosters(rows, (postId, itemId, localUrl) => {
+          setPosts((prev) => prev.map((p) => (p.id !== postId ? p : {
+            ...p,
+            items: p.items.map((it) => (it.id === itemId && !it.posterUrl ? { ...it, posterUrl: localUrl } : it)),
+          })));
+        });
       } else {
         setLoadError(true);
       }

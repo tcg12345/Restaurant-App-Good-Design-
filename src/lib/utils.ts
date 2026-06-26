@@ -24,3 +24,16 @@ export function safeImage(url: string | null | undefined): string {
   if (!url) return '';
   return isGooglePlacesPhotoUrl(url) ? '' : url;
 }
+
+/**
+ * Append a `#t=0.1` media fragment so a non-playing `<video>` paints its first
+ * frame as a cheap inline poster — even with `preload="metadata"`, where the
+ * browser would otherwise show nothing (a long gray/blank tile) until the clip
+ * is played or seeked. The fragment is client-side only, so it doesn't touch a
+ * signed URL's query token. Use for grid/card thumbnails of videos that have no
+ * dedicated poster image.
+ */
+export function firstFrameSrc(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  return url.includes('#') ? url : `${url}#t=0.1`;
+}

@@ -1,7 +1,45 @@
 import React from 'react';
-import { motion } from 'motion/react';
+import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { ChevronLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+/**
+ * Progress fill painted over the primary pill while a reel / post uploads.
+ *
+ * The pill itself (overflow-hidden, rounded-full) clips this, so the fill hugs
+ * the rounded left edge and ends in one clean vertical wavefront — no floating
+ * sub-pill or clipped baseline line. It eases toward each real-progress target
+ * (so it glides instead of stepping between byte events) and only ever
+ * advances, so network jitter can't make it stutter backwards. Reads clearly
+ * because the pill stays in its high-contrast dark style during upload.
+ */
+const PrimaryUploadProgress: React.FC<{ progress: number }> = ({ progress }) => {
+  const target = Math.max(0, Math.min(1, progress));
+  const value = useMotionValue(0);
+
+  React.useEffect(() => {
+    const from = value.get();
+    const to = Math.max(from, target); // monotonic — never rewind
+    if (to === from) return;
+    // Eased tween between targets keeps the sweep buttery and guarantees it
+    // settles exactly on the target (a spring would only approach it).
+    const controls = animate(value, to, { duration: 0.4, ease: [0.33, 1, 0.68, 1] });
+    return () => controls.stop();
+  }, [target, value]);
+
+  const width = useTransform(value, (v) => `${Math.min(100, Math.max(0, v * 100))}%`);
+
+  return (
+    <motion.span
+      aria-hidden
+      className="absolute inset-y-0 left-0 bg-surface/25"
+      style={{ width }}
+    >
+      {/* Crisp bright wavefront marking the exact percentage reached. */}
+      <span className="absolute inset-y-0 right-0 w-[2px] bg-surface/80" />
+    </motion.span>
+  );
+};
 
 interface ModalFloatingNavProps {
   /** When provided, a round back button renders to the left of the primary. */
@@ -68,18 +106,20 @@ export const ModalFloatingNav: React.FC<ModalFloatingNavProps> = ({
           aria-label={primaryAriaLabel}
           className={cn(
             'pointer-events-auto relative h-12 px-6 rounded-full text-[15px] font-bold inline-flex items-center justify-center gap-2 overflow-hidden transition-all',
-            primaryDisabled
+            // While uploading the button is disabled, but we keep the prominent
+            // dark style (not the dim grey one) so the progress fill + percentage
+            // read clearly instead of washing out.
+            primaryDisabled && !(progress != null && progress > 0)
               ? 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed'
               : 'bg-on-surface text-surface shadow-xl shadow-black/20',
           )}
         >
-          {children}
           {progress != null && progress > 0 && (
-            <span
-              className="absolute left-0 bottom-0 h-0.5 bg-surface/40"
-              style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }}
-            />
+            <PrimaryUploadProgress progress={progress} />
           )}
+          <span className="relative z-10 inline-flex items-center justify-center gap-2">
+            {children}
+          </span>
         </motion.button>
       </div>
     </div>

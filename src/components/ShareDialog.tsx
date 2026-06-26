@@ -20,7 +20,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Search, MessageCircle, Users, ChevronRight, ExternalLink, Loader2, Check, MapPin, ChefHat, Film, Image as ImageIcon, Layers, BookOpen } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, firstFrameSrc } from '../lib/utils';
 import { useChat, type SharePayload, type SharedReel, type SharedRecipe, type SharedRestaurant, type SharedPost, type SharedGuide } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -44,7 +44,7 @@ const ReelPreview: React.FC<{ reel: SharedReel }> = ({ reel }) => (
   <div className="flex items-center gap-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] p-2">
     <div className={cn('w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br', reel.bgGradient || 'from-stone-800 to-stone-900')}>
       {reel.videoUrl && (
-        <video src={reel.videoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+        <video src={firstFrameSrc(reel.videoUrl)} muted playsInline preload="metadata" className="w-full h-full object-cover" />
       )}
     </div>
     <div className="flex-1 min-w-0">
@@ -59,7 +59,7 @@ const PostPreview: React.FC<{ post: SharedPost }> = ({ post }) => (
   <div className="flex items-center gap-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] p-2">
     <div className={cn('relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br', post.bgGradient || 'from-stone-800 to-stone-900')}>
       {post.coverUrl && post.coverMediaType === 'video' && (
-        <video src={post.coverUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+        <video src={firstFrameSrc(post.coverUrl)} muted playsInline preload="metadata" className="w-full h-full object-cover" />
       )}
       {post.coverUrl && post.coverMediaType === 'photo' && (
         <img src={post.coverUrl} alt="" className="w-full h-full object-cover" />

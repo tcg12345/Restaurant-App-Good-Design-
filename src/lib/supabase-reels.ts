@@ -9,6 +9,11 @@
  *   `<user_id>/<filename>`. Storage RLS forces uploads into your own folder.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { uploadFileWithProgress } from './storage-upload';
+import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
+import { captureVideoPoster, posterPathFor } from './video-poster';
+import { compressVideo } from './media-compress';
+import { backfillPosters } from './poster-backfill';
 
 const BUCKET = 'reels-videos';
 export const REEL_MAX_DURATION_SECONDS = 60;
@@ -56,6 +61,8 @@ export interface ReelRow {
   kind: ReelKind;
   videoPath: string;
   videoUrl: string;
+  /** Signed URL for the stored poster thumbnail, '' when none exists. */
+  posterUrl: string;
   caption: string;
   audioLabel: string;
   locationLabel: string;
@@ -101,6 +108,7 @@ const rowToReel = (
     kind: row.kind as ReelKind,
     videoPath: String(row.video_path || ''),
     videoUrl: String(row.video_url || ''),
+    posterUrl: '', // filled in after signing the derived poster path
     caption: String(row.caption || ''),
     audioLabel: String(row.audio_label || 'Original audio'),
     locationLabel: String(row.location_label || ''),
@@ -209,22 +217,59 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   if (!supabaseConfigured) return null;
   const { userId, file, kind, caption, audioLabel, locationLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
 
-  const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+  // Compress (downscale + lower bitrate) before uploading so the file is
+  // smaller — faster to upload and faster to start playing in the feed. Real
+  // time, so it drives the first slice of the progress bar; best-effort, so a
+  // large/un-compressible clip just uploads as-is.
+  onProgress?.(0.01);
+  const uploadFile = await compressVideo(file, { onProgress: (f) => onProgress?.(0.01 + 0.34 * f) });
+
+  const ext = (uploadFile.name.split('.').pop() || 'mp4').toLowerCase();
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const path = `${userId}/${filename}`;
 
-  // Supabase JS upload doesn't expose progress yet, so we just emit a
-  // pre-and-post tick so the UI can show a busy state.
-  onProgress?.(0.05);
-  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, {
-    contentType: file.type || `video/${ext}`,
-    upsert: false,
-  });
-  if (uploadError) {
-    console.error('[Reels] upload failed:', uploadError);
-    throw new Error(uploadError.message);
+  // Kick off poster capture from the (compressed) file in parallel with the
+  // upload — CPU/decode work that overlaps the network transfer for free.
+  // Strictly best-effort: any failure resolves to null and the reel posts
+  // without one.
+  const posterPromise = captureVideoPoster(uploadFile).catch(() => null);
+
+  // Upload via XHR so we get real byte-level progress (supabase-js's upload
+  // exposes none). The transfer drives the 0.36–0.90 band; the trailing 10%
+  // covers the DB insert + URL signing below.
+  onProgress?.(0.36);
+  try {
+    await uploadFileWithProgress({
+      bucket: BUCKET,
+      path,
+      file: uploadFile,
+      contentType: uploadFile.type || `video/${ext}`,
+      upsert: false,
+      // Media paths are immutable (timestamped filename), so let the browser
+      // cache the bytes for a long time once fetched.
+      cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
+      onProgress: ({ fraction }) => onProgress?.(0.36 + 0.54 * fraction),
+    });
+  } catch (err) {
+    console.error('[Reels] upload failed:', err);
+    throw err instanceof Error ? err : new Error('Upload failed');
   }
-  onProgress?.(0.85);
+
+  // Upload the poster thumbnail alongside the video (derived path, same
+  // folder so storage RLS still allows it). Never fatal — a missing poster
+  // just means the feed falls back to its gradient placeholder as before.
+  const posterBlob = await posterPromise;
+  if (posterBlob) {
+    await uploadFileWithProgress({
+      bucket: BUCKET,
+      path: posterPathFor(path),
+      file: posterBlob,
+      contentType: 'image/jpeg',
+      upsert: true,
+      cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
+    }).catch((err) => console.warn('[Reels] poster upload skipped:', err));
+  }
+  onProgress?.(0.9);
 
   // Bucket is private (migration 021) — we don't store a permanent URL
   // anymore, just the path. Clients sign URLs at read time.
@@ -275,28 +320,56 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   }
   onProgress?.(1);
   const reel = rowToReel(row as Record<string, unknown>, new Set(), new Set());
-  // Sign a playback URL for the freshly-created reel so the UI can
-  // render the video immediately. 24h TTL — re-signed on next list().
-  const signed = await signVideoPaths([path]);
+  // Sign playback + poster URLs for the freshly-created reel so the UI can
+  // render it immediately. 24h TTL — re-signed on next list().
+  const [signed, signedPoster] = await Promise.all([
+    signVideoPaths([path]),
+    posterBlob ? signVideoPaths([posterPathFor(path)]) : Promise.resolve({} as Record<string, string>),
+  ]);
   reel.videoUrl = signed[path] ?? '';
+  reel.posterUrl = signedPoster[posterPathFor(path)] ?? '';
   // Hydrate author so the UI has a name to render immediately.
   const authors = await hydrateAuthors([reel.userId]);
   reel.author = authors[reel.userId] ?? null;
   return reel;
 }
 
+/** Generate + store posters for reels uploaded before posters existed, so
+ *  they load instantly on the next visit. Calls `onPoster(reelId, localUrl)`
+ *  as each completes so the current feed can swap its gradient for a frame. */
+export async function backfillReelPosters(
+  reels: { id: string; videoPath: string; videoUrl: string; posterUrl: string }[],
+  onPoster: (reelId: string, localUrl: string) => void,
+): Promise<void> {
+  if (!supabaseConfigured) return;
+  const targets = reels
+    .filter((r) => r.videoUrl && r.videoPath && !r.posterUrl)
+    .map((r) => ({ id: r.id, bucket: BUCKET, videoPath: r.videoPath, videoUrl: r.videoUrl }));
+  await backfillPosters(targets, onPoster);
+}
+
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 
-/** Batch-mint signed URLs for a set of storage paths. Drops any that
- *  the viewer can't see (storage RLS denies → empty for that entry). */
+/** Batch-mint signed URLs for a set of storage paths. Reuses still-valid
+ *  cached URLs so repeat loads stay stable (browser-cacheable) and only the
+ *  genuinely-new paths cost a sign round-trip. Drops any that the viewer can't
+ *  see (storage RLS denies → empty for that entry). */
 async function signVideoPaths(paths: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   if (!supabaseConfigured || paths.length === 0) return out;
   // De-dup so we don't waste signatures on the same path twice.
   const unique = Array.from(new Set(paths.filter(Boolean)));
   if (unique.length === 0) return out;
+  // Serve cache hits immediately; only sign the misses.
+  const misses: string[] = [];
+  for (const p of unique) {
+    const cached = getCachedSignedUrl(BUCKET, p);
+    if (cached) out[p] = cached;
+    else misses.push(p);
+  }
+  if (misses.length === 0) return out;
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(unique, SIGNED_URL_TTL_SECONDS);
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(misses, SIGNED_URL_TTL_SECONDS);
     if (error) {
       console.warn('[Reels] createSignedUrls failed:', error.message);
       return out;
@@ -304,7 +377,10 @@ async function signVideoPaths(paths: string[]): Promise<Record<string, string>> 
     for (const item of data || []) {
       const path = (item as { path?: string | null }).path;
       const url = (item as { signedUrl?: string }).signedUrl;
-      if (path && url) out[path] = url;
+      if (path && url) {
+        out[path] = url;
+        putCachedSignedUrl(BUCKET, path, url, SIGNED_URL_TTL_SECONDS);
+      }
     }
   } catch (err) {
     console.warn('[Reels] sign exception:', err);
@@ -355,14 +431,19 @@ export async function listReels(opts: {
   }
 
   const reels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
-  // Sign playback URLs and hydrate authors in parallel.
-  const [signed, authors] = await Promise.all([
+  // Sign playback URLs, poster URLs, and hydrate authors in parallel. Posters
+  // are signed in a SEPARATE batch so reels created before this feature (no
+  // poster object) can never make the call fail and break video playback —
+  // missing posters just come back empty and the UI falls back to the gradient.
+  const [signed, signedPosters, authors] = await Promise.all([
     signVideoPaths(reels.map((r) => r.videoPath)),
+    signVideoPaths(reels.map((r) => posterPathFor(r.videoPath))),
     hydrateAuthors(reels.map((r) => r.userId)),
   ]);
   for (const r of reels) {
     r.author = authors[r.userId] ?? null;
     r.videoUrl = signed[r.videoPath] || '';
+    r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
   }
   return reels;
 }

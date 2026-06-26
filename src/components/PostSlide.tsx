@@ -21,6 +21,28 @@ import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
+import { getCachedImage, loadCachedImage } from '../lib/image-cache';
+
+/**
+ * Render a feed photo through the in-memory blob cache: instant + whole-image
+ * (no progressive banding) on every revisit, with zero network after the first
+ * load. Returns the cached object URL once ready, or undefined while it loads
+ * (caller shows the gradient placeholder meanwhile). `url` is only passed when
+ * the photo is actually near, so far-off items don't pre-fetch.
+ */
+function useCachedPhoto(path: string, url: string | undefined): string | undefined {
+  const [src, setSrc] = useState<string | undefined>(() => (path ? getCachedImage(path) ?? undefined : undefined));
+  useEffect(() => {
+    if (!path || !url) { setSrc(undefined); return; }
+    const cached = getCachedImage(path);
+    if (cached) { setSrc(cached); return; }
+    let alive = true;
+    setSrc(undefined); // hold the placeholder until the whole image is ready
+    loadCachedImage(path, url).then((resolved) => { if (alive) setSrc(resolved); });
+    return () => { alive = false; };
+  }, [path, url]);
+  return src;
+}
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -172,11 +194,21 @@ interface MediaFrameProps {
   /** True for the active sub-item of the active post — drives loading
    *  hints so the cover frame paints as fast as the browser allows. */
   highPriority?: boolean;
+  /** Full ("auto") video preload vs. lighter "metadata" — true for the
+   *  active post and the immediate next so their video is buffered ahead. */
+  preloadFull?: boolean;
   muted: boolean;
 }
 
-const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, muted }) => {
+const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, preloadFull, muted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Photos render through the blob cache so revisits are instant and pop in
+  // whole. Only fetch when the photo is actually meant to render (near).
+  const isPhoto = item.mediaType === 'photo';
+  const photoSrc = useCachedPhoto(
+    isPhoto ? item.mediaPath : '',
+    isPhoto && shouldRenderMedia ? item.mediaUrl : undefined,
+  );
 
   // Media-load resilience. A signed-URL fetch can fail transiently
   // (network hiccup, storage 5xx) — without handling, the <img> is left
@@ -235,6 +267,9 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
       <video
         ref={videoRef}
         src={item.mediaUrl}
+        // Stored poster (when present) paints the instant the element mounts,
+        // so a cold first-view shows a frame immediately instead of buffering.
+        poster={item.posterUrl || undefined}
         playsInline
         loop
         muted={muted}
@@ -242,29 +277,28 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
         // active in the feed AND sub-item is within ±1 of activeIdx, OR
         // this is the cover of a vertical neighbour). Inside that window
         // we want the buffer warm enough to start playback instantly, so
-        // use preload="auto".
-        preload="auto"
+        // "auto" only for the active post + immediate next (preloadFull);
+        // other mounted neighbours stay "metadata" so they don't steal
+        // bandwidth from the video about to play.
+        preload={preloadFull ? 'auto' : 'metadata'}
         onError={onVideoError}
         className="absolute inset-0 w-full h-full object-contain"
       />
     );
   }
+  // Hold the gradient placeholder until the blob is cached, so the photo
+  // appears whole on first paint instead of streaming in band-by-band.
+  if (!photoSrc) return placeholder;
   return (
     <img
       // Remount on each retry so the browser re-requests the same URL
       // rather than reusing the failed image entry from its cache.
       key={attempt}
-      src={item.mediaUrl}
+      src={photoSrc}
       alt=""
-      // `eager` so the cover frame of a near (not yet active) post
-      // actually starts fetching before the user swipes onto it; the
-      // default `lazy` would defer until the slide crossed the
-      // viewport threshold, which on a snap-mandatory full-screen
-      // feed lands too late.
-      loading="eager"
       decoding="async"
       onError={onImgError}
-      {...(highPriority ? { fetchpriority: 'high' } : {})}
+      {...(highPriority ? { fetchPriority: 'high' as const } : {})}
       className="absolute inset-0 w-full h-full object-contain"
     />
   );
@@ -286,6 +320,10 @@ interface PostSlideProps {
    *  the browser cache by the time the user swipes onto it — matches
    *  the strategy ReelSlide uses for adjacent reel videos. */
   near?: boolean;
+  /** Give this slide's video(s) a full ("auto") preload rather than just
+   *  "metadata" — reserved for the active post + the immediate next so the
+   *  next post's video starts playing right away when swiped to. */
+  preloadFull?: boolean;
   muted: boolean;
   isMine: boolean;
   currentUserId: string | null;
@@ -309,7 +347,7 @@ interface PostSlideProps {
 }
 
 const PostSlideInner: React.FC<PostSlideProps> = ({
-  post, active, near = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false,
+  post, active, near = false, preloadFull = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
@@ -457,6 +495,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 itemActive={itemActive}
                 shouldRenderMedia={shouldRenderMedia}
                 highPriority={itemActive}
+                preloadFull={preloadFull}
                 muted={muted}
               />
             </div>
@@ -637,6 +676,7 @@ export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
   prev.post === next.post
   && prev.active === next.active
   && prev.near === next.near
+  && prev.preloadFull === next.preloadFull
   && prev.muted === next.muted
   && prev.isMine === next.isMine
   && prev.currentUserId === next.currentUserId

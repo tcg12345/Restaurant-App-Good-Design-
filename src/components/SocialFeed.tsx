@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Bookmark, X } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -74,9 +74,8 @@ const ActivityPhoto: React.FC<{
  * caller can fall back to a text-only card.
  */
 const PostMediaCarousel: React.FC<{
-  items: { id: string; mediaType: 'photo' | 'video'; mediaUrl: string }[];
-  onClick?: () => void;
-}> = ({ items, onClick }) => {
+  items: { id: string; mediaType: 'photo' | 'video'; mediaUrl: string; caption?: string }[];
+}> = ({ items }) => {
   const photos = items.filter((it) => it.mediaType === 'photo' && it.mediaUrl);
   const [activeIdx, setActiveIdx] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -106,12 +105,11 @@ const PostMediaCarousel: React.FC<{
         style={{ scrollbarWidth: 'none' }}
       >
         {visible.map((it) => (
-          <button
+          // Plain slide (not a button) so a horizontal swipe scrolls cleanly
+          // and a tap never navigates away to the reels viewer.
+          <div
             key={it.id}
-            type="button"
-            onClick={onClick}
-            className="relative w-full flex-shrink-0 snap-center aspect-square overflow-hidden bg-on-surface/[0.04] focus-visible:outline-none"
-            aria-label="Open post"
+            className="relative w-full flex-shrink-0 snap-center aspect-square overflow-hidden bg-on-surface/[0.04]"
           >
             <img
               src={it.mediaUrl}
@@ -125,7 +123,21 @@ const PostMediaCarousel: React.FC<{
               referrerPolicy="no-referrer"
               draggable={false}
             />
-          </button>
+            {/* Per-image caption (when the author added one) — overlaid on the
+                photo it belongs to so it updates as you swipe. Doesn't capture
+                taps, so it never blocks scrolling. */}
+            {it.caption?.trim() && (
+              <>
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+                <p className={cn(
+                  'pointer-events-none absolute inset-x-0 bottom-0 px-4 pt-6 text-white text-[13.5px] font-medium leading-snug line-clamp-3 drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]',
+                  visible.length > 1 ? 'pb-7' : 'pb-3.5',
+                )}>
+                  {it.caption}
+                </p>
+              </>
+            )}
+          </div>
         ))}
       </div>
 
@@ -143,8 +155,8 @@ const PostMediaCarousel: React.FC<{
             <span
               key={i}
               className={cn(
-                'rounded-full transition-all',
-                i === activeIdx ? 'w-1.5 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50',
+                'rounded-full transition-all w-1.5 h-1.5',
+                i === activeIdx ? 'bg-white' : 'bg-white/50',
               )}
             />
           ))}
@@ -1192,7 +1204,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const attached = p.items.find((it) => it.attachedKind && (it.restaurant || it.recipe));
             const restaurant = attached?.restaurant || null;
             const recipe = attached?.recipe || null;
-            const navigateToPost = () => navigate(`/r/post-${p.id}`);
+            const recipeMeta = recipe
+              ? [
+                  ((recipe.prepTime || 0) + (recipe.cookTime || 0)) > 0 ? `${(recipe.prepTime || 0) + (recipe.cookTime || 0)} min` : '',
+                  recipe.servings > 0 ? `${recipe.servings} servings` : '',
+                  recipe.difficulty,
+                ].filter(Boolean).join(' · ')
+              : '';
             return (
               <li key={`post-${p.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
                 <article>
@@ -1217,71 +1235,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   {/* Photo carousel (Instagram-style) — only photos for
                       now per design choice. Videos still play in the
                       dedicated reels viewer. */}
-                  <PostMediaCarousel items={p.items} onClick={navigateToPost} />
+                  <PostMediaCarousel items={p.items} />
 
-                  {/* Caption + location */}
-                  <button
-                    type="button"
-                    onClick={navigateToPost}
-                    className="block w-full text-left mt-3 group focus-visible:outline-none"
-                  >
-                    {p.caption && (
-                      <p className="font-serif text-[18px] leading-[1.25] text-on-surface group-hover:text-primary transition-colors line-clamp-4">
-                        {p.caption}
-                      </p>
-                    )}
-                    {p.locationLabel && (
-                      <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
-                        {p.locationLabel}
-                      </p>
-                    )}
-                  </button>
-
-                  {/* Attached restaurant — its own button so taps open the
-                      restaurant detail (sheet on phone / page on desktop)
-                      instead of bubbling into the post-view navigation. */}
-                  {restaurant && (
-                    <button
-                      type="button"
-                      onClick={() => handleFeaturedPlaceClick(restaurant)}
-                      className="block w-full text-left mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 hover:border-on-surface/[0.18] hover:bg-on-surface/[0.04] transition-colors"
-                    >
-                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
-                        Featured place
-                      </p>
-                      <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
-                        {restaurant.name}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">
-                        {[restaurant.cuisine, restaurant.price, restaurant.address].filter(Boolean).join(' · ')}
-                      </p>
-                    </button>
-                  )}
-
-                  {/* Attached recipe — opens the meal page directly. */}
-                  {recipe && !restaurant && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); navigate(`/meal/${p.userId}/${recipe.id}`); }}
-                      className="block w-full text-left mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 hover:border-on-surface/[0.18] hover:bg-on-surface/[0.04] transition-colors"
-                    >
-                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
-                        Featured recipe
-                      </p>
-                      <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
-                        {recipe.title}
-                      </p>
-                      {recipe.cuisine && (
-                        <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">{recipe.cuisine}</p>
-                      )}
-                    </button>
-                  )}
-
-                  {/* Actions footer — like / comment on the left, save +
-                      share on the right (Instagram-style). The comment
-                      button opens the inline comments overlay rather than
-                      navigating away. */}
-                  <div className="flex items-center gap-1 mt-3 pt-2 border-t border-on-surface/[0.05]">
+                  {/* Action row — directly beneath the image (Instagram-style):
+                      like / comment on the left, share + save on the right. */}
+                  <div className="flex items-center gap-1 mt-2 -ml-1">
                     <button
                       onClick={() => handleLikePost(p.id, p.liked)}
                       className={cn(
@@ -1291,16 +1249,16 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                           : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
                       )}
                     >
-                      <Heart size={17} className={p.liked ? 'fill-red-500' : ''} />
-                      <span className="text-[12px] font-bold tabular-nums">{p.likesCount}</span>
+                      <Heart size={18} className={p.liked ? 'fill-red-500' : ''} />
+                      <span className="text-[12.5px] font-bold tabular-nums">{p.likesCount}</span>
                     </button>
                     <button
                       onClick={() => setOpenPostCommentsId(p.id)}
                       className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
                       aria-label="View comments"
                     >
-                      <MessageSquare size={17} />
-                      <span className="text-[12px] font-bold tabular-nums">{p.commentsCount}</span>
+                      <MessageSquare size={18} />
+                      <span className="text-[12.5px] font-bold tabular-nums">{p.commentsCount}</span>
                     </button>
                     <div className="flex-1" />
                     <button
@@ -1308,7 +1266,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
                       aria-label="Share post"
                     >
-                      <Share2 size={17} />
+                      <Share2 size={18} />
                     </button>
                     <button
                       onClick={() => handleSavePost(p.id, p.saved)}
@@ -1320,8 +1278,57 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       )}
                       aria-label={p.saved ? 'Unsave post' : 'Save post'}
                     >
-                      <Bookmark size={17} className={p.saved ? 'fill-primary' : ''} />
+                      <Bookmark size={18} className={p.saved ? 'fill-primary' : ''} />
                     </button>
+                  </div>
+
+                  {/* Title, location, and the featured place / recipe. */}
+                  <div className="mt-2">
+                    {p.caption && (
+                      <h3 className="font-serif font-semibold text-[20px] leading-[1.18] tracking-[-0.015em] text-on-surface line-clamp-4">
+                        {p.caption}
+                      </h3>
+                    )}
+                    {p.locationLabel && (
+                      <p className="mt-1 flex items-center gap-1 text-[12.5px] text-on-surface/50 font-medium">
+                        <MapPin size={13} strokeWidth={2.2} className="-ml-0.5 flex-shrink-0 text-on-surface/40" />
+                        <span className="truncate">{p.locationLabel}</span>
+                      </p>
+                    )}
+
+                    {/* Featured restaurant — name + meta + score, no thumbnail. */}
+                    {restaurant && (
+                      <button
+                        type="button"
+                        onClick={() => handleFeaturedPlaceClick(restaurant)}
+                        className="mt-3 w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.07] bg-on-surface/[0.025] px-3.5 py-3 text-left hover:bg-on-surface/[0.05] hover:border-on-surface/[0.12] transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[9.5px] font-bold uppercase tracking-[0.13em] text-on-surface/40">Featured place</p>
+                          <p className="mt-0.5 font-serif font-bold text-[15.5px] text-on-surface leading-tight truncate">{restaurant.name}</p>
+                          <p className="mt-0.5 text-[11.5px] text-on-surface/50 truncate">
+                            {[restaurant.cuisine, restaurant.price, restaurant.address].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        <ScoreRing score={restaurant.score} size={40} className="flex-shrink-0" />
+                      </button>
+                    )}
+
+                    {/* Featured recipe — name + meta, no thumbnail. */}
+                    {recipe && !restaurant && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/meal/${p.userId}/${recipe.id}`); }}
+                        className="mt-3 w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.07] bg-on-surface/[0.025] px-3.5 py-3 text-left hover:bg-on-surface/[0.05] hover:border-on-surface/[0.12] transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[9.5px] font-bold uppercase tracking-[0.13em] text-on-surface/40">Featured recipe</p>
+                          <p className="mt-0.5 font-serif font-bold text-[15.5px] text-on-surface leading-tight truncate">{recipe.title}</p>
+                          {recipeMeta && <p className="mt-0.5 text-[11.5px] text-on-surface/50 truncate">{recipeMeta}</p>}
+                        </div>
+                        <ChevronRight size={18} className="flex-shrink-0 text-on-surface/30" />
+                      </button>
+                    )}
                   </div>
                 </article>
               </li>

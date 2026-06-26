@@ -1815,6 +1815,7 @@ const ListDetailView: React.FC<{
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
+  const navigate = useNavigate();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
@@ -2283,29 +2284,42 @@ const ListDetailView: React.FC<{
           >
             <ArrowLeft size={20} />
           </button>
-          <button
-            type="button"
-            onClick={handlePlusClick}
-            className={cn(
-              'ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
-              isHomeCooking
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                : 'bg-primary text-white hover:bg-primary/90',
+          <div className="ml-auto flex items-center gap-2">
+            {!isHomeCooking && (
+              <button
+                type="button"
+                onClick={() => navigate('/map', { state: { listView: { id: list.id } } })}
+                aria-label="View this list on the map"
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-on-surface/[0.06] text-on-surface/75 hover:bg-on-surface/[0.1] transition-colors flex-shrink-0"
+              >
+                <MapPin size={15} />
+                <span>Map</span>
+              </button>
             )}
-          >
-            <Plus size={15} strokeWidth={2.5} />
-            <span>
-              {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
-            </span>
-          </button>
-          <ListMoreMenu
-            items={isWishlistView || isDefaultWantToCook ? [] : [{
-              label: 'Delete list',
-              icon: <Trash2 size={14} />,
-              destructive: true,
-              onClick: () => setConfirmDeleteList(true),
-            }]}
-          />
+            <button
+              type="button"
+              onClick={handlePlusClick}
+              className={cn(
+                'inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
+                isHomeCooking
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-primary text-white hover:bg-primary/90',
+              )}
+            >
+              <Plus size={15} strokeWidth={2.5} />
+              <span>
+                {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
+              </span>
+            </button>
+            <ListMoreMenu
+              items={isWishlistView || isDefaultWantToCook ? [] : [{
+                label: 'Delete list',
+                icon: <Trash2 size={14} />,
+                destructive: true,
+                onClick: () => setConfirmDeleteList(true),
+              }]}
+            />
+          </div>
         </div>
       )}
 
@@ -2347,6 +2361,18 @@ const ListDetailView: React.FC<{
                 </span>
               )}
             </button>
+
+            {!isHomeCooking && (
+              <button
+                type="button"
+                onClick={() => navigate('/map', { state: { listView: { id: list.id } } })}
+                aria-label="View this list on the map"
+                className="inline-flex items-center gap-2 h-8 px-3.5 rounded-full bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface transition-colors text-[13px] font-semibold flex-shrink-0"
+              >
+                <MapPin size={13} />
+                <span>View on map</span>
+              </button>
+            )}
 
             {/* Filter pills — same shape as the rated view:
                 Filters / City / Cuisine / Price / Sort. Each pill

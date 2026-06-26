@@ -39,6 +39,13 @@ class MainViewController: CAPBridgeViewController {
             webView.isOpaque = true
             webView.backgroundColor = appBackground
             webView.scrollView.backgroundColor = appBackground
+            // Lock the page to vertical scrolling. The web content never scrolls
+            // horizontally, but WKWebView's scroll view would still let the whole
+            // page rubber-band left/right (and horizontal carousel swipes could
+            // chain into it). Disabling the horizontal bounce keeps the page
+            // pinned to up/down scrolling only. Vertical bounce stays on.
+            webView.scrollView.alwaysBounceHorizontal = false
+            webView.scrollView.bounces = true
         }
     }
 

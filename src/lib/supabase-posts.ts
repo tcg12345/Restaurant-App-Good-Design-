@@ -10,6 +10,11 @@
  *   short-lived URLs at read time, gated by post visibility RLS.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { uploadFileWithProgress } from './storage-upload';
+import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
+import { captureVideoPoster, posterPathFor } from './video-poster';
+import { compressImage, compressVideo } from './media-compress';
+import { backfillPosters } from './poster-backfill';
 
 const BUCKET = 'post-media';
 export const POST_MAX_ITEMS = 15;
@@ -58,6 +63,8 @@ export interface PostItemRow {
   mediaPath: string;
   /** Signed URL — minted at read time. Empty if signing failed (e.g. RLS). */
   mediaUrl: string;
+  /** Signed URL for a video item's poster thumbnail, '' when none exists. */
+  posterUrl: string;
   caption: string;
   attachedKind: PostAttachedKind | null;
   restaurant: PostRestaurantSnapshot | null;
@@ -139,8 +146,17 @@ async function signMediaPaths(paths: string[]): Promise<Record<string, string>> 
   if (!supabaseConfigured || paths.length === 0) return out;
   const unique = Array.from(new Set(paths.filter(Boolean)));
   if (unique.length === 0) return out;
+  // Reuse still-valid signed URLs (keeps them browser-cacheable across loads);
+  // only the genuinely-new paths cost a sign round-trip.
+  const misses: string[] = [];
+  for (const p of unique) {
+    const cached = getCachedSignedUrl(BUCKET, p);
+    if (cached) out[p] = cached;
+    else misses.push(p);
+  }
+  if (misses.length === 0) return out;
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(unique, SIGNED_URL_TTL_SECONDS);
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(misses, SIGNED_URL_TTL_SECONDS);
     if (error) {
       console.warn('[Posts] createSignedUrls failed:', error.message);
       return out;
@@ -148,7 +164,10 @@ async function signMediaPaths(paths: string[]): Promise<Record<string, string>> 
     for (const item of data || []) {
       const path = (item as { path?: string | null }).path;
       const url = (item as { signedUrl?: string }).signedUrl;
-      if (path && url) out[path] = url;
+      if (path && url) {
+        out[path] = url;
+        putCachedSignedUrl(BUCKET, path, url, SIGNED_URL_TTL_SECONDS);
+      }
     }
   } catch (err) {
     console.warn('[Posts] sign exception:', err);
@@ -165,6 +184,7 @@ const rowToItem = (row: Record<string, unknown>): PostItemRow => ({
   mediaType: (row.media_type as PostMediaType) || 'photo',
   mediaPath: String(row.media_path || ''),
   mediaUrl: '',
+  posterUrl: '', // filled in after signing the derived poster path
   caption: String(row.caption || ''),
   attachedKind: (row.attached_kind as PostAttachedKind | null) || null,
   restaurant: (row.restaurant_data as PostRestaurantSnapshot | null) || null,
@@ -254,25 +274,69 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
 
   const { userId, caption, locationLabel, audioLabel, isPublic, items, onProgress } = input;
 
-  // Upload every item's file in parallel, collecting paths.
-  const uploadedPaths: string[] = [];
-  onProgress?.(0.05);
+  // Phase 1 — compress each item before uploading so stored files are smaller
+  // (photos resize + re-encode quickly; videos downscale + re-encode in real
+  // time). Best-effort: anything that can't be shrunk passes through unchanged.
+  // This drives the 0.01–0.30 slice of the progress bar.
+  onProgress?.(0.01);
+  const uploadFiles: File[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    uploadFiles[i] = it.mediaType === 'photo'
+      ? await compressImage(it.file)
+      : await compressVideo(it.file, { onProgress: (frac) => onProgress?.(0.01 + 0.29 * ((i + frac) / items.length)) });
+  }
+  onProgress?.(0.30);
 
-  const totalItems = items.length;
-  let uploadedCount = 0;
+  // Phase 2 — upload every (compressed) file in parallel, collecting paths.
+  // Byte-level progress is aggregated across all items (weighted by size, so a
+  // big video doesn't get out-paced by a small photo) into the 0.30–0.88 band.
+  const uploadedPaths: string[] = [];
+  const totalBytes = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0) || 1;
+  const loadedBytes = new Array(items.length).fill(0);
+  const emitProgress = () => {
+    const loaded = loadedBytes.reduce((a, b) => a + b, 0);
+    onProgress?.(0.30 + 0.58 * Math.min(1, loaded / totalBytes));
+  };
+
   const uploadPromises = items.map(async (item, idx) => {
-    const ext = (item.file.name.split('.').pop() || (item.mediaType === 'video' ? 'mp4' : 'jpg')).toLowerCase();
+    const uploadFile = uploadFiles[idx];
+    const ext = (uploadFile.name.split('.').pop() || (item.mediaType === 'video' ? 'mp4' : 'jpg')).toLowerCase();
     const filename = `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
     const path = `${userId}/${filename}`;
-    const { error } = await supabase.storage.from(BUCKET).upload(path, item.file, {
-      contentType: item.file.type || (item.mediaType === 'video' ? `video/${ext}` : `image/${ext}`),
-      upsert: false,
-    });
-    if (error) throw new Error(`Upload failed for item ${idx + 1}: ${error.message}`);
+    // Start poster capture for video items in parallel with the media upload —
+    // it's local decode work that overlaps the network transfer. Best-effort.
+    const posterPromise = item.mediaType === 'video'
+      ? captureVideoPoster(uploadFile).catch(() => null)
+      : Promise.resolve(null);
+    try {
+      await uploadFileWithProgress({
+        bucket: BUCKET,
+        path,
+        file: uploadFile,
+        contentType: uploadFile.type || (item.mediaType === 'video' ? `video/${ext}` : `image/${ext}`),
+        upsert: false,
+        // Immutable path → let the browser hold the bytes for a long time.
+        cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
+        onProgress: ({ loaded }) => { loadedBytes[idx] = loaded; emitProgress(); },
+      });
+    } catch (err) {
+      throw new Error(`Upload failed for item ${idx + 1}: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
     uploadedPaths[idx] = path;
-    uploadedCount++;
-    // Reserve the upper 80% of progress for uploads; insert is the rest.
-    onProgress?.(0.05 + 0.8 * (uploadedCount / totalItems));
+    // Upload the poster thumbnail (derived path, same folder so RLS allows it).
+    // Never fatal — a missing poster just falls back to today's behaviour.
+    const posterBlob = await posterPromise;
+    if (posterBlob) {
+      await uploadFileWithProgress({
+        bucket: BUCKET,
+        path: posterPathFor(path),
+        file: posterBlob,
+        contentType: 'image/jpeg',
+        upsert: true,
+        cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
+      }).catch((e) => console.warn('[Posts] poster upload skipped:', e));
+    }
     return path;
   });
 
@@ -357,13 +421,44 @@ export async function getPost(postId: string): Promise<PostRow | null> {
     .maybeSingle();
   if (error || !data) return null;
   const post = rowToPost(data as Record<string, unknown>, new Set(), new Set());
-  const [signed, authors] = await Promise.all([
+  // Poster paths (video items only) are signed in a SEPARATE batch so items
+  // with no poster object can't make the call fail and break media playback.
+  const posterPaths = post.items
+    .filter((it) => it.mediaType === 'video' && it.mediaPath)
+    .map((it) => posterPathFor(it.mediaPath));
+  const [signed, signedPosters, authors] = await Promise.all([
     signMediaPaths(post.items.map((it) => it.mediaPath)),
+    signMediaPaths(posterPaths),
     hydrateAuthors([post.userId]),
   ]);
-  for (const it of post.items) it.mediaUrl = signed[it.mediaPath] || '';
+  for (const it of post.items) {
+    it.mediaUrl = signed[it.mediaPath] || '';
+    if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
+  }
   post.author = authors[post.userId] ?? null;
   return post;
+}
+
+/** Generate + store posters for video items uploaded before posters existed.
+ *  Calls `onPoster(postId, itemId, localUrl)` as each completes so the current
+ *  feed can swap its gradient for a frame. Best-effort and bandwidth-capped. */
+export async function backfillPostPosters(
+  posts: PostRow[],
+  onPoster: (postId: string, itemId: string, localUrl: string) => void,
+): Promise<void> {
+  if (!supabaseConfigured) return;
+  const targets: { id: string; bucket: string; videoPath: string; videoUrl: string }[] = [];
+  for (const p of posts) {
+    for (const it of p.items) {
+      if (it.mediaType === 'video' && it.mediaUrl && it.mediaPath && !it.posterUrl) {
+        targets.push({ id: `${p.id}|${it.id}`, bucket: BUCKET, videoPath: it.mediaPath, videoUrl: it.mediaUrl });
+      }
+    }
+  }
+  await backfillPosters(targets, (id, localUrl) => {
+    const sep = id.indexOf('|');
+    onPoster(id.slice(0, sep), id.slice(sep + 1), localUrl);
+  });
 }
 
 /** Returns null when the fetch itself failed (offline, Supabase down) so
@@ -401,14 +496,24 @@ export async function listPosts(opts: {
 
   const posts = data.map((row) => rowToPost(row as Record<string, unknown>, myLikes, mySaves));
   const allPaths: string[] = [];
-  for (const p of posts) for (const it of p.items) if (it.mediaPath) allPaths.push(it.mediaPath);
-  const [signed, authors] = await Promise.all([
+  const posterPaths: string[] = [];
+  for (const p of posts) for (const it of p.items) {
+    if (it.mediaPath) allPaths.push(it.mediaPath);
+    if (it.mediaType === 'video' && it.mediaPath) posterPaths.push(posterPathFor(it.mediaPath));
+  }
+  // Posters signed in a separate batch (see getPost) — isolated from media so
+  // pre-feature posts with no poster object can't break media signing.
+  const [signed, signedPosters, authors] = await Promise.all([
     signMediaPaths(allPaths),
+    signMediaPaths(posterPaths),
     hydrateAuthors(posts.map((p) => p.userId)),
   ]);
   for (const p of posts) {
     p.author = authors[p.userId] ?? null;
-    for (const it of p.items) it.mediaUrl = signed[it.mediaPath] || '';
+    for (const it of p.items) {
+      it.mediaUrl = signed[it.mediaPath] || '';
+      if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
+    }
   }
   return posts;
 }

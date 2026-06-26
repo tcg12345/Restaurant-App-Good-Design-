@@ -203,6 +203,12 @@
      internal scroll containers still bounce normally. */
   html, body {
     overscroll-behavior: contain;
+    /* The app never scrolls horizontally. Kill any sideways rubber-band on the
+       document itself so the page can't pan left/right on iOS WKWebView. (The
+       per-page scroll containers below add overflow-x:hidden — this is the
+       document-level guard, kept overflow-neutral so it can't disturb the
+       sticky headers / scroll model on full-page-scroll routes.) */
+    overscroll-behavior-x: none;
   }
 
   /* Paint <html> too (not just <body>) with the app surface so there's never
@@ -318,6 +324,9 @@
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+  /* A horizontal swipe that reaches the end of one of these carousels must
+     not chain into a sideways pan of the whole page. */
+  overscroll-behavior-x: contain;
 }
 .scrollbar-hide::-webkit-scrollbar,
 .no-scrollbar::-webkit-scrollbar {
