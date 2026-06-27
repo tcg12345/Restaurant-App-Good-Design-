@@ -82,14 +82,23 @@ Deno.serve(async (req) => {
   // upload/asset id we stored earlier.
   const passthrough = typeof data.passthrough === 'string' ? data.passthrough : '';
 
+  // A Mux asset belongs to either a reel or a post video item. Both tables
+  // carry the same mux_* columns, and ids/upload-ids/asset-ids are unique, so
+  // we apply each update to BOTH — only the one matching row changes.
+  const updateBoth = async (col: string, val: string, patch: Record<string, unknown>) => {
+    if (!val) return;
+    for (const table of ['reels', 'post_items']) {
+      const { error } = await sb.from(table).update(patch).eq(col, val);
+      if (error) console.error(`[mux-webhook] ${table} update failed`, error.message);
+    }
+  };
+
   try {
     if (type === 'video.upload.asset_created') {
       // Earliest event — ties the new asset id to the row we keyed by upload id.
       const uploadId = String(data.id || '');
       const assetId = String((data as { asset_id?: string }).asset_id || '');
-      if (uploadId && assetId) {
-        await sb.from('reels').update({ mux_asset_id: assetId }).eq('mux_upload_id', uploadId);
-      }
+      if (uploadId && assetId) await updateBoth('mux_upload_id', uploadId, { mux_asset_id: assetId });
     } else if (type === 'video.asset.ready') {
       const assetId = String(data.id || '');
       const playbackIds = (data.playback_ids as Array<{ id: string; policy: string }> | undefined) || [];
@@ -101,15 +110,13 @@ Deno.serve(async (req) => {
         mux_playback_id: playbackId,
       };
       if (duration != null) patch.duration_seconds = duration;
-      let q = sb.from('reels').update(patch);
-      q = passthrough ? q.eq('id', passthrough) : q.eq('mux_asset_id', assetId);
-      const { error } = await q;
-      if (error) console.error('[mux-webhook] ready update failed', error.message);
+      // Prefer passthrough (the reel/item id) — race-free; else fall back to asset id.
+      if (passthrough) await updateBoth('id', passthrough, patch);
+      else await updateBoth('mux_asset_id', assetId, patch);
     } else if (type === 'video.asset.errored') {
       const assetId = String(data.id || '');
-      let q = sb.from('reels').update({ mux_status: 'errored' });
-      q = passthrough ? q.eq('id', passthrough) : q.eq('mux_asset_id', assetId);
-      await q;
+      if (passthrough) await updateBoth('id', passthrough, { mux_status: 'errored' });
+      else await updateBoth('mux_asset_id', assetId, { mux_status: 'errored' });
     }
     // Other event types are acknowledged and ignored.
   } catch (err) {

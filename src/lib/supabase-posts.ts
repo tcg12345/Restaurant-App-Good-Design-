@@ -13,8 +13,9 @@ import { supabase, supabaseConfigured } from './supabase';
 import { uploadFileWithProgress } from './storage-upload';
 import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
 import { captureVideoPoster, posterPathFor } from './video-poster';
-import { compressImage, compressVideo } from './media-compress';
+import { compressImage } from './media-compress';
 import { backfillPosters } from './poster-backfill';
+import { requestMuxUpload, uploadToMux, muxPosterUrl } from './mux';
 
 const BUCKET = 'post-media';
 export const POST_MAX_ITEMS = 15;
@@ -61,10 +62,15 @@ export interface PostItemRow {
   position: number;
   mediaType: PostMediaType;
   mediaPath: string;
-  /** Signed URL — minted at read time. Empty if signing failed (e.g. RLS). */
+  /** Signed URL — minted at read time. Empty if signing failed (e.g. RLS),
+   *  or for a Mux video item (which plays from its playback id instead). */
   mediaUrl: string;
   /** Signed URL for a video item's poster thumbnail, '' when none exists. */
   posterUrl: string;
+  /** Mux public playback id once a video item finishes transcoding, '' else. */
+  muxPlaybackId: string;
+  /** '' for legacy/Storage items; 'processing' | 'ready' | 'errored' for Mux. */
+  muxStatus: string;
   caption: string;
   attachedKind: PostAttachedKind | null;
   restaurant: PostRestaurantSnapshot | null;
@@ -223,6 +229,8 @@ const rowToItem = (row: Record<string, unknown>): PostItemRow => ({
   mediaPath: String(row.media_path || ''),
   mediaUrl: '',
   posterUrl: '', // filled in after signing the derived poster path
+  muxPlaybackId: String(row.mux_playback_id || ''),
+  muxStatus: String(row.mux_status || ''),
   caption: String(row.caption || ''),
   attachedKind: (row.attached_kind as PostAttachedKind | null) || null,
   restaurant: (row.restaurant_data as PostRestaurantSnapshot | null) || null,
@@ -303,8 +311,9 @@ export async function readVideoDuration(file: File): Promise<number> {
   });
 }
 
-/** Upload all media + insert the post + items in a single transactional flow.
- *  On failure mid-flight, attempts to clean up orphan storage objects. */
+/** Upload all media + insert the post + items. Photos go to Storage (resized
+ *  on read); VIDEO items go to Mux (transcoded to adaptive HLS). On failure
+ *  mid-flight, attempts to clean up orphan storage objects + the row. */
 export async function createPost(input: CreatePostInput): Promise<PostRow | null> {
   if (!supabaseConfigured) return null;
   if (input.items.length === 0) throw new Error('Add at least one photo or video.');
@@ -312,120 +321,89 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
 
   const { userId, caption, locationLabel, audioLabel, isPublic, items, onProgress } = input;
 
-  // Phase 1 — compress each item before uploading so stored files are smaller
-  // (photos resize + re-encode quickly; videos downscale + re-encode in real
-  // time). Best-effort: anything that can't be shrunk passes through unchanged.
-  // This drives the 0.01–0.30 slice of the progress bar.
-  onProgress?.(0.01);
-  const uploadFiles: File[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    uploadFiles[i] = it.mediaType === 'photo'
-      ? await compressImage(it.file)
-      : await compressVideo(it.file, { onProgress: (frac) => onProgress?.(0.01 + 0.29 * ((i + frac) / items.length)) });
-  }
-  onProgress?.(0.30);
+  // Stable client ids so each video item can carry its id to Mux as passthrough
+  // (the webhook maps the finished asset straight back to the row, race-free).
+  const itemIds = items.map(() => crypto.randomUUID());
 
-  // Phase 2 — upload every (compressed) file in parallel, collecting paths.
-  // Byte-level progress is aggregated across all items (weighted by size, so a
-  // big video doesn't get out-paced by a small photo) into the 0.30–0.88 band.
-  const uploadedPaths: string[] = [];
-  const totalBytes = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0) || 1;
+  // Photos: resize + re-encode before upload. Videos: untouched — Mux transcodes.
+  onProgress?.(0.01);
+  const photoFiles: (File | null)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    photoFiles[i] = items[i].mediaType === 'photo' ? await compressImage(items[i].file) : null;
+  }
+  onProgress?.(0.08);
+
+  // Byte-weighted upload progress across every item (photos to Storage in the
+  // prepare phase, video bytes to Mux once the rows exist) → the 0.10–0.92 band.
+  const sizeOf = (it: NewPostItem, idx: number) => photoFiles[idx]?.size ?? it.file.size ?? 0;
+  const totalBytes = items.reduce((sum, it, idx) => sum + sizeOf(it, idx), 0) || 1;
   const loadedBytes = new Array(items.length).fill(0);
   const emitProgress = () => {
     const loaded = loadedBytes.reduce((a, b) => a + b, 0);
-    onProgress?.(0.30 + 0.58 * Math.min(1, loaded / totalBytes));
+    onProgress?.(0.10 + 0.82 * Math.min(1, loaded / totalBytes));
   };
 
-  const uploadPromises = items.map(async (item, idx) => {
-    const uploadFile = uploadFiles[idx];
-    const ext = (uploadFile.name.split('.').pop() || (item.mediaType === 'video' ? 'mp4' : 'jpg')).toLowerCase();
-    const filename = `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
-    const path = `${userId}/${filename}`;
-    // Start poster capture for video items in parallel with the media upload —
-    // it's local decode work that overlaps the network transfer. Best-effort.
-    const posterPromise = item.mediaType === 'video'
-      ? captureVideoPoster(uploadFile).catch(() => null)
-      : Promise.resolve(null);
-    try {
-      await uploadFileWithProgress({
-        bucket: BUCKET,
-        path,
-        file: uploadFile,
-        contentType: uploadFile.type || (item.mediaType === 'video' ? `video/${ext}` : `image/${ext}`),
-        upsert: false,
-        // Immutable path → let the browser hold the bytes for a long time.
-        cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
-        onProgress: ({ loaded }) => { loadedBytes[idx] = loaded; emitProgress(); },
-      });
-    } catch (err) {
-      throw new Error(`Upload failed for item ${idx + 1}: ${err instanceof Error ? err.message : 'unknown error'}`);
-    }
-    uploadedPaths[idx] = path;
-    // Upload the poster thumbnail (derived path, same folder so RLS allows it).
-    // Never fatal — a missing poster just falls back to today's behaviour.
-    const posterBlob = await posterPromise;
-    if (posterBlob) {
-      await uploadFileWithProgress({
-        bucket: BUCKET,
-        path: posterPathFor(path),
-        file: posterBlob,
-        contentType: 'image/jpeg',
-        upsert: true,
-        cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
-      }).catch((e) => console.warn('[Posts] poster upload skipped:', e));
-    }
-    return path;
-  });
+  const photoPaths: (string | null)[] = items.map(() => null);
+  const muxTickets: ({ uploadUrl: string; uploadId: string } | null)[] = items.map(() => null);
+  const localPosters: (string | null)[] = items.map(() => null);
+  const cleanupLocal = () => localPosters.forEach((u) => { if (u) URL.revokeObjectURL(u); });
+  const removePhotos = async () => {
+    const paths = photoPaths.filter(Boolean) as string[];
+    if (paths.length) await supabase.storage.from(BUCKET).remove(paths).catch(() => {});
+  };
 
+  // Prepare: upload photos to Storage now (need the path at insert time); for
+  // videos, mint a Mux direct-upload URL + capture a local poster for the
+  // processing window.
   try {
-    await Promise.all(uploadPromises);
+    await Promise.all(items.map(async (item, idx) => {
+      if (item.mediaType === 'photo') {
+        const f = photoFiles[idx]!;
+        const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
+        const path = `${userId}/${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+        await uploadFileWithProgress({
+          bucket: BUCKET, path, file: f,
+          contentType: f.type || `image/${ext}`,
+          upsert: false, cacheControlSeconds: 60 * 60 * 24 * 7,
+          onProgress: ({ loaded }) => { loadedBytes[idx] = loaded; emitProgress(); },
+        });
+        photoPaths[idx] = path;
+      } else {
+        muxTickets[idx] = await requestMuxUpload({ passthrough: itemIds[idx] });
+        const posterBlob = await captureVideoPoster(item.file).catch(() => null);
+        if (posterBlob) localPosters[idx] = URL.createObjectURL(posterBlob);
+      }
+    }));
   } catch (err) {
-    // Rollback: best-effort delete any objects that did land.
-    const toRemove = uploadedPaths.filter(Boolean);
-    if (toRemove.length > 0) {
-      await supabase.storage.from(BUCKET).remove(toRemove).catch(() => {});
-    }
-    throw err;
+    await removePhotos();
+    cleanupLocal();
+    throw err instanceof Error ? err : new Error('Upload failed');
   }
 
-  onProgress?.(0.9);
-
-  // Insert the post row first.
-  const postPayload: Record<string, unknown> = {
-    user_id: userId,
-    caption,
-    location_label: locationLabel,
-    audio_label: audioLabel,
-    is_public: isPublic,
-  };
-
-  let postInsert = await supabase.from('posts')
-    .insert(postPayload)
-    .select('id')
-    .single();
-  // Defensive: if the schema cache hasn't picked up `is_public` yet, retry
-  // without it. The migration default fills it in as true.
+  // Insert the post.
+  const postPayload: Record<string, unknown> = { user_id: userId, caption, location_label: locationLabel, audio_label: audioLabel, is_public: isPublic };
+  let postInsert = await supabase.from('posts').insert(postPayload).select('id').single();
   if (postInsert.error && postInsert.error.code === 'PGRST204' && /is_public/i.test(postInsert.error.message || '')) {
-    console.warn('[Posts] is_public column missing — falling back to public-only insert.');
     delete postPayload.is_public;
     postInsert = await supabase.from('posts').insert(postPayload).select('id').single();
   }
-
   if (postInsert.error || !postInsert.data) {
-    // Rollback uploads.
-    await supabase.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
+    await removePhotos();
+    cleanupLocal();
     throw new Error(postInsert.error?.message || 'Failed to create post');
   }
-
   const postId = String((postInsert.data as { id: string }).id);
 
-  // Insert all items.
+  // Insert items BEFORE the Mux byte upload, so a webhook that fires the instant
+  // Mux finishes always has a row to update.
   const itemRows = items.map((item, idx) => ({
+    id: itemIds[idx],
     post_id: postId,
     position: idx,
     media_type: item.mediaType,
-    media_path: uploadedPaths[idx],
+    media_path: item.mediaType === 'photo' ? photoPaths[idx] : null,
+    mux_upload_id: item.mediaType === 'video' ? muxTickets[idx]?.uploadId ?? null : null,
+    mux_status: item.mediaType === 'video' ? 'processing' : null,
     caption: item.caption,
     attached_kind: item.attachedKind,
     restaurant_id: item.restaurant?.id ?? null,
@@ -437,16 +415,43 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
   }));
   const { error: itemsError } = await supabase.from('post_items').insert(itemRows);
   if (itemsError) {
-    // Rollback: delete the post (cascades) and the uploads.
-    await supabase.from('posts').delete().eq('id', postId).catch(() => {});
-    await supabase.storage.from(BUCKET).remove(uploadedPaths).catch(() => {});
+    await supabase.from('posts').delete().eq('id', postId);
+    await removePhotos();
+    cleanupLocal();
+    if (itemsError.code === 'PGRST204' && /mux_/i.test(itemsError.message || '')) {
+      throw new Error('Post videos need migration 031 applied to this project.');
+    }
     throw new Error(itemsError.message || 'Failed to insert post items');
   }
 
+  // Upload video bytes straight to Mux (the original never touches our server).
+  await Promise.all(items.map(async (item, idx) => {
+    const ticket = muxTickets[idx];
+    if (item.mediaType !== 'video' || !ticket) return;
+    try {
+      await uploadToMux(ticket.uploadUrl, item.file, {
+        onProgress: (f) => { loadedBytes[idx] = (item.file.size || 0) * f; emitProgress(); },
+      });
+    } catch (err) {
+      console.warn(`[Posts] mux upload failed for item ${idx + 1}:`, err);
+      // Mark errored so the UI doesn't spin on a processing item forever.
+      try { await supabase.from('post_items').update({ mux_status: 'errored' }).eq('id', itemIds[idx]); } catch { /* ignore */ }
+    }
+  }));
+
   onProgress?.(1);
 
-  // Re-fetch with embeds + sign URLs so the UI can render immediately.
-  return getPost(postId);
+  // Re-fetch with embeds + signed/Mux URLs, then attach the local poster for any
+  // item still transcoding so the author sees a frame immediately.
+  const post = await getPost(postId);
+  if (post) {
+    for (const it of post.items) {
+      if (it.mediaType === 'video' && it.muxStatus !== 'ready' && localPosters[it.position]) {
+        it.posterUrl = localPosters[it.position] as string;
+      }
+    }
+  }
+  return post;
 }
 
 /* ── Read ───────────────────────────────────────────────────────────── */
@@ -459,28 +464,38 @@ export async function getPost(postId: string): Promise<PostRow | null> {
     .maybeSingle();
   if (error || !data) return null;
   const post = rowToPost(data as Record<string, unknown>, new Set(), new Set());
-  // Poster paths (video items only) are signed in a SEPARATE batch so items
-  // with no poster object can't make the call fail and break media playback.
-  const posterPaths = post.items
-    .filter((it) => it.mediaType === 'video' && it.mediaPath)
-    .map((it) => posterPathFor(it.mediaPath));
-  const photoPaths = post.items
-    .filter((it) => it.mediaType === 'photo' && it.mediaPath)
-    .map((it) => it.mediaPath);
-  const [signed, signedPhotos, signedPosters, authors] = await Promise.all([
-    signMediaPaths(post.items.map((it) => it.mediaPath)),
-    signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
-    signMediaPaths(posterPaths),
-    hydrateAuthors([post.userId]),
-  ]);
-  for (const it of post.items) {
-    // Photos prefer the small display variant; everything (incl. a photo whose
-    // transform failed) falls back to the plain signed URL.
-    it.mediaUrl = (it.mediaType === 'photo' ? signedPhotos[it.mediaPath] : '') || signed[it.mediaPath] || '';
-    if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
-  }
+  await decoratePostItems(post.items);
+  const authors = await hydrateAuthors([post.userId]);
   post.author = authors[post.userId] ?? null;
   return post;
+}
+
+/** Fill in each item's display URLs in place: Mux video items use Mux hosts
+ *  (HLS + image thumbnail), photos get a resized WebP variant, and legacy
+ *  Storage items get plain signed URLs. Poster paths are signed in a SEPARATE
+ *  batch so a legacy item with no poster object can't break media signing. */
+async function decoratePostItems(items: PostItemRow[]): Promise<void> {
+  // Only legacy Storage items need signing; Mux items play from Mux.
+  const legacy = items.filter((it) => it.mediaPath && !it.muxPlaybackId);
+  const photoPaths = legacy.filter((it) => it.mediaType === 'photo').map((it) => it.mediaPath);
+  const posterPaths = legacy.filter((it) => it.mediaType === 'video').map((it) => posterPathFor(it.mediaPath));
+  const [signed, signedPhotos, signedPosters] = await Promise.all([
+    signMediaPaths(legacy.map((it) => it.mediaPath)),
+    signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
+    signMediaPaths(posterPaths),
+  ]);
+  for (const it of items) {
+    if (it.muxPlaybackId) {
+      // Mux video item: HLS playback by id (no stored media_url) + Mux poster.
+      it.mediaUrl = '';
+      it.posterUrl = muxPosterUrl(it.muxPlaybackId);
+    } else {
+      // Photos prefer the small display variant; everything (incl. a photo whose
+      // transform failed) falls back to the plain signed URL.
+      it.mediaUrl = (it.mediaType === 'photo' ? signedPhotos[it.mediaPath] : '') || signed[it.mediaPath] || '';
+      if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
+    }
+  }
 }
 
 /** Generate + store posters for video items uploaded before posters existed.
@@ -539,31 +554,23 @@ export async function listPosts(opts: {
   }
 
   const posts = data.map((row) => rowToPost(row as Record<string, unknown>, myLikes, mySaves));
-  const allPaths: string[] = [];
-  const photoPaths: string[] = [];
-  const posterPaths: string[] = [];
-  for (const p of posts) for (const it of p.items) {
-    if (it.mediaPath) allPaths.push(it.mediaPath);
-    if (it.mediaType === 'photo' && it.mediaPath) photoPaths.push(it.mediaPath);
-    if (it.mediaType === 'video' && it.mediaPath) posterPaths.push(posterPathFor(it.mediaPath));
-  }
-  // Posters signed in a separate batch (see getPost) — isolated from media so
-  // pre-feature posts with no poster object can't break media signing. Photos
-  // additionally get a small display variant; videos keep the plain URL.
-  const [signed, signedPhotos, signedPosters, authors] = await Promise.all([
-    signMediaPaths(allPaths),
-    signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
-    signMediaPaths(posterPaths),
+  const [, authors] = await Promise.all([
+    decoratePostItems(posts.flatMap((p) => p.items)),
     hydrateAuthors(posts.map((p) => p.userId)),
   ]);
-  for (const p of posts) {
-    p.author = authors[p.userId] ?? null;
-    for (const it of p.items) {
-      it.mediaUrl = (it.mediaType === 'photo' ? signedPhotos[it.mediaPath] : '') || signed[it.mediaPath] || '';
-      if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
-    }
-  }
+  for (const p of posts) p.author = authors[p.userId] ?? null;
   return posts;
+}
+
+/** Fetch one post's items afresh (with current Mux status / playback id), e.g.
+ *  to poll a just-uploaded post until its video items finish transcoding. */
+export async function getPostItems(postId: string): Promise<PostItemRow[] | null> {
+  if (!supabaseConfigured) return null;
+  const { data, error } = await supabase.from('post_items').select('*').eq('post_id', postId);
+  if (error || !data) return null;
+  const items = data.map((r) => rowToItem(r as Record<string, unknown>)).sort((a, b) => a.position - b.position);
+  await decoratePostItems(items);
+  return items;
 }
 
 /* ── Like / save / visibility / delete ──────────────────────────────── */

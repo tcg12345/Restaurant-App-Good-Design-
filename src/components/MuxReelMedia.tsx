@@ -39,6 +39,8 @@ interface MuxReelMediaProps {
   muted: boolean;
   /** Phone = edge-to-edge cover; desktop = letterboxed contain. */
   phoneMode: boolean;
+  /** Override the object-fit (posts always letterbox with 'contain'). */
+  objectFit?: 'cover' | 'contain';
   /** Toggle handler shared with the slide (e.g. to flip a play/pause overlay). */
   onPausedChange?: (paused: boolean) => void;
   /** Publish this player to the page scrub bar when active, null when not. */
@@ -46,8 +48,9 @@ interface MuxReelMediaProps {
 }
 
 export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
-  playbackId, poster, active, near, muted, phoneMode, onPausedChange, onActiveMedia,
+  playbackId, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onActiveMedia,
 }) => {
+  const fit = objectFit ?? (phoneMode ? 'cover' : 'contain');
   const ref = useRef<MuxPlayerElement | null>(null);
   // Once mounted, keep it mounted while near so swiping back is instant; the
   // parent already unmounts the whole slide when it leaves the window.
@@ -129,7 +132,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
             width: '100%',
             height: '100%',
             '--controls': 'none',
-            '--media-object-fit': phoneMode ? 'cover' : 'contain',
+            '--media-object-fit': fit,
           } as React.CSSProperties}
           className="absolute inset-0 w-full h-full"
         />
@@ -138,7 +141,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
           <img
             src={poster}
             alt=""
-            className={cn('absolute inset-0 w-full h-full', phoneMode ? 'object-cover' : 'object-contain')}
+            className={cn('absolute inset-0 w-full h-full', fit === 'cover' ? 'object-cover' : 'object-contain')}
           />
         )
       )}

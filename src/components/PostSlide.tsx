@@ -22,6 +22,7 @@ import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext'
 import { useSettings } from '../contexts/SettingsContext';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
 import { getCachedImage, loadCachedImage } from '../lib/image-cache';
+import { MuxReelMedia } from './MuxReelMedia';
 
 /**
  * Render a feed photo through the in-memory blob cache: instant + whole-image
@@ -256,6 +257,36 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
       )}
     </div>
   );
+
+  // Mux video item — adaptive HLS via Mux Player, object-contain like the
+  // legacy <video>. MuxReelMedia shows its Mux poster until the slide is near.
+  if (item.mediaType === 'video' && item.muxPlaybackId) {
+    return (
+      <MuxReelMedia
+        playbackId={item.muxPlaybackId}
+        poster={item.posterUrl || undefined}
+        active={postActive && itemActive}
+        near={shouldRenderMedia}
+        muted={muted}
+        phoneMode={false}
+        objectFit="contain"
+      />
+    );
+  }
+  // Mux video item still transcoding — captured poster under a spinner.
+  if (item.mediaType === 'video' && item.muxStatus && item.muxStatus !== 'ready') {
+    return (
+      <div className="absolute inset-0 bg-black">
+        {item.posterUrl && (
+          <img src={item.posterUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
+          <div className="w-9 h-9 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+          <span className="text-white/80 text-xs font-medium tracking-wide">Processing video…</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!shouldRenderMedia || !item.mediaUrl || attempt > MEDIA_MAX_RETRIES) return placeholder;
 

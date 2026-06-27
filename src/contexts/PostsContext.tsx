@@ -4,6 +4,7 @@ import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
 import {
   listPosts,
+  getPostItems as cloudGetPostItems,
   createPost as cloudCreatePost,
   updatePost as cloudUpdatePost,
   updatePostItems as cloudUpdatePostItems,
@@ -179,6 +180,38 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refreshPosts();
   }, [userId, refreshPosts]);
 
+  // Poll a freshly-posted post until its Mux video items finish transcoding,
+  // swapping each one in as it goes 'ready'. Keeps the local processing poster
+  // until then. Non-blocking; gives up quietly after a few minutes.
+  const pollPostReady = useCallback((postId: string) => {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60; // ~3 min at 3s
+    const tick = async () => {
+      attempts += 1;
+      const items = await cloudGetPostItems(postId).catch(() => null);
+      if (items) {
+        setPosts((prev) => prev.map((p) => {
+          if (p.id !== postId) return p;
+          const byId = new Map<string, PostItemRow>();
+          for (const it of items) byId.set(it.id, it);
+          const merged = p.items.map((old) => {
+            const fresh = byId.get(old.id);
+            if (!fresh) return old;
+            // Preserve the local captured poster until the item is ready.
+            if (fresh.muxStatus && fresh.muxStatus !== 'ready' && !fresh.posterUrl && old.posterUrl) {
+              return { ...fresh, posterUrl: old.posterUrl };
+            }
+            return fresh;
+          });
+          return { ...p, items: merged };
+        }));
+        if (!items.some((it) => it.muxStatus === 'processing')) return; // all done
+      }
+      if (attempts < MAX_ATTEMPTS) setTimeout(tick, 3000);
+    };
+    setTimeout(tick, 3000);
+  }, []);
+
   const createPost = useCallback<PostsContextValue['createPost']>(async (input) => {
     const me = userIdRef.current;
     if (!me) throw new Error('Sign in to post');
@@ -186,8 +219,12 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!created) return null;
     const ui = decoratePost(created);
     setPosts((prev) => [ui, ...prev]);
+    // Mux video items come back 'processing'; poll until the webhook flips them.
+    if (ui.items.some((it) => it.mediaType === 'video' && it.muxStatus === 'processing')) {
+      pollPostReady(created.id);
+    }
     return ui;
-  }, []);
+  }, [pollPostReady]);
 
   const togglePostLike = useCallback(async (postId: string) => {
     const me = userIdRef.current;
