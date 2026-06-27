@@ -497,9 +497,25 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     }
     setSubmitting(true);
     const { error: err } = await signUp(email, password);
-    if (err) setError(err);
+    if (err) {
+      // The email may already be registered — e.g. the existence check was
+      // wrong (rate-limited) and routed a returning user here. Recover instead
+      // of dead-ending: try signing them in with what they typed; if that's the
+      // wrong password, drop them on the sign-in screen to enter the right one.
+      if (/already|registered|exists/i.test(err)) {
+        const { error: signInErr } = await signIn(email, password);
+        if (signInErr) {
+          setPassword('');
+          setStep('password');
+          setError('You already have an account — enter your password to sign in.');
+        }
+        // success → onAuthStateChange swaps to the app.
+      } else {
+        setError(err);
+      }
+    }
     setSubmitting(false);
-  }, [email, password, signUp]);
+  }, [email, password, signUp, signIn]);
 
   const handleBack = useCallback(() => {
     setStep('email');

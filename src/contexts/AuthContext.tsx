@@ -273,19 +273,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkEmailExists = useCallback(async (email: string): Promise<boolean> => {
     if (!supabaseConfigured) return false;
     try {
-      const { error } = await withTimeout(
-        supabase.auth.signInWithOtp({
-          email,
-          options: { shouldCreateUser: false },
-        }),
+      // Read auth.users via the email_exists() function (migration 032). Unlike
+      // the old signInWithOtp probe this sends NO email and isn't rate-limited,
+      // so a returning user is reliably routed to the sign-in screen.
+      const { data, error } = await withTimeout(
+        Promise.resolve(supabase.rpc('email_exists', { check_email: email.trim() })),
         8000,
         'checkEmailExists',
       );
-      return !error;
+      if (error) return false; // function missing / failed — the sign-up step recovers
+      return data === true;
     } catch {
-      // Timed out or threw — assume the email isn't on file. The caller will
-      // route to the sign-up step; if the user actually has an account they
-      // can hit back and try again.
+      // Timed out or threw — assume the email isn't on file. If the user does
+      // have an account, the sign-up step detects "already registered" and
+      // routes them to sign in (see Auth.handleSignUp).
       return false;
     }
   }, []);
