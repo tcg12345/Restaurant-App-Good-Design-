@@ -2,18 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import type MuxPlayerElement from '@mux/mux-player';
 import { cn } from '../lib/utils';
-import { muxPosterUrl } from '../lib/mux';
+import { muxStoryboardVttUrl } from '../lib/mux';
 
 /**
  * What the page-level scrub bar needs from the active reel's media. Works for
  * both a legacy <video> and a Mux player (both expose this media subset), plus
- * an optional way to get a still frame at a given time for the scrub preview.
+ * an optional way to render the scrub-preview frames.
  */
 export interface ActiveReelMedia {
   el: Pick<HTMLMediaElement, 'currentTime' | 'duration' | 'paused' | 'play' | 'pause'>;
-  /** Still-frame URL at time t (seconds) for the scrub-preview popover. Mux
-   *  serves these from its image API; legacy reels seek a hidden <video>. */
-  thumbAt?: (t: number) => string;
+  /** Mux storyboard VTT — one sprite of frames, loaded once and offset to the
+   *  right tile while scrubbing (smooth, no per-frame network request). */
+  storyboardVttUrl?: string;
   /** Plain video src for the legacy seek-preview (omitted for Mux). */
   previewSrc?: string;
 }
@@ -99,7 +99,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
     const el = ref.current;
     if (!onActiveMedia) return;
     if (active && el && mounted) {
-      onActiveMedia({ el, thumbAt: (t) => muxPosterUrl(playbackId, { time: t, width: 200 }) });
+      onActiveMedia({ el, storyboardVttUrl: muxStoryboardVttUrl(playbackId) });
     }
     return () => { if (active) onActiveMedia(null); };
   }, [active, mounted, onActiveMedia, playbackId]);

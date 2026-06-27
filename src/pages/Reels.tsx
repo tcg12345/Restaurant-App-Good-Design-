@@ -12,6 +12,7 @@ import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { MuxReelMedia, type ActiveReelMedia } from '../components/MuxReelMedia';
+import { loadMuxStoryboard, storyboardTileAt, type MuxStoryboard } from '../lib/mux';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
@@ -900,7 +901,28 @@ const ReelProgressBar: React.FC<{
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const previewSrc = media?.previewSrc || '';
-  const thumbAt = media?.thumbAt;
+  // Mux scrub preview: load the storyboard sprite once when the active reel
+  // changes, then offset to the right tile while dragging (no per-frame fetch,
+  // so it's smooth and never flashes black).
+  const storyboardVttUrl = media?.storyboardVttUrl;
+  const [storyboard, setStoryboard] = useState<MuxStoryboard | null>(null);
+  const [spriteDims, setSpriteDims] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    setStoryboard(null);
+    setSpriteDims(null);
+    if (!storyboardVttUrl) return;
+    let cancelled = false;
+    void loadMuxStoryboard(storyboardVttUrl).then((sb) => {
+      if (cancelled || !sb) return;
+      setStoryboard(sb);
+      // Preload the sprite so the first drag is instant, and grab its natural
+      // size for the background-size math.
+      const img = new Image();
+      img.onload = () => { if (!cancelled) setSpriteDims({ w: img.naturalWidth, h: img.naturalHeight }); };
+      img.src = sb.spriteUrl;
+    });
+    return () => { cancelled = true; };
+  }, [storyboardVttUrl]);
 
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
@@ -938,18 +960,22 @@ const ReelProgressBar: React.FC<{
     try { pv.currentTime = dragProgress * dur; } catch { /* ignore seek errors */ }
   }, [dragProgress, dragging, videoEl]);
 
+  // The bar doesn't move during a drag, so snapshot its rect on pointer-down
+  // and reuse it for every move — avoids a forced layout (getBoundingClientRect)
+  // on each of the dozens of pointermove events, which is what made the head
+  // stutter.
+  const rectRef = useRef<DOMRect | null>(null);
+  const liveRect = (): DOMRect | null => rectRef.current ?? containerRef.current?.getBoundingClientRect() ?? null;
+
   const pointerToProgress = (clientX: number): number => {
-    const el = containerRef.current;
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return 0;
+    const rect = liveRect();
+    if (!rect || rect.width <= 0) return 0;
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   };
 
   const pointerToContainerX = (clientX: number): number => {
-    const el = containerRef.current;
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
+    const rect = liveRect();
+    if (!rect) return 0;
     return clientX - rect.left;
   };
 
@@ -957,6 +983,7 @@ const ReelProgressBar: React.FC<{
     if (!videoEl) return;
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    rectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
     wasPlayingRef.current = !videoEl.paused;
     // Pause the main reel but DO NOT seek it — user wants the frame
     // they grabbed at to stay put. Seeking happens once on release.
@@ -976,6 +1003,7 @@ const ReelProgressBar: React.FC<{
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    rectRef.current = null;
     setDragging(false);
     // Commit the seek to the main video, then resume if it had been
     // playing when the drag began.
@@ -995,10 +1023,28 @@ const ReelProgressBar: React.FC<{
   // off-screen. width / aspectRatio match a phone reel (9:16 → ~100x178).
   const PREVIEW_W = 110;
   const PREVIEW_H = 195;
-  const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 0;
+  // Only needed while dragging (to clamp the popover); using the cached rect
+  // avoids a layout read on every rAF progress tick during normal playback.
+  const containerWidth = dragging ? (liveRect()?.width ?? 0) : 0;
   const popoverLeft = Math.max(8, Math.min(containerWidth - PREVIEW_W - 8, hoverX - PREVIEW_W / 2));
   const dur = videoEl?.duration;
   const fillFrac = dragging ? dragProgress : progress;
+
+  // Storyboard sprite tile for the current scrub position — a CSS background
+  // offset, so updating it as the user drags is instant and GPU-cheap.
+  const previewTimeSec = (Number.isFinite(dur) && dur ? dur : 0) * dragProgress;
+  const tile = storyboard ? storyboardTileAt(storyboard, previewTimeSec) : null;
+  const spriteStyle: React.CSSProperties | null = (storyboard && spriteDims && tile)
+    ? (() => {
+        const scale = PREVIEW_W / tile.w;
+        return {
+          backgroundImage: `url(${storyboard.spriteUrl})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: `${spriteDims.w * scale}px ${spriteDims.h * scale}px`,
+          backgroundPosition: `-${tile.x * scale}px -${tile.y * scale}px`,
+        };
+      })()
+    : null;
 
   return (
     <div
@@ -1028,7 +1074,7 @@ const ReelProgressBar: React.FC<{
       {/* Scrub preview popover. Mounted only while the user is dragging
           so the secondary <video> isn't sitting in the DOM eating
           memory at idle. */}
-      {dragging && (thumbAt || previewSrc) && (
+      {dragging && (spriteStyle || previewSrc) && (
         <div
           className="absolute pointer-events-none"
           style={{
@@ -1041,14 +1087,10 @@ const ReelProgressBar: React.FC<{
             className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
             style={{ width: PREVIEW_W, height: PREVIEW_H }}
           >
-            {thumbAt ? (
-              // Mux: a crisp still from its image API at the scrub time — no
-              // second <video> to seek.
-              <img
-                src={thumbAt((Number.isFinite(dur) && dur ? dur : 0) * dragProgress)}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+            {spriteStyle ? (
+              // Mux: the preloaded storyboard sprite, offset to this time's
+              // tile — instant, frame-by-frame, no network during the drag.
+              <div className="w-full h-full" style={spriteStyle} />
             ) : (
               <video
                 ref={previewRef}
