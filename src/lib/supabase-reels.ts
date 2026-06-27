@@ -9,11 +9,10 @@
  *   `<user_id>/<filename>`. Storage RLS forces uploads into your own folder.
  */
 import { supabase, supabaseConfigured } from './supabase';
-import { uploadFileWithProgress } from './storage-upload';
 import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
 import { captureVideoPoster, posterPathFor } from './video-poster';
-import { compressVideo } from './media-compress';
 import { backfillPosters } from './poster-backfill';
+import { requestMuxUpload, uploadToMux, muxPosterUrl } from './mux';
 
 const BUCKET = 'reels-videos';
 export const REEL_MAX_DURATION_SECONDS = 60;
@@ -63,6 +62,10 @@ export interface ReelRow {
   videoUrl: string;
   /** Signed URL for the stored poster thumbnail, '' when none exists. */
   posterUrl: string;
+  /** Mux public playback id once transcoded, '' for legacy/Storage reels. */
+  muxPlaybackId: string;
+  /** '' for legacy Storage reels; 'processing' | 'ready' | 'errored' for Mux. */
+  muxStatus: string;
   caption: string;
   audioLabel: string;
   locationLabel: string;
@@ -109,6 +112,8 @@ const rowToReel = (
     videoPath: String(row.video_path || ''),
     videoUrl: String(row.video_url || ''),
     posterUrl: '', // filled in after signing the derived poster path
+    muxPlaybackId: String(row.mux_playback_id || ''),
+    muxStatus: String(row.mux_status || ''),
     caption: String(row.caption || ''),
     audioLabel: String(row.audio_label || 'Original audio'),
     locationLabel: String(row.location_label || ''),
@@ -212,72 +217,52 @@ export async function readVideoDuration(file: File): Promise<number> {
   });
 }
 
-/** Upload the video file + insert the reels row. Returns the new reel. */
+/**
+ * Create a reel backed by Mux adaptive streaming.
+ *
+ * The browser uploads the original straight to Mux (it never touches our
+ * server); Mux transcodes to HLS asynchronously and the `mux-webhook` Edge
+ * Function writes the playback id back onto this row. We insert the row in a
+ * 'processing' state BEFORE the upload so a fast webhook always finds it, and
+ * return immediately with a locally-captured poster so the author sees a frame
+ * while it transcodes. The feed polls until the status flips to 'ready'.
+ */
 export async function createReel(input: UploadReelInput): Promise<ReelRow | null> {
   if (!supabaseConfigured) return null;
   const { userId, file, kind, caption, audioLabel, locationLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
 
-  // Compress (downscale + lower bitrate) before uploading so the file is
-  // smaller — faster to upload and faster to start playing in the feed. Real
-  // time, so it drives the first slice of the progress bar; best-effort, so a
-  // large/un-compressible clip just uploads as-is.
-  onProgress?.(0.01);
-  const uploadFile = await compressVideo(file, { onProgress: (f) => onProgress?.(0.01 + 0.34 * f) });
+  // Our own id up-front: it doubles as the Mux `passthrough`, so every webhook
+  // maps straight back to this row by primary key — no upload/asset-id race.
+  const reelId = crypto.randomUUID();
 
-  const ext = (uploadFile.name.split('.').pop() || 'mp4').toLowerCase();
-  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const path = `${userId}/${filename}`;
+  // Grab a first-frame poster locally so the author sees a still immediately
+  // while Mux transcodes (Mux's own poster only exists once the asset is ready).
+  // Best-effort — a missing poster just shows the processing state.
+  onProgress?.(0.02);
+  const posterBlob = await captureVideoPoster(file).catch(() => null);
+  const localPosterUrl = posterBlob ? URL.createObjectURL(posterBlob) : '';
 
-  // Kick off poster capture from the (compressed) file in parallel with the
-  // upload — CPU/decode work that overlaps the network transfer for free.
-  // Strictly best-effort: any failure resolves to null and the reel posts
-  // without one.
-  const posterPromise = captureVideoPoster(uploadFile).catch(() => null);
-
-  // Upload via XHR so we get real byte-level progress (supabase-js's upload
-  // exposes none). The transfer drives the 0.36–0.90 band; the trailing 10%
-  // covers the DB insert + URL signing below.
-  onProgress?.(0.36);
+  // 1) Mint a one-time Mux direct-upload URL (server-side; holds the creds).
+  onProgress?.(0.06);
+  let ticket;
   try {
-    await uploadFileWithProgress({
-      bucket: BUCKET,
-      path,
-      file: uploadFile,
-      contentType: uploadFile.type || `video/${ext}`,
-      upsert: false,
-      // Media paths are immutable (timestamped filename), so let the browser
-      // cache the bytes for a long time once fetched.
-      cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
-      onProgress: ({ fraction }) => onProgress?.(0.36 + 0.54 * fraction),
-    });
+    ticket = await requestMuxUpload({ passthrough: reelId });
   } catch (err) {
-    console.error('[Reels] upload failed:', err);
-    throw err instanceof Error ? err : new Error('Upload failed');
+    if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
+    console.error('[Reels] mux upload init failed:', err);
+    throw err instanceof Error ? err : new Error('Could not start the upload');
   }
 
-  // Upload the poster thumbnail alongside the video (derived path, same
-  // folder so storage RLS still allows it). Never fatal — a missing poster
-  // just means the feed falls back to its gradient placeholder as before.
-  const posterBlob = await posterPromise;
-  if (posterBlob) {
-    await uploadFileWithProgress({
-      bucket: BUCKET,
-      path: posterPathFor(path),
-      file: posterBlob,
-      contentType: 'image/jpeg',
-      upsert: true,
-      cacheControlSeconds: 60 * 60 * 24 * 7, // 1 week
-    }).catch((err) => console.warn('[Reels] poster upload skipped:', err));
-  }
-  onProgress?.(0.9);
-
-  // Bucket is private (migration 021) — we don't store a permanent URL
-  // anymore, just the path. Clients sign URLs at read time.
+  // 2) Insert the row in 'processing' BEFORE uploading, so a webhook that fires
+  //    the instant Mux finishes always has a row to update.
   const insertPayload: Record<string, unknown> = {
+    id: reelId,
     user_id: userId,
     kind,
-    video_path: path,
+    video_path: null,
     video_url: '',
+    mux_upload_id: ticket.uploadId,
+    mux_status: 'processing',
     caption,
     audio_label: audioLabel,
     location_label: locationLabel,
@@ -292,43 +277,70 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   const insertSelect = '*, reel_likes(count), reel_saves(count), reel_comments(count)';
 
   let insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
-
-  // Tolerate environments where migration 020 (which adds is_public) hasn't
-  // been applied yet: PostgREST returns PGRST204 with the missing-column
-  // hint, so we strip the column and retry. The reel posts as plain public
-  // since the privacy column doesn't exist there anyway.
+  // Migration-tolerance: strip optional columns and retry if a project hasn't
+  // applied migration 020 (is_public) / 025 (location_label) yet.
   if (insertResult.error && insertResult.error.code === 'PGRST204' && /is_public/i.test(insertResult.error.message || '')) {
-    console.warn('[Reels] is_public column missing — falling back to a public-only insert. Run migration 020 to enable per-reel privacy.');
     delete insertPayload.is_public;
     insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
   }
-  // Same fallback for migration 025 (location_label). The reel still posts;
-  // the location label just isn't persisted until the column exists.
   if (insertResult.error && insertResult.error.code === 'PGRST204' && /location_label/i.test(insertResult.error.message || '')) {
-    console.warn('[Reels] location_label column missing — falling back without it. Run migration 025 to enable reel locations.');
     delete insertPayload.location_label;
     insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
   }
 
   const { data: row, error: insertError } = insertResult;
-
   if (insertError || !row) {
+    if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
     console.error('[Reels] insert failed:', insertError);
-    // Best-effort: clean up the orphaned upload.
-    await supabase.storage.from(BUCKET).remove([path]).catch(() => {});
+    if (insertError?.code === 'PGRST204' && /mux_/i.test(insertError.message || '')) {
+      throw new Error('Video uploads need migration 030 applied to this project.');
+    }
     throw new Error(insertError?.message || 'Failed to create reel');
   }
+
+  // 3) Upload the bytes straight to Mux — drives the bulk of the progress bar.
+  onProgress?.(0.12);
+  try {
+    await uploadToMux(ticket.uploadUrl, file, { onProgress: (f) => onProgress?.(0.12 + 0.86 * f) });
+  } catch (err) {
+    // Roll the row back so a failed upload doesn't leave a ghost processing reel.
+    try { await supabase.from('reels').delete().eq('id', reelId); } catch { /* best-effort */ }
+    if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
+    console.error('[Reels] mux upload failed:', err);
+    throw err instanceof Error ? err : new Error('Upload failed');
+  }
   onProgress?.(1);
+
+  // Build the UI row: still transcoding, so no playback id yet. The local
+  // poster carries the author through the processing window; the feed polls
+  // (see ReelsContext) until the webhook flips mux_status to 'ready'.
   const reel = rowToReel(row as Record<string, unknown>, new Set(), new Set());
-  // Sign playback + poster URLs for the freshly-created reel so the UI can
-  // render it immediately. 24h TTL — re-signed on next list().
-  const [signed, signedPoster] = await Promise.all([
-    signVideoPaths([path]),
-    posterBlob ? signVideoPaths([posterPathFor(path)]) : Promise.resolve({} as Record<string, string>),
-  ]);
-  reel.videoUrl = signed[path] ?? '';
-  reel.posterUrl = signedPoster[posterPathFor(path)] ?? '';
-  // Hydrate author so the UI has a name to render immediately.
+  reel.posterUrl = localPosterUrl;
+  const authors = await hydrateAuthors([reel.userId]);
+  reel.author = authors[reel.userId] ?? null;
+  return reel;
+}
+
+/** Fetch one reel row (with signed/Mux URLs applied), e.g. to poll a freshly
+ *  uploaded reel until Mux finishes transcoding. Returns null if it's gone. */
+export async function getReel(reelId: string): Promise<ReelRow | null> {
+  if (!supabaseConfigured) return null;
+  const { data, error } = await supabase.from('reels')
+    .select('*, reel_likes(count), reel_saves(count), reel_comments(count)')
+    .eq('id', reelId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const reel = rowToReel(data as Record<string, unknown>, new Set(), new Set());
+  if (reel.muxPlaybackId) {
+    reel.posterUrl = muxPosterUrl(reel.muxPlaybackId);
+  } else if (reel.videoPath) {
+    const [signed, signedPoster] = await Promise.all([
+      signVideoPaths([reel.videoPath]),
+      signVideoPaths([posterPathFor(reel.videoPath)]),
+    ]);
+    reel.videoUrl = signed[reel.videoPath] || '';
+    reel.posterUrl = signedPoster[posterPathFor(reel.videoPath)] || '';
+  }
   const authors = await hydrateAuthors([reel.userId]);
   reel.author = authors[reel.userId] ?? null;
   return reel;
@@ -430,20 +442,28 @@ export async function listReels(opts: {
     mySaves = new Set((saveRows || []).map((r) => String((r as { reel_id: unknown }).reel_id)));
   }
 
-  const reels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
-  // Sign playback URLs, poster URLs, and hydrate authors in parallel. Posters
-  // are signed in a SEPARATE batch so reels created before this feature (no
-  // poster object) can never make the call fail and break video playback —
-  // missing posters just come back empty and the UI falls back to the gradient.
+  const allReels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
+  // Hide other people's still-transcoding Mux reels — they have no playable
+  // asset yet. The author keeps seeing their own (with its processing state).
+  const reels = allReels.filter((r) => !(r.muxStatus && r.muxStatus !== 'ready' && r.userId !== viewerId));
+  // Only legacy Storage reels need signed URLs; Mux reels play from Mux hosts.
+  // Posters are signed in a SEPARATE batch so a legacy reel with no poster
+  // object can't make the call fail and break playback.
+  const legacy = reels.filter((r) => !r.muxPlaybackId && r.videoPath);
   const [signed, signedPosters, authors] = await Promise.all([
-    signVideoPaths(reels.map((r) => r.videoPath)),
-    signVideoPaths(reels.map((r) => posterPathFor(r.videoPath))),
+    signVideoPaths(legacy.map((r) => r.videoPath)),
+    signVideoPaths(legacy.map((r) => posterPathFor(r.videoPath))),
     hydrateAuthors(reels.map((r) => r.userId)),
   ]);
   for (const r of reels) {
     r.author = authors[r.userId] ?? null;
-    r.videoUrl = signed[r.videoPath] || '';
-    r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
+    if (r.muxPlaybackId) {
+      r.videoUrl = '';
+      r.posterUrl = muxPosterUrl(r.muxPlaybackId);
+    } else {
+      r.videoUrl = signed[r.videoPath] || '';
+      r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
+    }
   }
   return reels;
 }

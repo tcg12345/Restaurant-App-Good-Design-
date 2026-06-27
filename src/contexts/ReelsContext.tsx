@@ -11,6 +11,7 @@ import {
   setReelVisibility as cloudSetReelVisibility,
   deleteReel as cloudDeleteReel,
   backfillReelPosters,
+  getReel as cloudGetReel,
   listComments as cloudListComments,
   addComment as cloudAddComment,
   deleteComment as cloudDeleteComment,
@@ -40,6 +41,11 @@ export interface Reel {
   isExpert: boolean;
   videoUrl?: string;
   posterUrl?: string;
+  /** Mux public playback id — present once a Mux reel finishes transcoding. */
+  muxPlaybackId?: string;
+  /** Mux lifecycle: 'processing' | 'ready' | 'errored'. Undefined = legacy
+   *  Storage reel (plays from videoUrl). */
+  muxStatus?: 'processing' | 'ready' | 'errored';
   bgGradient: string;
   bgLabel?: string;
   caption: string;
@@ -82,6 +88,8 @@ function rowToUi(row: ReelRow): Reel {
     isExpert: row.author?.isExpert ?? false,
     videoUrl: row.videoUrl || undefined,
     posterUrl: row.posterUrl || undefined,
+    muxPlaybackId: row.muxPlaybackId || undefined,
+    muxStatus: (row.muxStatus || undefined) as Reel['muxStatus'],
     bgGradient: row.bgGradient || DEFAULT_BG,
     caption: row.caption,
     audioLabel: row.audioLabel,
@@ -216,6 +224,30 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   /* ── Mutations ─────────────────────────────────────────────────── */
 
+  // Poll a freshly-uploaded Mux reel until the webhook flips it to 'ready',
+  // then swap the local processing poster for real Mux playback. Non-blocking;
+  // gives up quietly after a few minutes (the next feed refresh would catch it).
+  const pollReelReady = useCallback((reelId: string) => {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60; // ~3 min at 3s intervals
+    const tick = async () => {
+      attempts += 1;
+      const fresh = await cloudGetReel(reelId).catch(() => null);
+      if (fresh && fresh.muxStatus === 'ready' && fresh.muxPlaybackId) {
+        setReels((prev) => prev.map((r) => (r.id === reelId
+          ? { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, posterUrl: fresh.posterUrl || r.posterUrl }
+          : r)));
+        return;
+      }
+      if (fresh && fresh.muxStatus === 'errored') {
+        setReels((prev) => prev.map((r) => (r.id === reelId ? { ...r, muxStatus: 'errored' } : r)));
+        return;
+      }
+      if (attempts < MAX_ATTEMPTS) setTimeout(tick, 3000);
+    };
+    setTimeout(tick, 3000);
+  }, []);
+
   const postReel = useCallback<ReelsContextValue['postReel']>(async (input) => {
     const me = userIdRef.current;
     if (!me) throw new Error('Sign in to post reels');
@@ -223,8 +255,10 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!created) return null;
     const ui = rowToUi(created);
     setReels((prev) => [ui, ...prev]);
+    // Mux reels come back 'processing'; poll until the webhook says ready.
+    if (ui.muxStatus === 'processing') pollReelReady(created.id);
     return ui;
-  }, []);
+  }, [pollReelReady]);
 
   const toggleLike = useCallback(async (reelId: string) => {
     const me = userIdRef.current;

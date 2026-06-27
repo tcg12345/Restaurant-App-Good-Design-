@@ -20,3 +20,13 @@ verify_jwt = false
 
 [functions.delete-account]
 verify_jwt = false
+
+# mux-upload-init verifies the caller's JWT itself (requireUser) and must answer
+# the CORS preflight, so the gateway check stays off — same as the AI functions.
+[functions.mux-upload-init]
+verify_jwt = false
+
+# mux-webhook is called server-to-server by Mux, which can't present a Supabase
+# JWT; it authenticates via the Mux-Signature HMAC instead.
+[functions.mux-webhook]
+verify_jwt = false

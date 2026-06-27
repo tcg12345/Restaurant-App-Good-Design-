@@ -11,6 +11,7 @@ import { useSignInModal } from '../contexts/SignInModalContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
+import { MuxReelMedia } from '../components/MuxReelMedia';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
@@ -383,7 +384,34 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           reads as a soft color extension of the reel rather than
           black bars. */}
       <div className="absolute inset-0">
-        {reel.videoUrl ? (
+        {reel.muxPlaybackId ? (
+          // Mux adaptive-streaming reel — instant poster, HLS playback.
+          <MuxReelMedia
+            playbackId={reel.muxPlaybackId}
+            poster={reel.posterUrl}
+            active={active}
+            near={near}
+            muted={muted}
+            phoneMode={phoneMode}
+            onPausedChange={setIsPaused}
+          />
+        ) : reel.muxStatus === 'processing' ? (
+          // Just uploaded — Mux is still transcoding. Show the captured frame
+          // (author's session) under a processing spinner until it's ready.
+          <div className="absolute inset-0 bg-black">
+            {reel.posterUrl && (
+              <img
+                src={reel.posterUrl}
+                alt=""
+                className={cn('absolute inset-0 w-full h-full', phoneMode ? 'object-cover' : 'object-contain')}
+              />
+            )}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
+              <div className="w-9 h-9 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              <span className="text-white/80 text-xs font-medium tracking-wide">Processing video…</span>
+            </div>
+          </div>
+        ) : reel.videoUrl ? (
           <>
             {/* Flat neutral backing while the reel loads. The <video> and
                 its poster paint on top once ready; this layer just avoids a
