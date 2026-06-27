@@ -13,6 +13,9 @@ export interface ActiveReelMedia {
   /** Mux: scrub the main (already-buffered) video live as the user drags, so
    *  the full-screen reel updates frame-by-frame instead of a coarse preview. */
   liveScrub?: boolean;
+  /** Mux: the underlying decoded <video> — seeked directly (reliable on iOS)
+   *  and mirrored into the preview-box canvas for a smooth, many-fps preview. */
+  frameSource?: () => HTMLVideoElement | null;
 }
 
 /**
@@ -99,7 +102,12 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
     const el = ref.current;
     if (!onActiveMedia) return;
     if (active && el && mounted) {
-      onActiveMedia({ el, liveScrub: true });
+      onActiveMedia({
+        el,
+        liveScrub: true,
+        // Mux Player keeps the decoded native <video> at .media.nativeEl.
+        frameSource: () => (el as unknown as { media?: { nativeEl?: HTMLVideoElement } }).media?.nativeEl ?? null,
+      });
     }
     return () => { if (active) onActiveMedia(null); };
   }, [active, mounted, onActiveMedia]);

@@ -899,19 +899,41 @@ const ReelProgressBar: React.FC<{
   const wasPlayingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewSrc = media?.previewSrc || '';
-  // Mux reels live-scrub the already-buffered main video (smooth, frame-by-
-  // frame) instead of showing a coarse thumbnail popover. pointermove already
-  // fires at frame rate and the browser coalesces seeks on a buffered video,
-  // so we seek the element directly on each move.
+  // Mux reels live-scrub the already-buffered native <video> (seeking it
+  // directly is reliable on iOS, unlike the player wrapper) and mirror that
+  // frame into the preview-box canvas — so the drag shows real frames at many
+  // fps. pointermove fires at frame rate and the browser coalesces seeks on a
+  // buffered video, so we seek directly on each move.
   const liveScrub = !!media?.liveScrub;
+  const frameSource = media?.frameSource;
   const seekLive = (p: number) => {
-    const el = media?.el;
-    const d = el?.duration;
-    if (el && Number.isFinite(d) && d && d > 0) {
-      try { el.currentTime = p * d; } catch { /* ignore seek errors */ }
+    const v = frameSource?.() ?? media?.el ?? null;
+    const d = v?.duration;
+    if (v && Number.isFinite(d) && d && d > 0) {
+      try { v.currentTime = p * d; } catch { /* ignore seek errors */ }
     }
   };
+
+  // While dragging a Mux reel, mirror the live-scrubbed video frame into the
+  // preview canvas (rAF keeps it in step with the decode).
+  useEffect(() => {
+    if (!dragging || !frameSource) return;
+    let raf = 0;
+    const draw = () => {
+      const v = frameSource();
+      const c = previewCanvasRef.current;
+      if (v && c && v.videoWidth) {
+        if (c.width !== v.videoWidth) c.width = v.videoWidth;
+        if (c.height !== v.videoHeight) c.height = v.videoHeight;
+        try { c.getContext('2d')?.drawImage(v, 0, 0, c.width, c.height); } catch { /* ignore */ }
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [dragging, frameSource]);
 
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
@@ -1054,9 +1076,10 @@ const ReelProgressBar: React.FC<{
         />
       </div>
 
-      {/* Legacy reels: a magnified seek-preview popover (a hidden <video>
-          seeked to the scrub time). Mounted only while dragging. */}
-      {dragging && previewSrc && !liveScrub && (
+      {/* Scrub-preview popover. Mux reels mirror the live-scrubbed video into a
+          canvas (smooth, real frames at many fps); legacy reels seek a hidden
+          <video>. Mounted only while dragging. */}
+      {dragging && (frameSource || previewSrc) && (
         <div
           className="absolute pointer-events-none"
           style={{
@@ -1069,29 +1092,22 @@ const ReelProgressBar: React.FC<{
             className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
             style={{ width: PREVIEW_W, height: PREVIEW_H }}
           >
-            <video
-              ref={previewRef}
-              src={previewSrc}
-              muted
-              playsInline
-              preload="auto"
-              className="w-full h-full object-cover"
-            />
+            {frameSource ? (
+              <canvas ref={previewCanvasRef} className="w-full h-full object-cover" />
+            ) : (
+              <video
+                ref={previewRef}
+                src={previewSrc}
+                muted
+                playsInline
+                preload="auto"
+                className="w-full h-full object-cover"
+              />
+            )}
           </div>
           <div className="mt-1.5 text-center text-white text-[11px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
             {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
           </div>
-        </div>
-      )}
-
-      {/* Mux reels: the full-screen video scrubs live, so we only float a
-          timestamp above the finger. */}
-      {dragging && liveScrub && (
-        <div
-          className="absolute pointer-events-none -translate-x-1/2 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur text-white text-[12px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
-          style={{ left: Math.max(28, Math.min((containerWidth || hoverX) - 28, hoverX)), bottom: 'calc(100% + 8px)' }}
-        >
-          {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
         </div>
       )}
     </div>
