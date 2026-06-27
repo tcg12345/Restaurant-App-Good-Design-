@@ -46,7 +46,7 @@ export const PhotoGallery: React.FC<{
       .filter((url) => !communityUrls.has(url))
       .map((url) => ({ url, caption: '', isGoogle: true }));
     const userPhotos = communityPhotos
-      .filter((p) => p.url && p.url.length < 500000)
+      .filter((p) => !!p.url && (p.url.startsWith('blob:') || p.url.length < 12_000_000))
       .map((p) => ({ url: p.url, caption: p.caption || '', isGoogle: false }));
     return [...googlePhotos, ...userPhotos];
   }, [photos, communityPhotos]);

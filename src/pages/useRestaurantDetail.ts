@@ -18,6 +18,35 @@ mapboxgl.workerClass = MapboxWorker;
 const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
 
+/**
+ * iOS WKWebView (the Capacitor app's web view) frequently fails to render
+ * large base64 `data:` image URLs — they load fine in a desktop browser but
+ * silently break on the phone, which is why community photos "don't show up".
+ * Converting them to blob object URLs renders reliably. Returns null for
+ * anything that isn't a data URL so callers can keep the original.
+ */
+export function dataUrlToBlobUrl(dataUrl: string): string | null {
+  try {
+    if (!dataUrl.startsWith('data:')) return null;
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) return null;
+    const header = dataUrl.slice(0, comma);
+    const mime = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+    const body = dataUrl.slice(comma + 1);
+    let bytes: Uint8Array;
+    if (/;base64/i.test(header)) {
+      const bin = atob(body);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } else {
+      bytes = new TextEncoder().encode(decodeURIComponent(body));
+    }
+    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  } catch {
+    return null;
+  }
+}
+
 export function formatReviewCount(count: number): string {
   if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
   return String(count);
@@ -217,6 +246,11 @@ export function useRestaurantDetail() {
   const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  // base64 data-URL → blob object-URL map, so the iOS web view can render
+  // them (see dataUrlToBlobUrl). Persisted in a ref so a blob still in use by
+  // the hero isn't revoked when the rest of the photos arrive.
+  const photoBlobCacheRef = useRef<Map<string, string>>(new Map());
+  const [photoBlobMap, setPhotoBlobMap] = useState<Record<string, string>>({});
   const [expertRecommendations, setExpertRecommendations] = useState<ExpertRecommendation[]>([]);
   const [showFriendsDetail, setShowFriendsDetail] = useState(false);
   const [hotelDiningOptions, setHotelDiningOptions] = useState<HotelDining[]>([]);
@@ -349,17 +383,53 @@ export function useRestaurantDetail() {
       ? getCuisineLabel(place.types)
       : '';
 
+  // Convert any base64 community photos to blob object URLs (iOS render fix).
+  // Blobs are cached by their source data-URL so one already shown in the hero
+  // survives the cover→full-set swap; only dropped ones are revoked.
+  useEffect(() => {
+    const cache = photoBlobCacheRef.current;
+    const needed = new Set<string>();
+    let changed = false;
+    for (const p of communityPhotos) {
+      if (p.url && p.url.startsWith('data:')) {
+        needed.add(p.url);
+        if (!cache.has(p.url)) {
+          const blob = dataUrlToBlobUrl(p.url);
+          if (blob) { cache.set(p.url, blob); changed = true; }
+        }
+      }
+    }
+    for (const [src, url] of cache) {
+      if (!needed.has(src)) { URL.revokeObjectURL(url); cache.delete(src); changed = true; }
+    }
+    if (changed) setPhotoBlobMap(Object.fromEntries(cache));
+  }, [communityPhotos]);
+  useEffect(() => () => {
+    for (const url of photoBlobCacheRef.current.values()) URL.revokeObjectURL(url);
+    photoBlobCacheRef.current.clear();
+  }, []);
+
   // Merge Google Places photos with community user-uploaded photos
   const photos = useMemo(() => {
     const googlePhotos = place
       ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
       : [];
-    // Show every real photo — only guard against pathologically huge / corrupt
-    // rows (the old 500 KB cap silently dropped normal photos, which read as
-    // "no photos" on the page).
-    const userPhotoUrls = communityPhotos.map((p) => p.url).filter((url) => !!url && url.length < 12_000_000);
+    // Prefer the blob URL for base64 photos (iOS render fix); fall back to the
+    // raw url. Show every real photo — only guard against pathologically huge
+    // / corrupt rows (the old 500 KB cap silently dropped normal photos).
+    const userPhotoUrls = communityPhotos
+      .map((p) => photoBlobMap[p.url] || p.url)
+      .filter((url) => !!url && (url.startsWith('blob:') || url.length < 12_000_000));
     return [...googlePhotos, ...userPhotoUrls];
-  }, [place, communityPhotos]);
+  }, [place, communityPhotos, photoBlobMap]);
+
+  // Community photos with base64 URLs swapped for their blob equivalents, so
+  // the gallery renders reliably on iOS too (same blob URLs the `photos`
+  // array uses, so its Google-vs-community split still lines up).
+  const communityPhotosDisplay = useMemo(
+    () => communityPhotos.map((p) => (photoBlobMap[p.url] ? { ...p, url: photoBlobMap[p.url] } : p)),
+    [communityPhotos, photoBlobMap],
+  );
   const directionsUrl = place
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`
     : '';
@@ -389,7 +459,7 @@ export function useRestaurantDetail() {
 
     communityStats,
     friendsStats,
-    communityPhotos,
+    communityPhotos: communityPhotosDisplay,
     expertRecommendations,
     showFriendsDetail,
     setShowFriendsDetail,
