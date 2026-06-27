@@ -177,6 +177,7 @@ export const GuideDetail: React.FC = () => {
       title: guide.title,
       subtitle: guide.subtitle,
       intro: guide.intro,
+      city: guide.city ?? null,
       coverPhoto: guide.coverPhoto,
       tags: guide.tags,
       visibility: guide.visibility,

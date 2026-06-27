@@ -27,7 +27,9 @@ export interface BrowseGuide {
   count: number;
   /** Days since last update — drives the recency sort + "Updated" label. */
   daysAgo: number;
-  saves: number;
+  /** Bookmark count. Optional — real guides don't track this yet, so the
+   *  stat is hidden when absent. */
+  saves?: number;
 }
 
 /* Filler pool. `cityTitle` is used when the browser is opened from a
@@ -99,18 +101,32 @@ interface GuidesBrowserProps {
   /** Short city name ("New York"). Set on location surfaces — templates the
    *  guide titles and the header. Omit on Discover for the generic pool. */
   cityName?: string;
+  /** Real guides to browse. When provided (even empty), the filler pool is
+   *  NOT used — this is the city's actual public guides. Omit to fall back to
+   *  the placeholder pool (Discover, until it's wired to real data). */
+  realGuides?: BrowseGuide[];
+  /** Open a real guide (navigate to its detail page). Set alongside
+   *  `realGuides` so the cards become tappable. */
+  onOpenGuide?: (id: string) => void;
   /** Parent-supplied mobile signal (each page already has its own). */
   isMobile: boolean;
 }
 
-export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cityName, isMobile }) => {
+export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cityName, realGuides, onOpenGuide, isMobile }) => {
   const { setHideBottomNav } = useSettings();
   const [query, setQuery] = useState('');
   const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortKey>('recent');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const guides = useMemo(() => buildBrowseGuides(cityName), [cityName]);
+  // Real guides when the parent supplies them (location surfaces); otherwise
+  // the placeholder pool. `realGuides === undefined` ⇒ filler; an empty array
+  // ⇒ a genuine "no guides here yet".
+  const usingReal = realGuides !== undefined;
+  const guides = useMemo(
+    () => realGuides ?? buildBrowseGuides(cityName),
+    [realGuides, cityName],
+  );
 
   // Author chips, ordered by how many guides each has so the most
   // prolific people surface first in the scroll row.
@@ -268,41 +284,72 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
     </div>
   );
 
+  // Two empty states: a genuinely-empty city (real mode, no guides at all)
+  // vs. everything filtered out by the search / author chips.
+  const filtersActive = query.trim() !== '' || selectedAuthors.size > 0;
   const grid = (
     <div className="flex-1 overflow-y-auto px-5 pb-safe-5 pt-4">
       {visible.length === 0 ? (
-        <div className="py-16 flex flex-col items-center text-center px-6">
-          <div className="w-12 h-12 rounded-2xl bg-on-surface/[0.05] grid place-items-center text-on-surface/40">
-            <BookOpen size={20} />
+        usingReal && guides.length === 0 ? (
+          <div className="py-16 flex flex-col items-center text-center px-6">
+            <div className="w-12 h-12 rounded-2xl bg-on-surface/[0.05] grid place-items-center text-on-surface/40">
+              <BookOpen size={20} />
+            </div>
+            <p className="mt-3 font-serif font-semibold text-[17px] text-on-surface">
+              {cityName ? `No guides for ${cityName} yet` : 'No guides yet'}
+            </p>
+            <p className="mt-1 text-[13px] text-on-surface/55 max-w-[260px] leading-snug">
+              {cityName
+                ? "When someone publishes a guide for this area, it'll show up here."
+                : "When someone publishes a public guide, it'll show up here."}
+            </p>
           </div>
-          <p className="mt-3 font-serif font-semibold text-[17px] text-on-surface">No guides match</p>
-          <p className="mt-1 text-[13px] text-on-surface/55 max-w-[260px] leading-snug">
-            Try a different search, or clear your filters.
-          </p>
-          <button
-            type="button"
-            onClick={clearAll}
-            className="mt-4 px-4 py-2 rounded-full bg-on-surface text-surface text-[13px] font-semibold hover:opacity-90 transition-opacity"
-          >
-            Clear search & filters
-          </button>
-        </div>
+        ) : (
+          <div className="py-16 flex flex-col items-center text-center px-6">
+            <div className="w-12 h-12 rounded-2xl bg-on-surface/[0.05] grid place-items-center text-on-surface/40">
+              <BookOpen size={20} />
+            </div>
+            <p className="mt-3 font-serif font-semibold text-[17px] text-on-surface">No guides match</p>
+            <p className="mt-1 text-[13px] text-on-surface/55 max-w-[260px] leading-snug">
+              Try a different search, or clear your filters.
+            </p>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={clearAll}
+                className="mt-4 px-4 py-2 rounded-full bg-on-surface text-surface text-[13px] font-semibold hover:opacity-90 transition-opacity"
+              >
+                Clear search & filters
+              </button>
+            )}
+          </div>
+        )
       ) : (
         <div className={cn('grid gap-3 pb-6', isMobile ? 'grid-cols-2' : 'grid-cols-3')}>
           {visible.map((g) => (
             <article
               key={g.id}
-              className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] hover:border-on-surface/15"
+              onClick={onOpenGuide ? () => { onOpenGuide(g.id); onClose(); } : undefined}
+              className={cn(
+                'bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] hover:border-on-surface/15',
+                onOpenGuide && 'cursor-pointer',
+              )}
             >
-              <div className="relative aspect-[1/0.78] overflow-hidden">
-                <img
-                  src={g.image}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
+              <div className="relative aspect-[1/0.78] overflow-hidden bg-on-surface/[0.04]">
+                {g.image ? (
+                  <img
+                    src={g.image}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="absolute inset-0 grid place-items-center text-on-surface/25">
+                    <BookOpen size={26} />
+                  </div>
+                )}
                 <div
                   className="absolute inset-0 pointer-events-none"
                   style={{
@@ -330,7 +377,9 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
                 </div>
                 <div className="mt-2 flex items-center gap-3 text-[11px] font-semibold text-on-surface/45">
                   <span className="inline-flex items-center gap-1"><Clock size={11} />{agoLabel(g.daysAgo)}</span>
-                  <span className="inline-flex items-center gap-1"><Bookmark size={11} />{g.saves}</span>
+                  {g.saves != null && (
+                    <span className="inline-flex items-center gap-1"><Bookmark size={11} />{g.saves}</span>
+                  )}
                 </div>
               </div>
             </article>

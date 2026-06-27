@@ -18,7 +18,7 @@ import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
-import { GuidesBrowser } from '../components/GuidesBrowser';
+import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
@@ -526,6 +526,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         const profiles = await getProfilesByIds(authorIds);
         if (!cancelled) setFeedGuideAuthors(profiles);
       }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // Real guides for the "Browse all" popup — a broader public pool than the
+  // rail (includes the caller's own guides; no filler). Fetched once on mount
+  // so the popup opens populated.
+  const [browseGuides, setBrowseGuides] = useState<BrowseGuide[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const gs = await getGuidesForFeed({ limit: 60 });
+      if (cancelled) return;
+      const authorIds = Array.from(new Set(gs.map((g) => g.userId)));
+      const authors = authorIds.length > 0 ? await getProfilesByIds(authorIds) : {};
+      if (cancelled) return;
+      const dayMs = 86400000;
+      setBrowseGuides(gs.map((g) => {
+        const t = Date.parse(g.updatedAt || '');
+        const a = authors[g.userId];
+        return {
+          id: g.id,
+          title: g.title.trim() || 'Untitled guide',
+          author: a?.display_name || a?.username || 'A local',
+          image: g.coverPhoto || '',
+          count: g.entries.length,
+          daysAgo: Number.isNaN(t) ? 0 : Math.max(0, Math.floor((Date.now() - t) / dayMs)),
+        };
+      }));
     })();
     return () => { cancelled = true; };
   }, [userId]);
@@ -5928,6 +5957,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       <GuidesBrowser
         open={guidesBrowserOpen}
         onClose={() => setGuidesBrowserOpen(false)}
+        realGuides={browseGuides}
+        onOpenGuide={(id) => navigate(`/guides/${id}`)}
         isMobile={!usingDesktopHeader}
       />
     </div>

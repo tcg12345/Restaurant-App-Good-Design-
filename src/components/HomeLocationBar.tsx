@@ -122,6 +122,38 @@ export async function searchLocations(query: string): Promise<HomeLocation[]> {
 }
 
 /**
+ * City-only autocomplete suggestions. Like {@link searchLocations} but limited
+ * to cities / towns (Mapbox `place`, `locality`) so a "which city is this for?"
+ * field doesn't surface neighborhoods, regions or countries. Each result also
+ * carries `cityName` — just the city token, no region/country suffix — for
+ * callers that want to store a clean city name.
+ */
+export async function searchCities(
+  query: string,
+): Promise<Array<HomeLocation & { cityName: string }>> {
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=6&autocomplete=true`,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const features: any[] = Array.isArray(data.features) ? data.features : [];
+    return features
+      .filter((f) => Array.isArray(f.center) && f.center.length >= 2)
+      .map((f) => {
+        const label = (f.place_name as string) || (f.text as string) || '';
+        const cityName = ((f.text as string) || label.split(',')[0] || '').trim();
+        return { label, cityName, lat: f.center[1] as number, lng: f.center[0] as number };
+      })
+      .filter((l) => l.label && l.cityName);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Resolve the device's current location to a HomeLocation (lat/lng + address
  * label). Used by every "Use current location" entry point in the app.
  *

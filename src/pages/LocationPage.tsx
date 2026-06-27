@@ -100,21 +100,18 @@ import {
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
-import { GuidesBrowser } from '../components/GuidesBrowser';
+import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
+import { getGuidesForLocation, type Guide as GuideRow } from '../lib/supabase-guides';
 import { HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 
-/* ── Placeholder guides ──────────────────────────────────────────────────────
-   Same visual language as the Home page's horizontal guide scroller. Titles
-   are templated with the selected city so the row doesn't read like
-   someone else's trip — "A Pasta Crawl Through Westport" feels local even
-   while the guide feature itself is still static content. Photos are
-   generic enough to work anywhere.
-
-   `{city}` is replaced with the short city name (e.g. "Westport",
-   "New York") and `{CITY}` with its uppercase form for headlines.
-   ──────────────────────────────────────────────────────────────────── */
-type Guide = {
+/* ── Guide card view-model ────────────────────────────────────────────────────
+   The Guides rail renders real, published guides for the selected city
+   (fetched via getGuidesForLocation — either tagged with the city or
+   containing at least one spot in it). Each card needs only this
+   denormalized shape; the author byline is resolved from the guide's
+   user_id. */
+type LocationGuideCard = {
   id: string;
   title: string;
   author: string;
@@ -122,56 +119,13 @@ type Guide = {
   count: number;
 };
 
-const GUIDE_TEMPLATES: Array<{
-  id: string;
-  titleTemplate: string;
-  author: string;
-  image: string;
-  count: number;
-}> = [
-  {
-    id: 'g-local-pasta',
-    titleTemplate: 'A Pasta Crawl Through {city}',
-    author: 'Jamie Lin',
-    image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
-    count: 9,
-  },
-  {
-    id: 'g-local-date-night',
-    titleTemplate: 'Where {city} Locals Take a Date',
-    author: 'Camille Durand',
-    image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
-    count: 12,
-  },
-  {
-    id: 'g-local-hidden-gems',
-    titleTemplate: 'Hidden Gems in {city}',
-    author: 'Marco Rossi',
-    image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
-    count: 8,
-  },
-  {
-    id: 'g-local-brunch',
-    titleTemplate: 'A Proper Brunch Itinerary in {city}',
-    author: 'Aiko Tanaka',
-    image: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&q=80&w=800',
-    count: 7,
-  },
-  {
-    id: 'g-local-fine-dining',
-    titleTemplate: 'Tasting-Menu Temples Near {city}',
-    author: 'Diego Ramirez',
-    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
-    count: 10,
-  },
-];
-
-function buildLocationGuides(shortCity: string): Guide[] {
-  const city = shortCity.trim() || 'your area';
-  return GUIDE_TEMPLATES.map(({ titleTemplate, ...rest }) => ({
-    ...rest,
-    title: titleTemplate.replace(/\{city\}/g, city),
-  }));
+/** Whole days between an ISO timestamp and now (clamped at 0). Drives the
+ *  "Browse all" popup's recency sort + "Updated" label for real guides. */
+function daysSinceIso(iso?: string): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 }
 
 /* ── Filler suggestions ──────────────────────────────────────────────────────
@@ -571,9 +525,67 @@ export const LocationPage: React.FC = () => {
     return first || cityDisplay;
   }, [cityDisplay]);
 
-  const locationGuides = useMemo(
-    () => buildLocationGuides(shortCityName),
-    [shortCityName],
+  // Real, published guides for this city — tagged with the city or
+  // containing at least one spot in it. Fetched per city; authors resolved
+  // for the byline. `guidesLoaded` distinguishes "still fetching" from
+  // "genuinely none" so the empty state doesn't flash on first paint.
+  const [guideRows, setGuideRows] = useState<GuideRow[]>([]);
+  const [guideAuthors, setGuideAuthors] = useState<Record<string, UserProfile>>({});
+  const [guidesLoaded, setGuidesLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!shortCityName.trim()) {
+      setGuideRows([]);
+      setGuidesLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setGuidesLoaded(false);
+    setGuideRows([]);
+    (async () => {
+      const rows = await getGuidesForLocation({ city: shortCityName, limit: 30 });
+      if (cancelled) return;
+      setGuideRows(rows);
+      const authorIds = Array.from(new Set(rows.map((g) => g.userId)));
+      if (authorIds.length > 0) {
+        const authors = await getProfilesByIds(authorIds);
+        if (!cancelled) setGuideAuthors((prev) => ({ ...prev, ...authors }));
+      }
+      if (!cancelled) setGuidesLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [shortCityName]);
+
+  const guideAuthorName = useCallback(
+    (userId: string): string => {
+      const a = guideAuthors[userId];
+      return a?.display_name || a?.username || 'A local';
+    },
+    [guideAuthors],
+  );
+
+  const locationGuides = useMemo<LocationGuideCard[]>(
+    () => guideRows.map((g) => ({
+      id: g.id,
+      title: g.title.trim() || 'Untitled guide',
+      author: guideAuthorName(g.userId),
+      image: g.coverPhoto || '',
+      count: g.entries.length,
+    })),
+    [guideRows, guideAuthorName],
+  );
+
+  // Same guides, shaped for the "Browse all" popup.
+  const browseGuides = useMemo<BrowseGuide[]>(
+    () => guideRows.map((g) => ({
+      id: g.id,
+      title: g.title.trim() || 'Untitled guide',
+      author: guideAuthorName(g.userId),
+      image: g.coverPhoto || '',
+      count: g.entries.length,
+      daysAgo: daysSinceIso(g.updatedAt),
+    })),
+    [guideRows, guideAuthorName],
   );
 
   // User's taste profile, reused to score every batch we fetch. `recentViews`
@@ -614,6 +626,9 @@ export const LocationPage: React.FC = () => {
   // can't say someone is "in this area" without that signal.
   const [areaExperts, setAreaExperts] = useState<UserProfile[]>([]);
   const [areaFriendCandidates, setAreaFriendCandidates] = useState<UserProfile[]>([]);
+  // True once the area lookup has resolved — lets the Local experts section
+  // tell "still loading" apart from "genuinely nobody here yet".
+  const [areaLoaded, setAreaLoaded] = useState(false);
   // Optimistic "just followed / just requested" set so the suggestion
   // card buttons flip to their done state instantly, before the server
   // round-trip resolves.
@@ -724,9 +739,11 @@ export const LocationPage: React.FC = () => {
     if (!hasCoords) {
       setAreaExperts([]);
       setAreaFriendCandidates([]);
+      setAreaLoaded(true);
       return;
     }
     let cancelled = false;
+    setAreaLoaded(false);
     const dLat = 8 / 69; // ~8 mi → degrees of latitude
     const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
     const dLng = (8 / 69) / cosLat;
@@ -747,6 +764,7 @@ export const LocationPage: React.FC = () => {
       // Drop experts from the friend-candidate list so a single profile
       // doesn't render twice in the same row.
       setAreaFriendCandidates(candidates.filter((p) => !p.is_expert));
+      setAreaLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [hasCoords, lat, lng, userId]);
@@ -2650,45 +2668,61 @@ export const LocationPage: React.FC = () => {
           </div>
           )}
           <div className="collapsible-body">
-            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
-              {locationGuides.map((g) => {
-                const initial = (g.author || '?').charAt(0).toUpperCase();
-                return (
-                  <article key={g.id} className="gd-card">
-                    <div className="gd-img" style={{ backgroundImage: `url(${g.image})` }} />
-                    <div className="gd-stamp">
-                      <BookOpen /> Guide · {g.count} spots
-                    </div>
-                    <div className="gd-meta">
-                      <h3 className="gd-title">{g.title}</h3>
-                      <div className="gd-by">
-                        <span className="av" style={{ background: 'var(--accent)' }}>{initial}</span>
-                        by {g.author}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-              {/* End-of-rail "Browse all" tile — same affordance the header
-                  link provides on desktop, and the only entry point on
-                  mobile where the header is a collapse toggle. */}
-              <button
-                type="button"
-                className="gd-card gd-browse-all"
-                onClick={() => setGuidesBrowserOpen(true)}
+            {guidesLoaded && locationGuides.length === 0 ? (
+              <div
+                className="lp-empty-row"
+                style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
               >
-                <span className="gd-browse-all-icon"><BookOpen /></span>
-                <span className="gd-browse-all-title">Browse all guides</span>
-                <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
-              </button>
-            </div>
+                No guides for {shortCityName} yet. Be the first to create one.
+              </div>
+            ) : (
+              <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
+                {locationGuides.map((g) => {
+                  const initial = (g.author || '?').charAt(0).toUpperCase();
+                  return (
+                    <Link key={g.id} to={`/guides/${g.id}`} className="gd-card">
+                      <div
+                        className="gd-img"
+                        style={g.image ? { backgroundImage: `url(${g.image})` } : undefined}
+                      />
+                      <div className="gd-stamp">
+                        <BookOpen /> Guide · {g.count} spots
+                      </div>
+                      <div className="gd-meta">
+                        <h3 className="gd-title">{g.title}</h3>
+                        <div className="gd-by">
+                          <span className="av" style={{ background: 'var(--accent)' }}>{initial}</span>
+                          by {g.author}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+                {/* End-of-rail "Browse all" tile — same affordance the header
+                    link provides on desktop, and the only entry point on
+                    mobile where the header is a collapse toggle. Only shown
+                    once there's at least one real guide to browse. */}
+                {locationGuides.length > 0 && (
+                  <button
+                    type="button"
+                    className="gd-card gd-browse-all"
+                    onClick={() => setGuidesBrowserOpen(true)}
+                  >
+                    <span className="gd-browse-all-icon"><BookOpen /></span>
+                    <span className="gd-browse-all-title">Browse all guides</span>
+                    <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </section>
 
         {/* ── Local experts ───────────────────────────────────────────── */}
         {(() => {
-          const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
-          if (experts.length === 0) return null;
+          // Real experts only — people whose declared home base sits in this
+          // city's area. No filler: when there are none, we say so.
+          const experts = areaExperts;
           return (
             <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
               {isMobile ? (
@@ -2743,9 +2777,16 @@ export const LocationPage: React.FC = () => {
               </div>
               )}
               <div className="collapsible-body">
+                {areaLoaded && experts.length === 0 ? (
+                  <div
+                    className="lp-empty-row"
+                    style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
+                  >
+                    No local experts in {shortCityName} yet.
+                  </div>
+                ) : (
                 <div className={cn('exp-row', isMobile && 'is-mobile')} ref={expertsRowRef}>
                   {experts.map((e) => {
-                    const filler = isFillerProfile(e);
                     const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
                     const initial = (e.display_name || e.username || '?').charAt(0).toUpperCase();
                     // Deterministic avatar color from username so reloads
@@ -2779,18 +2820,15 @@ export const LocationPage: React.FC = () => {
                           >
                             {isFollowing ? '✓ Following' : 'Follow'}
                           </button>
-                          {filler ? (
-                            <span className="btn-view" aria-hidden="true"><ChevronRight /></span>
-                          ) : (
-                            <Link className="btn-view" to={`/user/${e.username}`} aria-label={`View ${e.display_name || e.username}`}>
-                              <ChevronRight />
-                            </Link>
-                          )}
+                          <Link className="btn-view" to={`/user/${e.username}`} aria-label={`View ${e.display_name || e.username}`}>
+                            <ChevronRight />
+                          </Link>
                         </div>
                       </article>
                     );
                   })}
                 </div>
+                )}
               </div>
             </section>
           );
@@ -3202,6 +3240,8 @@ export const LocationPage: React.FC = () => {
         open={guidesBrowserOpen}
         onClose={() => setGuidesBrowserOpen(false)}
         cityName={shortCityName}
+        realGuides={browseGuides}
+        onOpenGuide={(id) => navigate(`/guides/${id}`)}
         isMobile={isMobile}
       />
 

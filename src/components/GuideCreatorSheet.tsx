@@ -19,7 +19,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { X, ArrowLeft, ArrowRight, Plus, Trash2, BookOpen, ChefHat, Check, GripVertical, ImagePlus, Loader2, Globe, Lock, Search, ListChecks, Star, Wand2 } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Plus, Trash2, BookOpen, ChefHat, Check, GripVertical, ImagePlus, Loader2, Globe, Lock, Search, ListChecks, Star, Wand2, MapPin } from 'lucide-react';
+import { searchCities, type HomeLocation } from './HomeLocationBar';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type CustomList, type RestaurantRating, type Recipe as ListRecipe } from '../contexts/ListsContext';
@@ -234,6 +235,10 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [intro, setIntro] = useState('');
+  // Optional city this guide is "for" — surfaces it on that city's Location
+  // page. Guides also auto-surface there via any entry in the city, so this
+  // is a convenience tag, not a requirement.
+  const [city, setCity] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [coverPhoto, setCoverPhoto] = useState('');
   const [visibility, setVisibility] = useState<GuideVisibility>(accountIsPublic ? 'public' : 'private');
@@ -259,6 +264,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setTitle(initialGuide.title);
       setSubtitle(initialGuide.subtitle);
       setIntro(initialGuide.intro);
+      setCity(initialGuide.city || '');
       setTags(initialGuide.tags);
       setCoverPhoto(initialGuide.coverPhoto);
       setVisibility(initialGuide.visibility);
@@ -277,6 +283,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setTitle('');
       setSubtitle('');
       setIntro('');
+      setCity('');
       setTags([]);
       setCoverPhoto('');
       setTheme(undefined);
@@ -465,6 +472,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       title: title.trim(),
       subtitle: subtitle.trim(),
       intro: intro.trim(),
+      city: city.trim() || null,
       coverPhoto,
       tags,
       visibility,
@@ -511,6 +519,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     title: title.trim(),
     subtitle: subtitle.trim(),
     intro: intro.trim(),
+    city: city.trim() || null,
     coverPhoto,
     tags,
     visibility,
@@ -522,7 +531,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     theme,
     createdAt: initialGuide?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  }), [editingId, user?.id, type, title, subtitle, intro, coverPhoto, tags, visibility,
+  }), [editingId, user?.id, type, title, subtitle, intro, city, coverPhoto, tags, visibility,
        includePhotos, entries, theme, initialGuide?.isPublished, initialGuide?.createdAt]);
 
   // Distribute the editor's snapshot back into the wizard's split state.
@@ -530,6 +539,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setTitle(next.title);
     setSubtitle(next.subtitle);
     setIntro(next.intro);
+    setCity(next.city || '');
     setCoverPhoto(next.coverPhoto);
     setTags(next.tags);
     setEntries(next.entries);
@@ -566,6 +576,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       title: (latest.title || '').trim(),
       subtitle: (latest.subtitle || '').trim(),
       intro: (latest.intro || '').trim(),
+      city: (latest.city || '').trim() || null,
       coverPhoto: latest.coverPhoto,
       tags: latest.tags,
       visibility: latest.visibility,
@@ -610,10 +621,12 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             title={title}
             subtitle={subtitle}
             intro={intro}
+            city={city}
             tags={tags}
             onTitle={setTitle}
             onSubtitle={setSubtitle}
             onIntro={setIntro}
+            onCity={setCity}
             onToggleTag={(t) => setTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
             onAddTag={(t) => setTags((prev) => prev.includes(t) ? prev : [...prev, t])}
             onRemoveTag={(t) => setTags((prev) => prev.filter((x) => x !== t))}
@@ -1555,20 +1568,99 @@ const StepCover: React.FC<StepCoverProps> = ({ coverPhoto, entries, onPickCoverF
 
 /* ── Step: Details (title + subtitle + intro + tags) ──────────────── */
 
+/* City autocomplete for the Details step — Mapbox city suggestions, styled to
+   match the creator's `gc-input`. On pick it stores the clean city name (no
+   region/country suffix) so it lines up with how the Location page derives its
+   short city name. Free-typed text is kept as-is. */
+const GuideCityField: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+  const [suggestions, setSuggestions] = useState<Array<HomeLocation & { cityName: string }>>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNext = useRef(false);
+
+  useEffect(() => {
+    if (skipNext.current) { skipNext.current = false; return; }
+    const q = value.trim();
+    if (timer.current) clearTimeout(timer.current);
+    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      const res = await searchCities(q);
+      setSuggestions(res);
+      setOpen(res.length > 0);
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [value]);
+
+  const pick = (s: HomeLocation & { cityName: string }) => {
+    skipNext.current = true;
+    onChange(s.cityName);
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        className="gc-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="e.g. New York"
+        maxLength={80}
+        autoCapitalize="words"
+        autoCorrect="off"
+        onFocus={() => { if (suggestions.length) setOpen(true); }}
+        onBlur={() => { setTimeout(() => setOpen(false), 150); }}
+      />
+      {open && suggestions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)', zIndex: 40,
+            overflow: 'hidden', borderRadius: 12,
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--hairline, rgba(31,26,23,0.12))',
+            boxShadow: '0 16px 40px rgba(28,24,22,0.18)',
+          }}
+        >
+          {suggestions.map((s, i) => (
+            <button
+              key={`${s.label}-${i}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); pick(s); }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                textAlign: 'left', padding: '11px 14px', background: 'transparent',
+                border: 'none', borderTop: i === 0 ? 'none' : '1px solid var(--hairline, rgba(31,26,23,0.07))',
+                cursor: 'pointer', font: 'inherit', fontSize: 14.5, color: 'var(--ink, #1C1816)',
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,57,42,0.06)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'transparent')}
+            >
+              <MapPin size={15} style={{ color: 'var(--muted, #8C8278)', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface StepDetailsProps {
   title: string;
   subtitle: string;
   intro: string;
+  city: string;
   tags: string[];
   onTitle: (v: string) => void;
   onSubtitle: (v: string) => void;
   onIntro: (v: string) => void;
+  onCity: (v: string) => void;
   onToggleTag: (t: string) => void;
   onAddTag: (t: string) => void;
   onRemoveTag: (t: string) => void;
 }
 
-const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, tags, onTitle, onSubtitle, onIntro, onToggleTag, onAddTag, onRemoveTag }) => {
+const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, city, tags, onTitle, onSubtitle, onIntro, onCity, onToggleTag, onAddTag, onRemoveTag }) => {
   const [tagDraft, setTagDraft] = useState('');
   const tagDraftTrimmed = tagDraft.trim().toLowerCase();
   const tagSuggestions = useMemo(() => {
@@ -1618,6 +1710,15 @@ const StepDetails: React.FC<StepDetailsProps> = ({ title, subtitle, intro, tags,
           placeholder="A one-line tease that sits under the title."
           maxLength={160}
         />
+      </div>
+
+      <div className="gc-field">
+        <div className="gc-label">City <span className="opt">optional</span></div>
+        <GuideCityField value={city} onChange={onCity} />
+        <p className="gc-help">
+          Surfaces your guide when people explore this city. Guides also show up
+          there automatically if they include a spot in that city.
+        </p>
       </div>
 
       <div className="gc-field">

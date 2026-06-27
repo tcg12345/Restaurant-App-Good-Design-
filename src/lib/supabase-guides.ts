@@ -8,6 +8,7 @@
  * users to read.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { sameCity, cityFromAddress } from './city';
 
 export type GuideType = 'restaurants' | 'recipes';
 export type GuideVisibility = 'private' | 'public';
@@ -50,6 +51,11 @@ export interface GuideEntry {
   insiderTip?: string;
   /** Restaurant entries only — surfaced under the title. */
   neighborhood?: string;
+  /** Restaurant entries only — the city the place is in, captured at insert
+   *  time from the restaurant's address. Lets a guide surface on a city's
+   *  Location page when it includes a spot there, even if the author never
+   *  set the guide's explicit `city` tag. Best-effort; may be absent. */
+  city?: string;
   hours?: string;
   /** Restaurant entries only — separately editable in the Live Editor.
    *  Originally derived into `subtitle`; we now keep both so the editor's
@@ -241,6 +247,11 @@ export interface Guide {
   tags: string[];
   visibility: GuideVisibility;
   isPublished: boolean;
+  /** Optional city this guide is "for" — set by the author in the creator.
+   *  Drives discovery on a city's Location page. A guide also surfaces there
+   *  when any of its entries is in that city (see {@link guideMatchesCity}),
+   *  so this tag is a convenience, not a requirement. Null when unset. */
+  city?: string | null;
   /** When false, entry cards render text-only on the published guide
    *  (no per-entry hero image). The guide's cover photo is still used.
    *  Defaults to true to keep legacy rows looking identical. */
@@ -270,6 +281,19 @@ export const isRealGuide = (g: Guide): boolean =>
 export const isPublicGuide = (g: Guide): boolean =>
   g.visibility === 'public' && g.isPublished && isRealGuide(g);
 
+/**
+ * Whether a guide belongs on a given city's Location page. True when the
+ * author tagged the guide with that city, OR when any restaurant entry is in
+ * that city (captured on the entry at insert time). City comparison is
+ * case/accent-insensitive but does not reconcile boroughs / adjacent towns
+ * with their parent metro — see src/lib/city.ts.
+ */
+export const guideMatchesCity = (g: Guide, city: string): boolean => {
+  if (!city.trim()) return false;
+  if (sameCity(g.city, city)) return true;
+  return g.entries.some((e) => sameCity(e.city, city));
+};
+
 function rowToGuide(row: Record<string, unknown>): Guide {
   return {
     id: row.id as string,
@@ -282,6 +306,8 @@ function rowToGuide(row: Record<string, unknown>): Guide {
     tags: (row.tags as string[]) || [],
     visibility: (row.visibility as GuideVisibility) || 'private',
     isPublished: (row.is_published as boolean) ?? false,
+    // city: null for rows pre-dating migration 033 (column absent → undefined).
+    city: (row.city as string | null) ?? null,
     // include_photos: default true for rows pre-dating migration 027.
     includePhotos: row.include_photos == null ? true : (row.include_photos as boolean),
     entries: ((row.entries as GuideEntry[]) || []),
@@ -330,6 +356,7 @@ export async function saveGuide(
       tags: draft.tags,
       visibility: draft.visibility,
       is_published: draft.isPublished,
+      city: draft.city ?? null,
       include_photos: draft.includePhotos,
       entries: draft.entries,
       avg_score: avgScore,
@@ -361,6 +388,19 @@ export async function saveGuide(
     // yet — keeps the feature usable until the user runs migration 027.
     if (error && /include_photos/i.test(error.message || '')) {
       const { include_photos: _drop, ...legacy } = payload;
+      const retry = await supabase
+        .from('guides')
+        .upsert(legacy, { onConflict: 'id' })
+        .select('*')
+        .single();
+      data = retry.data as typeof data;
+      error = retry.error;
+    }
+    // Retry without `city` if the column hasn't been migrated yet — keeps the
+    // guide saving until the user runs migration 033. The city tag just won't
+    // persist server-side until then (entry-level city matching still works).
+    if (error && /\bcity\b/i.test(error.message || '')) {
+      const { city: _dropCity, ...legacy } = payload;
       const retry = await supabase
         .from('guides')
         .upsert(legacy, { onConflict: 'id' })
@@ -496,6 +536,112 @@ export async function getGuidesForFeed(opts: {
     return ((data as Record<string, unknown>[]) || []).map(rowToGuide);
   } catch (err) {
     console.error('[Supabase] getGuidesForFeed exception:', err);
+    return [];
+  }
+}
+
+/**
+ * Resolve restaurant ids → city, reading the community_ratings table's stored
+ * addresses. Lets a guide whose entries predate per-entry city capture still
+ * be located by city. Community ratings are world-readable, so this works for
+ * any viewer (not just the guide owner). First non-empty city per id wins.
+ */
+async function resolveRestaurantCities(refIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!supabaseConfigured || refIds.length === 0) return out;
+  const CHUNK = 150;
+  for (let i = 0; i < refIds.length; i += CHUNK) {
+    const chunk = refIds.slice(i, i + CHUNK);
+    try {
+      const { data, error } = await supabase
+        .from('community_ratings')
+        .select('restaurant_id,address')
+        .in('restaurant_id', chunk);
+      if (error || !data) continue;
+      for (const row of data as { restaurant_id: string; address: string }[]) {
+        if (out.has(row.restaurant_id)) continue;
+        const c = cityFromAddress(row.address);
+        if (c) out.set(row.restaurant_id, c);
+      }
+    } catch {
+      // Best-effort enrichment — skip this chunk on failure.
+    }
+  }
+  return out;
+}
+
+/**
+ * Guides to surface on a city's Location page. Returns published + public
+ * guides that either carry that city tag, include an entry whose stored city
+ * matches, or include a restaurant whose community-rating address resolves to
+ * that city (so guides created before per-entry city capture still appear).
+ * Newest first.
+ *
+ * Implementation note: city lives both as a top-level `city` tag and inside
+ * the `entries` JSONB, which Postgres can't filter cheaply without bespoke
+ * indexing. At the app's current scale we fetch a recent slice of public
+ * guides and match in-process; move this to a SQL function / materialized
+ * column if the public-guide count grows large.
+ */
+export async function getGuidesForLocation(opts: {
+  city: string;
+  limit?: number;
+  excludeUserId?: string;
+}): Promise<Guide[]> {
+  if (!supabaseConfigured) return [];
+  const city = (opts.city || '').trim();
+  if (!city) return [];
+  const { limit = 30, excludeUserId } = opts;
+  // Cap the scan so a busy instance doesn't pull the entire public-guide
+  // table. Explicit-city guides older than this slice can be missed; that's
+  // an acceptable tradeoff until this moves server-side.
+  const SCAN_LIMIT = 200;
+  try {
+    let q = supabase
+      .from('guides')
+      .select('*')
+      .eq('is_published', true)
+      .eq('visibility', 'public')
+      .order('created_at', { ascending: false })
+      .limit(SCAN_LIMIT);
+    if (excludeUserId) q = q.neq('user_id', excludeUserId);
+    const { data, error } = await q;
+    if (error) {
+      console.error('[Supabase] getGuidesForLocation error:', error);
+      return [];
+    }
+    const candidates = ((data as Record<string, unknown>[]) || [])
+      .map(rowToGuide)
+      .filter(isPublicGuide);
+
+    // Pass 1: match on the data stored ON the guide (city tag / entry city).
+    const matchedIds = new Set<string>();
+    const unresolved: Guide[] = [];
+    for (const g of candidates) {
+      if (guideMatchesCity(g, city)) matchedIds.add(g.id);
+      else unresolved.push(g);
+    }
+
+    // Pass 2: for the rest, resolve each entry's restaurant city from
+    // community_ratings (covers guides made before per-entry city capture).
+    if (unresolved.length > 0) {
+      const refIds = Array.from(
+        new Set(unresolved.flatMap((g) => g.entries.map((e) => e.refId).filter(Boolean))),
+      );
+      const cityByRef = await resolveRestaurantCities(refIds);
+      if (cityByRef.size > 0) {
+        for (const g of unresolved) {
+          if (g.entries.some((e) => e.refId && sameCity(cityByRef.get(e.refId), city))) {
+            matchedIds.add(g.id);
+          }
+        }
+      }
+    }
+
+    // Preserve newest-first ordering from the candidate scan.
+    return candidates.filter((g) => matchedIds.has(g.id)).slice(0, limit);
+  } catch (err) {
+    console.error('[Supabase] getGuidesForLocation exception:', err);
     return [];
   }
 }

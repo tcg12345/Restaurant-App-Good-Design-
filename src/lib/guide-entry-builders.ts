@@ -10,6 +10,7 @@ import type { Recipe as DbRecipe } from '../contexts/RecipesContext';
 import type { Recipe as ListRecipe } from '../contexts/ListsContext';
 import type { GuideEntry } from './supabase-guides';
 import { priceLevelToString, type PlaceResult } from './places';
+import { cityFromAddress, cityFromAddressComponents } from './city';
 
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -29,6 +30,13 @@ export function entryFromRating(
     const key = d.toLowerCase();
     if (!seen.has(key)) { seen.add(key); allDishes.push(d); }
   }
+  // City of the restaurant — captured so a guide can surface on a city's
+  // Location page when it includes a spot there. Prefer Google's structured
+  // locality, then fall back to parsing the cached meta / rating address.
+  const city =
+    cityFromAddressComponents(meta?.addressComponents) ||
+    cityFromAddress(meta?.address) ||
+    cityFromAddress(r.address);
   return {
     id: newEntryId(),
     refId: r.restaurantId,
@@ -42,6 +50,7 @@ export function entryFromRating(
     mustOrder: allDishes.length > 0 ? allDishes : undefined,
     neighborhood: meta?.neighborhood,
     hours: meta?.hours?.[0]?.split(': ')[1],
+    city: city || undefined,
   };
 }
 
@@ -62,6 +71,7 @@ export function entryFromPlace(p: PlaceResult): GuideEntry {
     image: p.photoUrl || '',
     score: undefined,
     neighborhood: p.address || undefined,
+    city: cityFromAddress(p.address) || undefined,
   };
 }
 
