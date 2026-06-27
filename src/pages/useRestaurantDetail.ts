@@ -25,23 +25,14 @@ export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
  * Converting them to blob object URLs renders reliably. Returns null for
  * anything that isn't a data URL so callers can keep the original.
  */
-export function dataUrlToBlobUrl(dataUrl: string): string | null {
+export async function dataUrlToBlobUrl(dataUrl: string): Promise<string | null> {
   try {
     if (!dataUrl.startsWith('data:')) return null;
-    const comma = dataUrl.indexOf(',');
-    if (comma < 0) return null;
-    const header = dataUrl.slice(0, comma);
-    const mime = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
-    const body = dataUrl.slice(comma + 1);
-    let bytes: Uint8Array;
-    if (/;base64/i.test(header)) {
-      const bin = atob(body);
-      bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    } else {
-      bytes = new TextEncoder().encode(decodeURIComponent(body));
-    }
-    return URL.createObjectURL(new Blob([bytes], { type: mime }));
+    // fetch() decodes the data URL natively — far faster and more memory-safe
+    // than an atob() char-by-char loop, which choked/threw on large photos
+    // (so those just vanished from the page).
+    const blob = await fetch(dataUrl).then((r) => r.blob());
+    return URL.createObjectURL(blob);
   } catch {
     return null;
   }
@@ -297,14 +288,6 @@ export function useRestaurantDetail() {
     const warn = (what: string) => (err: unknown) =>
       console.warn(`[RestaurantDetail] ${what} fetch failed:`, err);
     getCommunityStats(place.id).then(setCommunityStats).catch(warn('community stats'));
-    // Cover first (a single row) so the hero paints immediately even when a
-    // restaurant has many heavy photos; then the full set fills in behind it
-    // for the carousel + gallery. The cover only seeds an empty list so it
-    // never clobbers the full result if that arrives first.
-    getCommunityPhotos(place.id, 1)
-      .then((cover) => setCommunityPhotos((prev) => (prev.length > 0 ? prev : cover)))
-      .catch(warn('community cover photo'));
-    getCommunityPhotos(place.id).then(setCommunityPhotos).catch(warn('community photos'));
     getExpertRecommendations(place.id).then(setExpertRecommendations).catch(warn('expert recommendations'));
 
     // Seed visit history from localStorage first so the UI reflects a
@@ -383,26 +366,65 @@ export function useRestaurantDetail() {
       ? getCuisineLabel(place.types)
       : '';
 
+  // Load community photos: the cover first (one tiny row → instant hero), then
+  // the full set behind it. getCommunityPhotos returns [] on error/timeout, and
+  // a many-photo restaurant's big request is exactly what fails on a cold load
+  // — so the original `.then(setCommunityPhotos)` was wiping the cover back out
+  // (photos showed nothing on the first visit but were fine on the second, once
+  // the response was cached). We only let a non-empty result replace what's
+  // shown; the `cancelled` guard stops a stale fetch writing one restaurant's
+  // photos onto the next when the user navigates quickly.
+  useEffect(() => {
+    const id = place?.id;
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cover = await getCommunityPhotos(id, 1);
+        if (cancelled) return;
+        if (cover.length > 0) setCommunityPhotos(cover);
+        const all = await getCommunityPhotos(id);
+        if (cancelled) return;
+        // Only a non-empty result replaces what's shown — a failed/timed-out
+        // full fetch returns [] and must NOT wipe the cover.
+        if (all.length > 0) setCommunityPhotos(all);
+      } catch (err) {
+        if (!cancelled) console.warn('[RestaurantDetail] community photos fetch failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [place?.id]);
+
   // Convert any base64 community photos to blob object URLs (iOS render fix).
   // Blobs are cached by their source data-URL so one already shown in the hero
   // survives the cover→full-set swap; only dropped ones are revoked.
   useEffect(() => {
+    let cancelled = false;
     const cache = photoBlobCacheRef.current;
-    const needed = new Set<string>();
-    let changed = false;
-    for (const p of communityPhotos) {
-      if (p.url && p.url.startsWith('data:')) {
-        needed.add(p.url);
-        if (!cache.has(p.url)) {
-          const blob = dataUrlToBlobUrl(p.url);
-          if (blob) { cache.set(p.url, blob); changed = true; }
+    (async () => {
+      const needed = new Set<string>();
+      for (const p of communityPhotos) {
+        if (p.url && p.url.startsWith('data:')) {
+          needed.add(p.url);
+          if (!cache.has(p.url)) {
+            const blob = await dataUrlToBlobUrl(p.url);
+            if (cancelled) { if (blob) URL.revokeObjectURL(blob); return; }
+            if (blob) {
+              cache.set(p.url, blob);
+              // Publish each as it's ready so the hero/carousel fill in
+              // progressively rather than waiting for the whole batch.
+              setPhotoBlobMap(Object.fromEntries(cache));
+            }
+          }
         }
       }
-    }
-    for (const [src, url] of cache) {
-      if (!needed.has(src)) { URL.revokeObjectURL(url); cache.delete(src); changed = true; }
-    }
-    if (changed) setPhotoBlobMap(Object.fromEntries(cache));
+      let changed = false;
+      for (const [src, url] of cache) {
+        if (!needed.has(src)) { URL.revokeObjectURL(url); cache.delete(src); changed = true; }
+      }
+      if (changed && !cancelled) setPhotoBlobMap(Object.fromEntries(cache));
+    })();
+    return () => { cancelled = true; };
   }, [communityPhotos]);
   useEffect(() => () => {
     for (const url of photoBlobCacheRef.current.values()) URL.revokeObjectURL(url);
