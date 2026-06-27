@@ -152,9 +152,14 @@ export interface MediaTransform {
 // Photos are stored at full camera resolution (multi-MB, ~3000–4000 px) but
 // are never shown wider than ~1280 px, even full-screen. Requesting a resized,
 // recompressed variant from Storage's image CDN (/render/image) drops a feed
-// photo from ~2–4 MB to ~100 KB. Videos can't be transformed and posters are
+// photo from ~2–4 MB to ~60 KB. Videos can't be transformed and posters are
 // already tiny — both keep plain signed URLs.
-export const PHOTO_DISPLAY_TRANSFORM: MediaTransform = { width: 1280, quality: 62 };
+//
+// IMPORTANT: width-only does NOT preserve aspect ratio on Supabase — it keeps
+// the original height, squishing the image into a sliver. We pass a square
+// bounding box + resize:'contain', which scales the longest edge to 1280 and
+// keeps the real aspect (e.g. 3024×4032 → 960×1280).
+export const PHOTO_DISPLAY_TRANSFORM: MediaTransform = { width: 1280, height: 1280, resize: 'contain', quality: 62 };
 
 async function signMediaPaths(paths: string[], transform?: MediaTransform): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
