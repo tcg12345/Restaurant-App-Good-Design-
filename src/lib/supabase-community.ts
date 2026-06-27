@@ -217,11 +217,18 @@ export async function publishCommunityPhotos(
 /**
  * Get community photos for a restaurant.
  */
-export async function getCommunityPhotos(restaurantId: string): Promise<CommunityPhoto[]> {
+export async function getCommunityPhotos(restaurantId: string, limit?: number): Promise<CommunityPhoto[]> {
   if (!supabaseConfigured) return [];
   try {
-    const { data, error } = await supabase.from('community_photos')
-      .select('*').eq('restaurant_id', restaurantId).order('created_at', { ascending: false });
+    // Favourite first, then most-recent — so a `limit: 1` cover fetch returns
+    // the same lead photo the full list would, letting the hero paint from a
+    // single tiny request while the rest loads in the background.
+    let q = supabase.from('community_photos')
+      .select('*').eq('restaurant_id', restaurantId)
+      .order('is_favorite', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (limit && limit > 0) q = q.limit(limit);
+    const { data, error } = await q;
     if (error) { console.error('[Community] getPhotos error:', error); return []; }
     return (data || []) as CommunityPhoto[];
   } catch (err) { console.error('[Community] getPhotos exception:', err); return []; }

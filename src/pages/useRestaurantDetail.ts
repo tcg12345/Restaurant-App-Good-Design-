@@ -263,6 +263,13 @@ export function useRestaurantDetail() {
     const warn = (what: string) => (err: unknown) =>
       console.warn(`[RestaurantDetail] ${what} fetch failed:`, err);
     getCommunityStats(place.id).then(setCommunityStats).catch(warn('community stats'));
+    // Cover first (a single row) so the hero paints immediately even when a
+    // restaurant has many heavy photos; then the full set fills in behind it
+    // for the carousel + gallery. The cover only seeds an empty list so it
+    // never clobbers the full result if that arrives first.
+    getCommunityPhotos(place.id, 1)
+      .then((cover) => setCommunityPhotos((prev) => (prev.length > 0 ? prev : cover)))
+      .catch(warn('community cover photo'));
     getCommunityPhotos(place.id).then(setCommunityPhotos).catch(warn('community photos'));
     getExpertRecommendations(place.id).then(setExpertRecommendations).catch(warn('expert recommendations'));
 
@@ -347,7 +354,10 @@ export function useRestaurantDetail() {
     const googlePhotos = place
       ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
       : [];
-    const userPhotoUrls = communityPhotos.map((p) => p.url).filter((url) => url && url.length < 500000); // Skip oversized base64
+    // Show every real photo — only guard against pathologically huge / corrupt
+    // rows (the old 500 KB cap silently dropped normal photos, which read as
+    // "no photos" on the page).
+    const userPhotoUrls = communityPhotos.map((p) => p.url).filter((url) => !!url && url.length < 12_000_000);
     return [...googlePhotos, ...userPhotoUrls];
   }, [place, communityPhotos]);
   const directionsUrl = place
