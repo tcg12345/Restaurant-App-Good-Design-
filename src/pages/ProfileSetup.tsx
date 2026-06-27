@@ -1,43 +1,39 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { User, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
-import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 import {
-  MobileAuthShell,
-  MobileBackButton,
-  MobileBrandMark,
-  MobileField,
-  MobilePrimaryButton,
-} from '../components/AuthMobileShell';
+  OnboardingScreen, Title, Subtitle, Eyebrow, FieldLabel, Field, PrimaryButton,
+  GhostButton, ProgressHeader, RadioCard, ErrorRow, TERRA, SECONDARY,
+} from '../components/onboarding/OnboardingKit';
+
+type AccountType = 'lover' | 'expert';
 
 export const ProfileSetup: React.FC = () => {
   const { user, refreshProfile, signOut } = useAuth();
-  const useDesktopLayout = useDesktopAuthLayout();
+
+  const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
+  const [pStep, setPStep] = useState(0); // 0 name · 1 handle · 2 city · 3 type · 4 visibility
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [homeCity, setHomeCity] = useState('');
+  const [accountType, setAccountType] = useState<AccountType>('lover');
   const [isPublic, setIsPublic] = useState(true);
-  const [isExpert, setIsExpert] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Pre-fill the name from whatever the identity provider already gave us so
-  // we never ask the user to type it (App Store Guideline 4 — Sign in with
-  // Apple provides name/email via Authentication Services and we must not
-  // re-collect them). Sign in with Apple writes `full_name` to user metadata
-  // on first auth (see native-apple.ts); Google populates `full_name`/`name`.
-  // Falls back to the email local-part, skipping Apple's private-relay
-  // address (which is just an opaque token, not a real name). Seeded once,
-  // and only while the field is still untouched so we never clobber edits.
+  // Pre-fill the name from whatever the identity provider already gave us so we
+  // never force the user to type it (App Store Guideline 4 — Sign in with Apple
+  // provides name/email and we must not re-collect them). Falls back to the
+  // email local-part, skipping Apple's private-relay address. Seeded once, only
+  // while the fields are untouched so we never clobber edits.
   useEffect(() => {
     if (!user || displayName) return;
     const md = (user.user_metadata ?? {}) as Record<string, unknown>;
     const metaName = (
-      (md.full_name as string) ||
-      (md.name as string) ||
+      (md.full_name as string) || (md.name as string) ||
       [md.given_name, md.family_name].filter(Boolean).join(' ')
     ).trim();
     const email = user.email ?? '';
@@ -46,33 +42,19 @@ export const ProfileSetup: React.FC = () => {
     const seed = metaName || emailPrefix;
     if (seed) {
       setDisplayName(seed);
-      // Suggest a username from the same seed when the user hasn't typed one.
       setUsername((prev) => prev || seed.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20));
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError('');
+  const handle = '@' + (username.toLowerCase() || 'username');
+  const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
 
-    // Name is intentionally NOT required: Sign in with Apple already provides
-    // it, so re-collecting it would violate Guideline 4. If the field is
-    // somehow empty, fall back to the username so `display_name` is never
-    // blank (keeps `profileComplete` satisfiable) — the user is never blocked
-    // on typing a name.
-    if (!username.trim()) { setError('Please choose a username'); return; }
-    if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
-    // Experts get nudged to declare their home base so /location can
-    // surface them to people exploring the area. Non-experts can leave it.
-    if (isExpert && !homeCity.trim()) {
-      setError('Please add the city you cover — it helps people find your recommendations');
-      return;
-    }
-
+  // Persist the profile, then surface the "all set" screen. The handoff into the
+  // app happens when the user taps Start exploring → refreshProfile().
+  const finish = useCallback(async () => {
     if (!user?.id) return;
     setSubmitting(true);
-
+    setError('');
     const cityTrim = homeCity.trim();
     const geo = cityTrim ? await geocodePlace(cityTrim) : null;
     const homeBase = cityTrim
@@ -84,245 +66,171 @@ export const ProfileSetup: React.FC = () => {
       username.trim(),
       '',
       isPublic,
-      isExpert,
+      accountType === 'expert',
       homeBase,
     );
-    if (result.success) {
-      await refreshProfile();
-    } else {
-      setError(result.error || 'Something went wrong');
-    }
     setSubmitting(false);
-  };
+    if (result.success) setScreen('done');
+    else setError(result.error || 'Something went wrong');
+  }, [user, displayName, username, homeCity, isPublic, accountType]);
 
-  // Sign out and return to the email-entry step. Profile setup is the
-  // only post-auth surface the user can't otherwise leave, so "back"
-  // here means abandon setup and reset the flow.
-  const handleBack = () => { void signOut(); };
+  const next = useCallback(() => {
+    setError('');
+    if (pStep === 1) {
+      if (!username.trim()) { setError('Please choose a username'); return; }
+      if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
+    }
+    if (pStep >= 4) { void finish(); return; }
+    setPStep((p) => p + 1);
+  }, [pStep, username, usernameValid, finish]);
 
-  // ── Desktop split layout ──────────────────────────────────────────────
-  if (useDesktopLayout) {
-    const headerRight = (
-      <button
-        type="button"
-        onClick={handleBack}
-        className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
-      >
-        <ArrowLeft size={14} />
-        <span>Sign out</span>
-      </button>
-    );
+  // Step 0 "back" abandons setup (signs out); otherwise step back.
+  const back = useCallback(() => {
+    setError('');
+    if (pStep <= 0) { void signOut(); return; }
+    setPStep((p) => p - 1);
+  }, [pStep, signOut]);
+
+  const startExploring = useCallback(() => { void refreshProfile(); }, [refreshProfile]);
+
+  /* ── Done ────────────────────────────────────────────────────────────── */
+  if (screen === 'done') {
     return (
-      <AuthShell headerRight={headerRight} panel="profile">
-        <div className="space-y-3">
-          <header>
-            <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-1.5">
-              Set up your profile
-            </h1>
-            <p className="text-sm text-on-surface/55 font-light leading-relaxed">
-              Choose a display name and username so friends can find you.
-            </p>
-          </header>
-          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-2.5">
-            <div className="relative">
-              <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-            </div>
-            <div className="relative">
-              <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
-                onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                autoCapitalize="off" autoCorrect="off" />
-            </div>
-            {username && (
-              <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
-            )}
-            <div className="relative">
-              <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
-                value={homeCity}
-                onChange={(e) => setHomeCity(e.target.value)}
-                autoCapitalize="words" autoCorrect="off"
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-            </div>
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
-                <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
-              </div>
-              <button type="button" onClick={() => setIsPublic(!isPublic)}
-                aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
-                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
-            </div>
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
-                <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
-              </div>
-              <button type="button" onClick={() => setIsExpert(!isExpert)}
-                aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
-                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
-            </div>
-            {error && (
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
-            )}
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              type="submit" disabled={submitting}
-              className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
-              {submitting ? <Loader2 size={18} className="animate-spin" /> : (
-                <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
-              )}
-            </motion.button>
-          </form>
-        </div>
-      </AuthShell>
+      <OnboardingScreen glow="center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+          className="flex flex-1 flex-col items-center text-center" style={{ paddingTop: 40 }}
+        >
+          <div className="flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: '50%', background: TERRA, boxShadow: '0 14px 34px rgba(166,55,29,0.32)' }}>
+            <svg width="42" height="42" viewBox="0 0 44 44" fill="none"><path d="M11 23l7 7 15-16" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </div>
+          <div style={{ marginTop: 26 }}><Title>You're all set</Title></div>
+          <p style={{ fontSize: 15.5, lineHeight: 1.55, color: SECONDARY, margin: '12px 0 0', maxWidth: 280 }}>
+            Welcome aboard, <span style={{ color: TERRA, fontWeight: 600 }}>{handle}</span>. Your canvas is ready — let's find something worth the trip.
+          </p>
+          <div style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
+            <PrimaryButton onClick={startExploring}>Start exploring</PrimaryButton>
+          </div>
+        </motion.div>
+      </OnboardingScreen>
     );
   }
 
-  // ── Mobile / phone-frame layout — matches the new mobile auth design ─
+  /* ── Wizard ──────────────────────────────────────────────────────────── */
+  const stepNum = 2 + pStep; // create-account was step 1
+  const isLast = pStep >= 4;
+
   return (
-    <MobileAuthShell>
-      {/* Top bar with sign-out back button, safe-area aware */}
-      <div
-        className="relative z-10 px-5 flex items-center justify-between"
-        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.5rem', minHeight: 56 }}
-      >
-        <MobileBackButton onClick={handleBack} label="Sign out" />
-        <div className="min-w-[44px]" />
-      </div>
+    <OnboardingScreen>
+      <ProgressHeader step={stepNum} total={6} onBack={back} />
 
-      {/* Form content */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-y-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-          className="flex-1 flex flex-col px-5 pt-2 pb-4"
-        >
-          <div className="flex flex-col items-start gap-4 mb-6">
-            <MobileBrandMark size={48} />
-            <div>
-              <h1 className="font-display font-bold text-[28px] tracking-tight leading-[1.05] text-on-surface">
-                Set up your profile
-              </h1>
-              <p className="text-on-surface/55 text-[14px] leading-relaxed mt-2">
-                A name, a handle, and where you eat from — that's it.
-              </p>
+      <div className="flex flex-1 flex-col">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={pStep}
+            initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-1 flex-col"
+          >
+            {pStep === 0 && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <Eyebrow>About you</Eyebrow>
+                  <div style={{ marginTop: 13 }}><Title size={33}>What should we call you?</Title></div>
+                  <Subtitle>This is the name friends will see on your profile.</Subtitle>
+                </div>
+                <div style={{ marginTop: 32 }}>
+                  <FieldLabel>Your name</FieldLabel>
+                  <Field value={displayName} onChange={setDisplayName} placeholder="Jane Doe" icon={<User size={17} strokeWidth={1.6} />} autoFocus autoComplete="name" autoCapitalize="words" onSubmit={next} />
+                </div>
+              </div>
+            )}
+
+            {pStep === 1 && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <Eyebrow>Your handle</Eyebrow>
+                  <div style={{ marginTop: 13 }}><Title size={33}>Claim your @</Title></div>
+                  <Subtitle>Your one-of-a-kind handle on Gourmet Canvas.</Subtitle>
+                </div>
+                <div style={{ marginTop: 32 }}>
+                  <FieldLabel>Username</FieldLabel>
+                  <Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
+                  <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
+                    <div style={{ fontSize: 13.5, color: '#9A8F89' }}>Your handle: <span style={{ color: TERRA, fontWeight: 600 }}>{handle}</span></div>
+                    {usernameValid && (
+                      <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: '#1B8A5E', fontWeight: 600 }}>
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#1FA06D" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        Available
+                      </span>
+                    )}
+                  </div>
+                  {error && <ErrorRow>{error}</ErrorRow>}
+                </div>
+              </div>
+            )}
+
+            {pStep === 2 && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <Eyebrow>Location</Eyebrow>
+                  <div style={{ marginTop: 13 }}><Title size={33}>Where do you eat?</Title></div>
+                  <Subtitle>We'll surface the tables nearest you. Change it anytime.</Subtitle>
+                </div>
+                <div style={{ marginTop: 32 }}>
+                  <FieldLabel>Home city</FieldLabel>
+                  <Field value={homeCity} onChange={setHomeCity} placeholder="e.g. New York" icon={<MapPin size={16} strokeWidth={1.6} />} autoFocus autoCapitalize="words" onSubmit={next} />
+                </div>
+              </div>
+            )}
+
+            {pStep === 3 && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <Eyebrow>Account</Eyebrow>
+                  <div style={{ marginTop: 13 }}><Title size={33}>How do you want to show up?</Title></div>
+                  <Subtitle>You can switch this whenever you like.</Subtitle>
+                </div>
+                <div className="flex flex-col gap-3" style={{ marginTop: 28 }}>
+                  <RadioCard selected={accountType === 'lover'} onClick={() => setAccountType('lover')} title="Food lover" description="Save spots, rate where you eat, and follow friends." />
+                  <RadioCard
+                    selected={accountType === 'expert'} onClick={() => setAccountType('expert')}
+                    title={<span className="inline-flex items-center gap-2">Expert reviewer<span style={{ fontSize: 9.5, letterSpacing: '0.6px', fontWeight: 700, color: TERRA, background: '#F4E3DC', padding: '2px 7px', borderRadius: 5 }}>VERIFIED</span></span>}
+                    description="Apply to publish expert picks — we'll verify you first."
+                  />
+                </div>
+              </div>
+            )}
+
+            {pStep === 4 && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <Eyebrow>Visibility</Eyebrow>
+                  <div style={{ marginTop: 13 }}><Title size={33}>Public or private?</Title></div>
+                  <Subtitle>You're always in control of who sees your activity.</Subtitle>
+                </div>
+                <div className="flex flex-col gap-3" style={{ marginTop: 28 }}>
+                  <RadioCard selected={isPublic} onClick={() => setIsPublic(true)} title="Public" description="Anyone can follow you and see your reviews." />
+                  <RadioCard selected={!isPublic} onClick={() => setIsPublic(false)} title="Private" description="Only people you approve can see your activity." />
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Bottom action (outside the per-step animation so it stays put) */}
+        <div style={{ paddingTop: 26 }}>
+          {error && pStep !== 1 && <div style={{ marginBottom: 12 }}><ErrorRow>{error}</ErrorRow></div>}
+          <PrimaryButton onClick={next} loading={submitting} trailing={isLast ? 'check' : 'arrow'}>
+            {isLast ? 'Finish setup' : 'Continue'}
+          </PrimaryButton>
+          {pStep === 2 && (
+            <div style={{ marginTop: 4 }}>
+              <GhostButton onClick={() => setPStep(3)}>Skip for now</GhostButton>
             </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-            <MobileField
-              label="Your name"
-              icon={<User size={16} />}
-              type="text"
-              value={displayName}
-              onChange={setDisplayName}
-              placeholder="e.g. Tyler"
-              autoComplete="name"
-            />
-            <MobileField
-              label="Username"
-              icon={<AtSign size={16} />}
-              type="text"
-              value={username}
-              onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ''))}
-              placeholder="tyler_eats"
-              autoComplete="username"
-            />
-            {username && (
-              <p className="text-[11px] text-on-surface/45 px-1 -mt-1">
-                Your handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span>
-              </p>
-            )}
-            <MobileField
-              label="Home city"
-              icon={<MapPin size={16} />}
-              type="text"
-              value={homeCity}
-              onChange={setHomeCity}
-              placeholder={isExpert ? 'Required for experts' : 'Optional'}
-              autoComplete="address-level2"
-            />
-
-            {/* Toggles styled to sit on the mesh background */}
-            <button
-              type="button"
-              onClick={() => setIsPublic(!isPublic)}
-              aria-pressed={isPublic}
-              className="flex items-center justify-between rounded-2xl bg-white/65 backdrop-blur-md border border-on-surface/8 px-4 py-3 text-left"
-            >
-              <div className="min-w-0 pr-3">
-                <p className="text-[13px] font-semibold text-on-surface">
-                  {isPublic ? 'Public account' : 'Private account'}
-                </p>
-                <p className="text-[11px] text-on-surface/55 mt-0.5 leading-snug">
-                  {isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}
-                </p>
-              </div>
-              <span
-                className={`relative h-7 w-12 rounded-full flex-shrink-0 transition-colors ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}
-              >
-                <span
-                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all ${isPublic ? 'left-[22px]' : 'left-0.5'}`}
-                />
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsExpert(!isExpert)}
-              aria-pressed={isExpert}
-              className="flex items-center justify-between rounded-2xl bg-white/65 backdrop-blur-md border border-on-surface/8 px-4 py-3 text-left"
-            >
-              <div className="min-w-0 pr-3">
-                <p className="text-[13px] font-semibold text-on-surface">
-                  {isExpert ? 'Expert account' : 'Regular account'}
-                </p>
-                <p className="text-[11px] text-on-surface/55 mt-0.5 leading-snug">
-                  {isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}
-                </p>
-              </div>
-              <span
-                className={`relative h-7 w-12 rounded-full flex-shrink-0 transition-colors ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}
-              >
-                <span
-                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all ${isExpert ? 'left-[22px]' : 'left-0.5'}`}
-                />
-              </span>
-            </button>
-
-            {error && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
-              >
-                {error}
-              </motion.p>
-            )}
-          </form>
-        </motion.div>
+          )}
+        </div>
       </div>
-
-      {/* Sticky CTA above home indicator */}
-      <div
-        className="relative z-10 px-5 pt-3"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-      >
-        <MobilePrimaryButton type="button" loading={submitting} onClick={() => handleSubmit()}>
-          <span>Continue</span>
-          <ArrowRight size={18} />
-        </MobilePrimaryButton>
-      </div>
-    </MobileAuthShell>
+    </OnboardingScreen>
   );
 };
