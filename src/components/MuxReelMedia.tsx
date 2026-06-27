@@ -2,6 +2,21 @@ import React, { useEffect, useRef, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import type MuxPlayerElement from '@mux/mux-player';
 import { cn } from '../lib/utils';
+import { muxPosterUrl } from '../lib/mux';
+
+/**
+ * What the page-level scrub bar needs from the active reel's media. Works for
+ * both a legacy <video> and a Mux player (both expose this media subset), plus
+ * an optional way to get a still frame at a given time for the scrub preview.
+ */
+export interface ActiveReelMedia {
+  el: Pick<HTMLMediaElement, 'currentTime' | 'duration' | 'paused' | 'play' | 'pause'>;
+  /** Still-frame URL at time t (seconds) for the scrub-preview popover. Mux
+   *  serves these from its image API; legacy reels seek a hidden <video>. */
+  thumbAt?: (t: number) => string;
+  /** Plain video src for the legacy seek-preview (omitted for Mux). */
+  previewSrc?: string;
+}
 
 /**
  * Mux-backed reel video for the reels feed.
@@ -29,10 +44,12 @@ interface MuxReelMediaProps {
   phoneMode: boolean;
   /** Toggle handler shared with the slide (e.g. to flip a play/pause overlay). */
   onPausedChange?: (paused: boolean) => void;
+  /** Publish this player to the page scrub bar when active, null when not. */
+  onActiveMedia?: (media: ActiveReelMedia | null) => void;
 }
 
 export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
-  playbackId, poster, active, near, muted, phoneMode, onPausedChange,
+  playbackId, poster, active, near, muted, phoneMode, onPausedChange, onActiveMedia,
 }) => {
   const ref = useRef<MuxPlayerElement | null>(null);
   // Once mounted, keep it mounted while near so swiping back is instant; the
@@ -74,6 +91,18 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
       el.removeEventListener('pause', onPause);
     };
   }, [mounted, onPausedChange]);
+
+  // Publish this player to the page scrub bar while it's the active slide, with
+  // a Mux image-thumbnail function for the scrub-preview popover. Mirrors the
+  // legacy <video> publish in ReelSlide.
+  useEffect(() => {
+    const el = ref.current;
+    if (!onActiveMedia) return;
+    if (active && el && mounted) {
+      onActiveMedia({ el, thumbAt: (t) => muxPosterUrl(playbackId, { time: t, width: 200 }) });
+    }
+    return () => { if (active) onActiveMedia(null); };
+  }, [active, mounted, onActiveMedia, playbackId]);
 
   const onTap = () => {
     const el = ref.current;

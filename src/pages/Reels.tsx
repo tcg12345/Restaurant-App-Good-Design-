@@ -11,7 +11,7 @@ import { useSignInModal } from '../contexts/SignInModalContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
-import { MuxReelMedia } from '../components/MuxReelMedia';
+import { MuxReelMedia, type ActiveReelMedia } from '../components/MuxReelMedia';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
@@ -219,10 +219,10 @@ interface ReelSlideProps {
   /** When true, skip the bottom info overlay (author / audio label / caption / featured card).
    *  Desktop moves that into a dedicated side panel to the left of the reel. */
   hideDetailsOverlay?: boolean;
-  /** Fires with the slide's underlying <video> element when this slide
-   *  becomes active, and with `null` when it deactivates. Used by the
-   *  page-level progress bar to scrub the active reel. */
-  onActiveVideoChange?: (video: HTMLVideoElement | null) => void;
+  /** Fires with the active slide's media (legacy <video> or Mux player) when
+   *  this slide becomes active, and with `null` when it deactivates. Used by
+   *  the page-level progress bar to scrub the active reel. */
+  onActiveVideoChange?: (media: ActiveReelMedia | null) => void;
   onLike: () => void;
   onSave: () => void;
   onComment: () => void;
@@ -347,11 +347,13 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
 
   // Publish / withdraw the underlying <video> element to the parent
   // page when this slide becomes active. The page-level progress bar
-  // uses it to render and scrub playback.
+  // uses it to render and scrub playback. Mux reels publish their own
+  // player element from MuxReelMedia, so skip them here.
   useEffect(() => {
-    if (!onActiveVideoChange) return;
+    if (!onActiveVideoChange || reel.muxPlaybackId) return;
     if (active) {
-      onActiveVideoChange(videoRef.current);
+      const el = videoRef.current;
+      onActiveVideoChange(el ? { el, previewSrc: el.currentSrc || el.src } : null);
     }
     return () => {
       // When this slide deactivates (or unmounts), only withdraw if
@@ -359,7 +361,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
       // racing the cleanup of the previous one.
       if (active) onActiveVideoChange(null);
     };
-  }, [active, onActiveVideoChange]);
+  }, [active, onActiveVideoChange, reel.muxPlaybackId]);
 
   const onTapVideo = () => {
     const el = videoRef.current;
@@ -394,6 +396,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             muted={muted}
             phoneMode={phoneMode}
             onPausedChange={setIsPaused}
+            onActiveMedia={onActiveVideoChange}
           />
         ) : reel.muxStatus === 'processing' ? (
           // Just uploaded — Mux is still transcoding. Show the captured frame
@@ -881,9 +884,11 @@ function formatSeconds(s: number): string {
 }
 
 const ReelProgressBar: React.FC<{
-  videoEl: HTMLVideoElement | null;
+  media: ActiveReelMedia | null;
   className?: string;
-}> = ({ videoEl, className }) => {
+}> = ({ media, className }) => {
+  // Works for a legacy <video> or a Mux player — both expose this media subset.
+  const videoEl = media?.el ?? null;
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
   // Independent scrub head while the user drags — does NOT move the
@@ -894,7 +899,8 @@ const ReelProgressBar: React.FC<{
   const wasPlayingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
-  const previewSrc = videoEl?.currentSrc || videoEl?.src || '';
+  const previewSrc = media?.previewSrc || '';
+  const thumbAt = media?.thumbAt;
 
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
@@ -1022,7 +1028,7 @@ const ReelProgressBar: React.FC<{
       {/* Scrub preview popover. Mounted only while the user is dragging
           so the secondary <video> isn't sitting in the DOM eating
           memory at idle. */}
-      {dragging && previewSrc && (
+      {dragging && (thumbAt || previewSrc) && (
         <div
           className="absolute pointer-events-none"
           style={{
@@ -1035,14 +1041,24 @@ const ReelProgressBar: React.FC<{
             className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
             style={{ width: PREVIEW_W, height: PREVIEW_H }}
           >
-            <video
-              ref={previewRef}
-              src={previewSrc}
-              muted
-              playsInline
-              preload="auto"
-              className="w-full h-full object-cover"
-            />
+            {thumbAt ? (
+              // Mux: a crisp still from its image API at the scrub time — no
+              // second <video> to seek.
+              <img
+                src={thumbAt((Number.isFinite(dur) && dur ? dur : 0) * dragProgress)}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <video
+                ref={previewRef}
+                src={previewSrc}
+                muted
+                playsInline
+                preload="auto"
+                className="w-full h-full object-cover"
+              />
+            )}
           </div>
           <div className="mt-1.5 text-center text-white text-[11px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
             {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
@@ -1587,7 +1603,7 @@ export const Reels: React.FC = () => {
   const [muted, setMuted] = useState(true);
   // The active reel's <video> element, published by ReelSlide via
   // onActiveVideoChange. Drives the page-level scrub progress bar.
-  const [activeVideoEl, setActiveVideoEl] = useState<HTMLVideoElement | null>(null);
+  const [activeMedia, setActiveMedia] = useState<ActiveReelMedia | null>(null);
   // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
   // unified scroll-snap feed can track exactly one playing slide.
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -2067,7 +2083,7 @@ export const Reels: React.FC = () => {
   const commentsAdd = commentsKind === 'post' ? addPostComment : reelAddComment;
   const commentsDelete = commentsKind === 'post' ? deletePostComment : reelDeleteComment;
 
-  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean; onActiveVideoChange?: (video: HTMLVideoElement | null) => void }) => (
+  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean; onActiveVideoChange?: (media: ActiveReelMedia | null) => void }) => (
     <div
       ref={containerRef}
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
@@ -2344,7 +2360,7 @@ export const Reels: React.FC = () => {
           style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveVideoEl })}
+          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveMedia })}
         </div>
 
         {/* Right column — action rail in-flow at bottom-left; side panels
@@ -2427,9 +2443,9 @@ export const Reels: React.FC = () => {
 
         {/* Playback progress bar — pinned to the very bottom of the
             desktop frame so it spans the full width. */}
-        {activeVideoEl && (
+        {activeMedia && (
           <div className="absolute inset-x-0 bottom-0 px-4 pb-1 z-30">
-            <ReelProgressBar videoEl={activeVideoEl} />
+            <ReelProgressBar media={activeMedia} />
           </div>
         )}
       </div>
@@ -2450,7 +2466,7 @@ export const Reels: React.FC = () => {
           <ArrowLeft size={18} strokeWidth={2.4} />
         </button>
       )}
-      {renderFeed({ onActiveVideoChange: setActiveVideoEl })}
+      {renderFeed({ onActiveVideoChange: setActiveMedia })}
       {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
           up from the bottom over the feed. */}
       <RestaurantPanel
@@ -2476,9 +2492,9 @@ export const Reels: React.FC = () => {
           BottomNav. The nav is 50 px tall + env(safe-area-inset-bottom)
           on a real iPhone, so this offset puts the bar flush against
           its top edge. */}
-      {activeVideoEl && (
+      {activeMedia && (
         <div className="absolute inset-x-0 bottom-[calc(50px+env(safe-area-inset-bottom))] px-4 z-30">
-          <ReelProgressBar videoEl={activeVideoEl} />
+          <ReelProgressBar media={activeMedia} />
         </div>
       )}
     </div>
