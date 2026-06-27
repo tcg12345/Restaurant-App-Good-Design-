@@ -22,7 +22,11 @@ const LS_KEY = 'sb-signed-urls-v1';
 // mid-view (e.g. a video that's still buffering when the URL lapses).
 const SAFETY_MS = 60 * 60 * 1000; // 1h
 
-const keyOf = (bucket: string, path: string) => `${bucket}:${path}`;
+// `variant` distinguishes differently-transformed signed URLs for the same
+// object (e.g. a 1280px display variant vs the full-res original) so one never
+// gets served where the other is expected.
+const keyOf = (bucket: string, path: string, variant = '') =>
+  `${bucket}:${path}${variant ? `@${variant}` : ''}`;
 
 let hydrated = false;
 function hydrate(): void {
@@ -55,17 +59,18 @@ function scheduleSave(): void {
   });
 }
 
-/** Return a cached signed URL for `bucket/path`, or null if absent/near-expiry. */
-export function getCachedSignedUrl(bucket: string, path: string): string | null {
+/** Return a cached signed URL for `bucket/path` (optionally a transform
+ *  `variant`), or null if absent/near-expiry. */
+export function getCachedSignedUrl(bucket: string, path: string, variant = ''): string | null {
   hydrate();
-  const entry = MEM.get(keyOf(bucket, path));
+  const entry = MEM.get(keyOf(bucket, path, variant));
   if (!entry) return null;
   if (entry.expiresAt - Date.now() <= SAFETY_MS) return null;
   return entry.url;
 }
 
 /** Remember a freshly-minted signed URL for the duration of its TTL. */
-export function putCachedSignedUrl(bucket: string, path: string, url: string, ttlSeconds: number): void {
-  MEM.set(keyOf(bucket, path), { url, expiresAt: Date.now() + ttlSeconds * 1000 });
+export function putCachedSignedUrl(bucket: string, path: string, url: string, ttlSeconds: number, variant = ''): void {
+  MEM.set(keyOf(bucket, path, variant), { url, expiresAt: Date.now() + ttlSeconds * 1000 });
   scheduleSave();
 }

@@ -385,18 +385,11 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
       <div className="absolute inset-0">
         {reel.videoUrl ? (
           <>
-            {/* Gradient fallback so a not-yet-loaded reel reads as a
-                warm-colored tile (the same per-reel bgGradient used by
-                video-less slides) instead of a pure-black slate. The
-                <video> and its poster paint on top once they're ready;
-                this layer just guarantees there's never a "black hole"
-                while we wait. */}
-            <div
-              className={cn(
-                'absolute inset-0 bg-gradient-to-b',
-                reel.bgGradient || 'from-stone-800 to-stone-900',
-              )}
-            />
+            {/* Flat neutral backing while the reel loads. The <video> and
+                its poster paint on top once ready; this layer just avoids a
+                bare slate. Deliberately a solid near-black (no colored
+                gradient) to match the edge-to-edge black frame. */}
+            <div className="absolute inset-0 bg-black" />
             {/* Blurred backdrop only on desktop where the reel sits
                 inside a column with side panels — letterboxing reads
                 as intentional there. On phone we want Instagram-style
@@ -441,7 +434,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             />
           </>
         ) : (
-          <div className={cn('w-full h-full bg-gradient-to-b flex items-center justify-center', reel.bgGradient)}>
+          <div className="w-full h-full bg-black flex items-center justify-center">
             {reel.bgLabel && (
               <span className="text-white/15 text-sm tracking-[0.4em] font-mono uppercase select-none">
                 {reel.bgLabel}

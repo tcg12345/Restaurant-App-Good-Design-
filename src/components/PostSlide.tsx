@@ -243,11 +243,12 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
     if (el) el.muted = muted;
   }, [muted]);
 
-  // Default fallback — gradient placeholder. Used for any item far from
-  // the active one, when the signed URL isn't ready yet, or when the
-  // media failed to load after its retries.
+  // Default fallback — a flat neutral backing (no colored gradient). Used for
+  // any item far from the active one, when the signed URL isn't ready yet, or
+  // when the media failed to load after its retries. Photos/videos paint on
+  // top once ready; solid black matches the slide's letterbox frame.
   const placeholder = (
-    <div className={cn('absolute inset-0 bg-gradient-to-b', item.bgGradient || 'from-stone-800 to-stone-900')}>
+    <div className="absolute inset-0 bg-black">
       {item.mediaType === 'video' && !item.mediaUrl && (
         <div className="absolute inset-0 flex items-center justify-center">
           <PlayCircle size={48} className="text-white/40" />

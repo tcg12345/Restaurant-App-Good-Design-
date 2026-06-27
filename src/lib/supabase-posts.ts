@@ -141,32 +141,65 @@ async function hydrateAuthors(userIds: string[]): Promise<Record<string, PostAut
 
 /* ── Signed URL helper ──────────────────────────────────────────────── */
 
-async function signMediaPaths(paths: string[]): Promise<Record<string, string>> {
+/** Storage image-transform options (resize + recompress on read). */
+export interface MediaTransform {
+  width?: number;
+  height?: number;
+  quality?: number;
+  resize?: 'cover' | 'contain' | 'fill';
+}
+
+// Photos are stored at full camera resolution (multi-MB, ~3000–4000 px) but
+// are never shown wider than ~1280 px, even full-screen. Requesting a resized,
+// recompressed variant from Storage's image CDN (/render/image) drops a feed
+// photo from ~2–4 MB to ~100 KB. Videos can't be transformed and posters are
+// already tiny — both keep plain signed URLs.
+export const PHOTO_DISPLAY_TRANSFORM: MediaTransform = { width: 1280, quality: 62 };
+
+async function signMediaPaths(paths: string[], transform?: MediaTransform): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   if (!supabaseConfigured || paths.length === 0) return out;
   const unique = Array.from(new Set(paths.filter(Boolean)));
   if (unique.length === 0) return out;
+  // A transform makes its own cache variant so the small display URL and the
+  // full-res URL for the same object never overwrite each other.
+  const variant = transform ? `w${transform.width ?? 0}h${transform.height ?? 0}q${transform.quality ?? 0}` : '';
   // Reuse still-valid signed URLs (keeps them browser-cacheable across loads);
   // only the genuinely-new paths cost a sign round-trip.
   const misses: string[] = [];
   for (const p of unique) {
-    const cached = getCachedSignedUrl(BUCKET, p);
+    const cached = getCachedSignedUrl(BUCKET, p, variant);
     if (cached) out[p] = cached;
     else misses.push(p);
   }
   if (misses.length === 0) return out;
   try {
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(misses, SIGNED_URL_TTL_SECONDS);
-    if (error) {
-      console.warn('[Posts] createSignedUrls failed:', error.message);
-      return out;
-    }
-    for (const item of data || []) {
-      const path = (item as { path?: string | null }).path;
-      const url = (item as { signedUrl?: string }).signedUrl;
-      if (path && url) {
-        out[path] = url;
-        putCachedSignedUrl(BUCKET, path, url, SIGNED_URL_TTL_SECONDS);
+    if (transform) {
+      // The batch createSignedUrls endpoint doesn't accept per-object transform
+      // options, so transformed variants are signed individually (in parallel).
+      const signed = await Promise.all(misses.map(async (p) => {
+        const { data, error } = await supabase.storage.from(BUCKET)
+          .createSignedUrl(p, SIGNED_URL_TTL_SECONDS, { transform });
+        return error || !data?.signedUrl ? null : { path: p, url: data.signedUrl };
+      }));
+      for (const s of signed) {
+        if (!s) continue;
+        out[s.path] = s.url;
+        putCachedSignedUrl(BUCKET, s.path, s.url, SIGNED_URL_TTL_SECONDS, variant);
+      }
+    } else {
+      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(misses, SIGNED_URL_TTL_SECONDS);
+      if (error) {
+        console.warn('[Posts] createSignedUrls failed:', error.message);
+        return out;
+      }
+      for (const item of data || []) {
+        const path = (item as { path?: string | null }).path;
+        const url = (item as { signedUrl?: string }).signedUrl;
+        if (path && url) {
+          out[path] = url;
+          putCachedSignedUrl(BUCKET, path, url, SIGNED_URL_TTL_SECONDS);
+        }
       }
     }
   } catch (err) {
@@ -426,13 +459,19 @@ export async function getPost(postId: string): Promise<PostRow | null> {
   const posterPaths = post.items
     .filter((it) => it.mediaType === 'video' && it.mediaPath)
     .map((it) => posterPathFor(it.mediaPath));
-  const [signed, signedPosters, authors] = await Promise.all([
+  const photoPaths = post.items
+    .filter((it) => it.mediaType === 'photo' && it.mediaPath)
+    .map((it) => it.mediaPath);
+  const [signed, signedPhotos, signedPosters, authors] = await Promise.all([
     signMediaPaths(post.items.map((it) => it.mediaPath)),
+    signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
     signMediaPaths(posterPaths),
     hydrateAuthors([post.userId]),
   ]);
   for (const it of post.items) {
-    it.mediaUrl = signed[it.mediaPath] || '';
+    // Photos prefer the small display variant; everything (incl. a photo whose
+    // transform failed) falls back to the plain signed URL.
+    it.mediaUrl = (it.mediaType === 'photo' ? signedPhotos[it.mediaPath] : '') || signed[it.mediaPath] || '';
     if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
   }
   post.author = authors[post.userId] ?? null;
@@ -496,22 +535,26 @@ export async function listPosts(opts: {
 
   const posts = data.map((row) => rowToPost(row as Record<string, unknown>, myLikes, mySaves));
   const allPaths: string[] = [];
+  const photoPaths: string[] = [];
   const posterPaths: string[] = [];
   for (const p of posts) for (const it of p.items) {
     if (it.mediaPath) allPaths.push(it.mediaPath);
+    if (it.mediaType === 'photo' && it.mediaPath) photoPaths.push(it.mediaPath);
     if (it.mediaType === 'video' && it.mediaPath) posterPaths.push(posterPathFor(it.mediaPath));
   }
   // Posters signed in a separate batch (see getPost) — isolated from media so
-  // pre-feature posts with no poster object can't break media signing.
-  const [signed, signedPosters, authors] = await Promise.all([
+  // pre-feature posts with no poster object can't break media signing. Photos
+  // additionally get a small display variant; videos keep the plain URL.
+  const [signed, signedPhotos, signedPosters, authors] = await Promise.all([
     signMediaPaths(allPaths),
+    signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
     signMediaPaths(posterPaths),
     hydrateAuthors(posts.map((p) => p.userId)),
   ]);
   for (const p of posts) {
     p.author = authors[p.userId] ?? null;
     for (const it of p.items) {
-      it.mediaUrl = signed[it.mediaPath] || '';
+      it.mediaUrl = (it.mediaType === 'photo' ? signedPhotos[it.mediaPath] : '') || signed[it.mediaPath] || '';
       if (it.mediaType === 'video') it.posterUrl = signedPosters[posterPathFor(it.mediaPath)] || '';
     }
   }

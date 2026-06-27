@@ -52,6 +52,8 @@ const ActivityPhoto: React.FC<{
         <img
           src={src}
           alt=""
+          loading="lazy"
+          decoding="async"
           onError={() => setFailed(true)}
           onLoad={(e) => {
             const img = e.currentTarget;
@@ -114,6 +116,8 @@ const PostMediaCarousel: React.FC<{
             <img
               src={it.mediaUrl}
               alt=""
+              loading="lazy"
+              decoding="async"
               onError={() => setFailed((prev) => new Set(prev).add(it.id))}
               onLoad={(e) => {
                 const img = e.currentTarget;
