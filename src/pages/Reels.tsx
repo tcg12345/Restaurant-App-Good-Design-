@@ -12,7 +12,6 @@ import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { MuxReelMedia, type ActiveReelMedia } from '../components/MuxReelMedia';
-import { loadMuxStoryboard, storyboardTileAt, type MuxStoryboard } from '../lib/mux';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
@@ -901,28 +900,18 @@ const ReelProgressBar: React.FC<{
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const previewSrc = media?.previewSrc || '';
-  // Mux scrub preview: load the storyboard sprite once when the active reel
-  // changes, then offset to the right tile while dragging (no per-frame fetch,
-  // so it's smooth and never flashes black).
-  const storyboardVttUrl = media?.storyboardVttUrl;
-  const [storyboard, setStoryboard] = useState<MuxStoryboard | null>(null);
-  const [spriteDims, setSpriteDims] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => {
-    setStoryboard(null);
-    setSpriteDims(null);
-    if (!storyboardVttUrl) return;
-    let cancelled = false;
-    void loadMuxStoryboard(storyboardVttUrl).then((sb) => {
-      if (cancelled || !sb) return;
-      setStoryboard(sb);
-      // Preload the sprite so the first drag is instant, and grab its natural
-      // size for the background-size math.
-      const img = new Image();
-      img.onload = () => { if (!cancelled) setSpriteDims({ w: img.naturalWidth, h: img.naturalHeight }); };
-      img.src = sb.spriteUrl;
-    });
-    return () => { cancelled = true; };
-  }, [storyboardVttUrl]);
+  // Mux reels live-scrub the already-buffered main video (smooth, frame-by-
+  // frame) instead of showing a coarse thumbnail popover. pointermove already
+  // fires at frame rate and the browser coalesces seeks on a buffered video,
+  // so we seek the element directly on each move.
+  const liveScrub = !!media?.liveScrub;
+  const seekLive = (p: number) => {
+    const el = media?.el;
+    const d = el?.duration;
+    if (el && Number.isFinite(d) && d && d > 0) {
+      try { el.currentTime = p * d; } catch { /* ignore seek errors */ }
+    }
+  };
 
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
@@ -979,25 +968,35 @@ const ReelProgressBar: React.FC<{
     return clientX - rect.left;
   };
 
+  // Seconds for a given 0..1 progress, or null if the duration isn't known yet.
+  const timeFor = (p: number): number | null => {
+    const d = videoEl?.duration;
+    return Number.isFinite(d) && d && d > 0 ? p * d : null;
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!videoEl) return;
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     rectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
     wasPlayingRef.current = !videoEl.paused;
-    // Pause the main reel but DO NOT seek it — user wants the frame
-    // they grabbed at to stay put. Seeking happens once on release.
+    // Pause so the video holds on the scrub frame rather than playing on.
     try { videoEl.pause(); } catch { /* ignore */ }
     const p = pointerToProgress(e.clientX);
     setDragProgress(p);
     setHoverX(pointerToContainerX(e.clientX));
     setDragging(true);
+    // Mux: live-scrub the main video from the first touch (legacy reels keep
+    // the frozen-frame + popover behavior and only seek on release).
+    if (liveScrub) seekLive(p);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
-    setDragProgress(pointerToProgress(e.clientX));
+    const p = pointerToProgress(e.clientX);
+    setDragProgress(p);
     setHoverX(pointerToContainerX(e.clientX));
+    if (liveScrub) seekLive(p);
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1005,12 +1004,12 @@ const ReelProgressBar: React.FC<{
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     rectRef.current = null;
     setDragging(false);
-    // Commit the seek to the main video, then resume if it had been
-    // playing when the drag began.
+    // Commit the final seek, then resume if it had been playing when the drag
+    // began.
     if (videoEl) {
-      const dur = videoEl.duration;
-      if (Number.isFinite(dur) && dur > 0) {
-        try { videoEl.currentTime = dragProgress * dur; } catch { /* ignore */ }
+      const t = timeFor(dragProgress);
+      if (t != null) {
+        try { videoEl.currentTime = t; } catch { /* ignore */ }
       }
       if (wasPlayingRef.current) {
         videoEl.play().catch(() => { /* autoplay may be blocked */ });
@@ -1029,22 +1028,6 @@ const ReelProgressBar: React.FC<{
   const popoverLeft = Math.max(8, Math.min(containerWidth - PREVIEW_W - 8, hoverX - PREVIEW_W / 2));
   const dur = videoEl?.duration;
   const fillFrac = dragging ? dragProgress : progress;
-
-  // Storyboard sprite tile for the current scrub position — a CSS background
-  // offset, so updating it as the user drags is instant and GPU-cheap.
-  const previewTimeSec = (Number.isFinite(dur) && dur ? dur : 0) * dragProgress;
-  const tile = storyboard ? storyboardTileAt(storyboard, previewTimeSec) : null;
-  const spriteStyle: React.CSSProperties | null = (storyboard && spriteDims && tile)
-    ? (() => {
-        const scale = PREVIEW_W / tile.w;
-        return {
-          backgroundImage: `url(${storyboard.spriteUrl})`,
-          backgroundRepeat: 'no-repeat',
-          backgroundSize: `${spriteDims.w * scale}px ${spriteDims.h * scale}px`,
-          backgroundPosition: `-${tile.x * scale}px -${tile.y * scale}px`,
-        };
-      })()
-    : null;
 
   return (
     <div
@@ -1071,10 +1054,9 @@ const ReelProgressBar: React.FC<{
         />
       </div>
 
-      {/* Scrub preview popover. Mounted only while the user is dragging
-          so the secondary <video> isn't sitting in the DOM eating
-          memory at idle. */}
-      {dragging && (spriteStyle || previewSrc) && (
+      {/* Legacy reels: a magnified seek-preview popover (a hidden <video>
+          seeked to the scrub time). Mounted only while dragging. */}
+      {dragging && previewSrc && !liveScrub && (
         <div
           className="absolute pointer-events-none"
           style={{
@@ -1087,24 +1069,29 @@ const ReelProgressBar: React.FC<{
             className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
             style={{ width: PREVIEW_W, height: PREVIEW_H }}
           >
-            {spriteStyle ? (
-              // Mux: the preloaded storyboard sprite, offset to this time's
-              // tile — instant, frame-by-frame, no network during the drag.
-              <div className="w-full h-full" style={spriteStyle} />
-            ) : (
-              <video
-                ref={previewRef}
-                src={previewSrc}
-                muted
-                playsInline
-                preload="auto"
-                className="w-full h-full object-cover"
-              />
-            )}
+            <video
+              ref={previewRef}
+              src={previewSrc}
+              muted
+              playsInline
+              preload="auto"
+              className="w-full h-full object-cover"
+            />
           </div>
           <div className="mt-1.5 text-center text-white text-[11px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
             {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
           </div>
+        </div>
+      )}
+
+      {/* Mux reels: the full-screen video scrubs live, so we only float a
+          timestamp above the finger. */}
+      {dragging && liveScrub && (
+        <div
+          className="absolute pointer-events-none -translate-x-1/2 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur text-white text-[12px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
+          style={{ left: Math.max(28, Math.min((containerWidth || hoverX) - 28, hoverX)), bottom: 'calc(100% + 8px)' }}
+        >
+          {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
         </div>
       )}
     </div>

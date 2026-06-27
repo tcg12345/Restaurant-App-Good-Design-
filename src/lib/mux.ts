@@ -30,66 +30,6 @@ export function muxPosterUrl(playbackId: string, opts: { width?: number; time?: 
   return `${MUX_IMAGE_HOST}/${playbackId}/thumbnail.webp?${params.toString()}`;
 }
 
-/** Mux storyboard VTT — maps each time range to a tile in a single sprite
- *  image. Used to render a smooth scrub-preview without a network request per
- *  frame (the sprite is loaded once, then we just offset to the right tile). */
-export function muxStoryboardVttUrl(playbackId: string): string {
-  return `${MUX_IMAGE_HOST}/${playbackId}/storyboard.vtt`;
-}
-
-export interface MuxStoryboardTile { time: number; x: number; y: number; w: number; h: number }
-export interface MuxStoryboard { spriteUrl: string; tiles: MuxStoryboardTile[] }
-
-function parseVttTimestamp(ts: string): number {
-  // "HH:MM:SS.mmm" or "MM:SS.mmm" → seconds.
-  const parts = ts.trim().split(':').map(Number);
-  if (parts.some((n) => Number.isNaN(n))) return NaN;
-  return parts.reduce((acc, p) => acc * 60 + p, 0);
-}
-
-/** Fetch + parse a Mux storyboard VTT into a sprite URL and its tiles. Returns
- *  null on any failure (caller falls back to no preview). */
-export async function loadMuxStoryboard(vttUrl: string): Promise<MuxStoryboard | null> {
-  try {
-    const res = await fetch(vttUrl);
-    if (!res.ok) return null;
-    const lines = (await res.text()).split(/\r?\n/);
-    const tiles: MuxStoryboardTile[] = [];
-    let spriteUrl = '';
-    for (let i = 0; i < lines.length; i++) {
-      const arrow = lines[i].indexOf('-->');
-      if (arrow === -1) continue;
-      const start = parseVttTimestamp(lines[i].slice(0, arrow));
-      let j = i + 1;
-      while (j < lines.length && !lines[j].trim()) j++;
-      const payload = (lines[j] || '').trim();
-      const hash = payload.indexOf('#xywh=');
-      if (hash === -1 || !Number.isFinite(start)) continue;
-      if (!spriteUrl) spriteUrl = payload.slice(0, hash);
-      const c = payload.slice(hash + 6).split(',').map(Number);
-      if (c.length === 4 && !c.some((n) => Number.isNaN(n))) {
-        tiles.push({ time: start, x: c[0], y: c[1], w: c[2], h: c[3] });
-      }
-    }
-    if (!spriteUrl || tiles.length === 0) return null;
-    return { spriteUrl, tiles };
-  } catch {
-    return null;
-  }
-}
-
-/** The tile whose range covers time `t` (nearest preceding). Tiles are in
- *  ascending time order, so a binary search keeps per-move lookups cheap. */
-export function storyboardTileAt(sb: MuxStoryboard, t: number): MuxStoryboardTile {
-  const { tiles } = sb;
-  let lo = 0, hi = tiles.length - 1, ans = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (tiles[mid].time <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
-  }
-  return tiles[ans];
-}
-
 export interface MuxUploadTicket {
   uploadUrl: string;
   uploadId: string;

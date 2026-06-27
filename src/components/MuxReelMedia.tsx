@@ -2,20 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import type MuxPlayerElement from '@mux/mux-player';
 import { cn } from '../lib/utils';
-import { muxStoryboardVttUrl } from '../lib/mux';
-
 /**
  * What the page-level scrub bar needs from the active reel's media. Works for
- * both a legacy <video> and a Mux player (both expose this media subset), plus
- * an optional way to render the scrub-preview frames.
+ * both a legacy <video> and a Mux player (both expose this media subset).
  */
 export interface ActiveReelMedia {
   el: Pick<HTMLMediaElement, 'currentTime' | 'duration' | 'paused' | 'play' | 'pause'>;
-  /** Mux storyboard VTT — one sprite of frames, loaded once and offset to the
-   *  right tile while scrubbing (smooth, no per-frame network request). */
-  storyboardVttUrl?: string;
-  /** Plain video src for the legacy seek-preview (omitted for Mux). */
+  /** Plain video src for the legacy seek-preview popover (omitted for Mux). */
   previewSrc?: string;
+  /** Mux: scrub the main (already-buffered) video live as the user drags, so
+   *  the full-screen reel updates frame-by-frame instead of a coarse preview. */
+  liveScrub?: boolean;
 }
 
 /**
@@ -99,10 +96,10 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
     const el = ref.current;
     if (!onActiveMedia) return;
     if (active && el && mounted) {
-      onActiveMedia({ el, storyboardVttUrl: muxStoryboardVttUrl(playbackId) });
+      onActiveMedia({ el, liveScrub: true });
     }
     return () => { if (active) onActiveMedia(null); };
-  }, [active, mounted, onActiveMedia, playbackId]);
+  }, [active, mounted, onActiveMedia]);
 
   const onTap = () => {
     const el = ref.current;
