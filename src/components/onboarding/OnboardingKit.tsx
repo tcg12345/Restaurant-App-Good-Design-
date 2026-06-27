@@ -95,7 +95,9 @@ export const Field: React.FC<{
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   name?: string;
   onSubmit?: () => void;
-}> = ({ value, onChange, placeholder, type = 'text', icon, prefix, rightSlot, autoFocus, autoComplete, autoCapitalize, inputMode, name, onSubmit }) => (
+  onFocus?: () => void;
+  onBlur?: () => void;
+}> = ({ value, onChange, placeholder, type = 'text', icon, prefix, rightSlot, autoFocus, autoComplete, autoCapitalize, inputMode, name, onSubmit, onFocus, onBlur }) => (
   <div className="relative">
     {icon && (
       <span className="absolute left-4 top-1/2 -translate-y-1/2 flex pointer-events-none" style={{ color: LABEL_GREY }}>{icon}</span>
@@ -109,6 +111,8 @@ export const Field: React.FC<{
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={onSubmit ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onSubmit(); } } : undefined}
+      onFocus={onFocus}
+      onBlur={onBlur}
       placeholder={placeholder}
       autoFocus={autoFocus}
       autoComplete={autoComplete}

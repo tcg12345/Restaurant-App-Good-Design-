@@ -1,62 +1,141 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
-import { geocodePlace } from '../components/HomeLocationBar';
+import { geocodePlace, searchLocations, type HomeLocation } from '../components/HomeLocationBar';
 import {
   OnboardingScreen, Title, Subtitle, Eyebrow, FieldLabel, Field, PrimaryButton,
-  GhostButton, ProgressHeader, RadioCard, ErrorRow, TERRA, SECONDARY,
+  GhostButton, ProgressHeader, RadioCard, ErrorRow, TERRA, SECONDARY, BORDER, LABEL_GREY,
 } from '../components/onboarding/OnboardingKit';
 
 type AccountType = 'lover' | 'expert';
+type StepKey = 'name' | 'handle' | 'city' | 'type' | 'visibility';
+
+/* ── City autocomplete (Mapbox suggestions, reused from HomeLocationBar) ── */
+const CityAutocomplete: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  onPick: (loc: HomeLocation) => void;
+  onSubmit?: () => void;
+}> = ({ value, onChange, onPick, onSubmit }) => {
+  const [suggestions, setSuggestions] = useState<HomeLocation[]>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNext = useRef(false); // don't re-search the value we just picked
+
+  useEffect(() => {
+    if (skipNext.current) { skipNext.current = false; return; }
+    const q = value.trim();
+    if (timer.current) clearTimeout(timer.current);
+    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      const res = await searchLocations(q);
+      setSuggestions(res);
+      setOpen(res.length > 0);
+    }, 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [value]);
+
+  const pick = (loc: HomeLocation) => {
+    skipNext.current = true;
+    onChange(loc.label);
+    onPick(loc);
+    setOpen(false);
+    setSuggestions([]);
+  };
+
+  return (
+    <div className="relative">
+      <Field
+        value={value} onChange={onChange} placeholder="e.g. New York"
+        icon={<MapPin size={16} strokeWidth={1.6} />} autoFocus autoCapitalize="words"
+        onSubmit={onSubmit}
+        onFocus={() => { if (suggestions.length) setOpen(true); }}
+        onBlur={() => { setTimeout(() => setOpen(false), 150); }}
+      />
+      {open && suggestions.length > 0 && (
+        <div
+          className="absolute left-0 right-0 z-20 overflow-hidden"
+          style={{ top: 'calc(100% + 8px)', borderRadius: 15, background: '#fff', border: `1.5px solid ${BORDER}`, boxShadow: '0 16px 40px rgba(40,24,14,0.14)' }}
+        >
+          {suggestions.map((s, i) => (
+            <button
+              key={`${s.label}-${i}`}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); pick(s); }}
+              className="w-full flex items-center gap-2.5 text-left cursor-pointer bg-white border-none transition-colors"
+              style={{ padding: '12px 16px', borderTop: i === 0 ? 'none' : `1px solid #F2E9E3` }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#FAF4F0')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#fff')}
+            >
+              <MapPin size={15} strokeWidth={1.6} style={{ color: LABEL_GREY, flexShrink: 0 }} />
+              <span className="truncate" style={{ fontSize: 14.5, color: '#3A322E' }}>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ProfileSetup: React.FC = () => {
   const { user, refreshProfile, signOut } = useAuth();
 
+  // Seed name/username from the identity provider ONCE, synchronously, so we can
+  // decide up-front whether to even show the name step (App Store Guideline 4 —
+  // when Sign in with Apple already gives us the name we must not re-collect it).
+  const [seed] = useState(() => {
+    const md = (user?.user_metadata ?? {}) as Record<string, unknown>;
+    const metaName = (
+      (md.full_name as string) || (md.name as string) ||
+      [md.given_name, md.family_name].filter(Boolean).join(' ')
+    ).trim();
+    const email = user?.email ?? '';
+    const isPrivateRelay = /@privaterelay\.appleid\.com$/i.test(email); // Apple "Hide My Email"
+    const emailPrefix = isPrivateRelay ? '' : (email.split('@')[0] ?? '');
+    const name = metaName || emailPrefix;
+    return {
+      name,
+      username: name.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20),
+      nameFromProvider: !!metaName, // a real name came from Apple/Google
+    };
+  });
+
+  // Whether this account was created via an OAuth provider (no email/password
+  // "create account" step happened) — used only for the step numbering.
+  const provider = (user?.app_metadata?.provider as string) || 'email';
+  const offset = provider === 'email' ? 1 : 0;
+
+  // Skip the name question entirely when the provider already gave us a name.
+  const steps: StepKey[] = seed.nameFromProvider
+    ? ['handle', 'city', 'type', 'visibility']
+    : ['name', 'handle', 'city', 'type', 'visibility'];
+  const total = offset + steps.length;
+
   const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
-  const [pStep, setPStep] = useState(0); // 0 name · 1 handle · 2 city · 3 type · 4 visibility
-  const [displayName, setDisplayName] = useState('');
-  const [username, setUsername] = useState('');
+  const [pStep, setPStep] = useState(0);
+  const [displayName, setDisplayName] = useState(seed.name);
+  const [username, setUsername] = useState(seed.username);
   const [homeCity, setHomeCity] = useState('');
+  const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(null);
   const [accountType, setAccountType] = useState<AccountType>('lover');
   const [isPublic, setIsPublic] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Pre-fill the name from whatever the identity provider already gave us so we
-  // never force the user to type it (App Store Guideline 4 — Sign in with Apple
-  // provides name/email and we must not re-collect them). Falls back to the
-  // email local-part, skipping Apple's private-relay address. Seeded once, only
-  // while the fields are untouched so we never clobber edits.
-  useEffect(() => {
-    if (!user || displayName) return;
-    const md = (user.user_metadata ?? {}) as Record<string, unknown>;
-    const metaName = (
-      (md.full_name as string) || (md.name as string) ||
-      [md.given_name, md.family_name].filter(Boolean).join(' ')
-    ).trim();
-    const email = user.email ?? '';
-    const isPrivateRelay = /@privaterelay\.appleid\.com$/i.test(email);
-    const emailPrefix = isPrivateRelay ? '' : (email.split('@')[0] ?? '');
-    const seed = metaName || emailPrefix;
-    if (seed) {
-      setDisplayName(seed);
-      setUsername((prev) => prev || seed.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20));
-    }
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  const stepKey = steps[pStep];
+  const isLast = pStep === steps.length - 1;
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
 
-  // Persist the profile, then surface the "all set" screen. The handoff into the
-  // app happens when the user taps Start exploring → refreshProfile().
   const finish = useCallback(async () => {
     if (!user?.id) return;
     setSubmitting(true);
     setError('');
     const cityTrim = homeCity.trim();
-    const geo = cityTrim ? await geocodePlace(cityTrim) : null;
+    // Prefer the picked suggestion's coordinates; otherwise geocode the text.
+    const geo = homeGeo ?? (cityTrim ? await geocodePlace(cityTrim) : null);
     const homeBase = cityTrim
       ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
       : undefined;
@@ -72,24 +151,28 @@ export const ProfileSetup: React.FC = () => {
     setSubmitting(false);
     if (result.success) setScreen('done');
     else setError(result.error || 'Something went wrong');
-  }, [user, displayName, username, homeCity, isPublic, accountType]);
+  }, [user, displayName, username, homeCity, homeGeo, isPublic, accountType]);
 
   const next = useCallback(() => {
     setError('');
-    if (pStep === 1) {
+    if (stepKey === 'handle') {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
     }
-    if (pStep >= 4) { void finish(); return; }
+    if (isLast) { void finish(); return; }
     setPStep((p) => p + 1);
-  }, [pStep, username, usernameValid, finish]);
+  }, [stepKey, username, usernameValid, isLast, finish]);
 
-  // Step 0 "back" abandons setup (signs out); otherwise step back.
   const back = useCallback(() => {
     setError('');
-    if (pStep <= 0) { void signOut(); return; }
+    if (pStep <= 0) { void signOut(); return; } // step 0 back = abandon setup
     setPStep((p) => p - 1);
   }, [pStep, signOut]);
+
+  const skipCity = useCallback(() => {
+    setHomeCity(''); setHomeGeo(null); setError('');
+    setPStep((p) => p + 1);
+  }, []);
 
   const startExploring = useCallback(() => { void refreshProfile(); }, [refreshProfile]);
 
@@ -117,22 +200,19 @@ export const ProfileSetup: React.FC = () => {
   }
 
   /* ── Wizard ──────────────────────────────────────────────────────────── */
-  const stepNum = 2 + pStep; // create-account was step 1
-  const isLast = pStep >= 4;
-
   return (
     <OnboardingScreen>
-      <ProgressHeader step={stepNum} total={6} onBack={back} />
+      <ProgressHeader step={offset + pStep + 1} total={total} onBack={back} />
 
       <div className="flex flex-1 flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
-            key={pStep}
+            key={stepKey}
             initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
             className="flex flex-1 flex-col"
           >
-            {pStep === 0 && (
+            {stepKey === 'name' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
                   <Eyebrow>About you</Eyebrow>
@@ -146,7 +226,7 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {pStep === 1 && (
+            {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
                   <Eyebrow>Your handle</Eyebrow>
@@ -170,7 +250,7 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {pStep === 2 && (
+            {stepKey === 'city' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
                   <Eyebrow>Location</Eyebrow>
@@ -179,12 +259,17 @@ export const ProfileSetup: React.FC = () => {
                 </div>
                 <div style={{ marginTop: 32 }}>
                   <FieldLabel>Home city</FieldLabel>
-                  <Field value={homeCity} onChange={setHomeCity} placeholder="e.g. New York" icon={<MapPin size={16} strokeWidth={1.6} />} autoFocus autoCapitalize="words" onSubmit={next} />
+                  <CityAutocomplete
+                    value={homeCity}
+                    onChange={(v) => { setHomeCity(v); setHomeGeo(null); }}
+                    onPick={(loc) => { setHomeGeo(loc); }}
+                    onSubmit={next}
+                  />
                 </div>
               </div>
             )}
 
-            {pStep === 3 && (
+            {stepKey === 'type' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
                   <Eyebrow>Account</Eyebrow>
@@ -202,7 +287,7 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {pStep === 4 && (
+            {stepKey === 'visibility' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
                   <Eyebrow>Visibility</Eyebrow>
@@ -218,15 +303,14 @@ export const ProfileSetup: React.FC = () => {
           </motion.div>
         </AnimatePresence>
 
-        {/* Bottom action (outside the per-step animation so it stays put) */}
         <div style={{ paddingTop: 26 }}>
-          {error && pStep !== 1 && <div style={{ marginBottom: 12 }}><ErrorRow>{error}</ErrorRow></div>}
+          {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><ErrorRow>{error}</ErrorRow></div>}
           <PrimaryButton onClick={next} loading={submitting} trailing={isLast ? 'check' : 'arrow'}>
             {isLast ? 'Finish setup' : 'Continue'}
           </PrimaryButton>
-          {pStep === 2 && (
+          {stepKey === 'city' && (
             <div style={{ marginTop: 4 }}>
-              <GhostButton onClick={() => setPStep(3)}>Skip for now</GhostButton>
+              <GhostButton onClick={skipCity}>Skip for now</GhostButton>
             </div>
           )}
         </div>
