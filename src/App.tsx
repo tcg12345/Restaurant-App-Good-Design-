@@ -328,7 +328,13 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
       <PullToRefresh enabled={allowPullToRefresh} onRefresh={handleRefresh} />
-      <SwipeBackContainer enabled={allowSwipeBack} onBack={() => navigate(-1)} onLockTransition={setInstantNav}>
+      <SwipeBackContainer
+        enabled={allowSwipeBack}
+        navKey={historyIdx ?? 0}
+        snapshotable={!isMapPage && !isReelsPage && !isFocusedReel}
+        onBack={() => navigate(-1)}
+        onLockTransition={setInstantNav}
+      >
         {routesBlock}
       </SwipeBackContainer>
       <AnimatePresence>
