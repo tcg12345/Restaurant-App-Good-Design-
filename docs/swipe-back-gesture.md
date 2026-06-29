@@ -64,3 +64,55 @@ Original: `src/components/SwipeBackContainer.tsx`, wired in the phone layout of
 
 **Process:** separate commits per step; build & validate on **RestaurantDetail
 (mobile)** first, then extend. Tune thresholds on a real device.
+
+## Tunable constants (in SwipeBackContainer.tsx)
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `EDGE` | 28px | always-back left-edge zone |
+| `SLOP` | 10px | travel before the axis is decided |
+| `ANGLE_TAN` | tan(30°) | intent must be within 30° of horizontal |
+| `COMMIT_RATIO` | 0.4 | distance fraction that commits |
+| `FLICK_VELOCITY` | 0.35 px/ms | velocity that commits a short drag |
+| `SETTLE_MS` | 320ms | settle duration |
+| `PARALLAX` | 0.3 | destination travels at 30% of the page |
+| `SCRIM_MAX` | 0.28 | darkest scrim over the destination |
+
+## Coverage & fallback
+
+The gesture wraps every phone route (one `SwipeBackContainer` around the
+routes), so it's "rolled out" by construction. Per-screen behaviour:
+
+- **Live snapshot reveal:** any page that was left while `snapshotable`
+  (everything except map / reels / focused-reel).
+- **App-surface fallback (no live content):** map, reels, focused reel as a
+  *destination* — their clones can't paint live WebGL/video, so no snapshot is
+  stored and the page slides over the plain surface.
+- **No gesture (source):** root screen (no history), map, reels, focused reel,
+  `/create`, `/onboarding`, `/location/map`, and while any sheet/modal is open.
+
+## On-device verification checklist
+
+Smooth/feel can only be judged on hardware — tune the constants above to taste.
+
+1. **RestaurantDetail (primary):** edge swipe and mid-screen intent swipe both
+   go back; the previous screen slides in live underneath with parallax + scrim;
+   a quick flick commits a short drag; a slow short drag snaps back.
+2. **Scroll coexistence:** vertical scroll still works; the photo rail and any
+   filter rows still scroll horizontally (swipe on them ≠ back); pull-to-refresh
+   still works.
+3. **RecipePage / pages with in-content swipers:** confirm the back-swipe and
+   the swipeable hero don't fight. (Synthetic testing surfaced a spurious
+   `touchcancel` here that's almost certainly a headless-Chrome artifact — the
+   setup is identical to RestaurantDetail, which is clean — but verify on
+   device. If a real conflict appears, coordinate the axis-lock with
+   PullToRefresh / the hero swiper.)
+4. **Carousel-heavy pages (Discover):** rails scroll; an edge swipe still backs.
+5. **Modal/sheet open:** a back-swipe does NOT pop the route underneath; the
+   sheet's own drag-to-dismiss still closes it.
+6. **Edge cases:** multi-touch cancels cleanly; backgrounding mid-swipe (lock
+   screen / app switch) settles without leaving the page stuck off-screen; no
+   gesture on the root tab.
+7. **prefers-reduced-motion:** parallax/scrim/shadow drop to a plain slide.
+8. **One back per swipe:** never skips two screens; no conflict with any
+   WKWebView back gesture (Capacitor default keeps it off).
