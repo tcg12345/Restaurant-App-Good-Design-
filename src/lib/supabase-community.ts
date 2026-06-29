@@ -424,7 +424,7 @@ export async function searchUsersByUsername(query: string, currentUserId: string
     let q = supabase.from('user_profiles').select('*').neq('user_id', currentUserId).limit(20);
     if (query.trim()) {
       const escaped = query.trim().replace(/[%_\\]/g, '\\$&');
-      q = q.ilike('username', `%${escaped}%`);
+      q = q.or(`username.ilike.%${escaped}%,display_name.ilike.%${escaped}%`);
     }
     const { data, error } = await q;
     if (error) return [];
