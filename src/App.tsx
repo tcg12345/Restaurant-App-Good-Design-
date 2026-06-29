@@ -250,11 +250,13 @@ const AppContent: React.FC = () => {
               key={path}
               // Inactive tabs are hidden with `visibility` (not display:none)
               // and positioned absolutely — display:none would reset inner
-              // scroll positions, defeating the point of keep-alive.
+              // scroll positions, defeating the point of keep-alive. No
+              // z-index: it would create a stacking context that traps in-page
+              // bottom sheets below the nav. The stack (rendered after this in
+              // DOM) overlays it by tree order.
               style={{
                 position: 'absolute',
                 inset: 0,
-                zIndex: 10,
                 visibility: active ? 'visible' : 'hidden',
                 pointerEvents: active ? undefined : 'none',
               }}
@@ -277,7 +279,7 @@ const AppContent: React.FC = () => {
           animate={motionAnimate}
           exit={motionExit}
           transition={motionTransition}
-          className={isCreateRoute ? 'absolute inset-0 z-30' : 'absolute inset-0 z-20 bg-surface'}
+          className={isCreateRoute ? 'absolute inset-0 z-30' : 'absolute inset-0 bg-surface'}
         >
         <React.Fragment key={refreshNonce}>
         <Routes location={location}>

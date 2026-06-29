@@ -355,7 +355,11 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       <LeaveSnapshot navKey={navKey} snapshotable={snapshotable} getNode={() => pageRef.current} />
       {/* Destination snapshot lives here during a back-swipe, behind the page. */}
       <div ref={revealRef} style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', display: 'none', background: 'var(--color-surface)', contain: 'layout paint' }} />
-      <div ref={pageRef} style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', background: 'var(--color-surface)' }}>
+      {/* No z-index here: it would create a stacking context that traps
+          in-page bottom sheets (z-[110]) below the bottom nav (z-50). The page
+          still paints above the reveal by DOM order (it comes after it), and
+          the transform during a drag promotes it for that moment anyway. */}
+      <div ref={pageRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
         {children}
       </div>
     </div>
