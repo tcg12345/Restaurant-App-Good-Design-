@@ -21,6 +21,7 @@ import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { ScrollRestoration } from './components/ScrollRestoration';
+import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion } from 'motion/react';
@@ -119,6 +120,21 @@ function useIsDesktop(): boolean {
   return isDesktop;
 }
 
+// Tab-root pages stay mounted across navigation (keep-alive) so returning to
+// them is instant with scroll + state intact, rather than remounting and
+// reloading. Heavy/transient screens (map, reels, create, detail pages) are
+// intentionally NOT kept alive — they push/pop normally. KEEP_ALIVE_PATHS is
+// shared with ScrollRestoration (which skips them — they keep their own scroll).
+const keepAliveElement = (path: string): React.ReactNode => {
+  switch (path) {
+    case '/': return <Discover mode="home" />;
+    case '/search/main': return <SearchMain />;
+    case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>;
+    case '/profile': return <RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>;
+    default: return null;
+  }
+};
+
 const AppContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -158,6 +174,15 @@ const AppContent: React.FC = () => {
     // Hold briefly so the remount's fetches start under the spinner.
     await new Promise((resolve) => setTimeout(resolve, 750));
   }, []);
+
+  // Keep-alive: once a tab-root page is visited it stays mounted. Mounted
+  // lazily (on first visit) so we don't eagerly mount every tab at startup.
+  const [keptAlive, setKeptAlive] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    if (KEEP_ALIVE_PATHS.includes(location.pathname)) {
+      setKeptAlive((k) => (k.includes(location.pathname) ? k : [...k, location.pathname]));
+    }
+  }, [location.pathname]);
 
   if (loading) {
     return (
@@ -208,22 +233,49 @@ const AppContent: React.FC = () => {
       ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
       : { duration: 0.18, ease: 'easeOut' as const };
 
+  const isKeepAlivePath = KEEP_ALIVE_PATHS.includes(location.pathname);
   const routesBlock = (
-    <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
-      <motion.div
-        key={location.pathname}
-        initial={motionInitial}
-        animate={motionAnimate}
-        exit={motionExit}
-        transition={motionTransition}
-        // While /create is the current path its motion.div overlays the
-        // page underneath; for every other route the wrapper is a normal
-        // in-flow block so layout doesn't shift.
-        className={isCreateRoute ? 'absolute inset-0 z-30' : undefined}
-      >
-        {/* Keyed Fragment forces the route subtree to remount on a
-            pull-to-refresh (refreshNonce bump) without putting `key` on
-            <Routes> itself (which its prop types reject). */}
+    <>
+      {/* Persistent keep-alive tab pages — visible when active, kept mounted
+          (hidden) otherwise so returning to them preserves scroll + state.
+          Keyed by refreshNonce so a pull-to-refresh still reloads them. */}
+      <React.Fragment key={refreshNonce}>
+        {keptAlive.map((path) => {
+          const active = path === location.pathname;
+          return (
+            <div
+              key={path}
+              // Inactive tabs are hidden with `visibility` (not display:none)
+              // and positioned absolutely — display:none would reset inner
+              // scroll positions, defeating the point of keep-alive.
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 10,
+                visibility: active ? 'visible' : 'hidden',
+                pointerEvents: active ? undefined : 'none',
+              }}
+              aria-hidden={!active}
+            >
+              {keepAliveElement(path)}
+            </div>
+          );
+        })}
+      </React.Fragment>
+
+      {/* Stack — every non-keep-alive route (details, map, reels, create…).
+          Absolutely positioned so it overlays the tab layer; on exit it
+          animates away to reveal the kept-alive tab underneath. */}
+      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
+        {!isKeepAlivePath && (
+        <motion.div
+          key={location.pathname}
+          initial={motionInitial}
+          animate={motionAnimate}
+          exit={motionExit}
+          transition={motionTransition}
+          className={isCreateRoute ? 'absolute inset-0 z-30' : 'absolute inset-0 z-20 bg-surface'}
+        >
         <React.Fragment key={refreshNonce}>
         <Routes location={location}>
           <Route path="/" element={<Discover mode="home" />} />
@@ -268,8 +320,10 @@ const AppContent: React.FC = () => {
           <Route path="/location/map" element={<LocationMap />} />
         </Routes>
         </React.Fragment>
-      </motion.div>
-    </AnimatePresence>
+        </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 
   const modals = (

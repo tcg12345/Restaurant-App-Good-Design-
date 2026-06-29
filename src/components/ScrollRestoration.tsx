@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { getPrimaryScroller, setPageScroll, maxPageScroll } from '../lib/page-scroll';
+import { isKeepAlivePath } from '../lib/keep-alive';
 
 /**
  * Per-history-entry scroll restoration.
@@ -52,6 +53,9 @@ export const ScrollRestoration: React.FC = () => {
   }, []);
 
   useLayoutEffect(() => {
+    // Keep-alive tabs keep their own scroll (they're not remounted) — never
+    // touch them, or we'd reset a preserved position to 0.
+    if (isKeepAlivePath(location.pathname)) return;
     // New page (push) → window stays put only matters for window-scroll pages;
     // inner scrollers mount at the top on their own.
     if (navType !== 'POP') { window.scrollTo(0, 0); return; }
