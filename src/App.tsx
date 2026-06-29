@@ -381,8 +381,13 @@ const AppContent: React.FC = () => {
   // on routes that own horizontal/vertical gestures or have no "back".
   const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
   const canGoBack = historyIdx !== null ? historyIdx > 0 : window.history.length > 1;
+  // Bottom-nav tab roots are NOT swipeable: you should never swipe between
+  // tabs, and on a tab root a route-back just crosses into whatever tab is
+  // behind it in history (e.g. swiping on Pantry would jump to Reels). Tabs
+  // are switched via the nav bar; their own in-page back closes sub-views.
+  const isTabRoot = KEEP_ALIVE_PATHS.includes(location.pathname) || location.pathname === '/search';
   const allowSwipeBack =
-    canGoBack && !isReelsPage && !isFocusedReel && !isMapPage &&
+    canGoBack && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot &&
     !['/create', '/onboarding', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
