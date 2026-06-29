@@ -186,8 +186,8 @@ export const PhotoGallery: React.FC<{
                 <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Photos from members</h3>
               )}
 
-              {/* Photo grid — 2 columns */}
-              <div className="grid grid-cols-2 gap-2 px-5">
+              {/* Photo grid — 2 columns on phones, 4 across on desktop. */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-5">
                 {displayPhotos.map((photo, i) => (
                   <button
                     key={i}
