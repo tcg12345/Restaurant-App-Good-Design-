@@ -224,14 +224,17 @@ const AppContent: React.FC = () => {
   // feels native rather than waiting for a fade-out first. Other routes
   // keep the existing fade + small vertical lift in `mode="wait"`.
   const isCreateRoute = location.pathname === '/create';
-  const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: 6 };
-  const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { opacity: 1, y: 0 };
-  const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: -4 };
+  // Detail pages slide horizontally (iOS push/pop) rather than fading. Fading
+  // an opaque page out over the kept tab caused a white wash; sliding it off
+  // also covers the tab during its first repaint, so there's no flash.
+  const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
+  const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { x: 0 };
+  const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
   const motionTransition = instantNav
     ? { duration: 0 }
     : isCreateRoute
       ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
-      : { duration: 0.18, ease: 'easeOut' as const };
+      : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
 
   const isKeepAlivePath = KEEP_ALIVE_PATHS.includes(location.pathname);
   const routesBlock = (

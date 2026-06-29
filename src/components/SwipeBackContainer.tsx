@@ -189,14 +189,15 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       s.tracking = false; s.claimed = false; s.deferEl = null;
     };
 
-    // Run cb after the next paint, with a timeout fallback so cleanup never
-    // stalls if rAF is throttled (backgrounded tab) — otherwise the page could
-    // be left parked off-screen and `busy` stuck true.
+    // Run cb after a few paints, with a timeout fallback so cleanup never
+    // stalls if rAF is throttled (backgrounded tab). The extra frames give the
+    // destination (which was visibility:hidden and must repaint when it becomes
+    // active) time to paint while the snapshot still covers it — no flash.
     const nextFrame = (cb: () => void) => {
       let done = false;
       const run = () => { if (done) return; done = true; cb(); };
-      requestAnimationFrame(() => requestAnimationFrame(run));
-      setTimeout(run, 120);
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(run)));
+      setTimeout(run, 140);
     };
 
     // Run `body` exactly once on settle. We null the listeners before the
