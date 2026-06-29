@@ -21,9 +21,11 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
 import { getProfilesByIds, getFriends, getFriendsPublicHomeMeals, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
+import { shareExternally } from '../lib/native-share';
 import './RecipesForYou.css';
 
 type SourceFilter = 'all' | 'friend' | 'chef' | 'home';
@@ -134,6 +136,25 @@ const recipeMeal = (r: Recipe): MealKey => {
   return 'dinner';
 };
 
+// ── Desktop faceted-filter helpers ──────────────────────────────────
+// The redesigned desktop browse panel filters on six facets. Meal / source
+// reuse the existing classifiers; the rest derive straight from recipe data.
+type FacetId = 'meal' | 'cuisine' | 'dietary' | 'time' | 'difficulty' | 'source';
+const FACET_IDS: FacetId[] = ['meal', 'cuisine', 'dietary', 'time', 'difficulty', 'source'];
+
+// Tags we treat as "dietary" filter options (everything else stays a free tag).
+const DIETARY_KEYS = ['gluten-free', 'vegetarian', 'vegan', 'healthy', 'low-carb', 'dairy-free', 'keto', 'paleo', 'high-protein'];
+const recipeDietary = (r: Recipe): string[] => {
+  const set = new Set(r.tags.map((t) => t.toLowerCase()));
+  return DIETARY_KEYS.filter((k) => set.has(k));
+};
+const recipeTimeBucket = (r: Recipe): 'u30' | 'm3060' | 'o60' | null => {
+  const m = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+  if (m <= 0) return null;
+  return m < 30 ? 'u30' : m <= 60 ? 'm3060' : 'o60';
+};
+const prettyTag = (t: string): string => t.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 // Format a (prep + cook) minute total for the recipe-of-day / trend rows.
 const formatTime = (mins: number): string => {
   if (!Number.isFinite(mins) || mins <= 0) return '';
@@ -189,6 +210,14 @@ export const RecipesForYou: React.FC = () => {
   const { user } = useAuth();
   const { homeMeals } = useLists();
   const { phoneMode } = useSettings();
+  const { setOverride: setPageAddAction } = usePageAddAction();
+
+  // On the Recipe Box, the desktop header's "Add Rating" CTA becomes
+  // "Add Recipe" (→ the create flow). Reverts on unmount.
+  useEffect(() => {
+    setPageAddAction({ label: 'Add Recipe', onClick: () => navigate('/create') });
+    return () => setPageAddAction(null);
+  }, [setPageAddAction, navigate]);
 
   // ── Data ──
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -217,6 +246,20 @@ export const RecipesForYou: React.FC = () => {
   // search behavior still works without the old sticky header.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Desktop browse panel uses a multi-select faceted sidebar (Meal, Cuisine,
+  // Dietary, Time, Difficulty, From). Kept separate from the mobile chips so
+  // each layout keeps its own UX.
+  const [facetSel, setFacetSel] = useState<Record<FacetId, Set<string>>>(() => ({
+    meal: new Set(), cuisine: new Set(), dietary: new Set(), time: new Set(), difficulty: new Set(), source: new Set(),
+  }));
+  const toggleFacet = useCallback((fid: FacetId, key: string) => {
+    setFacetSel((prev) => {
+      const next = new Set(prev[fid]);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return { ...prev, [fid]: next };
+    });
+  }, []);
 
   // Horizontal scroll refs.
   const trendRowRef = useRef<HTMLDivElement>(null);
@@ -437,6 +480,95 @@ export const RecipesForYou: React.FC = () => {
 
   const filtersActive = source !== 'all' || meal !== null || tag !== null || searchQuery.trim().length > 0;
 
+  // ── Desktop facets: which keys a recipe matches per facet ──
+  const facetGet = useCallback((fid: FacetId, r: Recipe): string[] => {
+    switch (fid) {
+      case 'meal': return [recipeMeal(r)];
+      case 'cuisine': return r.cuisine ? [r.cuisine] : [];
+      case 'dietary': return recipeDietary(r);
+      case 'time': { const b = recipeTimeBucket(r); return b ? [b] : []; }
+      case 'difficulty': return r.difficulty ? [r.difficulty] : [];
+      case 'source': return [recipeSource(r)];
+      default: return [];
+    }
+  }, [recipeSource]);
+
+  // Build the sidebar groups with live per-option counts (from the full
+  // library), hiding any option that no recipe currently has.
+  const facetGroups = useMemo(() => {
+    const TIME_LABEL: Record<string, string> = { u30: 'Under 30 min', m3060: '30–60 min', o60: 'Over 1 hour' };
+    const SRC_LABEL: Record<string, string> = { friend: 'Friends', chef: 'Chefs', home: 'Home Cooks' };
+    const defs: { id: FacetId; title: string; order: string[] | null; label: (k: string) => string }[] = [
+      { id: 'meal', title: 'Meal', order: MEAL_CATEGORIES.map((c) => c.key), label: (k) => MEAL_CATEGORIES.find((c) => c.key === k)?.label || k },
+      { id: 'cuisine', title: 'Cuisine', order: null, label: (k) => k },
+      { id: 'dietary', title: 'Dietary', order: DIETARY_KEYS, label: prettyTag },
+      { id: 'time', title: 'Time', order: ['u30', 'm3060', 'o60'], label: (k) => TIME_LABEL[k] || k },
+      { id: 'difficulty', title: 'Difficulty', order: ['easy', 'medium', 'hard'], label: (k) => DIFFICULTY_LABEL[k as keyof typeof DIFFICULTY_LABEL] || k },
+      { id: 'source', title: 'From', order: ['friend', 'chef', 'home'], label: (k) => SRC_LABEL[k] || k },
+    ];
+    return defs.map((def) => {
+      const counts = new Map<string, number>();
+      for (const r of displayRecipes) for (const k of facetGet(def.id, r)) counts.set(k, (counts.get(k) || 0) + 1);
+      const keys = def.order
+        ? def.order.filter((k) => counts.has(k))
+        : [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => k);
+      return {
+        id: def.id,
+        title: def.title,
+        options: keys.map((k) => ({ key: k, label: def.label(k), count: counts.get(k) || 0, active: facetSel[def.id].has(k) })),
+      };
+    }).filter((g) => g.options.length > 0);
+  }, [displayRecipes, facetGet, facetSel]);
+
+  // Filter + sort for the desktop browse grid (multi-select within a facet =
+  // OR, across facets = AND; plus the search query).
+  const desktopFiltered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const pool = displayRecipes.filter((r) => {
+      if (!r.title) return false;
+      for (const fid of FACET_IDS) {
+        const sel = facetSel[fid];
+        if (sel.size === 0) continue;
+        if (!facetGet(fid, r).some((v) => sel.has(v))) return false;
+      }
+      if (q) {
+        const author = authors[r.userId];
+        const hay = [r.title, r.cuisine, r.description, author?.display_name, author?.username, ...r.tags].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const out = [...pool];
+    if (sortBy === 'quick') {
+      out.sort((a, b) => {
+        const at = (a.prepTimeMinutes ?? 0) + (a.cookTimeMinutes ?? 0);
+        const bt = (b.prepTimeMinutes ?? 0) + (b.cookTimeMinutes ?? 0);
+        return (at <= 0 ? Infinity : at) - (bt <= 0 ? Infinity : bt);
+      });
+    } else if (sortBy === 'popular') out.sort((a, b) => stableHash(b.id) - stableHash(a.id));
+    else if (sortBy === 'az') out.sort((a, b) => a.title.localeCompare(b.title));
+    else out.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return out;
+  }, [displayRecipes, authors, facetSel, facetGet, searchQuery, sortBy]);
+
+  const desktopPills = useMemo(() => {
+    const out: { fid: FacetId; key: string; label: string }[] = [];
+    for (const g of facetGroups) for (const o of g.options) if (o.active) out.push({ fid: g.id, key: o.key, label: o.label });
+    return out;
+  }, [facetGroups]);
+  const anyDesktopFilter = desktopPills.length > 0 || searchQuery.trim().length > 0;
+  const clearDesktop = useCallback(() => {
+    setFacetSel({ meal: new Set(), cuisine: new Set(), dietary: new Set(), time: new Set(), difficulty: new Set(), source: new Set() });
+    setSearchQuery('');
+  }, []);
+
+  // Popular search chips — real cuisines + tags from the library so they
+  // always return results.
+  const popularSearches = useMemo(() => {
+    const cuisines = Array.from(new Set(displayRecipes.map((r) => r.cuisine).filter(Boolean)));
+    return Array.from(new Set([...cuisines.slice(0, 2), ...allTags.slice(0, 3)])).slice(0, 5);
+  }, [displayRecipes, allTags]);
+
   const goToRecipe = useCallback((r: Recipe) => {
     if (r.userId) navigate(`/recipe/${r.userId}/${r.id}`);
     else navigate(`/recipe/${r.id}`);
@@ -451,9 +583,6 @@ export const RecipesForYou: React.FC = () => {
     const rodAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
     const rodAuthorName = rodAuthor?.display_name || rodAuthor?.username || 'Anonymous';
     const rodAuthorHue = recipeOfDay ? hashToHue(recipeOfDay.userId || 'x') : 0;
-    const rodAuthorRole = rodAuthor?.is_expert
-      ? `Chef${rodAuthor.home_city ? ` · ${rodAuthor.home_city}` : ''}`
-      : rodAuthor?.bio || 'Home cook';
     const rodTotal = recipeOfDay ? ((recipeOfDay.prepTimeMinutes ?? 0) + (recipeOfDay.cookTimeMinutes ?? 0)) : 0;
     const rodTime = formatTime(rodTotal);
 
@@ -492,36 +621,16 @@ export const RecipesForYou: React.FC = () => {
           </div>
         </header>
 
-        {/* ── Intro + stats ───────────────────────────────── */}
-        <section className="m-r-intro">
-          <div className="m-r-eyebrow">Today · {today}</div>
-          <h1 className="m-r-title">Cook something <span className="accent">new</span></h1>
-          <p className="m-r-sub">What friends made this week, chefs you follow, and editor picks.</p>
-          <div className="m-r-stats">
-            <div className="m-r-stat">
-              <div className="n">{loading ? '—' : recipesCount}</div>
-              <div className="l">Recipes</div>
-            </div>
-            <div className="m-r-stat">
-              <div className="n">{savedCount}</div>
-              <div className="l">Saved</div>
-            </div>
-            <div className="m-r-stat">
-              <div className="n">{cookedCount}</div>
-              <div className="l">Cooked</div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Recipe of the Day (stacked) ─────────────────── */}
-        {recipeOfDay && (
+        {/* ── Recipe of the Day (stacked) — hidden while searching so
+            only the filtered results + filters show. ──────────────── */}
+        {recipeOfDay && !searchQuery.trim() && (
           <article className="m-rod">
             <div
               className="m-rod-img"
               style={{ background: `linear-gradient(135deg, hsl(${rodAuthorHue} 50% 52%), hsl(${(rodAuthorHue + 25) % 360} 50% 42%))` }}
             >
               {recipeOfDayCover ? (
-                <img className="m-rod-photo" src={recipeOfDayCover} alt={recipeOfDay.title} referrerPolicy="no-referrer" />
+                <img className="m-rod-photo" src={recipeOfDayCover} alt={recipeOfDay.title} decoding="async" referrerPolicy="no-referrer" />
               ) : (
                 <div className="ph-fallback"><ChefHat /></div>
               )}
@@ -536,17 +645,10 @@ export const RecipesForYou: React.FC = () => {
               </button>
             </div>
             <div className="m-rod-body">
-              <div className="m-rod-eyebrow">
-                <span className="pulse" />
-                Editor's pick
-              </div>
               <h2 className="m-rod-name">{recipeOfDay.title}</h2>
-              {recipeOfDay.description && <p className="m-rod-byline">{recipeOfDay.description}</p>}
               <div className="m-rod-meta">
                 {rodTime && <span><Clock /> {rodTime}</span>}
-                {rodTime && recipeOfDay.servings ? <span className="dot-sep" /> : null}
-                {recipeOfDay.servings ? <span>{recipeOfDay.servings} servings</span> : null}
-                {recipeOfDay.difficulty && (recipeOfDay.servings || rodTime) ? <span className="dot-sep" /> : null}
+                {rodTime && recipeOfDay.difficulty ? <span className="dot-sep" /> : null}
                 {recipeOfDay.difficulty && <span>{DIFFICULTY_LABEL[recipeOfDay.difficulty]}</span>}
               </div>
               <div className="m-rod-author">
@@ -555,7 +657,6 @@ export const RecipesForYou: React.FC = () => {
                 </div>
                 <div className="m-rod-author-info">
                   <span className="name">{rodAuthorName}</span>
-                  <span className="role">{rodAuthorRole}</span>
                 </div>
               </div>
               <div className="m-rod-cta">
@@ -568,8 +669,7 @@ export const RecipesForYou: React.FC = () => {
                   aria-label="Share"
                   onClick={() => {
                     const url = `${window.location.origin}/recipe/${recipeOfDay.userId}/${recipeOfDay.id}`;
-                    if (navigator.share) navigator.share({ title: recipeOfDay.title, url }).catch(() => { /* user cancel */ });
-                    else navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
+                    void shareExternally({ title: recipeOfDay.title, url });
                   }}
                 >
                   <Share2 />
@@ -579,186 +679,12 @@ export const RecipesForYou: React.FC = () => {
           </article>
         )}
 
-        {/* ── Browse by meal (3×2 grid) ───────────────────── */}
-        <section className="m-section">
-          <div className="m-section-head">
-            <div>
-              <h2 className="m-section-title">Browse by meal</h2>
-              <div className="m-section-sub">Quick filters</div>
-            </div>
-          </div>
-          <div className="m-cat-grid">
-            {MEAL_CATEGORIES.map((c) => {
-              const Ico = c.icon;
-              return (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={cn('m-cat', meal === c.key && 'active')}
-                  onClick={() => setMeal(meal === c.key ? null : c.key)}
-                >
-                  <div className="m-cat-icon" style={{ background: `hsl(${c.hue} 50% 48%)` }}>
-                    <Ico />
-                  </div>
-                  <div className="m-cat-text">
-                    <div className="m-cat-label">{c.label}</div>
-                    <div className="m-cat-count">{mealCounts[c.key] || 0}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ── Trending (h-scroll w/ hero+rank cards) ───────── */}
-        {trending.length > 0 && (
-          <section className="m-section">
-            <div className="m-section-head">
-              <div>
-                <h2 className="m-section-title">Trending</h2>
-                <div className="m-section-sub">What people are saving right now</div>
-              </div>
-              <button
-                type="button"
-                className="m-section-link"
-                onClick={() => { setSortBy('popular'); setSource('all'); setTag(null); setMeal(null); }}
-              >
-                All <ChevRight />
-              </button>
-            </div>
-            <div className="m-hscroll">
-              {trending.map((r, i) => (
-                <MobileTrendCard key={r.id} r={r} rank={i + 1} onClick={() => goToRecipe(r)} />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── Friend activity strip (compact) ─────────────── */}
-        {activeFriends.length >= 2 && (
-          <button
-            type="button"
-            className="m-activity-strip"
-            onClick={() => { setSource('friend'); setMeal(null); setTag(null); }}
-          >
-            <div className="strip-avs">
-              {activeFriends.map((f) => (
-                <span
-                  key={f.userId}
-                  className="av"
-                  style={{ background: `hsl(${hashToHue(f.userId)} 45% 42%)` }}
-                >
-                  {(f.name[0] || 'F').toUpperCase()}
-                </span>
-              ))}
-            </div>
-            <div className="strip-msg">
-              {activeFriends.slice(0, -1).map((f, i, arr) => (
-                <React.Fragment key={f.userId}>
-                  <span className="b">{f.name}</span>{i < arr.length - 1 ? ', ' : ''}
-                </React.Fragment>
-              ))}
-              {activeFriends.length > 1 && ' & '}
-              <span className="b">{activeFriends[activeFriends.length - 1].name}</span>
-              {' cooked '}
-              <span className="b">{friendRecipes.length} recipe{friendRecipes.length === 1 ? '' : 's'}</span>
-              {' this week'}
-            </div>
-            <span className="strip-arrow">›</span>
-          </button>
-        )}
-
-        {/* ── Collections (h-scroll small) ────────────────── */}
-        <section className="m-section">
-          <div className="m-section-head">
-            <div>
-              <h2 className="m-section-title">Collections</h2>
-              <div className="m-section-sub">Editor's picks for the week</div>
-            </div>
-            <button type="button" className="m-section-link">See all <ChevRight /></button>
-          </div>
-          <div className="m-hscroll">
-            {COLLECTIONS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className="m-collection"
-                onClick={() => {
-                  if (c.filter.source) setSource(c.filter.source);
-                  if (c.filter.meal) setMeal(c.filter.meal);
-                  if (c.filter.tag) setTag(c.filter.tag);
-                  document.querySelector('.recipes-page-root .m-explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}
-              >
-                <div className="m-collection-bg">
-                  <img className="m-collection-photo" src={c.img} alt={c.title} loading="lazy" />
-                  <div className="m-collection-overlay" />
-                </div>
-                <span className="m-collection-tag">Collection</span>
-                <div className="m-collection-body">
-                  <div className="m-collection-count">{c.count} recipes · {c.by}</div>
-                  <h3 className="m-collection-title">{c.title}</h3>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* ── From your friends (uses trending card style) ── */}
-        {friendRecipes.length > 0 && (
-          <section className="m-section">
-            <div className="m-section-head">
-              <div>
-                <h2 className="m-section-title">From your friends <span className="count">{friendRecipes.length}</span></h2>
-                <div className="m-section-sub">{activeFriends.map((f) => f.name).join(' & ') || 'Friends'} cooked recently</div>
-              </div>
-              <button
-                type="button"
-                className="m-section-link"
-                onClick={() => { setSource('friend'); setMeal(null); setTag(null); document.querySelector('.recipes-page-root .m-explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-              >
-                See all <ChevRight />
-              </button>
-            </div>
-            <div className="m-hscroll">
-              {friendRecipes.map((r) => (
-                <MobileTrendCard key={r.id} r={r} rank="" onClick={() => goToRecipe(r)} />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── Chef spotlight (h-scroll w/ Follow button) ──── */}
-        {chefSpotlight.length > 0 && (
-          <section className="m-section">
-            <div className="m-section-head">
-              <div>
-                <h2 className="m-section-title">Chef spotlight</h2>
-                <div className="m-section-sub">Recipes from chefs you follow</div>
-              </div>
-              <button type="button" className="m-section-link" onClick={() => navigate('/experts')}>
-                Browse <ChevRight />
-              </button>
-            </div>
-            <div className="m-hscroll">
-              {chefSpotlight.map((c) => (
-                <MobileChefCard
-                  key={c.profile.user_id}
-                  profile={c.profile}
-                  recipeCount={c.recipeCount}
-                  onClick={() => navigate(`/user/${c.profile.username}`)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* ── Explore (2-col grid / list) ─────────────────── */}
         <section className="m-section m-explore" style={{ marginBottom: 12 }}>
           <div className="m-explore-section-head">
             <div>
-              <h2 className="m-explore-title">Explore <span className="accent">recipes</span></h2>
-              <div className="m-explore-sub">The full library, filterable</div>
+              <h2 className="m-explore-title">All recipes</h2>
+              <div className="m-explore-sub">Filter the full library</div>
             </div>
             <div className="m-er-view">
               <button
@@ -795,6 +721,27 @@ export const RecipesForYou: React.FC = () => {
                 {s === 'home' && <UtensilsCrossed />}
                 <span>{SOURCE_LABELS[s]}</span>
                 <span className="badge">{sourceCounts[s]}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Meal filter — replaces the old big "Browse by meal" grid. */}
+          <div className="m-tag-chips">
+            <button
+              type="button"
+              className={cn('m-tag-chip', !meal && 'active')}
+              onClick={() => setMeal(null)}
+            >
+              All meals
+            </button>
+            {MEAL_CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className={cn('m-tag-chip', meal === c.key && 'active')}
+                onClick={() => setMeal(meal === c.key ? null : c.key)}
+              >
+                {c.label}
               </button>
             ))}
           </div>
@@ -858,412 +805,145 @@ export const RecipesForYou: React.FC = () => {
   }
 
   return (
-    <div className="recipes-page-root">
-      {/* ── Hero row: page header + Recipe of the Day ───────────────── */}
-      <div className="r-hero-row">
-        <header className="r-page-header">
-          <div>
+    <div className="recipes-page-root rbx">
+      {/* ── Masthead: editorial title + Recipe of the Day ───────────── */}
+      <section className="rbx-masthead">
+        <div className="rbx-mast-grid">
+          <div className="rbx-mast-left">
             <div className="r-breadcrumb">
-              <Link to="/" aria-label="Back to Discover">
-                <ArrowLeft />
-              </Link>
+              <Link to="/" aria-label="Back to Discover"><ArrowLeft /></Link>
               <Link to="/">Discover</Link>
               <span className="sep">/</span>
               <span className="here">Recipes</span>
             </div>
-            <h1 className="r-page-title">
-              The Recipe <span className="italic">Box</span>
-            </h1>
-            <p className="r-page-sub">
-              Everything friends have cooked, what chefs are sharing, and what home cooks across the network are saving this week.
-            </p>
+            <h1 className="rbx-title">The Recipe <span className="italic">Box</span></h1>
+            <p className="rbx-sub">Everything friends have cooked, what chefs are sharing, and the dishes home cooks across the network are saving this week.</p>
           </div>
-          <div className="r-header-stats">
-            <div className="r-header-stat">
-              <div className="n">{loading ? '—' : recipesCount}</div>
-              <div className="l">Recipes</div>
-            </div>
-            <div className="r-header-stat">
-              <div className="n">{savedCount}</div>
-              <div className="l">Saved</div>
-            </div>
-            <div className="r-header-stat">
-              <div className="n">{cookedCount}</div>
-              <div className="l">Cooked</div>
-            </div>
-          </div>
-        </header>
-
-        {recipeOfDay && <RecipeOfTheDay recipe={recipeOfDay} author={authors[recipeOfDay.userId]} saved={savedIds.has(recipeOfDay.id)} onSave={toggleSave} onOpen={() => goToRecipe(recipeOfDay)} />}
-      </div>
-
-      {/* ── Browse by meal ──────────────────────────────────────────── */}
-      <section className="r-categories">
-        <SectionHead
-          title="Browse by "
-          accentWord="meal"
-          sub="Quick filters across the whole library"
-        />
-        <div className="r-cat-row">
-          {MEAL_CATEGORIES.map((c) => {
-            const Ico = c.icon;
-            return (
-              <button
-                key={c.key}
-                type="button"
-                className={cn('r-cat', meal === c.key && 'active')}
-                onClick={() => setMeal(meal === c.key ? null : c.key)}
-              >
-                <div className="cat-icon" style={{ background: `hsl(${c.hue} 50% 48%)` }}>
-                  <Ico />
-                </div>
-                <div className="cat-text">
-                  <div className="cat-label">{c.label}</div>
-                  <div className="cat-count">{mealCounts[c.key] || 0} recipes</div>
-                </div>
-              </button>
-            );
-          })}
+          {recipeOfDay && (
+            <RecipeOfTheDay recipe={recipeOfDay} author={authors[recipeOfDay.userId]} saved={savedIds.has(recipeOfDay.id)} onSave={toggleSave} onOpen={() => goToRecipe(recipeOfDay)} />
+          )}
         </div>
       </section>
 
-      {/* ── Trending this week (tinted band) ────────────────────────── */}
-      {trending.length > 0 && (
-        <section className="r-scroll-section tinted">
-          <SectionHead
-            title="Trending "
-            accentWord="this week"
-            sub="What people are saving and cooking right now"
-            link={trending.length > 0 ? 'See full list' : undefined}
-            onScroll={(d) => scrollRow(trendRowRef, d)}
-            onLinkClick={() => { setSortBy('popular'); setSource('all'); setTag(null); setMeal(null); }}
-          />
-          <div className="recipe-row" ref={trendRowRef} style={{ gridAutoColumns: '340px' }}>
-            {trending.map((r, i) => (
-              <TrendCard key={r.id} r={r} rank={i + 1} onClick={() => goToRecipe(r)} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Friend activity strip ───────────────────────────────────── */}
-      {activeFriends.length >= 2 && (
-        <div className="activity-strip">
-          <div className="left">
-            <div className="strip-avs">
-              {activeFriends.map((f) => (
-                <span
-                  key={f.userId}
-                  className="av"
-                  style={{ background: `hsl(${hashToHue(f.userId)} 45% 42%)` }}
-                >
-                  {(f.name[0] || 'F').toUpperCase()}
-                </span>
-              ))}
-            </div>
-            <div className="strip-msg">
-              {activeFriends.slice(0, -1).map((f, i, arr) => (
-                <React.Fragment key={f.userId}>
-                  <span className="b">{f.name}</span>{i < arr.length - 1 ? ', ' : ''}
-                </React.Fragment>
-              ))}
-              {activeFriends.length > 1 && ' and '}
-              <span className="b">{activeFriends[activeFriends.length - 1].name}</span>
-              {' cooked '}
-              <span className="b">{friendRecipes.length} recipe{friendRecipes.length === 1 ? '' : 's'}</span>
-              {' this week — '}
-              <button
-                type="button"
-                className="lnk"
-                onClick={() => { setSource('friend'); setMeal(null); setTag(null); }}
-              >
-                see what they made →
-              </button>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => navigate('/activity')}
-          >
-            View activity
-          </button>
-        </div>
-      )}
-
-      {/* ── Editor's collections ────────────────────────────────────── */}
-      <section className="r-scroll-section">
-        <SectionHead
-          title="Editor's "
-          accentWord="collections"
-          sub="Hand-picked recipe sets for the week ahead"
-          link="All collections"
-          onScroll={(d) => scrollRow(collectionsRowRef, d)}
-        />
-        <div className="recipe-row" ref={collectionsRowRef} style={{ gridAutoColumns: 'minmax(240px, 1fr)' }}>
-          {COLLECTIONS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className="collection-card"
-              onClick={() => {
-                if (c.filter.source) setSource(c.filter.source);
-                if (c.filter.meal) setMeal(c.filter.meal);
-                if (c.filter.tag) setTag(c.filter.tag);
-                document.querySelector('.recipes-page-root .explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-            >
-              <div className="cc-bg">
-                <img className="cc-photo" src={c.img} alt={c.title} loading="lazy" />
-                <div className="cc-overlay" />
-              </div>
-              <span className="cc-tag">Collection</span>
-              <div className="cc-body">
-                <div className="cc-count">{c.count} recipes · by {c.by}</div>
-                <h3 className="cc-title">{c.title}</h3>
-                <p className="cc-sub">{c.sub}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* ── From your friends ───────────────────────────────────────── */}
-      {friendRecipes.length > 0 && (
-        <section className="r-scroll-section">
-          <SectionHead
-            title="From your "
-            accentWord="friends"
-            sub={`Recipes ${activeFriends.map((f) => f.name).join(', ') || 'your friends'} cooked recently`}
-            count={friendRecipes.length}
-            link="See all"
-            onScroll={(d) => scrollRow(friendsRowRef, d)}
-            onLinkClick={() => { setSource('friend'); setMeal(null); setTag(null); document.querySelector('.recipes-page-root .explore')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-          />
-          <div className="recipe-row" ref={friendsRowRef} style={{ gridAutoColumns: '260px' }}>
-            {friendRecipes.map((r) => (
-              <MiniRecipeCard
-                key={r.id}
-                r={r}
-                source={recipeSource(r)}
-                author={authors[r.userId]}
-                saved={savedIds.has(r.id)}
-                onSave={toggleSave}
-                onClick={() => goToRecipe(r)}
+      {/* ── Search + Browse ─────────────────────────────────────────── */}
+      <section className="rbx-browse">
+        <div className="rbx-browse-inner">
+          {/* prominent search */}
+          <div className="rbx-search">
+            <h2 className="rbx-search-title">What do you want to <span className="italic">cook?</span></h2>
+            <p className="rbx-search-sub">Search the full library — from friends, chefs, and home cooks.</p>
+            <div className="rbx-search-box">
+              <Search className="ic" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Try “butter chicken”, “Korean”, or “30-minute dinner”"
               />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Chef spotlight ──────────────────────────────────────────── */}
-      {chefSpotlight.length > 0 && (
-        <section className="r-scroll-section">
-          <SectionHead
-            title="Chef "
-            accentWord="spotlight"
-            sub="Recipes from chefs you follow"
-            link="Browse chefs"
-            onLinkClick={() => navigate('/experts')}
-          />
-          <div className="chef-row">
-            {chefSpotlight.map((c) => (
-              <ChefCard
-                key={c.profile.user_id}
-                profile={c.profile}
-                recipeCount={c.recipeCount}
-                onClick={() => navigate(`/user/${c.profile.username}`)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Explore (main grid) ─────────────────────────────────────── */}
-      <section className="explore">
-        <SectionHead
-          title="Explore "
-          accentWord="recipes"
-          sub={
-            (meal ? `${MEAL_CATEGORIES.find((m) => m.key === meal)?.label} · ` : '') +
-            (tag ? `${tag} · ` : '') +
-            'The full library, filterable'
-          }
-        />
-
-        {/* Source tabs + search + sort + view toggle */}
-        <div className="explore-bar">
-          <div className="explore-tabs">
-            {(['all', 'friend', 'chef', 'home'] as SourceFilter[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={cn('exp-tab', source === s && 'active')}
-                onClick={() => setSource(s)}
-              >
-                {s === 'friend' && <Users />}
-                {s === 'chef' && <ChefHat />}
-                {s === 'home' && <UtensilsCrossed />}
-                {SOURCE_LABELS[s]}
-                <span className="badge">{sourceCounts[s]}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="explore-right">
-            {searchOpen ? (
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                height: 36, padding: '0 8px 0 12px', borderRadius: 999,
-                background: 'var(--surface)', border: '1px solid var(--border)',
-              }}>
-                <Search size={13} style={{ color: 'var(--muted)' }} />
-                <input
-                  type="text"
-                  autoFocus
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search recipes, chefs..."
-                  style={{
-                    border: 0, outline: 0, background: 'transparent',
-                    font: 'inherit', fontSize: 13, color: 'var(--ink)',
-                    width: phoneMode ? 140 : 200,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => { setSearchQuery(''); setSearchOpen(false); }}
-                  aria-label="Close search"
-                  style={{ width: 24, height: 24, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}
-                >
-                  <X size={13} />
-                </button>
+              {searchQuery && (
+                <button type="button" className="rbx-search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search"><X /></button>
+              )}
+            </div>
+            {popularSearches.length > 0 && (
+              <div className="rbx-popular">
+                <span className="lbl">Popular:</span>
+                {popularSearches.map((p) => (
+                  <button key={p} type="button" className="rbx-pop" onClick={() => setSearchQuery(p)}>{prettyTag(p)}</button>
+                ))}
               </div>
-            ) : (
-              <button
-                type="button"
-                className="exp-sort"
-                onClick={() => setSearchOpen(true)}
-                aria-label="Search"
-                style={{ width: 36, padding: 0, justifyContent: 'center' }}
-              >
-                <Search />
-              </button>
             )}
+          </div>
 
-            <div ref={sortMenuRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="exp-sort"
-                onClick={() => setSortMenuOpen((v) => !v)}
-              >
-                <ArrowUpDown />
-                <span>{SORT_LABELS[sortBy]}</span>
-                <ChevronDown className={cn('chev', sortMenuOpen && 'rotate-180')} style={{ transition: 'transform .15s' }} />
-              </button>
-              {sortMenuOpen && (
-                <div className="exp-sort-menu">
-                  {(['recent', 'popular', 'quick', 'az'] as SortKey[]).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      className={cn('opt', sortBy === k && 'active')}
-                      onClick={() => { setSortBy(k); setSortMenuOpen(false); }}
-                    >
-                      {SORT_LABELS[k]}
-                      {sortBy === k && <Check />}
+          {/* two-column browse: filter sidebar + results */}
+          <div className="rbx-cols">
+            <aside className="rbx-filters">
+              <div className="rbx-filters-head">
+                <span>Filters</span>
+                {anyDesktopFilter && <button type="button" className="rbx-clear" onClick={clearDesktop}>Clear all</button>}
+              </div>
+              {facetGroups.map((g) => (
+                <div key={g.id} className="rbx-facet">
+                  <div className="rbx-facet-title">{g.title}</div>
+                  <div className="rbx-facet-opts">
+                    {g.options.map((o) => (
+                      <button key={o.key} type="button" className={cn('rbx-opt', o.active && 'active')} onClick={() => toggleFacet(g.id, o.key)}>
+                        <span className="rbx-check">{o.active && <Check />}</span>
+                        <span className="rbx-opt-label">{o.label}</span>
+                        <span className="rbx-opt-count">{o.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </aside>
+
+            <div className="rbx-results">
+              <div className="rbx-results-head">
+                <div className="rbx-count"><span className="n">{desktopFiltered.length}</span> recipes</div>
+                <div className="rbx-tools">
+                  <div ref={sortMenuRef} className="rbx-sort-wrap">
+                    <button type="button" className="rbx-sort" onClick={() => setSortMenuOpen((v) => !v)}>
+                      <ArrowUpDown /><span>{SORT_LABELS[sortBy]}</span><ChevronDown className={cn('chev', sortMenuOpen && 'open')} />
                     </button>
+                    {sortMenuOpen && (
+                      <div className="rbx-sort-menu">
+                        {(['recent', 'popular', 'quick', 'az'] as SortKey[]).map((k) => (
+                          <button key={k} type="button" className={cn('opt', sortBy === k && 'active')} onClick={() => { setSortBy(k); setSortMenuOpen(false); }}>
+                            {SORT_LABELS[k]}{sortBy === k && <Check />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rbx-view">
+                    <button type="button" className={cn(view === 'grid' && 'on')} onClick={() => setView('grid')} aria-label="Grid view"><LayoutGrid /></button>
+                    <button type="button" className={cn(view === 'list' && 'on')} onClick={() => setView('list')} aria-label="List view"><List /></button>
+                  </div>
+                </div>
+              </div>
+
+              {anyDesktopFilter && (
+                <div className="rbx-pills">
+                  {searchQuery.trim() && (
+                    <button type="button" className="rbx-pill" onClick={() => setSearchQuery('')}>“{searchQuery.trim()}” <X /></button>
+                  )}
+                  {desktopPills.map((p) => (
+                    <button key={p.fid + p.key} type="button" className="rbx-pill" onClick={() => toggleFacet(p.fid, p.key)}>{p.label} <X /></button>
+                  ))}
+                </div>
+              )}
+
+              {loading ? (
+                <div className={cn('rbx-grid', view === 'list' && 'list')}>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="rbx-skel" style={{ height: view === 'list' ? 150 : 280 }} />
+                  ))}
+                </div>
+              ) : desktopFiltered.length === 0 ? (
+                <div className="rbx-empty">
+                  <div className="rbx-empty-title">No recipes match your filters</div>
+                  <p>Try removing a filter or searching for something else.</p>
+                  <button type="button" className="rbx-empty-btn" onClick={clearDesktop}>Clear all filters</button>
+                </div>
+              ) : (
+                <div className={cn('rbx-grid', view === 'list' && 'list')}>
+                  {desktopFiltered.map((r) => (
+                    <BrowseCard
+                      key={r.id}
+                      r={r}
+                      source={recipeSource(r)}
+                      author={authors[r.userId]}
+                      saved={savedIds.has(r.id)}
+                      onSave={toggleSave}
+                      onClick={() => goToRecipe(r)}
+                      view={view}
+                    />
                   ))}
                 </div>
               )}
             </div>
-
-            <div className="exp-view">
-              <button
-                type="button"
-                className={cn(view === 'grid' && 'on')}
-                onClick={() => setView('grid')}
-                title="Grid"
-                aria-label="Grid view"
-              >
-                <LayoutGrid />
-              </button>
-              <button
-                type="button"
-                className={cn(view === 'list' && 'on')}
-                onClick={() => setView('list')}
-                title="List"
-                aria-label="List view"
-              >
-                <List />
-              </button>
-            </div>
           </div>
         </div>
-
-        {/* Tag chips */}
-        <div className="explore-tags">
-          <button
-            type="button"
-            className={cn('exp-tag', !tag && 'active')}
-            onClick={() => setTag(null)}
-          >
-            All tags
-          </button>
-          {allTags.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={cn('exp-tag', tag === t && 'active')}
-              onClick={() => setTag(tag === t ? null : t)}
-            >
-              <Tag /> {t}
-            </button>
-          ))}
-        </div>
-
-        {/* Results count + clear */}
-        <div className="explore-results-head">
-          <div className="exp-count">
-            <span className="n">{filtered.length}</span> recipes
-            {filtersActive && (
-              <button type="button" className="exp-clear" onClick={clearFilters}>
-                Clear filters
-              </button>
-            )}
-          </div>
-        </div>
-
-        {loading ? (
-          <div className={cn('recipe-grid', view === 'list' && 'list')}>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="skeleton"
-                style={{ height: view === 'list' ? 160 : 320 }}
-              />
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">
-            No recipes match those filters. Try clearing one.
-          </div>
-        ) : (
-          <div className={cn('recipe-grid', view === 'list' && 'list')}>
-            {filtered.map((r) => (
-              <GridRecipeCard
-                key={r.id}
-                r={r}
-                source={recipeSource(r)}
-                author={authors[r.userId]}
-                saved={savedIds.has(r.id)}
-                onSave={toggleSave}
-                onClick={() => goToRecipe(r)}
-                view={view}
-              />
-            ))}
-          </div>
-        )}
       </section>
     </div>
   );
@@ -1314,6 +994,61 @@ const SectionHead: React.FC<SectionHeadProps> = ({ title, accentWord, sub, count
   </div>
 );
 
+/** Editorial recipe card for the redesigned desktop browse grid: cover with a
+ *  source pill + save heart, then cuisine eyebrow, serif title, "By {chef}",
+ *  and a time · difficulty meta line. Supports a horizontal list variant. */
+const BrowseCard: React.FC<{
+  r: Recipe;
+  source: SourceFilter;
+  author?: UserProfile;
+  saved: boolean;
+  onSave: (id: string) => void;
+  onClick: () => void;
+  view: ViewMode;
+}> = ({ r, source, author, saved, onSave, onClick, view }) => {
+  const cover = r.photos?.[0] || '';
+  const time = formatTime((r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0));
+  const authorName = author?.display_name || author?.username || 'Anonymous';
+  const authorHue = hashToHue(r.userId || authorName);
+  return (
+    <article
+      className={cn('rbx-card', view === 'list' && 'list')}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+    >
+      <div className="rbx-card-img">
+        <div className="rbx-card-bg" style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }} />
+        {cover ? (
+          <img src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="ph-fallback"><ChefHat /></div>
+        )}
+        <span className="rbx-card-src">{sourceLabelOf(source)}</span>
+        <button
+          type="button"
+          className={cn('rbx-card-save', saved && 'on')}
+          onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
+          aria-label={saved ? 'Saved' : 'Save'}
+        >
+          <Heart fill={saved ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <div className="rbx-card-body">
+        <div className="rbx-card-cuisine">{r.cuisine || 'Recipe'}</div>
+        <h3 className="rbx-card-name">{r.title}</h3>
+        <div className="rbx-card-by">By {authorName}</div>
+        <div className="rbx-card-meta">
+          {time && <span className="item"><Clock /> {time}</span>}
+          {time && r.difficulty ? <span className="dot" /> : null}
+          {r.difficulty && <span>{DIFFICULTY_LABEL[r.difficulty]}</span>}
+        </div>
+      </div>
+    </article>
+  );
+};
+
 const RecipeOfTheDay: React.FC<{
   recipe: Recipe;
   author?: UserProfile;
@@ -1325,9 +1060,7 @@ const RecipeOfTheDay: React.FC<{
   const totalTime = (recipe.prepTimeMinutes ?? 0) + (recipe.cookTimeMinutes ?? 0);
   const time = formatTime(totalTime);
   const authorName = author?.display_name || author?.username || 'Anonymous';
-  const authorRole = author?.is_expert ? `Chef${author.home_city ? ` · ${author.home_city}` : ''}` : author?.bio || 'Home cook';
   const authorHue = hashToHue(recipe.userId || 'x');
-  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
     <article className="rod">
@@ -1337,7 +1070,7 @@ const RecipeOfTheDay: React.FC<{
           style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }}
         />
         {cover ? (
-          <img className="rod-photo" src={cover} alt={recipe.title} referrerPolicy="no-referrer" />
+          <img className="rod-photo" src={cover} alt={recipe.title} decoding="async" referrerPolicy="no-referrer" />
         ) : (
           <div className="ph-fallback"><ChefHat /></div>
         )}
@@ -1347,60 +1080,49 @@ const RecipeOfTheDay: React.FC<{
       </div>
       <div className="rod-body">
         <div>
-          <div className="rod-eyebrow">
-            <span className="pulse" />
-            Editor's pick · {today}
-          </div>
           <h2 className="rod-name">{recipe.title}</h2>
-          {recipe.description && <p className="rod-byline">{recipe.description}</p>}
           <div className="rod-meta">
             {time && <span><Clock /> {time}</span>}
-            {time && recipe.servings ? <span className="sep" /> : null}
-            {recipe.servings ? <span>{recipe.servings} servings</span> : null}
-            {recipe.difficulty && (recipe.servings || time) ? <span className="sep" /> : null}
+            {time && recipe.difficulty ? <span className="sep" /> : null}
             {recipe.difficulty && <span>{DIFFICULTY_LABEL[recipe.difficulty]}</span>}
           </div>
         </div>
 
         <div>
-          {(authorName || author) && (
+          <div className="rod-foot">
             <div className="rod-author">
               <div className="rod-author-av" style={{ background: `hsl(${authorHue} 45% 38%)` }}>
                 {(authorName[0] || '?').toUpperCase()}
               </div>
-              <div className="rod-author-info">
-                <span className="rod-author-name">{authorName}</span>
-                <span className="rod-author-role">{authorRole}</span>
-              </div>
+              <span className="rod-author-name">{authorName}</span>
             </div>
-          )}
-          <div className="rod-cta">
-            <button type="button" className="btn btn-primary" onClick={onOpen}>
-              Start cooking <ChevronRight />
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => onSave(recipe.id)}
-              aria-label={saved ? 'Saved' : 'Save'}
-            >
-              <Heart fill={saved ? 'currentColor' : 'none'} style={{ color: saved ? 'var(--accent)' : undefined }} />
-              {saved ? 'Saved' : 'Save'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              title="Share"
-              aria-label="Share"
-              onClick={() => {
-                const url = `${window.location.origin}/recipe/${recipe.userId}/${recipe.id}`;
-                if (navigator.share) navigator.share({ title: recipe.title, url }).catch(() => { /* user cancel */ });
-                else navigator.clipboard?.writeText(url).catch(() => { /* ignore */ });
-              }}
-            >
-              <Share2 />
-            </button>
+            <div className="rod-foot-actions">
+              <button
+                type="button"
+                className={cn('rod-cta-icon', saved && 'saved')}
+                onClick={() => onSave(recipe.id)}
+                title={saved ? 'Saved' : 'Save'}
+                aria-label={saved ? 'Saved' : 'Save'}
+              >
+                <Heart fill={saved ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                type="button"
+                className="rod-cta-icon"
+                title="Share"
+                aria-label="Share"
+                onClick={() => {
+                  const url = `${window.location.origin}/recipe/${recipe.userId}/${recipe.id}`;
+                  void shareExternally({ title: recipe.title, url });
+                }}
+              >
+                <Share2 />
+              </button>
+            </div>
           </div>
+          <button type="button" className="btn btn-primary rod-start" onClick={onOpen}>
+            Start cooking <ChevronRight />
+          </button>
         </div>
       </div>
     </article>
@@ -1446,12 +1168,12 @@ const MiniRecipeCard: React.FC<{
       <div className="rg-img">
         <div className="bg" style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }} />
         {cover ? (
-          <img className="rg-photo" src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+          <img className="rg-photo" src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
         ) : (
           <div className="ph-fallback"><ChefHat /></div>
         )}
         <span className={cn('rg-source', source)}>
-          <SourceIcon source={source} /> {sourceLabelOf(source)}
+          <SourceIcon source={source} /> {author?.display_name || author?.username || sourceLabelOf(source)}
         </span>
         <button
           type="button"
@@ -1506,12 +1228,12 @@ const GridRecipeCard: React.FC<{
     <div className="rg-img">
       <div className="bg" style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }} />
       {cover ? (
-        <img className="rg-photo" src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+        <img className="rg-photo" src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
       ) : (
         <div className="ph-fallback"><ChefHat /></div>
       )}
       <span className={cn('rg-source', source)}>
-        <SourceIcon source={source} /> {sourceLabelOf(source)}
+        <SourceIcon source={source} /> {author?.display_name || author?.username || sourceLabelOf(source)}
       </span>
       <button
         type="button"
@@ -1617,75 +1339,6 @@ const ChefCard: React.FC<{
 
 /* ── Mobile sub-components ─────────────────────────────────────────── */
 
-const MobileTrendCard: React.FC<{ r: Recipe; rank: number | ''; onClick: () => void }> = ({ r, rank, onClick }) => {
-  const cover = r.photos?.[0] || '';
-  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
-  const time = formatTime(totalTime);
-  const trendCount = 80 + (stableHash(r.id) % 200);
-  const hue = hashToHue(r.userId || r.id);
-  return (
-    <article className="m-trend" role="button" tabIndex={0} onClick={onClick} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
-      <div className="m-trend-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
-        {cover ? (
-          <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="ph-fallback"><ChefHat /></div>
-        )}
-        {rank !== '' && (
-          <div className={cn('m-trend-rank', typeof rank === 'number' && rank > 3 && 'dim')}>{rank}</div>
-        )}
-      </div>
-      <div className="m-trend-body">
-        <h4 className="m-trend-name">{r.title}</h4>
-        <div className="m-trend-meta">
-          {r.cuisine && <span>{r.cuisine}</span>}
-          {r.cuisine && time ? <span className="sep" /> : null}
-          {time && <span>{time}</span>}
-          <span className="sep" />
-          <span className="up"><TrendingUp /> {trendCount}</span>
-        </div>
-      </div>
-    </article>
-  );
-};
-
-const MobileChefCard: React.FC<{ profile: UserProfile; recipeCount: number; onClick: () => void }> = ({ profile, recipeCount, onClick }) => {
-  const name = profile.display_name || profile.username || 'Chef';
-  const role = profile.home_city || 'Featured chef';
-  const initials = name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() || 'C';
-  const hue = hashToHue(profile.user_id || name);
-  const followers = 1000 + (stableHash(profile.user_id) % 16000);
-  const followersLabel = followers >= 1000 ? `${(followers / 1000).toFixed(1)}k` : String(followers);
-  return (
-    <article className="m-chef">
-      <button
-        type="button"
-        className="m-chef-av"
-        style={{ background: `hsl(${hue} 50% 32%)` }}
-        onClick={onClick}
-        aria-label={`View ${name}'s profile`}
-      >
-        {initials}
-      </button>
-      <button
-        type="button"
-        className="m-chef-info"
-        onClick={onClick}
-        style={{ background: 'transparent', textAlign: 'left' }}
-      >
-        <h3 className="m-chef-name">{name}</h3>
-        <div className="m-chef-role">{role}</div>
-        <div className="m-chef-stats">
-          <span><span className="b">{recipeCount}</span> recipes</span>
-          <span className="sep" />
-          <span><span className="b">{followersLabel}</span> followers</span>
-        </div>
-      </button>
-      <button type="button" className="m-chef-follow" onClick={onClick}>Follow</button>
-    </article>
-  );
-};
-
 const MobileExploreCard: React.FC<{
   r: Recipe;
   source: SourceFilter;
@@ -1704,12 +1357,12 @@ const MobileExploreCard: React.FC<{
   const ImageBlock = (
     <div className="m-er-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>
       {cover ? (
-        <img src={cover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+        <img src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
       ) : (
         <div className="ph-fallback"><ChefHat /></div>
       )}
       <span className={cn('m-er-source', source)}>
-        <SourceIcon source={source} /> {source === 'home' ? 'Home' : source === 'chef' ? 'Chef' : 'Friend'}
+        <SourceIcon source={source} /> {author?.display_name || author?.username || sourceLabelOf(source)}
       </span>
       <button
         type="button"

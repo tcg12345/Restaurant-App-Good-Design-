@@ -37,6 +37,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -2295,11 +2296,7 @@ export const LocationPage: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => {
-              if (typeof navigator !== 'undefined' && navigator.share) {
-                void navigator.share({ title: cityDisplay, url: window.location.href }).catch(() => {});
-              }
-            }}
+            onClick={() => { void shareExternally({ title: cityDisplay, url: window.location.href }); }}
             className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
             style={{ color: 'var(--ink-2)' }}
             aria-label="Share"

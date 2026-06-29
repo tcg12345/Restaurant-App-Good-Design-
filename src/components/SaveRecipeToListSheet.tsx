@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, BookmarkPlus, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, DEFAULT_COOKED_ID, type HomeMeal } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
@@ -34,8 +34,10 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('🍳');
 
-  // Only home-cooking lists can hold recipes.
-  const recipeLists = lists.filter((l) => l.type === 'home-cooking');
+  // Only home-cooking lists can hold recipes. The built-in "Cooked" list is
+  // auto-managed by the Mark-as-cooked button, so it's not a manual save
+  // target — hide it here.
+  const recipeLists = lists.filter((l) => l.type === 'home-cooking' && l.id !== DEFAULT_COOKED_ID);
   const inCookbook = meal ? homeMeals.some((m) => m.id === meal.id) : false;
 
   const handleToggle = (listId: string, isIn: boolean) => {

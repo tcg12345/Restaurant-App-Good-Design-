@@ -28,6 +28,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
+import { shareExternally } from '../lib/native-share';
 
 /* ── Payload preview — small chip at the top of the dialog ───────────── */
 
@@ -294,25 +295,14 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
       || payload.sharedGuide?.title
       || payload.sharedReel?.attachedTitle
       || (payload.sharedPost ? `@${payload.sharedPost.authorUsername}` : 'Check this out');
-    const shareData = {
+    const result = await shareExternally({
       title: previewTitle,
       text: payload.sharedReel?.caption || payload.sharedPost?.caption || undefined,
       url,
-    };
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share(shareData);
-      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(url);
-        showToast('Link copied');
-      } else {
-        showToast('Sharing not supported on this device');
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        showToast("Couldn't open the share sheet");
-      }
-    }
+    });
+    if (result === 'copied') showToast('Link copied');
+    else if (result === 'unsupported') showToast('Sharing not supported on this device');
+    // 'shared' and 'cancelled' need no toast — the OS sheet handled it.
   };
 
   const computedTitle = title ?? (

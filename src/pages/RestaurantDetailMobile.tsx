@@ -93,6 +93,71 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
 
+  // Swipe the hero to step through photos — a finger-following slide over a
+  // 3-photo window (prev / current / next) that snaps on release. The hero
+  // gets `touch-action: pan-y` so the browser hands us horizontal drags while
+  // keeping vertical scroll for the page; that also stops iOS from turning a
+  // horizontal drag into a `touchcancel` mid-gesture.
+  const heroRef = useRef<HTMLDivElement>(null);
+  const trackTransition = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)';
+  const [heroDragX, setHeroDragX] = useState(0);
+  const [heroAnimating, setHeroAnimating] = useState(false);
+  const heroG = useRef({ x: 0, y: 0, dragging: false, decided: false, horizontal: false, moved: false, swiped: false, busy: false });
+
+  const heroWidth = () => heroRef.current?.clientWidth || window.innerWidth;
+
+  // Animate one step, then commit the index and reset the offset in the same
+  // frame — the slide ends with the next/prev photo already centered, so the
+  // reset is visually a no-op.
+  const heroSlide = (dir: 1 | -1) => {
+    if (heroG.current.busy || photos.length < 2) return;
+    heroG.current.busy = true;
+    setHeroAnimating(true);
+    setHeroDragX(dir === 1 ? -heroWidth() : heroWidth());
+    window.setTimeout(() => {
+      setPhotoIndex((i) => (dir === 1 ? (i + 1) % photos.length : (i - 1 + photos.length) % photos.length));
+      setHeroAnimating(false);
+      setHeroDragX(0);
+      heroG.current.busy = false;
+    }, 320);
+  };
+
+  const onHeroTouchStart = (e: React.TouchEvent) => {
+    if (heroG.current.busy) return;
+    const t = e.touches[0];
+    heroG.current = { x: t.clientX, y: t.clientY, dragging: true, decided: false, horizontal: false, moved: false, swiped: false, busy: false };
+  };
+  const onHeroTouchMove = (e: React.TouchEvent) => {
+    const g = heroG.current;
+    if (!g.dragging || g.busy || photos.length < 2) return;
+    const dx = e.touches[0].clientX - g.x;
+    const dy = e.touches[0].clientY - g.y;
+    if (!g.decided) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      g.decided = true;
+      g.horizontal = Math.abs(dx) > Math.abs(dy);
+    }
+    if (!g.horizontal) return; // vertical → let the page scroll
+    g.moved = true;
+    setHeroDragX(Math.max(-heroWidth(), Math.min(heroWidth(), dx)));
+  };
+  const onHeroTouchEnd = (e: React.TouchEvent) => {
+    const g = heroG.current;
+    if (!g.dragging) return;
+    g.dragging = false;
+    if (g.busy) return;
+    g.swiped = g.horizontal && g.moved; // any horizontal drag suppresses the tap-to-open
+    if (!g.horizontal || !g.moved) return;
+    const dx = e.changedTouches[0].clientX - g.x;
+    if (Math.abs(dx) > Math.min(64, heroWidth() * 0.16)) {
+      heroSlide(dx < 0 ? 1 : -1);
+    } else {
+      setHeroAnimating(true);
+      setHeroDragX(0);
+      window.setTimeout(() => setHeroAnimating(false), 260);
+    }
+  };
+
   // Resolve the user's anchored origin once per mount. The distance suffix
   // and Mapbox Directions hook below both gate on isExactAddress, so a
   // city-level / unset home renders nothing extra.
@@ -254,19 +319,50 @@ export const RestaurantDetailMobile: React.FC = () => {
           leave a little clearance for the floating top controls. Tapping
           the hero (or the photo-count pill) opens the full gallery. ── */}
       {photos.length > 0 ? (
-      <div className="relative w-full overflow-hidden" style={{ height: '40vh', maxHeight: '46vh' }}>
-        <button
-          onClick={() => setGalleryOpen(true)}
-          className="absolute inset-0 w-full h-full cursor-pointer z-[1]"
-          aria-label="Open photo gallery"
+      <div
+        ref={heroRef}
+        className="relative w-full overflow-hidden"
+        style={{ height: '40vh', maxHeight: '46vh', touchAction: 'pan-y' }}
+        onTouchStart={onHeroTouchStart}
+        onTouchMove={onHeroTouchMove}
+        onTouchEnd={onHeroTouchEnd}
+        onTouchCancel={onHeroTouchEnd}
+      >
+        {/* Sliding 3-photo window — prev / current / next. The track is 300%
+            wide and parked one panel left so the current photo is centred;
+            `heroDragX` follows the finger, then snaps via `heroSlide`. */}
+        <div
+          className="absolute inset-0 z-[1] flex"
+          style={{
+            width: '300%',
+            transform: `translateX(calc(-33.3333% + ${heroDragX}px))`,
+            transition: heroAnimating ? trackTransition : 'none',
+            willChange: 'transform',
+          }}
         >
-          <img
-            src={photos[photoIndex]}
-            alt={place.name}
-            className="h-full w-full object-cover transition-opacity duration-300"
-            referrerPolicy="no-referrer"
-          />
-        </button>
+          {[
+            (photoIndex - 1 + photos.length) % photos.length,
+            photoIndex,
+            (photoIndex + 1) % photos.length,
+          ].map((idx, slot) => (
+            <button
+              key={slot}
+              onClick={() => { if (heroG.current.swiped) { heroG.current.swiped = false; return; } setGalleryOpen(true); }}
+              className="relative w-1/3 h-full cursor-pointer"
+              aria-label="Open photo gallery"
+              aria-hidden={slot !== 1}
+              tabIndex={slot === 1 ? 0 : -1}
+            >
+              <img
+                src={photos[idx]}
+                alt={place.name}
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                draggable={false}
+              />
+            </button>
+          ))}
+        </div>
 
         {/* Top scrim — keeps the floating glass controls readable on
             bright photos. */}
@@ -349,16 +445,16 @@ export const RestaurantDetailMobile: React.FC = () => {
         {photos.length > 1 && (
           <>
             <button
-              onClick={(e) => { e.stopPropagation(); setPhotoIndex((i) => (i - 1 + photos.length) % photos.length); }}
+              onClick={(e) => { e.stopPropagation(); heroSlide(-1); }}
               aria-label="Previous photo"
-              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-90 transition-transform"
+              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronLeft size={20} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); setPhotoIndex((i) => (i + 1) % photos.length); }}
+              onClick={(e) => { e.stopPropagation(); heroSlide(1); }}
               aria-label="Next photo"
-              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center active:scale-90 transition-transform"
+              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronRight size={20} />
             </button>

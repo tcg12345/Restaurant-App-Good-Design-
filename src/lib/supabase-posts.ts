@@ -102,6 +102,8 @@ export interface PostComment {
   userId: string;
   body: string;
   createdAt: string;
+  /** Parent comment id when this is a reply; null/undefined for top-level. */
+  parentId?: string | null;
   author?: PostAuthorSnapshot;
 }
 
@@ -733,6 +735,7 @@ export async function listPostComments(postId: string): Promise<PostComment[] | 
       userId: String(r.user_id),
       body: String(r.body || ''),
       createdAt: String(r.created_at || ''),
+      parentId: r.parent_id ? String(r.parent_id) : null,
     };
   });
   const authors = await hydrateAuthors(comments.map((c) => c.userId));
@@ -740,12 +743,17 @@ export async function listPostComments(postId: string): Promise<PostComment[] | 
   return comments;
 }
 
-export async function addPostComment(postId: string, userId: string, body: string): Promise<PostComment | null> {
+export async function addPostComment(postId: string, userId: string, body: string, parentId?: string | null): Promise<PostComment | null> {
   if (!supabaseConfigured) return null;
   const trimmed = body.trim();
   if (!trimmed) return null;
+  // Only include parent_id for replies — keeping it off the top-level insert
+  // means top-level comments still work on DBs where the column hasn't been
+  // added yet (replies require the migration).
+  const payload: Record<string, unknown> = { post_id: postId, user_id: userId, body: trimmed.slice(0, 500) };
+  if (parentId) payload.parent_id = parentId;
   const { data, error } = await supabase.from('post_comments')
-    .insert({ post_id: postId, user_id: userId, body: trimmed.slice(0, 500) })
+    .insert(payload)
     .select('*')
     .single();
   if (error || !data) { console.warn('[Posts] add comment failed:', error?.message); return null; }
@@ -756,6 +764,7 @@ export async function addPostComment(postId: string, userId: string, body: strin
     userId: String(r.user_id),
     body: String(r.body || ''),
     createdAt: String(r.created_at || ''),
+    parentId: r.parent_id ? String(r.parent_id) : null,
   };
   const authors = await hydrateAuthors([comment.userId]);
   comment.author = authors[comment.userId];

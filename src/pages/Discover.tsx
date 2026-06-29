@@ -5047,16 +5047,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           'w-[240px]',
                         )}
                       >
-                        <div className="relative h-full min-h-[108px] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
-                          <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
-                            <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
-                          </div>
-                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">
+                        <div className="h-full rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] group-hover:bg-on-surface/[0.06] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4 py-2">
+                          <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
+                            <ArrowRight size={20} strokeWidth={2} />
+                          </span>
+                          <span className="mt-2 font-serif font-semibold text-[15px] text-on-surface leading-[1.15]">
                             View all
-                          </p>
-                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight">
+                          </span>
+                          <span className="mt-0.5 text-[11px] text-on-surface/55 line-clamp-1 leading-tight">
                             in {homeLocation.label.split(',')[0]}
-                          </p>
+                          </span>
                         </div>
                       </button>
                     )}
@@ -5138,7 +5138,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               <Link key={r.id} to={`/recipe/${r.userId}/${r.id}`} className="group flex items-center gap-3 py-3">
                                 <div className="w-[52px] h-[52px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/[0.04]">
                                   {cover ? (
-                                    <img src={cover} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    <img src={cover} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02]">
                                       <ChefHat size={20} className="text-on-surface/25" strokeWidth={1.5} />
@@ -5326,6 +5326,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 <img
                                   src={cover}
                                   alt=""
+                                  loading="lazy"
+                                  decoding="async"
                                   className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                                   referrerPolicy="no-referrer"
                                 />
@@ -5358,6 +5360,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </Link>
                       );
                     })}
+                    {/* Trailing "View all" card — jumps to the full recipe library. */}
+                    <Link
+                      to="/recipes-for-you"
+                      className={cn('flex-shrink-0 snap-start group', usingDesktopHeader ? 'w-[150px]' : 'w-[136px]')}
+                      aria-label="View all recipes"
+                    >
+                      <div className="h-full min-h-[140px] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex flex-col items-center justify-center gap-2.5 text-center px-4 py-7 transition-colors group-hover:border-primary/40 group-hover:bg-on-surface/[0.06]">
+                        <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
+                          <ArrowRight size={20} strokeWidth={2} />
+                        </span>
+                        <span className="font-serif font-semibold text-on-surface text-[15px] leading-[1.15]">View all recipes</span>
+                      </div>
+                    </Link>
                   </div>
                 )}
               </section>
@@ -5389,8 +5404,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
                   phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
                 )}>
-                  {/* Create-a-guide tile — soft accent surface so it doesn't
-                      compete with real guides, but is still inviting. */}
+                  {/* Empty state only — when there are no guides yet, lead
+                      with an inviting descriptive tile so the row isn't bare. */}
+                  {feedGuides.length === 0 && (
                   <button
                     type="button"
                     onClick={() => openGuideCreator()}
@@ -5413,6 +5429,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </div>
                     </div>
                   </button>
+                  )}
                   {feedGuides.map((g) => {
                     const author = feedGuideAuthors[g.userId];
                     const authorName = author?.display_name || author?.username || 'someone';
@@ -5464,6 +5481,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </Link>
                     );
                   })}
+                  {/* Minimalist create-a-guide tile — sits at the end of the
+                      row and stretches to match the guide cards' height. */}
+                  {feedGuides.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className={cn(
+                      'flex-shrink-0 snap-start group',
+                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                    )}
+                  >
+                    <div className="h-full min-h-[140px] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex flex-col items-center justify-center gap-2.5 px-4 py-7 text-center transition-colors group-hover:border-primary/40 group-hover:bg-on-surface/[0.06]">
+                      <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
+                        <Plus size={20} strokeWidth={2} />
+                      </span>
+                      <span className="font-serif font-semibold text-[15px] text-on-surface leading-[1.15]">
+                        Create a guide
+                      </span>
+                    </div>
+                  </button>
+                  )}
                 </div>
               </section>
               )}
@@ -5852,7 +5890,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     >
                       <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
                         {cover ? (
-                          <img src={cover} alt={meal.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          <img src={cover} alt={meal.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-emerald-300">
                             <ChefHat size={22} />

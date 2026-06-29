@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -1264,6 +1264,8 @@ interface UnifiedComment {
   userId: string;
   body: string;
   createdAt: string;
+  /** Parent comment id when this is a reply; null/undefined for top-level. */
+  parentId?: string | null;
   author?: { username: string; displayName?: string; avatarColor: string; initials: string; isExpert: boolean };
 }
 
@@ -1275,7 +1277,7 @@ interface CommentsBodyProps {
   /** Polymorphic adapters — caller picks reels or posts. Loaders resolve
    *  to null when the fetch failed (vs [] for "no comments"). */
   loadComments: (id: string) => Promise<UnifiedComment[] | null>;
-  addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
+  addComment: (id: string, body: string, parentId?: string | null) => Promise<UnifiedComment | null>;
   deleteComment: (id: string, commentId: string) => Promise<boolean>;
   currentUserId: string | null;
 }
@@ -1291,6 +1293,11 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   // Bumped by "Try again" to re-run the load effect.
   const [retryTick, setRetryTick] = useState(0);
   const [posting, setPosting] = useState(false);
+  // ── Replies (one level deep) ──
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState('');
+  const [replyPosting, setReplyPosting] = useState(false);
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -1317,7 +1324,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       return;
     }
     setPosting(true);
-    const c = await addComment(targetId, draft);
+    const c = await addComment(targetId, draft, null);
     setPosting(false);
     if (c) {
       setComments((prev) => [c, ...prev]);
@@ -1327,10 +1334,54 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
     }
   };
 
+  const startReply = (commentId: string) => {
+    if (!currentUserId) { requireSignIn('Sign in to reply'); return; }
+    setReplyingTo((prev) => (prev === commentId ? null : commentId));
+    setReplyDraft('');
+  };
+
+  const onSubmitReply = async (parentId: string) => {
+    if (!replyDraft.trim() || replyPosting) return;
+    if (!currentUserId) { requireSignIn('Sign in to reply'); return; }
+    setReplyPosting(true);
+    const c = await addComment(targetId, replyDraft, parentId);
+    setReplyPosting(false);
+    if (c) {
+      // Append; the topLevel / repliesByParent split places it under its parent.
+      setComments((prev) => [...prev, c]);
+      setReplyDraft('');
+      setReplyingTo(null);
+      setExpandedThreads((prev) => new Set(prev).add(parentId));
+    } else {
+      showToast("Couldn't post reply");
+    }
+  };
+
+  const toggleThread = (commentId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(commentId)) next.delete(commentId); else next.add(commentId);
+      return next;
+    });
+  };
+
   const onDeleteOne = async (commentId: string) => {
     const ok = await deleteComment(targetId, commentId);
-    if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId));
+    // Drop the comment and (if it was a parent) any of its replies — the DB
+    // cascade removes them server-side; mirror that locally.
+    if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId && c.parentId !== commentId));
   };
+
+  // Split into top-level comments (kept in load order — newest first) and
+  // replies grouped under their parent (shown oldest-first within a thread).
+  const topLevel = comments.filter((c) => !c.parentId);
+  const repliesByParent: Record<string, UnifiedComment[]> = {};
+  for (const c of comments) {
+    if (c.parentId) (repliesByParent[c.parentId] ||= []).push(c);
+  }
+  for (const k of Object.keys(repliesByParent)) {
+    repliesByParent[k].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
 
   // Mobile sheet uses light-gray pill chrome; desktop panel uses on-surface
   // tokens so it blends with the app's surface color (not a dark bg).
@@ -1346,6 +1397,100 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   const usernameCls = 'text-on-surface';
   const bodyTextCls = 'text-on-surface/85';
   const muteCls = 'text-on-surface/40';
+
+  const renderRow = (c: UnifiedComment, isReply: boolean): React.ReactNode => {
+    const replies = !isReply ? (repliesByParent[c.id] || []) : [];
+    const expanded = expandedThreads.has(c.id);
+    const replying = replyingTo === c.id;
+    return (
+      <div key={c.id} className={cn('flex items-start gap-3', isReply && 'mt-3')}>
+        <div className={cn(
+          'rounded-full flex items-center justify-center text-white font-bold flex-shrink-0',
+          isReply ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs',
+          c.author?.avatarColor || 'bg-stone-500',
+        )}>
+          {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className={cn('text-[13px] font-bold truncate', usernameCls)}>@{c.author?.username || c.userId.slice(0, 8)}</span>
+            {c.author?.isExpert && (
+              <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
+            )}
+            <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
+          </div>
+          <p className={cn('selectable text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
+
+          {/* Reply action — top-level only (threads are one level deep). */}
+          {!isReply && (
+            <button
+              type="button"
+              onClick={() => startReply(c.id)}
+              className={cn('mt-1 text-[12px] font-bold transition-colors', replying ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/70')}
+            >
+              Reply
+            </button>
+          )}
+
+          {/* Reply composer */}
+          {!isReply && replying && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={replyDraft}
+                onChange={(e) => setReplyDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmitReply(c.id); } }}
+                placeholder={`Reply to @${c.author?.username || 'user'}…`}
+                autoFocus
+                maxLength={500}
+                className="flex-1 h-9 rounded-full bg-on-surface/[0.05] px-3.5 text-[13px] placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:outline-none focus:ring-2 focus:ring-on-surface/10"
+              />
+              <button
+                type="button"
+                onClick={() => onSubmitReply(c.id)}
+                disabled={!replyDraft.trim() || replyPosting}
+                className={cn(
+                  'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
+                  replyDraft.trim() && !replyPosting ? submitActiveCls : 'bg-on-surface/[0.08] text-on-surface/35 cursor-not-allowed',
+                )}
+                aria-label="Post reply"
+              >
+                {replyPosting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
+            </div>
+          )}
+
+          {/* "View N replies" toggle + nested thread */}
+          {!isReply && replies.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => toggleThread(c.id)}
+                className="mt-2 inline-flex items-center gap-1 text-[12px] font-bold text-on-surface/55 hover:text-on-surface/80 transition-colors"
+              >
+                <ChevronDown size={13} className={cn('transition-transform', expanded && 'rotate-180')} />
+                {expanded ? 'Hide replies' : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+              </button>
+              {expanded && (
+                <div className="mt-1 border-l-2 border-on-surface/[0.07] pl-3">
+                  {replies.map((r) => renderRow(r, true))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        {c.userId === currentUserId && (
+          <button
+            type="button"
+            onClick={() => onDeleteOne(c.id)}
+            className={cn('p-1 hover:text-rose-500', muteCls)}
+            aria-label="Delete comment"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -1388,33 +1533,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
             <p className={cn('text-xs mt-1', muteCls)}>Be the first to say something.</p>
           </div>
         ) : (
-          comments.map((c) => (
-            <div key={c.id} className="flex items-start gap-3">
-              <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0', c.author?.avatarColor || 'bg-stone-500')}>
-                {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className={cn('text-[13px] font-bold truncate', usernameCls)}>@{c.author?.username || c.userId.slice(0, 8)}</span>
-                  {c.author?.isExpert && (
-                    <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
-                  )}
-                  <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
-                </div>
-                <p className={cn('selectable text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
-              </div>
-              {c.userId === currentUserId && (
-                <button
-                  type="button"
-                  onClick={() => onDeleteOne(c.id)}
-                  className={cn('p-1 hover:text-rose-500', muteCls)}
-                  aria-label="Delete comment"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))
+          topLevel.map((c) => renderRow(c, false))
         )}
       </div>
 

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
+import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { ScoreRing } from '../components/cards';
@@ -12,7 +13,7 @@ import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
-import { useLists, DEFAULT_WANT_TO_COOK_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
@@ -1813,8 +1814,9 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -1837,6 +1839,8 @@ const ListDetailView: React.FC<{
 
   const isWishlistView = list.id === '__wishlist__';
   const isDefaultWantToCook = list.id === DEFAULT_WANT_TO_COOK_ID;
+  // Both built-in recipe lists are permanent — can't be deleted/renamed.
+  const isProtectedRecipeList = isDefaultWantToCook || list.id === DEFAULT_COOKED_ID;
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
@@ -2312,7 +2316,7 @@ const ListDetailView: React.FC<{
               </span>
             </button>
             <ListMoreMenu
-              items={isWishlistView || isDefaultWantToCook ? [] : [{
+              items={isWishlistView || isProtectedRecipeList ? [] : [{
                 label: 'Delete list',
                 icon: <Trash2 size={14} />,
                 destructive: true,
@@ -2651,15 +2655,30 @@ const ListDetailView: React.FC<{
         ) : (
           <>
             <div className={phoneMode ? 'divide-y divide-on-surface/[0.06]' : 'space-y-2.5'}>
-              {filteredRecipes.map((recipe) => (
-                <RecipeRow
-                  key={recipe.id}
-                  {...recipeToCardData(recipe)}
-                  onClick={() => openAddRecipeModal(list.id, recipe)}
-                  onEdit={() => openAddRecipeModal(list.id, recipe)}
-                  onDelete={() => removeRecipe(list.id, recipe.id)}
-                />
-              ))}
+              {filteredRecipes.map((recipe) => {
+                const cardData = recipeToCardData(recipe);
+                // On the built-in Cooked list, the card's cover prefers the
+                // user's private cook photo, and tapping opens the recipe
+                // detail page (not the edit modal).
+                const isCookedList = list.id === DEFAULT_COOKED_ID;
+                const cookPhotos = isCookedList
+                  ? (((restaurantMeta as Record<string, unknown>).__cook_photos__ as Record<string, PhotoItem[]> | undefined)?.[recipe.id])
+                  : undefined;
+                const detailOwner = recipe.sourceAuthorId || user?.id || '';
+                const openDetails = () => { if (detailOwner) navigate(`/meal/${detailOwner}/${recipe.id}`); };
+                return (
+                  <RecipeRow
+                    key={recipe.id}
+                    {...cardData}
+                    coverPhoto={cookPhotos?.[0]?.url || cardData.coverPhoto}
+                    isPrivate={recipe.isPrivate}
+                    onToggleVisibility={isCookedList || recipe.sourceAuthorId ? undefined : () => updateRecipe(list.id, recipe.id, { isPrivate: !recipe.isPrivate })}
+                    onClick={isCookedList ? openDetails : () => openAddRecipeModal(list.id, recipe)}
+                    onEdit={() => openAddRecipeModal(list.id, recipe)}
+                    onDelete={isCookedList ? () => removeRecipeFromCookedList(recipe.id) : () => removeRecipe(list.id, recipe.id)}
+                  />
+                );
+              })}
             </div>
             {/* Add more button — phone only. On desktop the header's
                 "Add Recipe" CTA replaces this footer. */}
@@ -3878,8 +3897,9 @@ const TripsTab: React.FC<{
               nightRests.forEach((r) => { text += `  ${r.mealType}: ${r.name}${r.reservationTime ? ` (${r.reservationTime})` : ''}\n`; });
               text += '\n';
             }
-            if (navigator.share) navigator.share({ text });
-            else { navigator.clipboard.writeText(text); alert('Itinerary copied to clipboard!'); }
+            void shareExternally({ text }).then((result) => {
+              if (result === 'copied') alert('Itinerary copied to clipboard!');
+            });
           }}
           className="w-full py-3 rounded-2xl text-xs font-semibold text-on-surface/35 hover:text-on-surface/50 hover:bg-on-surface/[0.03] transition-colors"
         >
@@ -5428,6 +5448,8 @@ const HomeCookingTab: React.FC<{
             <RecipeRow
               key={meal.id}
               {...homeMealToCardData(meal)}
+              isPrivate={!meal.isPublic}
+              onToggleVisibility={() => onUpdateMeal(meal.id, { isPublic: !meal.isPublic })}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
               onDelete={() => onDeleteMeal(meal.id)}
@@ -5558,9 +5580,13 @@ const RecipeRow: React.FC<RecipeCardData & {
   onClick: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Current visibility — drives the Publish/Private swipe action. */
+  isPrivate?: boolean;
+  onToggleVisibility?: () => void;
 }> = ({
   name, coverPhoto, cuisine, totalTime = 0, difficulty, dishCount = 0,
   score, ingredientText, ingredientOverflow, byline, canEdit = true,
+  isPrivate, onToggleVisibility,
   onClick, onEdit, onDelete,
 }) => {
   const { phoneMode } = useSettings();
@@ -5572,6 +5598,11 @@ const RecipeRow: React.FC<RecipeCardData & {
   const dragRef = useRef<{ startX: number; startY: number; base: number; moved: boolean; horizontal: boolean } | null>(null);
   const txRef = useRef(0);
   const justSwipedRef = useRef(false);
+  // Long-press → a context menu at the press point with the same actions
+  // as the swipe (Publish/Private · Edit · Delete).
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
+  const clearLongPress = () => { if (longPressRef.current.timer) { clearTimeout(longPressRef.current.timer); longPressRef.current.timer = null; } };
 
   const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
   const hasEdit = !!onEdit && canEdit;
@@ -5585,7 +5616,8 @@ const RecipeRow: React.FC<RecipeCardData & {
 
   if (dismissed) return null;
 
-  const actionCount = (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
+  const hasVisibility = !!onToggleVisibility;
+  const actionCount = (hasVisibility ? 1 : 0) + (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
   const revealWidth = actionCount * 76;
 
   // ── Pointer-event swipe (mobile), identical to the restaurant rows so
@@ -5593,12 +5625,24 @@ const RecipeRow: React.FC<RecipeCardData & {
   const onSwipeDown = (e: React.PointerEvent) => {
     if (actionCount === 0) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, base: open ? -revealWidth : 0, moved: false, horizontal: false };
+    // Arm the long-press: if the finger stays put for ~450ms, open the menu
+    // at the press point and cancel any swipe in progress.
+    longPressRef.current.fired = false;
+    clearLongPress();
+    const px = e.clientX, py = e.clientY;
+    longPressRef.current.timer = setTimeout(() => {
+      longPressRef.current = { timer: null, fired: true };
+      dragRef.current = null;
+      txRef.current = 0; setTx(0); setDragging(false);
+      setMenuPos({ x: px, y: py });
+    }, 450);
   };
   const onSwipeMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLongPress(); // moved → swipe/scroll, not a long-press
     if (!d.horizontal) {
       if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
       if (Math.abs(dy) >= Math.abs(dx)) { dragRef.current = null; return; }
@@ -5612,6 +5656,7 @@ const RecipeRow: React.FC<RecipeCardData & {
     setTx(next);
   };
   const onSwipeEnd = () => {
+    clearLongPress();
     const d = dragRef.current;
     dragRef.current = null;
     if (!d || !d.horizontal) { setDragging(false); return; }
@@ -5625,10 +5670,44 @@ const RecipeRow: React.FC<RecipeCardData & {
   };
   const closeSwipe = () => { justSwipedRef.current = false; txRef.current = 0; setTx(0); setOpen(false); };
   const onForegroundClick = (e: React.MouseEvent) => {
+    if (longPressRef.current.fired) { e.preventDefault(); longPressRef.current.fired = false; return; }
     if (justSwipedRef.current) { e.preventDefault(); justSwipedRef.current = false; return; }
     if (open) { e.preventDefault(); closeSwipe(); return; }
     onClick();
   };
+
+  // Shared long-press / right-click context menu — portalled to <body> so it's
+  // never clipped by the row's overflow or swipe transform.
+  const contextMenu = menuPos && createPortal(
+    <div className="fixed inset-0 z-[120]" onPointerDown={() => setMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setMenuPos(null); }}>
+      <div
+        className="absolute min-w-[190px] overflow-hidden rounded-2xl border border-on-surface/10 bg-paper shadow-[0_16px_44px_rgba(0,0,0,0.22)]"
+        style={{ left: Math.max(8, Math.min(menuPos.x, window.innerWidth - 202)), top: Math.max(8, Math.min(menuPos.y, window.innerHeight - 172)) }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {hasVisibility && (
+          <button onClick={() => { setMenuPos(null); onToggleVisibility?.(); }}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-on-surface hover:bg-on-surface/[0.05] active:bg-on-surface/[0.07]">
+            {isPrivate ? <Globe size={17} className="text-secondary" /> : <Lock size={17} className="text-secondary" />}
+            {isPrivate ? 'Make public' : 'Make private'}
+          </button>
+        )}
+        {hasEdit && (
+          <button onClick={() => { setMenuPos(null); onEdit?.(); }}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-on-surface hover:bg-on-surface/[0.05] active:bg-on-surface/[0.07] border-t border-on-surface/[0.06]">
+            <Edit3 size={17} className="text-on-surface/55" /> Edit
+          </button>
+        )}
+        {hasRemove && (
+          <button onClick={() => { setMenuPos(null); setConfirmDelete(true); }}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-red-500 hover:bg-red-500/[0.06] active:bg-red-500/[0.1] border-t border-on-surface/[0.06]">
+            <Trash2 size={17} /> Delete
+          </button>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
 
   // ── Mobile: flat row, swipe left to reveal Edit + Delete ──
   if (phoneMode) {
@@ -5636,6 +5715,17 @@ const RecipeRow: React.FC<RecipeCardData & {
       <div className="relative overflow-hidden">
         {actionCount > 0 && (
           <div className="absolute inset-y-0 right-0 z-0 flex items-stretch" style={{ width: revealWidth }}>
+            {hasVisibility && (
+              <button
+                onClick={(e) => { e.stopPropagation(); closeSwipe(); onToggleVisibility?.(); }}
+                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
+                style={{ background: isPrivate ? '#5c6144' : '#9a8f89' }}
+                aria-label={isPrivate ? 'Make public' : 'Make private'}
+              >
+                {isPrivate ? <Globe size={19} /> : <Lock size={19} />}
+                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">{isPrivate ? 'Publish' : 'Private'}</span>
+              </button>
+            )}
             {hasEdit && (
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
@@ -5704,6 +5794,7 @@ const RecipeRow: React.FC<RecipeCardData & {
             onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
           />
         )}
+        {contextMenu}
       </div>
     );
   }
@@ -5718,6 +5809,7 @@ const RecipeRow: React.FC<RecipeCardData & {
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+        onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
         className="card-surface card-surface-hover flex w-full cursor-pointer items-center gap-5 px-[22px] py-[18px] text-left shadow-sm"
       >
         <RecipeThumb coverPhoto={coverPhoto} name={name} size={76} />
@@ -5736,8 +5828,14 @@ const RecipeRow: React.FC<RecipeCardData & {
           )}
           {byline && <p className="mt-1 truncate text-[11px] italic text-on-surface/45">{byline}</p>}
         </div>
-        {(hasEdit || hasRemove) && (
+        {(hasVisibility || hasEdit || hasRemove) && (
           <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {hasVisibility && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleVisibility?.(); }} aria-label={isPrivate ? `Publish ${name}` : `Make ${name} private`}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-secondary/10 hover:text-secondary" title={isPrivate ? 'Private — tap to publish' : 'Public — tap to make private'}>
+                {isPrivate ? <Globe size={15} /> : <Lock size={15} />}
+              </button>
+            )}
             {hasEdit && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit?.(); }} aria-label={`Edit ${name}`}
                 className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary">
@@ -5761,6 +5859,7 @@ const RecipeRow: React.FC<RecipeCardData & {
           onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
         />
       )}
+      {contextMenu}
     </div>
   );
 };
@@ -6927,11 +7026,15 @@ export const Pantry: React.FC = () => {
     [lists],
   );
   const recipeListsForSwitcher = useMemo(() => {
-    // Pin the built-in "Want to Cook" list to the top.
+    // Pin the built-in "Want to Cook" and "Cooked" lists to the top, in
+    // that order.
     const all = lists.filter((l) => l.type === 'home-cooking');
-    const def = all.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID);
-    const rest = all.filter((l) => l.id !== DEFAULT_WANT_TO_COOK_ID);
-    return def ? [def, ...rest] : rest;
+    const pinnedIds = [DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID];
+    const pinned = pinnedIds
+      .map((id) => all.find((l) => l.id === id))
+      .filter((l): l is CustomList => !!l);
+    const rest = all.filter((l) => !pinnedIds.includes(l.id));
+    return [...pinned, ...rest];
   }, [lists]);
 
   // Helpers to drive the switcher's destinations through the existing

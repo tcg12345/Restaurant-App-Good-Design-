@@ -90,6 +90,36 @@ function rowToReview(row: Record<string, unknown>): RecipeReview {
   };
 }
 
+/** A stable content fingerprint for a recipe, independent of its row id.
+ * Used to collapse rows that are the *same* recipe published more than once
+ * (each publish inserts a fresh uuid, so an id-only dedupe misses them). */
+function recipeContentKey(r: Recipe): string {
+  return [
+    r.userId,
+    r.title.trim().toLowerCase(),
+    r.cookTimeMinutes ?? '',
+    r.prepTimeMinutes ?? '',
+    (r.description || '').trim().toLowerCase(),
+    r.ingredients.length,
+    r.steps.length,
+  ].join('|');
+}
+
+/** Collapse content-duplicate recipes, keeping the first occurrence in the
+ * given order. Defensive against the duplicate rows already in the database;
+ * the publish path should also avoid creating them. */
+export function dedupeRecipes(recipes: Recipe[]): Recipe[] {
+  const seen = new Set<string>();
+  const out: Recipe[] = [];
+  for (const r of recipes) {
+    const key = recipeContentKey(r);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
 /** Build a Supabase-compatible payload from a Recipe. */
 function recipeToPayload(recipe: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
   return {
@@ -193,7 +223,7 @@ export async function getUserRecipes(userId: string): Promise<Recipe[]> {
       .select('*').eq('user_id', userId)
       .order('updated_at', { ascending: false });
     if (error) { console.error('[Recipes] getUserRecipes error:', error); return []; }
-    return (data || []).map((r) => rowToRecipe(r as Record<string, unknown>));
+    return dedupeRecipes((data || []).map((r) => rowToRecipe(r as Record<string, unknown>)));
   } catch (err) { console.error('[Recipes] getUserRecipes exception:', err); return []; }
 }
 
@@ -205,7 +235,7 @@ export async function getPublicRecipes(limit = 30): Promise<Recipe[]> {
       .select('*').eq('is_public', true)
       .order('updated_at', { ascending: false }).limit(limit);
     if (error) { console.error('[Recipes] getPublic error:', error); return []; }
-    return (data || []).map((r) => rowToRecipe(r as Record<string, unknown>));
+    return dedupeRecipes((data || []).map((r) => rowToRecipe(r as Record<string, unknown>)));
   } catch (err) { console.error('[Recipes] getPublic exception:', err); return []; }
 }
 
@@ -217,7 +247,7 @@ export async function getExpertRecipes(limit = 30): Promise<Recipe[]> {
       .select('*').eq('source_type', 'expert').eq('is_public', true)
       .order('updated_at', { ascending: false }).limit(limit);
     if (error) { console.error('[Recipes] getExpert error:', error); return []; }
-    return (data || []).map((r) => rowToRecipe(r as Record<string, unknown>));
+    return dedupeRecipes((data || []).map((r) => rowToRecipe(r as Record<string, unknown>)));
   } catch (err) { console.error('[Recipes] getExpert exception:', err); return []; }
 }
 
@@ -229,7 +259,7 @@ export async function getFriendRecipes(friendIds: string[], limit = 30): Promise
       .select('*').in('user_id', friendIds).eq('is_public', true)
       .order('updated_at', { ascending: false }).limit(limit);
     if (error) { console.error('[Recipes] getFriend error:', error); return []; }
-    return (data || []).map((r) => rowToRecipe(r as Record<string, unknown>));
+    return dedupeRecipes((data || []).map((r) => rowToRecipe(r as Record<string, unknown>)));
   } catch (err) { console.error('[Recipes] getFriend exception:', err); return []; }
 }
 
@@ -291,4 +321,125 @@ export async function getUserReviews(userId: string): Promise<RecipeReview[]> {
     if (error) { console.error('[Reviews] getUserReviews error:', error); return []; }
     return (data || []).map((r) => rowToReview(r as Record<string, unknown>));
   } catch (err) { console.error('[Reviews] getUserReviews exception:', err); return []; }
+}
+
+/* ── Recipe / home-meal likes + comments ──────────────────────────────────
+   A lightweight social layer for recipes and friend home meals, mirroring the
+   restaurant rating likes/comments (supabase-community.ts) but keyed by a
+   string `target_id` so it works for both formal recipe UUIDs and home-meal
+   ids like `meal-1781029`. Backed by recipe_likes / recipe_comments /
+   recipe_comment_likes. Every function degrades to empty / no-op if those
+   tables don't exist yet (so the app keeps working before the migration). */
+
+export interface RecipeComment {
+  id: string;
+  user_id: string;
+  target_id: string;
+  text: string;
+  created_at: string;
+  parent_id?: string | null;
+  like_count?: number;
+  liked_by_me?: boolean;
+}
+
+/** Toggle the caller's like on a recipe/meal. Returns true on success. */
+export async function toggleRecipeLike(userId: string, targetId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !targetId) return false;
+  try {
+    const { data } = await supabase.from('recipe_likes')
+      .select('id').eq('user_id', userId).eq('target_id', targetId).maybeSingle();
+    if (data) await supabase.from('recipe_likes').delete().eq('id', (data as { id: string }).id);
+    else await supabase.from('recipe_likes').insert({ user_id: userId, target_id: targetId });
+    return true;
+  } catch { return false; }
+}
+
+/** Like counts + which the caller liked, for a batch of recipe/meal ids. */
+export async function getRecipeLikes(
+  userId: string | null,
+  targetIds: string[],
+): Promise<{ likes: Record<string, number>; userLiked: Set<string> }> {
+  if (!supabaseConfigured || targetIds.length === 0) return { likes: {}, userLiked: new Set() };
+  try {
+    const { data } = await supabase.from('recipe_likes')
+      .select('target_id, user_id').in('target_id', targetIds);
+    const likes: Record<string, number> = {};
+    const userLiked = new Set<string>();
+    (data || []).forEach((l: { target_id: string; user_id: string }) => {
+      likes[l.target_id] = (likes[l.target_id] || 0) + 1;
+      if (userId && l.user_id === userId) userLiked.add(l.target_id);
+    });
+    return { likes, userLiked };
+  } catch { return { likes: {}, userLiked: new Set() }; }
+}
+
+/** Add a top-level comment (or a reply when parentId is set). */
+export async function addRecipeComment(
+  userId: string,
+  targetId: string,
+  text: string,
+  parentId: string | null = null,
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !text.trim()) return false;
+  try {
+    const payload: Record<string, unknown> = { user_id: userId, target_id: targetId, text: text.trim() };
+    if (parentId) payload.parent_id = parentId;
+    const { error } = await supabase.from('recipe_comments').insert(payload);
+    return !error;
+  } catch { return false; }
+}
+
+/** All comments for a recipe/meal (top-level + replies) with per-comment
+ *  like counts and whether the caller liked each. */
+export async function getRecipeComments(targetId: string, currentUserId?: string | null): Promise<RecipeComment[]> {
+  if (!supabaseConfigured || !targetId) return [];
+  try {
+    const { data, error } = await supabase.from('recipe_comments')
+      .select('*').eq('target_id', targetId).order('created_at', { ascending: true });
+    if (error) return [];
+    const comments = (data || []) as RecipeComment[];
+    if (comments.length === 0) return comments;
+    const ids = comments.map((c) => c.id);
+    try {
+      const { data: likeRows } = await supabase.from('recipe_comment_likes')
+        .select('comment_id, user_id').in('comment_id', ids);
+      const counts: Record<string, number> = {};
+      const mine = new Set<string>();
+      (likeRows || []).forEach((row: { comment_id: string; user_id: string }) => {
+        counts[row.comment_id] = (counts[row.comment_id] || 0) + 1;
+        if (currentUserId && row.user_id === currentUserId) mine.add(row.comment_id);
+      });
+      return comments.map((c) => ({ ...c, like_count: counts[c.id] || 0, liked_by_me: mine.has(c.id) }));
+    } catch { return comments; }
+  } catch { return []; }
+}
+
+/** Comment counts for a batch of recipe/meal ids (for feed badges). */
+export async function getRecipeCommentCounts(targetIds: string[]): Promise<Record<string, number>> {
+  if (!supabaseConfigured || targetIds.length === 0) return {};
+  try {
+    const { data } = await supabase.from('recipe_comments').select('target_id').in('target_id', targetIds);
+    const counts: Record<string, number> = {};
+    (data || []).forEach((c: { target_id: string }) => { counts[c.target_id] = (counts[c.target_id] || 0) + 1; });
+    return counts;
+  } catch { return {}; }
+}
+
+/** Toggle the caller's like on a single comment. Returns the new liked state. */
+export async function toggleRecipeCommentLike(userId: string, commentId: string): Promise<boolean | null> {
+  if (!supabaseConfigured || !userId) return null;
+  try {
+    const { data } = await supabase.from('recipe_comment_likes')
+      .select('id').eq('user_id', userId).eq('comment_id', commentId).maybeSingle();
+    if (data) { await supabase.from('recipe_comment_likes').delete().eq('id', (data as { id: string }).id); return false; }
+    await supabase.from('recipe_comment_likes').insert({ user_id: userId, comment_id: commentId });
+    return true;
+  } catch { return null; }
+}
+
+/** Delete one of the caller's own comments. */
+export async function deleteRecipeComment(commentId: string): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try { const { error } = await supabase.from('recipe_comments').delete().eq('id', commentId); return !error; }
+  catch { return false; }
 }

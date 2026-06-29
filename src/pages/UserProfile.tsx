@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { useReels } from '../contexts/ReelsContext';
@@ -481,14 +482,11 @@ export const UserProfile: React.FC = () => {
   const handleShare = async () => {
     if (!profile) return;
     const url = `${window.location.origin}/user/${profile.username}`;
-    if (navigator.share) {
-      try { await navigator.share({ title: profile.display_name, url }); return; } catch { /* cancelled — fall through to copy */ }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
+    const result = await shareExternally({ title: profile.display_name, url });
+    if (result === 'copied') {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-    } catch { /* clipboard unavailable */ }
+    }
   };
 
   // Single source of truth for the Follow control so the header and the

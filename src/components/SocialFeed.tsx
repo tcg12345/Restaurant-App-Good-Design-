@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, ThumbsUp } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -22,6 +22,9 @@ import {
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
 import { getMealCoverUrl } from '../lib/recipe-display';
+import { toggleRecipeLike, getRecipeLikes, getRecipeCommentCounts } from '../lib/supabase-recipes';
+import { RecipeCommentThread } from './RecipeCommentThread';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -407,9 +410,10 @@ interface SocialFeedProps {
 export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [], feedOnly = false }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const { requireSignIn } = useSignInModal();
   const navigate = useNavigate();
-  const { phoneMode } = useSettings();
-  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
+  const { phoneMode, setHideBottomNav } = useSettings();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, homeMeals: myHomeMeals, addRecipeToCookbook, removeRecipeFromCookbook } = useLists();
 
   const { loadPostComments, addPostComment, deletePostComment } = usePosts();
   // Desktop vs phone — drives whether post comments open as a centered
@@ -447,47 +451,27 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
-  // Local like / save state for cooking-mode recipe activity items.
-  // There's no `meal_likes` table yet, so persistence happens client-side
-  // (optimistic toggle); the counts seed from a stable hash of the meal
-  // id so the feed isn't all zeros and survives re-renders.
+  // Real likes + comment counts for the cooking-feed recipe cards, backed by
+  // recipe_likes / recipe_comments (fetched in loadFeed). Save persists to the
+  // user's own cookbook via ListsContext.
   const [mealLikedByMe, setMealLikedByMe] = useState<Set<string>>(new Set());
-  const [mealSavedByMe, setMealSavedByMe] = useState<Set<string>>(new Set());
-  const mealLikeBase = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const m of homeMeals) {
-      // Pseudo-stable count seeded from the id so the UI feels lived-in.
-      let h = 0;
-      for (let i = 0; i < m.id.length; i++) h = ((h * 31) + m.id.charCodeAt(i)) | 0;
-      map[m.id] = Math.abs(h) % 28 + 3;
-    }
-    return map;
-  }, [homeMeals]);
-  const mealCommentBase = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const m of homeMeals) {
-      let h = 0;
-      for (let i = 0; i < m.id.length; i++) h = ((h * 37) + m.id.charCodeAt(i)) | 0;
-      map[m.id] = Math.abs(h) % 6;
-    }
-    return map;
-  }, [homeMeals]);
+  const [mealLikeCounts, setMealLikeCounts] = useState<Record<string, number>>({});
+  const [mealCommentCounts, setMealCommentCounts] = useState<Record<string, number>>({});
+  const [openMealComments, setOpenMealComments] = useState<FriendHomeMeal | null>(null);
+
   const toggleMealLike = useCallback((mealId: string) => {
-    setMealLikedByMe((prev) => {
-      const next = new Set(prev);
-      if (next.has(mealId)) next.delete(mealId);
-      else next.add(mealId);
-      return next;
-    });
-  }, []);
-  const toggleMealSave = useCallback((mealId: string) => {
-    setMealSavedByMe((prev) => {
-      const next = new Set(prev);
-      if (next.has(mealId)) next.delete(mealId);
-      else next.add(mealId);
-      return next;
-    });
-  }, []);
+    if (!userId) { requireSignIn('Sign in to like'); return; }
+    const wasLiked = mealLikedByMe.has(mealId);
+    setMealLikedByMe((prev) => { const n = new Set(prev); if (wasLiked) n.delete(mealId); else n.add(mealId); return n; });
+    setMealLikeCounts((prev) => ({ ...prev, [mealId]: Math.max(0, (prev[mealId] || 0) + (wasLiked ? -1 : 1)) }));
+    void toggleRecipeLike(userId, mealId);
+  }, [userId, mealLikedByMe, requireSignIn]);
+
+  const toggleMealSave = useCallback((meal: FriendHomeMeal) => {
+    if (!userId) { requireSignIn('Sign in to save'); return; }
+    if (myHomeMeals.some((x) => x.id === meal.id)) removeRecipeFromCookbook(meal.id);
+    else addRecipeToCookbook(meal);
+  }, [userId, myHomeMeals, addRecipeToCookbook, removeRecipeFromCookbook, requireSignIn]);
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -506,6 +490,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Which top-level comment ID is currently showing the inline reply input.
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
+
+  const { dragProps: recipeCommentsDragProps } = useBottomSheet(!!openMealComments, () => setOpenMealComments(null));
+
+  // Hide the bottom nav while any comment popup is open (recipe, post, or the
+  // inline restaurant thread) so the sheet reads as a focused overlay.
+  useEffect(() => {
+    const open = !!openMealComments || !!openPostCommentsId || !!openComments || !!restaurantPanelSnap;
+    setHideBottomNav(open);
+    return () => setHideBottomNav(false);
+  }, [openMealComments, openPostCommentsId, openComments, restaurantPanelSnap, setHideBottomNav]);
+
   // Always navigate to the full recipe page — the phone-optimized layout
   // handles the narrow viewport, so we no longer need the bottom-sheet modal.
   const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
@@ -548,6 +543,16 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     ]);
     setActivity(act);
     setHomeMeals(meals);
+    // Real likes + comment counts for the cooking-feed recipe cards.
+    if (meals.length > 0) {
+      const mealIds = meals.map((m) => m.id);
+      void Promise.all([getRecipeLikes(userId, mealIds), getRecipeCommentCounts(mealIds)])
+        .then(([likeData, commentCounts]) => {
+          setMealLikeCounts(likeData.likes);
+          setMealLikedByMe(likeData.userLiked);
+          setMealCommentCounts(commentCounts);
+        });
+    }
     // listPosts resolves null when the fetch failed; keep whatever the
     // feed already showed rather than wiping it to a false empty state.
     if (allPosts) setPosts(allPosts.filter((p) => friendIdSet.has(p.userId)));
@@ -728,14 +733,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const rows = await loadPostComments(postId);
     // null = fetch failed; CommentsBody shows its retry state for that.
     if (!rows) return null;
-    return rows.map((c) => ({ id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, author: c.author }));
+    return rows.map((c) => ({ id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, parentId: c.parentId, author: c.author }));
   }, [loadPostComments]);
-  const addPostCommentAdapter = useCallback(async (postId: string, body: string) => {
-    const c = await addPostComment(postId, body);
+  const addPostCommentAdapter = useCallback(async (postId: string, body: string, parentId?: string | null) => {
+    const c = await addPostComment(postId, body, parentId);
     if (!c) return null;
     // Bump the local post's comment count so the badge updates without a refetch.
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: p.commentsCount + 1 } : p));
-    return { id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, author: c.author };
+    return { id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, parentId: c.parentId, author: c.author };
   }, [addPostComment]);
   const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string) => {
     const ok = await deletePostComment(postId, commentId);
@@ -1137,9 +1142,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     {/* Action bar — like / comment (left); add (+) / save (right) */}
                     {(() => {
                       const liked = mealLikedByMe.has(m.id);
-                      const saved = mealSavedByMe.has(m.id);
-                      const likeCount = (mealLikeBase[m.id] || 0) + (liked ? 1 : 0);
-                      const commentCount = mealCommentBase[m.id] || 0;
+                      const saved = myHomeMeals.some((x) => x.id === m.id);
+                      const likeCount = mealLikeCounts[m.id] || 0;
+                      const commentCount = mealCommentCounts[m.id] || 0;
                       return (
                         <div className="mt-2.5 flex items-center -ml-2">
                           <button
@@ -1147,39 +1152,39 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                             onClick={() => toggleMealLike(m.id)}
                             className={cn(
                               'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                              liked ? 'text-red-500' : 'text-on-surface/60 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                              liked ? 'text-primary' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
                             )}
-                            aria-label={liked ? 'Unlike' : 'Like'}
+                            aria-label={liked ? 'Remove like' : 'Like'}
                           >
-                            <Heart size={20} className={liked ? 'fill-red-500' : ''} />
-                            <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>
+                            <ThumbsUp size={19} className={liked ? 'fill-primary' : ''} />
+                            {likeCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>}
                           </button>
                           <button
                             type="button"
-                            onClick={() => openFriendRecipe(m)}
+                            onClick={() => setOpenMealComments(m)}
                             className="inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
                             aria-label="Comments"
                           >
                             <MessageSquare size={19} />
-                            <span className="text-[12.5px] font-semibold tabular-nums">{commentCount}</span>
+                            {commentCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{commentCount}</span>}
                           </button>
                           <div className="ml-auto flex items-center gap-0.5">
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
                               className="grid h-9 w-9 place-items-center rounded-full text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                              aria-label="Add to list"
+                              aria-label="Share"
                             >
-                              <Plus size={19} />
+                              <Share2 size={18} />
                             </button>
                             <button
                               type="button"
-                              onClick={() => toggleMealSave(m.id)}
+                              onClick={() => toggleMealSave(m)}
                               className={cn(
                                 'grid h-9 w-9 place-items-center rounded-full transition-colors',
                                 saved ? 'text-primary hover:bg-primary/5' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
                               )}
-                              aria-label={saved ? 'Unsave' : 'Save'}
+                              aria-label={saved ? 'Saved to your recipes' : 'Save to your recipes'}
                             >
                               <Bookmark size={19} className={saved ? 'fill-primary' : ''} />
                             </button>
@@ -1343,9 +1348,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             const summary = mealRatingSummaries[m.id];
             const liked = mealLikedByMe.has(m.id);
-            const saved = mealSavedByMe.has(m.id);
-            const likeCount = (mealLikeBase[m.id] || 0) + (liked ? 1 : 0);
-            const commentCount = mealCommentBase[m.id] || 0;
+            const saved = myHomeMeals.some((x) => x.id === m.id);
+            const likeCount = mealLikeCounts[m.id] || 0;
+            const commentCount = mealCommentCounts[m.id] || 0;
             return (
               <li key={`meal-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
                 <article>
@@ -1413,46 +1418,46 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     )}
                   </button>
 
-                  {/* Action bar — like / comment (left); add (+) / save (right) */}
+                  {/* Action bar — like / comment (left); share / save (right) */}
                   <div className="mt-2.5 flex items-center -ml-2">
                     <button
                       type="button"
                       onClick={() => toggleMealLike(m.id)}
                       className={cn(
                         'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                        liked ? 'text-red-500' : 'text-on-surface/60 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                        liked ? 'text-primary' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
                       )}
-                      aria-label={liked ? 'Unlike' : 'Like'}
+                      aria-label={liked ? 'Remove like' : 'Like'}
                     >
-                      <Heart size={20} className={liked ? 'fill-red-500' : ''} />
-                      <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>
+                      <ThumbsUp size={19} className={liked ? 'fill-primary' : ''} />
+                      {likeCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>}
                     </button>
                     <button
                       type="button"
-                      onClick={() => openFriendRecipe(m)}
+                      onClick={() => setOpenMealComments(m)}
                       className="inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
                       aria-label="Comments"
                     >
                       <MessageSquare size={19} />
-                      <span className="text-[12.5px] font-semibold tabular-nums">{commentCount}</span>
+                      {commentCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{commentCount}</span>}
                     </button>
                     <div className="ml-auto flex items-center gap-0.5">
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
                         className="grid h-9 w-9 place-items-center rounded-full text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                        aria-label="Add to list"
+                        aria-label="Share"
                       >
-                        <Plus size={19} />
+                        <Share2 size={18} />
                       </button>
                       <button
                         type="button"
-                        onClick={() => toggleMealSave(m.id)}
+                        onClick={() => toggleMealSave(m)}
                         className={cn(
                           'grid h-9 w-9 place-items-center rounded-full transition-colors',
                           saved ? 'text-primary hover:bg-primary/5' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
                         )}
-                        aria-label={saved ? 'Unsave' : 'Save'}
+                        aria-label={saved ? 'Saved to your recipes' : 'Save to your recipes'}
                       >
                         <Bookmark size={19} className={saved ? 'fill-primary' : ''} />
                       </button>
@@ -1780,6 +1785,56 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         recipe={shareRecipeData}
         onClose={() => setShareRecipeData(null)}
       />
+
+      {/* Recipe comment thread — bottom sheet opened from a meal card's
+          comment button. The full thread also lives on the recipe detail
+          page; this is the quick in-feed entry point. */}
+      <AnimatePresence>
+        {openMealComments && (
+          <motion.div
+            key="recipe-comments-sheet"
+            className="fixed inset-0 z-[200] bg-black/55 backdrop-blur-sm flex items-end"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setOpenMealComments(null)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              {...recipeCommentsDragProps}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-paper w-full rounded-t-3xl flex flex-col"
+              style={{ height: '75%' }}
+            >
+              <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
+                <span className="w-10 h-1 rounded-full bg-on-surface/20" />
+              </div>
+              <div className="flex items-center justify-between px-5 pb-3 border-b border-on-surface/8 flex-shrink-0">
+                <div className="min-w-0">
+                  <h3 className="font-serif text-[17px] font-bold text-on-surface leading-tight">Comments</h3>
+                  <p className="text-[12px] text-on-surface/45 truncate">{openMealComments.name}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpenMealComments(null)}
+                  className="grid h-9 w-9 place-items-center rounded-full text-on-surface/50 hover:bg-on-surface/[0.06] flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <RecipeCommentThread
+                targetId={openMealComments.id}
+                variant="sheet"
+                onCountChange={(n) => setMealCommentCounts((prev) => ({ ...prev, [openMealComments.id]: n }))}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Post comments overlay ─────────────────────────────────────
           Mobile/phone-frame: bottom sheet (Instagram-style). Desktop:

@@ -89,7 +89,7 @@ interface PostsContextValue {
 
   /** Resolves to null when the fetch failed (vs [] for "no comments"). */
   loadPostComments: (postId: string) => Promise<PostComment[] | null>;
-  addPostComment: (postId: string, body: string) => Promise<PostComment | null>;
+  addPostComment: (postId: string, body: string, parentId?: string | null) => Promise<PostComment | null>;
   deletePostComment: (postId: string, commentId: string) => Promise<boolean>;
 
   // Modal state
@@ -331,10 +331,10 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return cloudListPostComments(postId);
   }, []);
 
-  const addPostComment = useCallback(async (postId: string, body: string): Promise<PostComment | null> => {
+  const addPostComment = useCallback(async (postId: string, body: string, parentId?: string | null): Promise<PostComment | null> => {
     const me = userIdRef.current;
     if (!me) return null;
-    const c = await cloudAddPostComment(postId, me, body);
+    const c = await cloudAddPostComment(postId, me, body, parentId);
     if (c) {
       setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: p.commentsCount + 1 } : p));
     }

@@ -420,7 +420,7 @@ const EyeToggle: React.FC<{ shown: boolean; onClick: () => void }> = ({ shown, o
     onClick={onClick}
     aria-label={shown ? 'Hide password' : 'Show password'}
     className="flex items-center justify-center cursor-pointer bg-transparent border-none p-0"
-    style={{ width: 38, height: 38, color: '#8B817B' }}
+    style={{ width: 38, height: 38, color: 'var(--ob-secondary)' }}
   >
     {shown ? <EyeOff size={18} /> : <Eye size={18} />}
   </button>
@@ -650,10 +650,10 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
             />
             <div className="flex items-center justify-between" style={{ marginTop: 16 }}>
               <button type="button" onClick={() => setKeepSignedIn(!keepSignedIn)} className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none p-0">
-                <span className="flex items-center justify-center flex-shrink-0" style={{ width: 22, height: 22, borderRadius: 6, background: keepSignedIn ? OB.TERRA : 'transparent', border: keepSignedIn ? 'none' : '2px solid #D2C5BC' }}>
+                <span className="flex items-center justify-center flex-shrink-0" style={{ width: 22, height: 22, borderRadius: 6, background: keepSignedIn ? OB.TERRA : 'transparent', border: keepSignedIn ? 'none' : '2px solid var(--ob-radio-ring)' }}>
                   {keepSignedIn && <Check size={13} strokeWidth={2.6} color="#fff" />}
                 </span>
-                <span style={{ fontSize: 14.5, color: '#3A322E', fontWeight: 500 }}>Keep me signed in</span>
+                <span style={{ fontSize: 14.5, color: 'var(--ob-ink-soft)', fontWeight: 500 }}>Keep me signed in</span>
               </button>
               <button type="button" style={{ fontSize: 14.5, color: OB.TERRA, fontWeight: 600 }} className="cursor-pointer bg-transparent border-none p-0">Forgot?</button>
             </div>
@@ -687,20 +687,20 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
           <div className="flex items-center gap-2" style={{ marginTop: 11 }}>
             {pwOk ? (
               <>
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#1FA06D" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                <span style={{ fontSize: 13, color: '#1B8A5E', fontWeight: 500 }}>Strong enough to go</span>
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <span style={{ fontSize: 13, color: 'var(--ob-success)', fontWeight: 500 }}>Strong enough to go</span>
               </>
             ) : (
               <>
-                <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: '50%', background: '#D2C5BC' }} />
-                <span style={{ fontSize: 13, color: '#8B817B' }}>Use at least 8 characters</span>
+                <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ob-radio-ring)' }} />
+                <span style={{ fontSize: 13, color: 'var(--ob-secondary)' }}>Use at least 8 characters</span>
               </>
             )}
           </div>
           {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
           <div style={{ marginTop: 'auto', paddingTop: 28 }}>
             <OB.PrimaryButton type="submit" loading={submitting}>Create account</OB.PrimaryButton>
-            <p style={{ textAlign: 'center', fontSize: 12.5, color: '#9A8F89', margin: '16px 0 0', lineHeight: 1.5 }}>
+            <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ob-label)', margin: '16px 0 0', lineHeight: 1.5 }}>
               By continuing you agree to our <span style={{ color: OB.TERRA, fontWeight: 600 }}>Terms</span> &amp; <span style={{ color: OB.TERRA, fontWeight: 600 }}>Privacy</span>.
             </p>
           </div>

@@ -11,13 +11,16 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 
-export const CREAM = '#FBF4F0';
-export const INK = '#211C19';
-export const SECONDARY = '#7A716B';
-export const LABEL_GREY = '#A99E97';
-export const BORDER = '#ECE1DA';
-export const TERRA = '#A6371D';
-export const TERRA_HOVER = '#8C2E18';
+/* Colour values resolve through CSS custom properties (defined in index.css)
+   so the whole flow flips with the app's `.dark` class. The light values are
+   the original warm palette; see `--ob-*` in index.css for the dark tones. */
+export const CREAM = 'var(--ob-bg)';
+export const INK = 'var(--ob-ink)';
+export const SECONDARY = 'var(--ob-secondary)';
+export const LABEL_GREY = 'var(--ob-label)';
+export const BORDER = 'var(--ob-border)';
+export const TERRA = 'var(--ob-terra)';
+export const TERRA_HOVER = 'var(--ob-terra-hover)';
 export const SERIF = '"Newsreader", Georgia, serif';
 
 /* ── Screen wrapper ─────────────────────────────────────────────────────── */
@@ -119,9 +122,10 @@ export const Field: React.FC<{
       autoCapitalize={autoCapitalize}
       autoCorrect="off"
       inputMode={inputMode}
-      className="w-full rounded-[15px] bg-white outline-none transition-all focus:border-[#A6371D] focus:[box-shadow:0_0_0_4px_rgba(166,55,29,0.10)]"
+      className="w-full rounded-[15px] outline-none transition-all focus:border-[var(--ob-terra)] focus:[box-shadow:0_0_0_4px_var(--ob-focus-ring)]"
       style={{
         height: 57,
+        background: 'var(--ob-card)',
         border: `1.5px solid ${BORDER}`,
         paddingLeft: icon ? 46 : prefix ? 42 : 16,
         paddingRight: rightSlot ? 50 : 16,
@@ -169,9 +173,9 @@ export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => 
     type="button"
     onClick={onClick}
     className="w-full flex items-center justify-center gap-2 font-semibold cursor-pointer bg-transparent border-none transition-colors"
-    style={{ height: 50, color: '#6E635D', fontSize: 15 }}
+    style={{ height: 50, color: 'var(--ob-ghost)', fontSize: 15 }}
     onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = INK)}
-    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = '#6E635D')}
+    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--ob-ghost)')}
   >
     <span>{children}</span>
     {trailing && <ArrowRight size={15} strokeWidth={2} />}
@@ -183,10 +187,10 @@ export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.Rea
     type="button"
     onClick={onClick}
     disabled={disabled}
-    className="w-full flex items-center justify-center gap-2.5 rounded-[15px] bg-white font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 54, border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5 }}
-    onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#FAF4F0'; }}
-    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#fff'; }}
+    className="w-full flex items-center justify-center gap-2.5 rounded-[15px] font-semibold cursor-pointer transition-colors disabled:opacity-60"
+    style={{ height: 54, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5 }}
+    onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
+    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
     {icon}
     <span>{children}</span>
@@ -195,9 +199,9 @@ export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.Rea
 
 export const Divider: React.FC<{ children?: React.ReactNode }> = ({ children = 'OR' }) => (
   <div className="flex items-center gap-3.5" style={{ margin: '22px 0' }}>
-    <div className="flex-1" style={{ height: 1, background: '#EADFD8' }} />
-    <span style={{ fontSize: 11, letterSpacing: '1.5px', fontWeight: 700, color: '#B6ABA4' }}>{children}</span>
-    <div className="flex-1" style={{ height: 1, background: '#EADFD8' }} />
+    <div className="flex-1" style={{ height: 1, background: 'var(--ob-divider)' }} />
+    <span style={{ fontSize: 11, letterSpacing: '1.5px', fontWeight: 700, color: 'var(--ob-label)' }}>{children}</span>
+    <div className="flex-1" style={{ height: 1, background: 'var(--ob-divider)' }} />
   </div>
 );
 
@@ -207,12 +211,12 @@ export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick })
     type="button"
     onClick={onClick}
     aria-label="Back"
-    className="flex items-center justify-center rounded-full bg-white cursor-pointer flex-shrink-0 p-0 transition-colors"
-    style={{ width: 40, height: 40, border: `1.5px solid ${BORDER}` }}
-    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#FAF4F0')}
-    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#fff')}
+    className="flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 transition-colors"
+    style={{ width: 40, height: 40, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}` }}
+    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)')}
+    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)')}
   >
-    <ArrowLeft size={17} strokeWidth={2.2} style={{ color: '#3A322E' }} />
+    <ArrowLeft size={17} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
   </button>
 );
 
@@ -220,7 +224,7 @@ export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick })
 export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: () => void }> = ({ step, total, onBack }) => (
   <div className="flex items-center gap-3.5">
     <RoundBackButton onClick={onBack} />
-    <div className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 3, background: '#EADFD8' }}>
+    <div className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 3, background: 'var(--ob-divider)' }}>
       <div style={{ height: '100%', borderRadius: 3, background: TERRA, width: `${Math.min(100, (step / total) * 100)}%`, transition: 'width .3s ease' }} />
     </div>
     <span className="flex-shrink-0" style={{ fontSize: 12, fontWeight: 600, color: LABEL_GREY }}>Step {step} of {total}</span>
@@ -234,12 +238,12 @@ export const EmailPill: React.FC<{ email: string; onClick?: () => void }> = ({ e
     type="button"
     onClick={onClick}
     className="inline-flex items-center gap-2 rounded-full cursor-pointer border-none transition-colors max-w-full"
-    style={{ background: '#F1E8E2', padding: '9px 14px', fontSize: 14, fontWeight: 500, color: '#5C534E' }}
-    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#EADFD8')}
-    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#F1E8E2')}
+    style={{ background: 'var(--ob-pill-bg)', padding: '9px 14px', fontSize: 14, fontWeight: 500, color: 'var(--ob-pill-text)' }}
+    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-pill-bg-hover)')}
+    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-pill-bg)')}
   >
     <span className="truncate">{email}</span>
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="#9A8F89" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="var(--ob-label)" strokeWidth="1.4" strokeLinejoin="round" /></svg>
   </button>
 );
 
@@ -260,18 +264,18 @@ export const RadioCard: React.FC<{
       borderRadius: 18,
       padding: '17px 18px',
       border: `1.5px solid ${selected ? TERRA : BORDER}`,
-      background: selected ? '#FBEFEA' : '#fff',
+      background: selected ? 'var(--ob-radio-selected)' : 'var(--ob-card)',
     }}
   >
     <span
       className="flex items-center justify-center flex-shrink-0"
-      style={{ width: 24, height: 24, borderRadius: '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid #D2C5BC' }}
+      style={{ width: 24, height: 24, borderRadius: '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid var(--ob-radio-ring)' }}
     >
       {selected && <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }} />}
     </span>
     <div className="flex-1 min-w-0">
       <div style={{ fontSize: 16, fontWeight: 600, color: INK }}>{title}</div>
-      <div style={{ fontSize: 13, color: '#8B817B', marginTop: 3, lineHeight: 1.45 }}>{description}</div>
+      <div style={{ fontSize: 13, color: 'var(--ob-secondary)', marginTop: 3, lineHeight: 1.45 }}>{description}</div>
     </div>
   </div>
 );
@@ -286,8 +290,8 @@ export const GoogleGlyph: React.FC = () => (
 
 /** Inline error row (red, with a small circle-i). */
 export const ErrorRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="flex items-center gap-1.5" style={{ marginTop: 9, color: '#C0392B', fontSize: 13, fontWeight: 500 }}>
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0"><circle cx="8" cy="8" r="6.5" stroke="#C0392B" strokeWidth="1.4" /><path d="M8 4.6v4M8 11.1v.05" stroke="#C0392B" strokeWidth="1.5" strokeLinecap="round" /></svg>
+  <div className="flex items-center gap-1.5" style={{ marginTop: 9, color: 'var(--ob-error)', fontSize: 13, fontWeight: 500 }}>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0"><circle cx="8" cy="8" r="6.5" stroke="var(--ob-error)" strokeWidth="1.4" /><path d="M8 4.6v4M8 11.1v.05" stroke="var(--ob-error)" strokeWidth="1.5" strokeLinecap="round" /></svg>
     <span>{children}</span>
   </div>
 );

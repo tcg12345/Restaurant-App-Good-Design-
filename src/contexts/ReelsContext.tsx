@@ -143,7 +143,7 @@ interface ReelsContextValue {
   // Comments
   /** Resolves to null when the fetch failed (vs [] for "no comments"). */
   loadComments: (reelId: string) => Promise<ReelComment[] | null>;
-  addComment: (reelId: string, body: string) => Promise<ReelComment | null>;
+  addComment: (reelId: string, body: string, parentId?: string | null) => Promise<ReelComment | null>;
   deleteComment: (reelId: string, commentId: string) => Promise<boolean>;
 
   // Modal
@@ -344,10 +344,10 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return cloudListComments(reelId);
   }, []);
 
-  const addComment = useCallback(async (reelId: string, body: string): Promise<ReelComment | null> => {
+  const addComment = useCallback(async (reelId: string, body: string, parentId?: string | null): Promise<ReelComment | null> => {
     const me = userIdRef.current;
     if (!me) return null;
-    const c = await cloudAddComment(reelId, me, body);
+    const c = await cloudAddComment(reelId, me, body, parentId);
     if (c) {
       // Bump the comment count on the reel so the rail updates.
       setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, comments: r.comments + 1 } : r));

@@ -203,14 +203,19 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, []);
 
   // ── On-demand fetch methods ──
+  // These feed the Discover "Recipes for you" rail, which only renders ~8
+  // cards. Each recipe row carries a base64 cover photo, so over-fetching is
+  // pure wasted download/decode — pull a small ranking pool, not 30 each. The
+  // full /recipes-for-you page fetches its own larger set independently.
+  const RAIL_POOL = 12;
 
   const fetchPublicRecipes = useCallback(async () => {
-    const recipes = await getPublicRecipes(30);
+    const recipes = await getPublicRecipes(RAIL_POOL);
     setPublicRecipes(recipes);
   }, []);
 
   const fetchExpertRecipes = useCallback(async () => {
-    const recipes = await getExpertRecipes(30);
+    const recipes = await getExpertRecipes(RAIL_POOL);
     setExpertRecipes(recipes);
   }, []);
 
@@ -219,7 +224,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     const friends = await getFriends(userIdRef.current);
     if (friends.length === 0) { setFriendRecipes([]); return; }
     const friendIds = friends.map((f) => f.friend_id);
-    const recipes = await getFriendRecipes(friendIds, 30);
+    const recipes = await getFriendRecipes(friendIds, RAIL_POOL);
     setFriendRecipes(recipes);
   }, []);
 

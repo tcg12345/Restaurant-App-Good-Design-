@@ -21,13 +21,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Award, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Edit3, Flame, Heart, Loader2, MessageCircle, Pause, Play, Plus, Printer,
-  Share2, Sparkles, Star, Users, X,
+  ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
+  Edit3, Flame, Heart, ImagePlus, Loader2, Lock, MessageCircle, Pause, Play,
+  Plus, Printer, Share2, Sparkles, Star, Trash2, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useLists, type HomeMeal, type LinkedRecipeRef } from '../contexts/ListsContext';
+import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem } from '../contexts/ListsContext';
+import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
   getPublicHomeMealById,
@@ -37,6 +38,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { getRecipe as fetchRecipeFromDb, getRecipeReviews, getPublicRecipes, upsertReview as upsertFormalReview } from '../lib/supabase-recipes';
+import { RecipeCommentThread } from '../components/RecipeCommentThread';
 import {
   upsertHomeMealReview,
   getHomeMealReviews,
@@ -53,8 +55,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const isUuidLike = (v: string): boolean => UUID_RE.test(v);
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
-
-const STORAGE_KEY_COOKED = 'gourmad-cooked-recipes';
 
 // Hash a string to a stable hue 0–360. Used for avatar gradients.
 const hashToHue = (s: string): number => {
@@ -417,6 +417,166 @@ type UnifiedReview = {
   verified?: boolean;
 };
 
+/** Hook over the user's PRIVATE cook photos for a recipe. Photos live in the
+ *  user's own app-data blob (restaurant_meta.__cook_photos__), keyed by recipe
+ *  id — never attached to the public meal, so only the user sees them. */
+function useCookPhotos(recipeId: string) {
+  const { restaurantMeta, stashMetaKey } = useLists();
+  const [adding, setAdding] = useState(false);
+
+  const photos = useMemo<PhotoItem[]>(() => {
+    const stash = ((restaurantMeta as Record<string, unknown>).__cook_photos__ ?? {}) as Record<string, PhotoItem[]>;
+    return Array.isArray(stash[recipeId]) ? stash[recipeId] : [];
+  }, [restaurantMeta, recipeId]);
+
+  const persist = useCallback((next: PhotoItem[]) => {
+    if (!recipeId) return;
+    const stash = ((restaurantMeta as Record<string, unknown>).__cook_photos__ ?? {}) as Record<string, PhotoItem[]>;
+    const updated = { ...stash };
+    if (next.length) updated[recipeId] = next; else delete updated[recipeId];
+    stashMetaKey('__cook_photos__', updated);
+  }, [restaurantMeta, recipeId, stashMetaKey]);
+
+  const onAdd = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setAdding(true);
+    try {
+      const added: PhotoItem[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) continue;
+        // Downscale before stashing — the blob is base64, so keep it small.
+        const compressed = await compressImage(file, { maxDim: 1600, quality: 0.8 });
+        const url = await new Promise<string>((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result as string);
+          r.onerror = () => rej(new Error('read failed'));
+          r.readAsDataURL(compressed);
+        });
+        added.push({ url, caption: '', isFavorite: false });
+      }
+      if (added.length) persist([...photos, ...added]);
+    } catch (err) {
+      console.warn('[CookPhotos] add failed:', err);
+    } finally {
+      setAdding(false);
+    }
+  }, [photos, persist]);
+
+  const onRemove = useCallback((idx: number) => {
+    persist(photos.filter((_, i) => i !== idx));
+  }, [photos, persist]);
+
+  return { photos, onAdd, onRemove, adding };
+}
+
+/** Modal to add / manage the user's private cook photos. Auto-opens right
+ *  after a recipe is marked cooked (so you can drop in photos immediately),
+ *  and reopenable from the hero's "Edit photos" button. Add as many as you
+ *  like; each is private to you. */
+const CookPhotosModal: React.FC<{ open: boolean; recipeId: string; onClose: () => void }> = ({ open, recipeId, onClose }) => {
+  const { photos, onAdd, onRemove, adding } = useCookPhotos(recipeId);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  if (!open) return null;
+  return createPortal(
+    <div className="rd-cpm-overlay" onClick={onClose}>
+      <div className="rd-cpm" onClick={(e) => e.stopPropagation()}>
+        <div className="rd-cpm-head">
+          <div>
+            <h2 className="rd-cpm-title">Your cook photos</h2>
+            <p className="rd-cpm-sub"><Lock size={12} /> Private · only you can see these</p>
+          </div>
+          <button type="button" className="rd-cpm-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="rd-cpm-body">
+          {photos.length === 0 && (
+            <p className="rd-cpm-empty">Snap how yours turned out — add as many as you like. They become this recipe's cover photo for you, and no one else can see them.</p>
+          )}
+          <div className="rd-cookphotos-grid">
+            {photos.map((p, i) => (
+              <div key={i} className="rd-cookphoto">
+                <img src={p.url} alt="" loading="lazy" />
+                <button type="button" className="rd-cookphoto-del" onClick={() => onRemove(i)} aria-label="Remove photo">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button type="button" className="rd-cookphoto-add" onClick={() => inputRef.current?.click()} disabled={adding}>
+              {adding ? <Loader2 className="rd-cookphoto-spin" /> : <><ImagePlus /><span>Add photos</span></>}
+            </button>
+          </div>
+        </div>
+        <div className="rd-cpm-foot">
+          <button type="button" className="rd-cpm-done" onClick={onClose}>Done</button>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => { onAdd(e.target.files); e.currentTarget.value = ''; }}
+        />
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
+/** Swipeable cover gallery for the recipe hero. Shows the user's cook photos
+ *  when present (arrows + dots for multiple), else the original recipe photo.
+ *  Returns a fragment so the <img> stays a direct child of the hero wrapper
+ *  and the existing .rd-hero-image img / .rdm-hero-img img CSS still applies. */
+const HeroGallery: React.FC<{ photos: string[]; alt: string; onEditPhotos?: () => void; editLabel?: string }> = ({ photos, alt, onEditPhotos, editLabel }) => {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => { setIdx(0); }, [photos.length]);
+  const safe = photos.length ? Math.min(idx, photos.length - 1) : 0;
+  const go = (d: number) => setIdx((i) => (i + d + photos.length) % photos.length);
+  return (
+    <>
+      {photos.length > 0 ? (
+        <img src={photos[safe]} alt={alt} referrerPolicy="no-referrer" />
+      ) : (
+        <div className="ph-fallback"><ChefHat /></div>
+      )}
+      {photos.length > 1 && (
+        <>
+          <button type="button" className="rd-gallery-arrow left" onClick={() => go(-1)} aria-label="Previous photo"><ChevronLeft /></button>
+          <button type="button" className="rd-gallery-arrow right" onClick={() => go(1)} aria-label="Next photo"><ChevronRight /></button>
+          <div className="rd-gallery-dots">
+            {photos.map((_, i) => <span key={i} className={cn('rd-gallery-dot', i === safe && 'on')} />)}
+          </div>
+        </>
+      )}
+      {onEditPhotos && (
+        <button type="button" className="rd-gallery-edit" onClick={onEditPhotos}>
+          <Camera size={14} /> {editLabel}
+        </button>
+      )}
+    </>
+  );
+};
+
+/** Warning shown before un-cooking a recipe that has private cook photos —
+ *  un-cooking deletes them, so confirm first. */
+const UncookConfirmDialog: React.FC<{ open: boolean; photoCount: number; onCancel: () => void; onConfirm: () => void }> = ({ open, photoCount, onCancel, onConfirm }) => {
+  if (!open) return null;
+  return createPortal(
+    <div className="rd-confirm-overlay" onClick={onCancel}>
+      <div className="rd-confirm" onClick={(e) => e.stopPropagation()}>
+        <h3 className="rd-confirm-title">Remove from Cooked?</h3>
+        <p className="rd-confirm-text">
+          The {photoCount} photo{photoCount === 1 ? '' : 's'} you added {photoCount === 1 ? 'is' : 'are'} private to you and will be permanently deleted. This can’t be undone.
+        </p>
+        <div className="rd-confirm-actions">
+          <button type="button" className="rd-confirm-cancel" onClick={onCancel}>Keep it</button>
+          <button type="button" className="rd-confirm-remove" onClick={onConfirm}>Remove &amp; delete</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+};
+
 export const RecipePage: React.FC = () => {
   const params = useParams<{ userId?: string; id?: string; mealId?: string }>();
   const ownerId = params.userId || '';
@@ -426,7 +586,7 @@ export const RecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
-  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe } = useLists();
+  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe, addRecipeToCookedList, removeRecipeFromCookedList, getRecipes } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
   // ── Data ──
@@ -441,10 +601,6 @@ export const RecipePage: React.FC = () => {
   const [relatedAuthors, setRelatedAuthors] = useState<Record<string, UserProfile>>({});
 
   // ── User interactions ──
-  const [cookedIds, setCookedIds] = useState<Set<string>>(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY_COOKED); return new Set(raw ? JSON.parse(raw) : []); }
-    catch { return new Set(); }
-  });
   const [servings, setServings] = useState<number>(0);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set());
@@ -458,8 +614,32 @@ export const RecipePage: React.FC = () => {
   // Share sheet — friend/group multi-select + an OS share-via fallback.
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
 
-  const saved = data ? getListsForRecipe(data.id).length > 0 : false;
-  const cooked = data ? cookedIds.has(data.id) : false;
+  // Lists this recipe currently belongs to. The save heart reflects curated
+  // lists only — the auto "Cooked" list is driven by the Mark-as-cooked
+  // button, so membership there doesn't count as "saved".
+  const memberLists = data ? getListsForRecipe(data.id) : [];
+  const saved = memberLists.some((l) => l.id !== DEFAULT_COOKED_ID);
+  const cooked = memberLists.some((l) => l.id === DEFAULT_COOKED_ID);
+
+  // Private cook photos. When the user has added any, they become this
+  // recipe's cover for them (swipeable); otherwise the hero falls back to the
+  // recipe's original photo from whoever published it.
+  const { photos: cookPhotos } = useCookPhotos(data?.id ?? '');
+  // Always-fresh handle so click handlers see the latest count even if their
+  // closure was memoized before the photos changed.
+  const cookPhotosRef = useRef(cookPhotos);
+  cookPhotosRef.current = cookPhotos;
+  const heroPhotos = useMemo<string[]>(() => {
+    const urls = cookPhotos.map((p) => p.url).filter(Boolean);
+    if (urls.length) return urls;
+    return data?.coverPhoto ? [data.coverPhoto] : [];
+  }, [cookPhotos, data?.coverPhoto]);
+  // Photo modal — opened automatically right after marking cooked, and
+  // reopenable from the hero's edit button.
+  const [cookPhotosOpen, setCookPhotosOpen] = useState(false);
+  // Confirm dialog shown before un-cooking a recipe that has cook photos
+  // (un-cooking deletes them).
+  const [confirmUncook, setConfirmUncook] = useState(false);
 
   // ── Load the recipe ──
   // Initial fetch — runs only when the recipe identity changes (route
@@ -507,6 +687,16 @@ export const RecipePage: React.FC = () => {
         if (cancelled) return;
         if (meal) { setData(adaptHomeMeal(meal)); setLoading(false); return; }
       }
+      // 4. Fallback: a recipe under the built-in Cooked list (not mirrored
+      //    into the cookbook). Render straight from the stored entry so it
+      //    opens even if it's another user's recipe that has since gone
+      //    private or been deleted.
+      const cookedRecipe = getRecipesRef.current(DEFAULT_COOKED_ID).find((r) => r.id === resolvedId);
+      if (cookedRecipe) {
+        const owner = cookedRecipe.sourceAuthorId || ownerId || currentUserId || '';
+        if (!cancelled) { setData(adaptHomeMeal({ ...recipeToHomeMeal(cookedRecipe), userId: owner })); setLoading(false); }
+        return;
+      }
       if (!cancelled) { setNotFound(true); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -517,6 +707,8 @@ export const RecipePage: React.FC = () => {
   // flash every time a save mirrors into homeMeals).
   const myRecipesRef = useRef(myRecipes);
   const myHomeMealsRef = useRef(myHomeMeals);
+  const getRecipesRef = useRef(getRecipes);
+  useEffect(() => { getRecipesRef.current = getRecipes; }, [getRecipes]);
   useEffect(() => { myRecipesRef.current = myRecipes; }, [myRecipes]);
   useEffect(() => { myHomeMealsRef.current = myHomeMeals; }, [myHomeMeals]);
 
@@ -657,9 +849,6 @@ export const RecipePage: React.FC = () => {
 
   // ── Helpers ──
   const showToast = useCallback((msg: string) => setToast(msg), []);
-  const persistSet = (set: Set<string>, key: string) => {
-    try { localStorage.setItem(key, JSON.stringify(Array.from(set))); } catch { /* quota */ }
-  };
   const handleSave = useCallback(() => {
     if (!data) return;
     setSaveSheetOpen(true);
@@ -719,16 +908,33 @@ export const RecipePage: React.FC = () => {
       } : {}),
     };
   }, [data, myHomeMeals, currentUserId, authorProfile]);
+  // Marking a recipe cooked adds it to the built-in "Cooked" list (auto-
+  // created on the Pantry page). Un-marking removes it. The list entry is
+  // what makes the recipe show up under Pantry → Cooked, and it's the anchor
+  // for the user's private cook photos.
   const handleCooked = useCallback(() => {
+    if (!data || !saveMeal) return;
+    if (cooked) {
+      // Un-cooking deletes the private cook photos — warn first if any exist.
+      if (cookPhotosRef.current.length > 0) { setConfirmUncook(true); return; }
+      removeRecipeFromCookedList(data.id);
+      showToast('Removed from Cooked');
+    } else {
+      // Adds to the Cooked list only — NOT the cookbook/All Recipes.
+      addRecipeToCookedList(saveMeal);
+      showToast('Added to your Cooked list 🍳');
+      // Prompt to add your own photos right away.
+      setCookPhotosOpen(true);
+    }
+  }, [data, saveMeal, cooked, addRecipeToCookedList, removeRecipeFromCookedList, showToast]);
+
+  // Confirmed un-cook (from the warning dialog): remove + delete cook photos.
+  const confirmUncookNow = useCallback(() => {
     if (!data) return;
-    setCookedIds((prev) => {
-      const next = new Set<string>(prev);
-      if (next.has(data.id)) { next.delete(data.id); showToast('Removed from cooked'); }
-      else { next.add(data.id); showToast('Nice — marked as cooked'); }
-      persistSet(next, STORAGE_KEY_COOKED);
-      return next;
-    });
-  }, [data, showToast]);
+    removeRecipeFromCookedList(data.id);
+    setConfirmUncook(false);
+    showToast('Removed from Cooked — photos deleted');
+  }, [data, removeRecipeFromCookedList, showToast]);
   const handleShare = useCallback(() => {
     if (!data) return;
     setShareSheetOpen(true);
@@ -816,12 +1022,8 @@ export const RecipePage: React.FC = () => {
           setMyReview({ id: saved.id, userId: saved.userId, rating: norm5(saved.rating), notes: saved.notes, photo: '', createdAt: saved.createdAt });
         }
       }
-      if (cookedIt && data && !cookedIds.has(data.id)) {
-        setCookedIds((prev) => {
-          const next = new Set<string>(prev); next.add(data.id);
-          persistSet(next, STORAGE_KEY_COOKED);
-          return next;
-        });
+      if (cookedIt && data && saveMeal && !cooked) {
+        addRecipeToCookedList(saveMeal);
       }
       showToast('Review posted — thanks for cooking!');
       return true;
@@ -830,7 +1032,7 @@ export const RecipePage: React.FC = () => {
       showToast('Could not post review');
       return false;
     }
-  }, [data, currentUserId, cookedIds, restaurantMeta, stashMetaKey, showToast]);
+  }, [data, currentUserId, cooked, saveMeal, addRecipeToCookedList, restaurantMeta, stashMetaKey, showToast]);
 
   // ── Derived view data ──
   const stars5 = useMemo(() => {
@@ -952,6 +1154,9 @@ export const RecipePage: React.FC = () => {
           toggleStep={toggleStep}
           saved={saved}
           cooked={cooked}
+          heroPhotos={heroPhotos}
+          cookPhotoCount={cookPhotos.length}
+          openCookPhotos={() => setCookPhotosOpen(true)}
           isOwner={isOwner}
           scrolled={scrolled}
           toast={toast}
@@ -983,6 +1188,8 @@ export const RecipePage: React.FC = () => {
           externalShareUrl={sharePayload?.url}
         />
         <RecipePrintView data={data} authorName={authorName} />
+        <CookPhotosModal open={cookPhotosOpen} recipeId={data.id} onClose={() => setCookPhotosOpen(false)} />
+        <UncookConfirmDialog open={confirmUncook} photoCount={cookPhotos.length} onCancel={() => setConfirmUncook(false)} onConfirm={confirmUncookNow} />
       </div>
     );
   }
@@ -1057,7 +1264,7 @@ export const RecipePage: React.FC = () => {
               {ratingsCount > 0 && (
                 <span className="ratings-link">{ratingsCount.toLocaleString()} rating{ratingsCount === 1 ? '' : 's'}</span>
               )}
-              {cookedIds.size > 0 && data && cookedIds.has(data.id) && (
+              {cooked && (
                 <>
                   {ratingsCount > 0 && <span className="sep" />}
                   <span>You cooked this</span>
@@ -1065,7 +1272,7 @@ export const RecipePage: React.FC = () => {
               )}
               {data.updatedAt && (
                 <>
-                  {(ratingsCount > 0 || (data && cookedIds.has(data.id))) && <span className="sep" />}
+                  {(ratingsCount > 0 || cooked) && <span className="sep" />}
                   <span>Updated {new Date(data.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                 </>
               )}
@@ -1095,11 +1302,12 @@ export const RecipePage: React.FC = () => {
           )}
         </div>
         <div className="rd-hero-image">
-          {data.coverPhoto ? (
-            <img src={data.coverPhoto} alt={data.title} referrerPolicy="no-referrer" />
-          ) : (
-            <div className="ph-fallback"><ChefHat /></div>
-          )}
+          <HeroGallery
+            photos={heroPhotos}
+            alt={data.title}
+            onEditPhotos={cooked ? () => setCookPhotosOpen(true) : undefined}
+            editLabel={cookPhotos.length ? 'Edit photos' : 'Add your photos'}
+          />
         </div>
       </header>
 
@@ -1426,6 +1634,11 @@ export const RecipePage: React.FC = () => {
         </section>
       )}
 
+      {/* Private cook-photo manager (modal). Auto-opens on marking cooked;
+          reopenable from the hero's edit button. Photos drive the hero cover. */}
+      <CookPhotosModal open={cookPhotosOpen} recipeId={data.id} onClose={() => setCookPhotosOpen(false)} />
+      <UncookConfirmDialog open={confirmUncook} photoCount={cookPhotos.length} onCancel={() => setConfirmUncook(false)} onConfirm={confirmUncookNow} />
+
       {/* ── Reviews ───────────────────────────────────────────────── */}
       <section className="rd-reviews-section">
         <div className="rd-reviews-head">
@@ -1497,6 +1710,12 @@ export const RecipePage: React.FC = () => {
             </p>
           )}
         </div>
+      </section>
+
+      {/* ── Comments ──────────────────────────────────────────────── */}
+      <section className="rd-reviews-section">
+        <h2 className="rd-reviews-title" style={{ marginBottom: 16 }}>Comments</h2>
+        <RecipeCommentThread targetId={resolvedId} />
       </section>
 
       {/* ── Related recipes ──────────────────────────────────────── */}
@@ -2139,6 +2358,11 @@ interface MobileViewProps {
   toggleStep: (i: number) => void;
   saved: boolean;
   cooked: boolean;
+  /** Cover photos for the hero — cook photos if added, else the original. */
+  heroPhotos: string[];
+  /** How many private cook photos exist (drives the hero edit-button label). */
+  cookPhotoCount: number;
+  openCookPhotos: () => void;
   isOwner: boolean;
   scrolled: boolean;
   toast: string | null;
@@ -2167,7 +2391,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
   data, authorProfile, reviews, reviewerProfiles, myReview, related, relatedAuthors,
   stars5, ratingsCount, ratingBreakdown, totalMinutes, baseServings, scale,
   servings, setServings, checked, toggleCheck, doneSteps, toggleStep,
-  saved, cooked, isOwner, scrolled, toast, cookMode, setCookMode, reviewOpen, setReviewOpen,
+  saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, scrolled, toast, cookMode, setCookMode, reviewOpen, setReviewOpen,
   handleSave, handleCooked, handleShare, handleEdit, submitReview,
   renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
   authorUsername, currentUserId, currentUserName, navigate,
@@ -2195,10 +2419,17 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
     </nav>
 
     <div className="rdm-page">
-      {/* Hero image — omitted entirely when the recipe has no photo (no blank placeholder). */}
-      {data.coverPhoto && (
+      {/* Hero — cook photos (swipeable) when added, else the original. Shown
+          when there are photos OR the recipe is cooked (so the add-photos
+          button is reachable even before any are added). */}
+      {(heroPhotos.length > 0 || cooked) && (
         <div className="rdm-hero-img">
-          <img src={data.coverPhoto} alt={data.title} referrerPolicy="no-referrer" />
+          <HeroGallery
+            photos={heroPhotos}
+            alt={data.title}
+            onEditPhotos={cooked ? openCookPhotos : undefined}
+            editLabel={cookPhotoCount ? 'Edit photos' : 'Add your photos'}
+          />
           {data.sourceType === 'expert' && (
             <div className="badge"><Sparkles /> Editor's pick</div>
           )}
@@ -2597,6 +2828,12 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             Be the first to cook and review this.
           </p>
         )}
+      </section>
+
+      {/* Comments */}
+      <section className="rdm-section">
+        <h2 className="rdm-section-title">Comments</h2>
+        <RecipeCommentThread targetId={data.id} />
       </section>
 
       {/* Related */}

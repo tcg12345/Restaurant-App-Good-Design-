@@ -385,6 +385,10 @@ interface ListsContextValue {
    *  query which lists already contain it. Used by the recipe detail
    *  page's Save button. */
   addRecipeToList: (listId: string, meal: HomeMeal) => void;
+  /** Add to the built-in Cooked list without copying into the cookbook. */
+  addRecipeToCookedList: (meal: HomeMeal) => void;
+  /** Remove from the Cooked list and delete its private cook photos. */
+  removeRecipeFromCookedList: (recipeId: string) => void;
   removeRecipeFromList: (listId: string, recipeId: string) => void;
   getListsForRecipe: (recipeId: string) => CustomList[];
   /** Save / un-save a recipe to the "All Recipes" cookbook pool
@@ -583,6 +587,14 @@ export const DEFAULT_WANT_TO_COOK_ID = 'default-want-to-cook';
 export const DEFAULT_WANT_TO_COOK_NAME = 'Want to Cook';
 export const DEFAULT_WANT_TO_COOK_EMOJI = '📌';
 
+/** Built-in "Cooked" recipe list — recipes the user has marked as cooked
+ *  (via the Mark-as-cooked button on the recipe page). Auto-injected,
+ *  cannot be deleted or renamed. Recipes here can carry the user's own
+ *  private cook photos. */
+export const DEFAULT_COOKED_ID = 'default-cooked';
+export const DEFAULT_COOKED_NAME = 'Cooked';
+export const DEFAULT_COOKED_EMOJI = '🍳';
+
 const buildDefaultWantToCookList = (): CustomList => ({
   id: DEFAULT_WANT_TO_COOK_ID,
   name: DEFAULT_WANT_TO_COOK_NAME,
@@ -595,6 +607,17 @@ const buildDefaultWantToCookList = (): CustomList => ({
   createdAt: 0,
 });
 
+const buildDefaultCookedList = (): CustomList => ({
+  id: DEFAULT_COOKED_ID,
+  name: DEFAULT_COOKED_NAME,
+  emoji: DEFAULT_COOKED_EMOJI,
+  type: 'home-cooking',
+  restaurantIds: [],
+  wishlistIds: [],
+  recipes: [],
+  createdAt: 1,
+});
+
 const DEFAULT_LISTS: CustomList[] = [
   buildDefaultWantToCookList(),
   { id: 'date-nights', name: 'Date Nights', emoji: '🕯️', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 4000 },
@@ -603,13 +626,15 @@ const DEFAULT_LISTS: CustomList[] = [
   { id: 'quick-bites', name: 'Quick Bites', emoji: '⚡', restaurantIds: [], wishlistIds: [], createdAt: Date.now() - 1000 },
 ];
 
-/** Guarantee the built-in "Want to Cook" recipe list exists in the array.
- *  Idempotent — if it's already there, returns the input unchanged so
- *  React reference equality is preserved. */
+/** Guarantee the built-in "Want to Cook" and "Cooked" recipe lists exist in
+ *  the array. Idempotent — if both are already there, returns the input
+ *  unchanged so React reference equality is preserved. */
 function ensureDefaultRecipeList(lists: CustomList[]): CustomList[] {
-  if (!Array.isArray(lists)) return [buildDefaultWantToCookList()];
-  if (lists.some((l) => l.id === DEFAULT_WANT_TO_COOK_ID)) return lists;
-  return [buildDefaultWantToCookList(), ...lists];
+  if (!Array.isArray(lists)) return [buildDefaultWantToCookList(), buildDefaultCookedList()];
+  let out = lists;
+  if (!out.some((l) => l.id === DEFAULT_WANT_TO_COOK_ID)) out = [buildDefaultWantToCookList(), ...out];
+  if (!out.some((l) => l.id === DEFAULT_COOKED_ID)) out = [...out, buildDefaultCookedList()];
+  return out;
 }
 
 // Migration: add wishlistIds to lists that don't have it, and ensure the
@@ -713,7 +738,7 @@ function memberKey(listId: string, restaurantId: string): string {
 }
 
 // source of truth; the HomeMeal is a mirror that shares its id.
-function recipeToHomeMeal(r: Recipe): HomeMeal {
+export function recipeToHomeMeal(r: Recipe): HomeMeal {
   return {
     id: r.id,
     name: r.title,
@@ -1610,9 +1635,49 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     addRecipe(listId, homeMealToRecipe(meal));
   }, [addRecipe]);
 
+  // Add a recipe to the built-in "Cooked" list WITHOUT mirroring it into the
+  // "All Recipes" cookbook (unlike addRecipe). Marking another user's recipe
+  // cooked shouldn't copy it into your cookbook — it lives only under Cooked,
+  // carrying the full recipe data so its detail page renders from here even if
+  // the original is later made private or deleted. Dedupes + un-tombstones.
+  const addRecipeToCookedList = useCallback((meal: HomeMeal) => {
+    const recipe = homeMealToRecipe(meal);
+    if (deletedMealIdsRef.current.delete(recipe.id)) {
+      saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(deletedMealIdsRef.current));
+    }
+    untombstone('members', memberKey(DEFAULT_COOKED_ID, recipe.id));
+    setLists((prev) => {
+      const next = prev.map((l) => {
+        if (l.id !== DEFAULT_COOKED_ID) return l;
+        if ((l.recipes || []).some((r) => r.id === recipe.id)) return l;
+        return { ...l, recipes: [...(l.recipes || []), recipe] };
+      });
+      saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud, untombstone]);
+
   const removeRecipeFromList = useCallback((listId: string, recipeId: string) => {
     removeRecipe(listId, recipeId);
   }, [removeRecipe]);
+
+  // Remove a recipe from the built-in Cooked list AND delete the user's
+  // private cook photos for it — once it's no longer cooked, those photos
+  // have nowhere to live, so they're cleaned up (no orphaned blob entries).
+  const removeRecipeFromCookedList = useCallback((recipeId: string) => {
+    removeRecipe(DEFAULT_COOKED_ID, recipeId);
+    setRestaurantMeta((prev) => {
+      const stash = ((prev as Record<string, unknown>).__cook_photos__ ?? {}) as Record<string, unknown>;
+      if (!(recipeId in stash)) return prev;
+      const nextStash = { ...stash };
+      delete nextStash[recipeId];
+      const next = { ...prev, __cook_photos__: nextStash as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [removeRecipe, syncMetaToCloud]);
 
   // Every home-cooking list that currently contains this recipe id.
   const getListsForRecipe = useCallback((recipeId: string): CustomList[] => {
@@ -2083,8 +2148,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const deleteList = useCallback((id: string) => {
-    // Built-in Want to Cook list is permanent — silently no-op.
-    if (id === DEFAULT_WANT_TO_COOK_ID) return;
+    // Built-in Want to Cook / Cooked lists are permanent — silently no-op.
+    if (id === DEFAULT_WANT_TO_COOK_ID || id === DEFAULT_COOKED_ID) return;
     tombstone('lists', id);
     setLists((prev) => {
       const next = prev.filter((l) => l.id !== id);
@@ -2095,7 +2160,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud, tombstone]);
 
   const renameList = useCallback((id: string, name: string, emoji: string) => {
-    if (id === DEFAULT_WANT_TO_COOK_ID) return;
+    if (id === DEFAULT_WANT_TO_COOK_ID || id === DEFAULT_COOKED_ID) return;
     setLists((prev) => {
       const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
@@ -2398,7 +2463,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
-      addRecipeToList, removeRecipeFromList, getListsForRecipe,
+      addRecipeToList, addRecipeToCookedList, removeRecipeFromCookedList, removeRecipeFromList, getListsForRecipe,
       addRecipeToCookbook, removeRecipeFromCookbook,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,

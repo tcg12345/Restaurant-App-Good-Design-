@@ -89,6 +89,8 @@ export interface ReelComment {
   userId: string;
   body: string;
   createdAt: string;
+  /** Parent comment id when this is a reply; null/undefined for top-level. */
+  parentId?: string | null;
   author?: ReelAuthorSnapshot;
 }
 
@@ -624,6 +626,7 @@ export async function listComments(reelId: string): Promise<ReelComment[] | null
       userId: String(r.user_id),
       body: String(r.body || ''),
       createdAt: String(r.created_at || ''),
+      parentId: r.parent_id ? String(r.parent_id) : null,
     };
   });
   const authors = await hydrateAuthors(comments.map((c) => c.userId));
@@ -631,12 +634,16 @@ export async function listComments(reelId: string): Promise<ReelComment[] | null
   return comments;
 }
 
-export async function addComment(reelId: string, userId: string, body: string): Promise<ReelComment | null> {
+export async function addComment(reelId: string, userId: string, body: string, parentId?: string | null): Promise<ReelComment | null> {
   if (!supabaseConfigured) return null;
   const trimmed = body.trim();
   if (!trimmed) return null;
+  // parent_id only for replies — top-level inserts stay column-agnostic so
+  // they keep working before the migration that adds the column runs.
+  const payload: Record<string, unknown> = { reel_id: reelId, user_id: userId, body: trimmed.slice(0, 500) };
+  if (parentId) payload.parent_id = parentId;
   const { data, error } = await supabase.from('reel_comments')
-    .insert({ reel_id: reelId, user_id: userId, body: trimmed.slice(0, 500) })
+    .insert(payload)
     .select('*')
     .single();
   if (error || !data) {
@@ -650,6 +657,7 @@ export async function addComment(reelId: string, userId: string, body: string): 
     userId: String(r.user_id),
     body: String(r.body || ''),
     createdAt: String(r.created_at || ''),
+    parentId: r.parent_id ? String(r.parent_id) : null,
   };
   const authors = await hydrateAuthors([comment.userId]);
   comment.author = authors[comment.userId];

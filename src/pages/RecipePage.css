@@ -1273,6 +1273,353 @@
   margin: 80px auto 0;
   padding: 0 32px;
 }
+
+/* ── Private cook photos ──────────────────────────────────────────────
+   Shared between the desktop (.rd-reviews-section) and mobile (.rdm-section)
+   wrappers via the .rd-cookphotos modifier. */
+.recipe-detail-page .rd-cookphotos-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.recipe-detail-page .rd-cookphotos-head h2 { margin: 0 0 0; }
+.recipe-detail-page .rd-cookphotos-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.recipe-detail-page .rd-cookphotos-sub {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.recipe-detail-page .rd-cookphotos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+.recipe-detail-page .rd-cookphoto {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-2);
+  box-shadow: 0 2px 10px -6px rgba(0, 0, 0, 0.3);
+}
+.recipe-detail-page .rd-cookphoto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.recipe-detail-page .rd-cookphoto-del {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(20, 16, 14, 0.55);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+.recipe-detail-page .rd-cookphoto:hover .rd-cookphoto-del { opacity: 1; }
+.recipe-detail-page .rd-cookphoto-del:hover { background: var(--accent); }
+.recipe-detail-page .rd-cookphoto-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  border: 1.5px dashed var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.recipe-detail-page .rd-cookphoto-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.recipe-detail-page .rd-cookphoto-add:disabled { opacity: 0.55; cursor: default; }
+.recipe-detail-page .rd-cookphoto-add svg { width: 22px; height: 22px; }
+.recipe-detail-page .rd-cookphoto-spin {
+  width: 22px; height: 22px;
+  animation: rd-cookphoto-spin 0.8s linear infinite;
+}
+@keyframes rd-cookphoto-spin { to { transform: rotate(360deg); } }
+/* Touch devices have no hover — keep the delete button visible. */
+@media (hover: none) {
+  .recipe-detail-page .rd-cookphoto-del { opacity: 1; }
+}
+
+/* ── Cook-photos modal ────────────────────────────────────────────────
+   The modal is portaled to <body>, so its selectors are NOT nested under
+   .recipe-detail-page — they reference the editorial tokens directly via
+   var() with sane fallbacks. */
+.rd-cpm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(20, 16, 14, 0.55);
+  backdrop-filter: blur(4px);
+  padding: 0;
+}
+@media (min-width: 640px) {
+  .rd-cpm-overlay { align-items: center; padding: 24px; }
+}
+.rd-cpm {
+  width: 100%;
+  max-width: 560px;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface, #fff);
+  color: var(--ink, #1c1816);
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -20px 60px -20px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .rd-cpm { border-radius: 24px; }
+}
+.rd-cpm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+.rd-cpm-title {
+  margin: 0;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--ink, #1c1816);
+}
+.rd-cpm-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent, #a8392a);
+}
+.rd-cpm-close {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--muted, #8c8278);
+  background: var(--bg-2, rgba(0, 0, 0, 0.05));
+  transition: background 0.15s, color 0.15s;
+}
+.rd-cpm-close:hover { background: rgba(0, 0, 0, 0.1); color: var(--ink, #1c1816); }
+.rd-cpm-body { padding: 18px 20px; overflow-y: auto; }
+.rd-cpm-empty {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted, #8c8278);
+}
+.rd-cpm-body .rd-cookphotos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+/* Re-declare the photo tiles for the portaled modal (outside the page scope). */
+.rd-cpm .rd-cookphoto {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-2, rgba(0, 0, 0, 0.05));
+}
+.rd-cpm .rd-cookphoto img { width: 100%; height: 100%; object-fit: cover; }
+.rd-cpm .rd-cookphoto-del {
+  position: absolute; top: 7px; right: 7px;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 999px; cursor: pointer;
+  color: #fff; background: rgba(20, 16, 14, 0.6); backdrop-filter: blur(6px);
+}
+.rd-cpm .rd-cookphoto-del:hover { background: var(--accent, #a8392a); }
+.rd-cpm .rd-cookphoto-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 7px; aspect-ratio: 1 / 1; cursor: pointer;
+  border-radius: 16px; border: 1.5px dashed var(--border, rgba(0, 0, 0, 0.16));
+  background: transparent; color: var(--muted, #8c8278);
+  font-size: 13px; font-weight: 600;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.rd-cpm .rd-cookphoto-add:hover {
+  border-color: var(--accent, #a8392a); color: var(--accent, #a8392a);
+  background: var(--accent-soft, rgba(168, 57, 42, 0.08));
+}
+.rd-cpm .rd-cookphoto-add svg { width: 22px; height: 22px; }
+.rd-cpm .rd-cookphoto-spin { width: 22px; height: 22px; animation: rd-cookphoto-spin 0.8s linear infinite; }
+.rd-cpm-foot {
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+.rd-cpm-done {
+  width: 100%; height: 46px; cursor: pointer; border: 0;
+  border-radius: 14px; font-size: 15px; font-weight: 700;
+  color: #fff; background: var(--accent, #a8392a);
+  transition: opacity 0.15s;
+}
+.rd-cpm-done:hover { opacity: 0.92; }
+
+/* ── Un-cook confirmation dialog ──────────────────────────────────────
+   Portaled to <body>, so it references tokens via var() with fallbacks. */
+.rd-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 16, 14, 0.55);
+  backdrop-filter: blur(4px);
+}
+.rd-confirm {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface, #fff);
+  color: var(--ink, #1c1816);
+  border-radius: 22px;
+  padding: 24px 22px 18px;
+  box-shadow: 0 24px 70px -18px rgba(0, 0, 0, 0.45);
+}
+.rd-confirm-title {
+  margin: 0 0 8px;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink, #1c1816);
+}
+.rd-confirm-text {
+  margin: 0 0 20px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--muted, #8c8278);
+}
+.rd-confirm-actions {
+  display: flex;
+  gap: 10px;
+}
+.rd-confirm-cancel,
+.rd-confirm-remove {
+  flex: 1;
+  height: 46px;
+  cursor: pointer;
+  border: 0;
+  border-radius: 14px;
+  font-size: 14.5px;
+  font-weight: 700;
+  transition: background 0.15s, opacity 0.15s;
+}
+.rd-confirm-cancel {
+  color: var(--ink, #1c1816);
+  background: var(--bg-2, rgba(0, 0, 0, 0.06));
+}
+.rd-confirm-cancel:hover { background: rgba(0, 0, 0, 0.1); }
+.rd-confirm-remove {
+  color: #fff;
+  background: #c0392b;
+}
+.rd-confirm-remove:hover { opacity: 0.92; }
+
+/* ── Hero gallery (swipeable cover) ─────────────────────────────────── */
+.recipe-detail-page .rd-hero-image,
+.recipe-detail-page .rdm-hero-img { position: relative; }
+.recipe-detail-page .rd-gallery-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(20, 16, 14, 0.42);
+  backdrop-filter: blur(6px);
+  opacity: 0.9;
+  transition: background 0.15s, opacity 0.15s;
+  z-index: 3;
+}
+.recipe-detail-page .rd-gallery-arrow:hover { background: rgba(20, 16, 14, 0.62); opacity: 1; }
+.recipe-detail-page .rd-gallery-arrow.left { left: 12px; }
+.recipe-detail-page .rd-gallery-arrow.right { right: 12px; }
+.recipe-detail-page .rd-gallery-arrow svg { width: 20px; height: 20px; }
+.recipe-detail-page .rd-gallery-dots {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 3;
+}
+.recipe-detail-page .rd-gallery-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: background 0.15s, width 0.15s;
+}
+.recipe-detail-page .rd-gallery-dot.on { background: #fff; width: 18px; }
+.recipe-detail-page .rd-gallery-edit {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(20, 16, 14, 0.5);
+  backdrop-filter: blur(6px);
+  z-index: 3;
+  transition: background 0.15s;
+}
+.recipe-detail-page .rd-gallery-edit:hover { background: var(--accent, #a8392a); }
+.recipe-detail-page .rd-gallery-edit svg { width: 14px; height: 14px; }
 .recipe-detail-page .rd-reviews-head {
   display: grid;
   grid-template-columns: 1fr 1.4fr;

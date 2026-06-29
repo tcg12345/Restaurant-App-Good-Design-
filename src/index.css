@@ -64,6 +64,68 @@
 .dark {
   color-scheme: dark;
 }
+
+/* ── Onboarding kit tokens ────────────────────────────────────────────
+   The cream / terracotta account-creation flow (OnboardingKit.tsx, plus the
+   mobile layouts of Auth.tsx and ProfileSetup.tsx) renders almost entirely
+   with inline styles, so it can't lean on Tailwind utilities. These `--ob-*`
+   tokens give that flow a single source of truth that flips with the `.dark`
+   class just like the rest of the app. Light values match the original warm
+   palette exactly; dark values are a warm near-black equivalent. */
+:root {
+  --ob-bg: #fbf4f0;
+  --ob-ink: #211c19;
+  --ob-ink-soft: #3a322e;
+  --ob-secondary: #7a716b;
+  --ob-label: #a99e97;
+  --ob-border: #ece1da;
+  --ob-terra: #a6371d;
+  --ob-terra-hover: #8c2e18;
+  --ob-card: #ffffff;
+  --ob-card-hover: #faf4f0;
+  --ob-ghost: #6e635d;
+  --ob-divider: #eadfd8;
+  --ob-pill-bg: #f1e8e2;
+  --ob-pill-bg-hover: #eadfd8;
+  --ob-pill-text: #5c534e;
+  --ob-radio-selected: #fbefea;
+  --ob-radio-ring: #d2c5bc;
+  --ob-badge-bg: #f4e3dc;
+  --ob-error: #c0392b;
+  --ob-success: #1b8a5e;
+  --ob-success-dot: #1fa06d;
+  --ob-focus-ring: rgba(166, 55, 29, 0.1);
+}
+.dark {
+  /* Warm dark gradient page background (the `CREAM` token only ever paints
+     the onboarding page, so a gradient here is safe). Diagonal, lit warmer
+     at the top where the terracotta brand mark and radial glow sit, settling
+     into a near-black at the bottom. */
+  --ob-bg: linear-gradient(165deg, #241d17 0%, #17120e 55%, #0e0b09 100%);
+  --ob-ink: #f4efe9;
+  --ob-ink-soft: #ddd5cd;
+  --ob-secondary: #aaa097;
+  --ob-label: #8c8278;
+  --ob-border: #3b342d;
+  --ob-terra: #d3623d;
+  --ob-terra-hover: #e1714b;
+  /* Cards/inputs/secondary buttons sit a clear step above the darkest part
+     of the gradient so the Apple / Google buttons stay visible. */
+  --ob-card: #251f1a;
+  --ob-card-hover: #2f2820;
+  --ob-ghost: #aaa097;
+  --ob-divider: #37312a;
+  --ob-pill-bg: #2b241e;
+  --ob-pill-bg-hover: #352d25;
+  --ob-pill-text: #ccc3ba;
+  --ob-radio-selected: #36231a;
+  --ob-radio-ring: #574d44;
+  --ob-badge-bg: #3c271d;
+  --ob-error: #f2745f;
+  --ob-success: #4fd49b;
+  --ob-success-dot: #38c98e;
+  --ob-focus-ring: rgba(211, 98, 61, 0.26);
+}
 /* Route literal `bg-white` card surfaces (and its alphas) through the
    `paper` token so every card / pill / dropdown tracks the theme. In
    light mode paper is pure white (a no-op); the remap exists so the same
@@ -308,6 +370,16 @@
 
 .glass {
   @apply bg-paper/80 backdrop-blur-xl;
+}
+
+/* Pull-to-refresh spinner (PullToRefresh.tsx). While the user drags, the ring
+   is rotated inline by pull distance; once a refresh fires, `.ptr-spin` takes
+   over and spins it continuously until the page reloads. */
+@keyframes ptr-rotate {
+  to { transform: rotate(360deg); }
+}
+.ptr-ring.ptr-spin {
+  animation: ptr-rotate 0.7s linear infinite;
 }
 
 .stagger-grid {

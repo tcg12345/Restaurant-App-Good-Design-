@@ -3,6 +3,7 @@ import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-r
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 /**
  * Pantry landing — used on phone and desktop. Two top-level tabs:
@@ -79,6 +80,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   onOpenAllRecipes,
   onCreateRecipeList,
 }) => {
+  const { darkMode } = useSettings();
   // Split lists by their kind so each tab only shows the relevant ones.
   const restaurantLists = useMemo(
     () => lists.filter((l) => l.type !== 'home-cooking'),
@@ -92,16 +94,24 @@ export const PhonePantryHome: React.FC<Props> = ({
   return (
     <div className="pt-safe-4 pb-32">
       {/* ── Tab pill ── */}
-      <div className="inline-flex w-full bg-on-surface/[0.06] rounded-full p-1">
+      <div className={cn('inline-flex w-full rounded-full p-1', darkMode ? 'bg-white/[0.04]' : 'bg-on-surface/[0.06]')}>
         {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
           <button
             key={t}
             onClick={() => onTabChange(t)}
             className={cn(
               'flex-1 py-2 rounded-full text-sm font-semibold transition-all',
+              // In dark mode the literal `bg-white` is remapped (with
+              // !important) to the dark paper tone, which is *darker* than the
+              // track — so the selected pill vanished. Branch on the theme to
+              // give dark mode a clearly elevated, lighter pill instead.
               tab === t
-                ? 'bg-white text-on-surface shadow-sm'
-                : 'text-on-surface/45',
+                ? darkMode
+                  ? 'bg-white/[0.16] text-white ring-1 ring-white/10 shadow-sm shadow-black/30'
+                  : 'bg-white text-on-surface shadow-sm'
+                : darkMode
+                  ? 'text-on-surface/40'
+                  : 'text-on-surface/45',
             )}
           >
             {t === 'restaurants' ? 'Restaurants' : 'Recipes'}

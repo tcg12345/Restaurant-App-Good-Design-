@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
@@ -18,6 +18,8 @@ import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
+import { PullToRefresh } from './components/PullToRefresh';
+import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion } from 'motion/react';
@@ -118,6 +120,10 @@ function useIsDesktop(): boolean {
 
 const AppContent: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  // Set true by the swipe-back gesture so a single route change swaps with no
+  // AnimatePresence transition — the gesture drives the slide itself.
+  const [instantNav, setInstantNav] = React.useState(false);
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
@@ -129,7 +135,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
@@ -138,6 +144,19 @@ const AppContent: React.FC = () => {
   // exact inverse of `isDesktop` (≥1024px), so every viewport is either phone
   // or desktop-sidebar with no intermediate "tablet" layout in between.
   const useSidebar = isDesktop && !phoneMode;
+
+  // Pull-to-refresh (phone): bump a nonce keyed onto <Routes> so the current
+  // route remounts and its mount-time data loads re-run, and broadcast
+  // `app:refresh` for any context that wants to refetch in place — a soft
+  // refresh with no full page reload / loading flash.
+  const [refreshNonce, setRefreshNonce] = React.useState(0);
+  const handleRefresh = React.useCallback(async () => {
+    window.scrollTo({ top: 0 });
+    setRefreshNonce((n) => n + 1);
+    window.dispatchEvent(new CustomEvent('app:refresh'));
+    // Hold briefly so the remount's fetches start under the spinner.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }, []);
 
   if (loading) {
     return (
@@ -182,9 +201,11 @@ const AppContent: React.FC = () => {
   const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: 6 };
   const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { opacity: 1, y: 0 };
   const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: -4 };
-  const motionTransition = isCreateRoute
-    ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
-    : { duration: 0.18, ease: 'easeOut' as const };
+  const motionTransition = instantNav
+    ? { duration: 0 }
+    : isCreateRoute
+      ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
+      : { duration: 0.18, ease: 'easeOut' as const };
 
   const routesBlock = (
     <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
@@ -199,6 +220,10 @@ const AppContent: React.FC = () => {
         // in-flow block so layout doesn't shift.
         className={isCreateRoute ? 'absolute inset-0 z-30' : undefined}
       >
+        {/* Keyed Fragment forces the route subtree to remount on a
+            pull-to-refresh (refreshNonce bump) without putting `key` on
+            <Routes> itself (which its prop types reject). */}
+        <React.Fragment key={refreshNonce}>
         <Routes location={location}>
           <Route path="/" element={<Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
@@ -241,6 +266,7 @@ const AppContent: React.FC = () => {
           <Route path="/location" element={<LocationPage />} />
           <Route path="/location/map" element={<LocationMap />} />
         </Routes>
+        </React.Fragment>
       </motion.div>
     </AnimatePresence>
   );
@@ -287,11 +313,24 @@ const AppContent: React.FC = () => {
   }
 
   // ── Phone / narrow viewport layout ───────────────────────────────────
+  // Pull-to-refresh is off where a downward drag already means something
+  // (reels/map panning, the messages thread, the create overlay, onboarding).
+  const allowPullToRefresh =
+    !isReelsPage && !isFocusedReel && !isMapPage &&
+    !['/messages', '/create', '/onboarding', '/location/map'].includes(location.pathname);
+  // Edge swipe-back is allowed wherever there's in-app history to pop, except
+  // on routes that own horizontal/vertical gestures or have no "back".
+  const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
+  const canGoBack = historyIdx !== null ? historyIdx > 0 : window.history.length > 1;
+  const allowSwipeBack =
+    canGoBack && !isReelsPage && !isFocusedReel && !isMapPage &&
+    !['/create', '/onboarding', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
-      <div className="relative">
+      <PullToRefresh enabled={allowPullToRefresh} onRefresh={handleRefresh} />
+      <SwipeBackContainer enabled={allowSwipeBack} onBack={() => navigate(-1)} onLockTransition={setInstantNav}>
         {routesBlock}
-      </div>
+      </SwipeBackContainer>
       <AnimatePresence>
         {showBottomNav && (
           <motion.div

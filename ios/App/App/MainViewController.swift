@@ -39,13 +39,16 @@ class MainViewController: CAPBridgeViewController {
             webView.isOpaque = true
             webView.backgroundColor = appBackground
             webView.scrollView.backgroundColor = appBackground
-            // Lock the page to vertical scrolling. The web content never scrolls
-            // horizontally, but WKWebView's scroll view would still let the whole
-            // page rubber-band left/right (and horizontal carousel swipes could
-            // chain into it). Disabling the horizontal bounce keeps the page
-            // pinned to up/down scrolling only. Vertical bounce stays on.
+            // Kill the WKWebView's document-level rubber-band entirely. With
+            // bounces on, the whole page (chrome included) could be dragged up
+            // or down past its content, exposing the black backing above the
+            // header and below the bottom nav — and CSS `overscroll-behavior`
+            // is not honored for the top-level document scroll on iOS, so it
+            // has to be turned off here. This only affects the page scroll
+            // view; inner overflow-scroll containers keep their own momentum.
             webView.scrollView.alwaysBounceHorizontal = false
-            webView.scrollView.bounces = true
+            webView.scrollView.alwaysBounceVertical = false
+            webView.scrollView.bounces = false
         }
     }
 

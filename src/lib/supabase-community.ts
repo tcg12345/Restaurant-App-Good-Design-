@@ -1009,37 +1009,42 @@ const mergeHomeMealSources = (row: Record<string, unknown>): HomeMeal[] => {
   const fallback = Array.isArray((meta as Record<string, unknown>).__home_meals__)
     ? ((meta as Record<string, unknown>).__home_meals__ as HomeMeal[])
     : [];
+  // Deletion tombstones: ListsContext records removed meal ids here. Without
+  // honoring them, a meal the owner deleted still lives on in one of the two
+  // sources above and keeps showing to friends. Drop tombstoned ids.
+  const deleted = Array.isArray((meta as Record<string, unknown>).__deleted_meals__)
+    ? new Set((meta as Record<string, unknown>).__deleted_meals__ as string[])
+    : new Set<string>();
   const byId = new Map<string, HomeMeal>();
   // Prefer primary column entries (most likely fresher if both exist).
-  for (const m of fallback) if (m && m.id) byId.set(m.id, m);
-  for (const m of primary) if (m && m.id) byId.set(m.id, m);
+  for (const m of fallback) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
+  for (const m of primary) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
   return Array.from(byId.values());
 };
 
 export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<FriendHomeMeal[]> {
   if (!supabaseConfigured || friendIds.length === 0) return [];
   try {
-    // Try the canonical select first. If the home_meals column doesn't
-    // exist on this schema, retry without it and rely entirely on the
-    // restaurant_meta.__home_meals__ fallback.
-    let { data, error } = await supabase.from('user_app_data')
-      .select('user_id, home_meals, restaurant_meta')
+    // Pull ONLY the home-meals array + delete tombstones out of the
+    // restaurant_meta JSON blob (PostgREST json-path select) in a single
+    // request. Previously this issued two round trips — a first select on a
+    // `home_meals` column that doesn't exist on the live schema (always 400s),
+    // then a retry that pulled the ENTIRE restaurant_meta column (every cached
+    // restaurant's metadata, ~35%+ larger than just the meals). This is the
+    // dominant cost of the Discover "Recipes for you" rail.
+    const { data, error } = await supabase.from('user_app_data')
+      .select('user_id, meals:restaurant_meta->__home_meals__, deleted:restaurant_meta->__deleted_meals__')
       .in('user_id', friendIds);
-    if (error) {
-      const fallback = await supabase.from('user_app_data')
-        .select('user_id, restaurant_meta')
-        .in('user_id', friendIds);
-      data = fallback.data as typeof data;
-      error = fallback.error;
-    }
     if (error) { console.warn('[Friends] getPublicHomeMeals error:', error.message); return []; }
     const result: FriendHomeMeal[] = [];
-    for (const row of data || []) {
-      const meals = mergeHomeMealSources(row as Record<string, unknown>);
-      for (const meal of meals) {
-        if (meal.isPublic) {
-          result.push({ ...meal, userId: (row as { user_id: string }).user_id });
-        }
+    for (const row of (data || []) as Array<{ user_id: string; meals: unknown; deleted: unknown }>) {
+      const meals = Array.isArray(row.meals) ? (row.meals as HomeMeal[]) : [];
+      const deleted = new Set(Array.isArray(row.deleted) ? (row.deleted as string[]) : []);
+      // De-dupe by id and drop tombstoned meals, then keep only public ones.
+      const byId = new Map<string, HomeMeal>();
+      for (const m of meals) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
+      for (const meal of byId.values()) {
+        if (meal.isPublic) result.push({ ...meal, userId: row.user_id });
       }
     }
     result.sort((a, b) => b.createdAt - a.createdAt);

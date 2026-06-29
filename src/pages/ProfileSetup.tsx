@@ -56,20 +56,20 @@ const CityAutocomplete: React.FC<{
       {open && suggestions.length > 0 && (
         <div
           className="absolute left-0 right-0 z-20 overflow-hidden"
-          style={{ top: 'calc(100% + 8px)', borderRadius: 15, background: '#fff', border: `1.5px solid ${OB.BORDER}`, boxShadow: '0 16px 40px rgba(40,24,14,0.14)' }}
+          style={{ top: 'calc(100% + 8px)', borderRadius: 15, background: 'var(--ob-card)', border: `1.5px solid ${OB.BORDER}`, boxShadow: '0 16px 40px rgba(40,24,14,0.14)' }}
         >
           {suggestions.map((s, i) => (
             <button
               key={`${s.label}-${i}`}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); pick(s); }}
-              className="w-full flex items-center gap-2.5 text-left cursor-pointer bg-white border-none transition-colors"
-              style={{ padding: '12px 16px', borderTop: i === 0 ? 'none' : '1px solid #F2E9E3' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#FAF4F0')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#fff')}
+              className="w-full flex items-center gap-2.5 text-left cursor-pointer border-none transition-colors"
+              style={{ padding: '12px 16px', background: 'var(--ob-card)', borderTop: i === 0 ? 'none' : '1px solid var(--ob-divider)' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)')}
             >
               <MapPin size={15} strokeWidth={1.6} style={{ color: OB.LABEL_GREY, flexShrink: 0 }} />
-              <span className="truncate" style={{ fontSize: 14.5, color: '#3A322E' }}>{s.label}</span>
+              <span className="truncate" style={{ fontSize: 14.5, color: 'var(--ob-ink-soft)' }}>{s.label}</span>
             </button>
           ))}
         </div>
@@ -323,10 +323,10 @@ export const ProfileSetup: React.FC = () => {
                   <OB.FieldLabel>Username</OB.FieldLabel>
                   <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
-                    <div style={{ fontSize: 13.5, color: '#9A8F89' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
+                    <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
                     {usernameValid && (
-                      <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: '#1B8A5E', fontWeight: 600 }}>
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#1FA06D" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: 'var(--ob-success)', fontWeight: 600 }}>
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         Available
                       </span>
                     )}
@@ -361,7 +361,7 @@ export const ProfileSetup: React.FC = () => {
                   <OB.RadioCard selected={!isExpert} onClick={() => setIsExpert(false)} title="Food lover" description="Save spots, rate where you eat, and follow friends." />
                   <OB.RadioCard
                     selected={isExpert} onClick={() => setIsExpert(true)}
-                    title={<span className="inline-flex items-center gap-2">Expert reviewer<span style={{ fontSize: 9.5, letterSpacing: '0.6px', fontWeight: 700, color: OB.TERRA, background: '#F4E3DC', padding: '2px 7px', borderRadius: 5 }}>VERIFIED</span></span>}
+                    title={<span className="inline-flex items-center gap-2">Expert reviewer<span style={{ fontSize: 9.5, letterSpacing: '0.6px', fontWeight: 700, color: OB.TERRA, background: 'var(--ob-badge-bg)', padding: '2px 7px', borderRadius: 5 }}>VERIFIED</span></span>}
                     description="Apply to publish expert picks — we'll verify you first."
                   />
                 </div>
