@@ -241,20 +241,30 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
           // destination) while the real route swaps in instantly, then drop
           // the now-real page to 0 and remove the snapshot — no flash.
           page.style.transform = `translateX(${w}px)`;
+          // Lock route transitions to instant FIRST and let the exiting page
+          // re-render with that instant transition (one frame) before we
+          // navigate — otherwise AnimatePresence replays the page's slide-out
+          // exit, which the gesture already did: a second "swipe" flash.
           onLockRef.current(true);
-          onBackRef.current();
-          snapStore.delete(s.destIdx);
-          nextFrame(() => {
-            // Land the real page at the snapshot's scroll before it covers the
-            // snapshot, so there's no jump-to-top flash on commit.
-            if (s.revealActive) setPageScroll(s.destScrollY);
-            page.style.transform = '';
-            page.style.boxShadow = '';
-            page.style.willChange = '';
-            closeReveal();
-            onLockRef.current(false);
-            s.busy = false;
-          });
+          let swapped = false;
+          const swap = () => {
+            if (swapped) return; swapped = true;
+            onBackRef.current();
+            snapStore.delete(s.destIdx);
+            nextFrame(() => {
+              // Land the real page at the snapshot's scroll before it covers the
+              // snapshot, so there's no jump-to-top flash on commit.
+              if (s.revealActive) setPageScroll(s.destScrollY);
+              page.style.transform = '';
+              page.style.boxShadow = '';
+              page.style.willChange = '';
+              closeReveal();
+              onLockRef.current(false);
+              s.busy = false;
+            });
+          };
+          requestAnimationFrame(swap);
+          setTimeout(swap, 60); // fallback if rAF is throttled
         } else {
           page.style.transform = '';
           page.style.boxShadow = '';
