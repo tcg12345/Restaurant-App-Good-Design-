@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
 import { useDragControls } from 'motion/react';
+import { pushOverlay } from './overlay-registry';
 
 /**
  * Behavioural primitives shared by every bottom-sheet in the app:
@@ -48,9 +49,12 @@ export function useBottomSheet(
     const prevOverscroll = body.style.overscrollBehavior;
     body.style.overflow = 'hidden';
     body.style.overscrollBehavior = 'contain';
+    // Stand the page swipe-back down while this sheet owns the screen.
+    const releaseOverlay = pushOverlay();
     return () => {
       body.style.overflow = prevOverflow;
       body.style.overscrollBehavior = prevOverscroll;
+      releaseOverlay();
     };
   }, [open]);
 

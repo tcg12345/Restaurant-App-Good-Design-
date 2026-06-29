@@ -1,4 +1,9 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
+import { isOverlayOpen } from '../lib/overlay-registry';
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && !!window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /**
  * iOS / Instagram-style swipe-back for the phone layout.
@@ -104,7 +109,7 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
     tracking: false, claimed: false, busy: false,
     sx: 0, sy: 0, lx: 0, lt: 0, vx: 0, claimDx: 0, w: 0,
     fromEdge: false, deferEl: null as HTMLElement | null,
-    x: 0, raf: 0,
+    x: 0, raf: 0, reduce: false,
     revealActive: false,
     destWrap: null as HTMLElement | null,
     scrim: null as HTMLElement | null,
@@ -131,7 +136,7 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       g.current.raf = 0;
       const x = g.current.x;
       page.style.transform = x === 0 ? '' : `translateX(${x}px)`;
-      page.style.boxShadow = x > 0 ? '-14px 0 38px rgba(0,0,0,0.26)' : '';
+      page.style.boxShadow = (x > 0 && !g.current.reduce) ? '-14px 0 38px rgba(0,0,0,0.26)' : '';
       paintReveal(x);
     };
     const schedule = (x: number) => {
@@ -141,6 +146,8 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
 
     const openReveal = () => {
       const s = g.current;
+      // Reduced motion: skip the live parallax/scrim entirely, keep a plain slide.
+      if (s.reduce) { s.revealActive = false; return; }
       s.destIdx = navKeyRef.current - 1;
       const snap = snapStore.get(s.destIdx);
       if (!snap) { s.revealActive = false; return; }
@@ -248,12 +255,15 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
 
     const start = (e: TouchEvent) => {
       const s = g.current;
-      if (s.busy || !enabledRef.current || e.touches.length !== 1) { s.tracking = false; return; }
+      // Stand down on the root screen, while settling, with an overlay open,
+      // or on multi-touch.
+      if (s.busy || !enabledRef.current || isOverlayOpen() || e.touches.length !== 1) { s.tracking = false; return; }
       const t = e.touches[0];
       s.tracking = true; s.claimed = false;
       s.sx = t.clientX; s.sy = t.clientY; s.lx = t.clientX; s.lt = e.timeStamp || Date.now();
       s.vx = 0; s.claimDx = 0; s.w = width();
       s.fromEdge = t.clientX <= EDGE;
+      s.reduce = prefersReducedMotion();
       s.deferEl = findHScrollable(e.target, root);
     };
 
