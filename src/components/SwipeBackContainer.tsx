@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
+import { getPageScroll, setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia &&
@@ -62,7 +63,7 @@ class LeaveSnapshot extends React.Component<{ navKey: number; snapshotable: bool
         clone.style.transition = 'none';
         clone.style.boxShadow = '';
         clone.style.willChange = '';
-        snapStore.set(prev.navKey, { node: clone, scrollY: window.scrollY || 0 });
+        snapStore.set(prev.navKey, { node: clone, scrollY: getPageScroll() });
         const keys = [...snapStore.keys()].sort((a, b) => b - a);
         for (const k of keys.slice(KEEP)) snapStore.delete(k);
       }
@@ -113,7 +114,7 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
     revealActive: false,
     destWrap: null as HTMLElement | null,
     scrim: null as HTMLElement | null,
-    destIdx: -1,
+    destIdx: -1, destScrollY: 0,
   });
 
   useEffect(() => {
@@ -136,7 +137,6 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       g.current.raf = 0;
       const x = g.current.x;
       page.style.transform = x === 0 ? '' : `translateX(${x}px)`;
-      page.style.boxShadow = (x > 0 && !g.current.reduce) ? '-14px 0 38px rgba(0,0,0,0.26)' : '';
       paintReveal(x);
     };
     const schedule = (x: number) => {
@@ -151,13 +151,14 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       s.destIdx = navKeyRef.current - 1;
       const snap = snapStore.get(s.destIdx);
       if (!snap) { s.revealActive = false; return; }
+      s.destScrollY = snap.scrollY;
       reveal.textContent = '';
       const destWrap = document.createElement('div');
       destWrap.style.cssText = 'position:absolute;inset:0;will-change:transform;background:var(--color-surface);';
       const host = snap.node;
       host.style.position = 'absolute';
       host.style.top = '0'; host.style.left = '0'; host.style.right = '0';
-      host.style.transform = `translateY(${-snap.scrollY}px)`;
+      host.style.transform = '';
       destWrap.appendChild(host);
       const scrim = document.createElement('div');
       scrim.style.cssText = `position:absolute;inset:0;background:#000;opacity:${SCRIM_MAX};pointer-events:none;`;
@@ -165,6 +166,14 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       reveal.appendChild(scrim);
       reveal.style.display = 'block';
       destWrap.style.transform = `translateX(${-PARALLAX * s.w}px)`;
+      // Replay the destination's scroll onto the clone so the reveal matches
+      // where the page was left: an inner scroller gets its scrollTop; a
+      // window-scrolled page gets a translateY on the clone.
+      if (snap.scrollY > 0) {
+        const innerScroller = getPrimaryScroller(host);
+        if (innerScroller) innerScroller.scrollTop = snap.scrollY;
+        else host.style.transform = `translateY(${-snap.scrollY}px)`;
+      }
       s.destWrap = destWrap; s.scrim = scrim; s.revealActive = true;
     };
 
@@ -235,6 +244,9 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
           onBackRef.current();
           snapStore.delete(s.destIdx);
           nextFrame(() => {
+            // Land the real page at the snapshot's scroll before it covers the
+            // snapshot, so there's no jump-to-top flash on commit.
+            if (s.revealActive) setPageScroll(s.destScrollY);
             page.style.transform = '';
             page.style.boxShadow = '';
             page.style.willChange = '';
@@ -283,6 +295,7 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
         s.claimed = true;
         s.claimDx = dx;
         page.style.willChange = 'transform';
+        if (!s.reduce) page.style.boxShadow = '-14px 0 38px rgba(0,0,0,0.26)';
         openReveal();
       }
 
@@ -330,7 +343,7 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
     <div ref={rootRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
       <LeaveSnapshot navKey={navKey} snapshotable={snapshotable} getNode={() => pageRef.current} />
       {/* Destination snapshot lives here during a back-swipe, behind the page. */}
-      <div ref={revealRef} style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', display: 'none', background: 'var(--color-surface)' }} />
+      <div ref={revealRef} style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', display: 'none', background: 'var(--color-surface)', contain: 'layout paint' }} />
       <div ref={pageRef} style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', background: 'var(--color-surface)' }}>
         {children}
       </div>

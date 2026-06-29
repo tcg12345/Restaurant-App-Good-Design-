@@ -20,6 +20,7 @@ import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
+import { ScrollRestoration } from './components/ScrollRestoration';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion } from 'motion/react';
@@ -299,6 +300,7 @@ const AppContent: React.FC = () => {
     const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
+        <ScrollRestoration />
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
           {!hideHeader && <DesktopHeader />}
@@ -327,6 +329,7 @@ const AppContent: React.FC = () => {
     !['/create', '/onboarding', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
+      <ScrollRestoration />
       <PullToRefresh enabled={allowPullToRefresh} onRefresh={handleRefresh} />
       <SwipeBackContainer
         enabled={allowSwipeBack}
