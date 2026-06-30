@@ -1601,14 +1601,25 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateRecipe = useCallback((listId: string, recipeId: string, updates: Partial<Recipe>) => {
     setLists((prev) => {
-      const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).map((r) => r.id === recipeId ? { ...r, ...updates } : r) } : l);
+      const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).map((r) => {
+        if (r.id !== recipeId) return r;
+        const merged = { ...r, ...updates };
+        // Public (isPrivate=false) requires a cover photo.
+        if (!merged.isPrivate && !merged.coverPhoto) merged.isPrivate = true;
+        return merged;
+      }) } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
     });
     setHomeMeals((prev) => {
       if (!prev.some((m) => m.id === recipeId)) return prev;
-      const next = prev.map((m) => m.id === recipeId ? { ...m, ...recipeUpdatesToHomeMeal(updates) } : m);
+      const next = prev.map((m) => {
+        if (m.id !== recipeId) return m;
+        const merged = { ...m, ...recipeUpdatesToHomeMeal(updates) };
+        if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
+        return merged;
+      });
       saveToStorage(STORAGE_KEY_HOME_MEALS, next);
       syncHomeMealsToCloud(next);
       return next;
@@ -1724,7 +1735,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const newMealId = () => `meal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
   const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
-    const newMeal: HomeMeal = { ...meal, id: newMealId(), createdAt: Date.now() };
+    // A recipe can only be public if it has a cover photo. Enforced here so no
+    // entry point (creation, the Pantry toggle, saving another's recipe…) can
+    // slip a public-but-cover-less recipe through.
+    const safe = meal.isPublic && !meal.coverPhoto ? { ...meal, isPublic: false } : meal;
+    const newMeal: HomeMeal = { ...safe, id: newMealId(), createdAt: Date.now() };
     setHomeMeals((prev) => {
       const next = [...prev, newMeal];
       saveToStorage(STORAGE_KEY_HOME_MEALS, next);
@@ -1758,7 +1773,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
     setHomeMeals((prev) => {
-      const next = prev.map((m) => m.id === id ? { ...m, ...updates } : m);
+      const next = prev.map((m) => {
+        if (m.id !== id) return m;
+        const merged = { ...m, ...updates };
+        // A recipe can only be public if it has a cover photo.
+        if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
+        return merged;
+      });
       saveToStorage(STORAGE_KEY_HOME_MEALS, next);
       syncHomeMealsToCloud(next);
       return next;

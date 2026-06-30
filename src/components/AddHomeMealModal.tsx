@@ -692,7 +692,8 @@ export const AddHomeMealModal: React.FC = () => {
       photos,
       tags: selectedTags,
       dishes,
-      isPublic,
+      // Safety: a recipe can only be public if it has a cover photo.
+      isPublic: coverPhoto ? isPublic : false,
       coverPhoto,
       prepTime: prepMinutesTotal,
       cookTime: cookMinutesTotal,
@@ -938,11 +939,24 @@ export const AddHomeMealModal: React.FC = () => {
                           {/* Visibility */}
                           <section className="arb-sec">
                             <div className="arb-sec-label">Visibility</div>
-                            <button type="button" className={cn('arb-visibility', isPublic && 'is-public')} onClick={() => setIsPublic(!isPublic)}>
+                            <button
+                              type="button"
+                              className={cn('arb-visibility', isPublic && 'is-public')}
+                              onClick={() => {
+                                // Public requires a cover photo. Without one, keep it private
+                                // and point the user at the cover.
+                                if (!isPublic && !coverPhoto) {
+                                  showToast('Add a cover photo to make this recipe public');
+                                  basicSectionRefs.cover.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  return;
+                                }
+                                setIsPublic(!isPublic);
+                              }}
+                            >
                               <span className="arb-visibility-icon">{isPublic ? <Globe size={16} /> : <Lock size={16} />}</span>
                               <span className="arb-visibility-text">
                                 <div className="arb-visibility-title">{isPublic ? 'Public' : 'Private'}</div>
-                                <div className="arb-visibility-sub">{isPublic ? 'Friends can see this recipe' : 'Only you can see this recipe'}</div>
+                                <div className="arb-visibility-sub">{isPublic ? 'Friends can see this recipe' : (coverPhoto ? 'Only you can see this recipe' : 'Add a cover photo to make public')}</div>
                               </span>
                               <span className="arb-visibility-side">{isPublic ? 'Friends' : 'Only you'}</span>
                             </button>

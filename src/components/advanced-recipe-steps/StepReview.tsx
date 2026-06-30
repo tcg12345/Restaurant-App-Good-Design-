@@ -249,13 +249,15 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, validation }) => 
         </button>
         <button
           type="button"
-          className={cn('arb-visibility-card', state.isPublic && 'is-active')}
-          onClick={() => dispatch({ type: 'SET_FIELD', field: 'isPublic', value: true })}
+          className={cn('arb-visibility-card', state.isPublic && 'is-active', !state.coverPhoto && 'is-disabled')}
+          disabled={!state.coverPhoto}
+          onClick={() => { if (state.coverPhoto) dispatch({ type: 'SET_FIELD', field: 'isPublic', value: true }); }}
+          title={state.coverPhoto ? undefined : 'Add a cover photo to publish publicly'}
         >
           <Globe size={18} />
           <div>
             <div className="arb-visibility-title">Public</div>
-            <div className="arb-visibility-sub">Friends + community</div>
+            <div className="arb-visibility-sub">{state.coverPhoto ? 'Friends + community' : 'Add a cover photo first'}</div>
           </div>
         </button>
       </div>

@@ -1533,6 +1533,11 @@
 .arb-visibility-card.is-active svg {
   color: var(--accent, #A8392A);
 }
+.arb-visibility-card.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.arb-visibility-card.is-disabled:hover { background: var(--cream-2, #F1F1F1); }
 .arb-visibility-title {
   font-weight: 600;
   font-size: 14.5px;

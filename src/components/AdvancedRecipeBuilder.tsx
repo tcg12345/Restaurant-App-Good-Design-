@@ -510,7 +510,9 @@ function validate(state: AdvancedRecipeState): ValidationResult {
   const errors: ValidationResult['errors'] = [];
   if (!state.name.trim()) errors.push({ step: 0, message: 'Recipe name is required.' });
   if (!state.summary.trim()) errors.push({ step: 0, message: 'One-line summary is required.' });
-  if (!state.coverPhoto) errors.push({ step: 1, message: 'Hero image is required.' });
+  // A cover photo is only required to publish *publicly*. Private recipes can
+  // be saved to your cookbook without one.
+  if (state.isPublic && !state.coverPhoto) errors.push({ step: 1, message: 'Add a cover photo to publish this recipe publicly.' });
   const ingredientCount = state.ingredientGroups.reduce(
     (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
     0,

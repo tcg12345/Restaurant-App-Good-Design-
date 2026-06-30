@@ -30,6 +30,7 @@ import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
@@ -1817,6 +1818,7 @@ const ListDetailView: React.FC<{
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -2672,7 +2674,15 @@ const ListDetailView: React.FC<{
                     {...cardData}
                     coverPhoto={cookPhotos?.[0]?.url || cardData.coverPhoto}
                     isPrivate={recipe.isPrivate}
-                    onToggleVisibility={isCookedList || recipe.sourceAuthorId ? undefined : () => updateRecipe(list.id, recipe.id, { isPrivate: !recipe.isPrivate })}
+                    onToggleVisibility={isCookedList || recipe.sourceAuthorId ? undefined : () => {
+                      // Public requires a cover photo — open the editor to add one.
+                      if (recipe.isPrivate && !recipe.coverPhoto) {
+                        showToast('Add a cover photo to make this recipe public');
+                        openAddRecipeModal(list.id, recipe);
+                        return;
+                      }
+                      updateRecipe(list.id, recipe.id, { isPrivate: !recipe.isPrivate });
+                    }}
                     onClick={isCookedList ? openDetails : () => openAddRecipeModal(list.id, recipe)}
                     onEdit={() => openAddRecipeModal(list.id, recipe)}
                     onDelete={isCookedList ? () => removeRecipeFromCookedList(recipe.id) : () => removeRecipe(list.id, recipe.id)}
@@ -4415,6 +4425,7 @@ const HomeCookingTab: React.FC<{
 }> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
@@ -5449,7 +5460,16 @@ const HomeCookingTab: React.FC<{
               key={meal.id}
               {...homeMealToCardData(meal)}
               isPrivate={!meal.isPublic}
-              onToggleVisibility={() => onUpdateMeal(meal.id, { isPublic: !meal.isPublic })}
+              onToggleVisibility={() => {
+                // Public requires a cover photo. If there isn't one, open the
+                // editor so the user can add one before publishing.
+                if (!meal.isPublic && !meal.coverPhoto) {
+                  showToast('Add a cover photo to make this recipe public');
+                  onOpenModal(meal);
+                  return;
+                }
+                onUpdateMeal(meal.id, { isPublic: !meal.isPublic });
+              }}
               onClick={() => { if (user?.id) navigate(`/recipe/${user.id}/${meal.id}`); }}
               onEdit={() => onOpenModal(meal)}
               onDelete={() => onDeleteMeal(meal.id)}
