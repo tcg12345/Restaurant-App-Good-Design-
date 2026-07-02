@@ -67,9 +67,30 @@ const FINALIZE_TIMEOUT_MS = 450;
 // Inert clones of pages we've left, keyed by history index. We only ever need
 // one level (the immediate previous page) but keep a few so quick multi-back
 // stays live; pruned aggressively to bound memory.
-interface Snap { node: HTMLElement; scrollY: number }
+interface Snap { node: HTMLElement; nav: HTMLElement | null; scrollY: number }
 const snapStore = new Map<number, Snap>();
 const KEEP = 3;
+
+/**
+ * Clone the bottom nav (if the page being left shows one) so the destination
+ * preview carries its tab bar during a back-swipe, exactly like iOS. The nav
+ * is `position:fixed`, which inside the transformed preview wrapper resolves
+ * against the wrapper's viewport-sized box — same geometry as the real one.
+ */
+function cloneBottomNav(): HTMLElement | null {
+  const nav = document.querySelector<HTMLElement>('[data-bottom-nav]');
+  if (!nav) return null;
+  const clone = nav.cloneNode(true) as HTMLElement;
+  // The wrapper (and the nav inside) can be mid-animation when captured —
+  // snapshot them at rest.
+  clone.style.transform = '';
+  clone.style.opacity = '';
+  clone.style.transition = 'none';
+  clone.style.pointerEvents = 'none';
+  const inner = clone.firstElementChild as HTMLElement | null;
+  if (inner) { inner.style.transform = ''; inner.style.opacity = ''; }
+  return clone;
+}
 
 /**
  * Clone the page for a snapshot. Skips `aria-hidden` children — the hidden
@@ -109,7 +130,7 @@ class LeaveSnapshot extends React.Component<{ navKey: number; snapshotable: bool
     if (prev.navKey !== this.props.navKey && prev.snapshotable) {
       const node = this.props.getNode();
       if (node) {
-        snapStore.set(prev.navKey, { node: clonePageNode(node), scrollY: getPageScroll() });
+        snapStore.set(prev.navKey, { node: clonePageNode(node), nav: cloneBottomNav(), scrollY: getPageScroll() });
         const keys = [...snapStore.keys()].sort((a, b) => b - a);
         for (const k of keys.slice(KEEP)) snapStore.delete(k);
       }
@@ -263,6 +284,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
       host.style.top = '0'; host.style.left = '0'; host.style.right = '0';
       host.style.transform = '';
       destWrap.appendChild(host);
+      // The destination's tab bar is part of its preview — but only when the
+      // current page doesn't show the real (identical, fixed, z-50) one on
+      // top; then the live bar covers seamlessly and a parallaxing copy
+      // underneath would just be wasted paint.
+      if (snap.nav && !document.querySelector('[data-bottom-nav]')) destWrap.appendChild(snap.nav);
       const scrim = document.createElement('div');
       scrim.style.cssText = `position:absolute;inset:0;background:#000;opacity:${SCRIM_MAX};pointer-events:none;`;
       destWrap.style.transform = `translateX(${-PARALLAX * w}px)`;

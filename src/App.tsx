@@ -428,10 +428,18 @@ const AppContent: React.FC = () => {
       <AnimatePresence>
         {showBottomNav && (
           <motion.div
+            // Identifies the nav for the swipe-back snapshot: the destination
+            // preview includes a copy of it when the source page hides the
+            // real one, so the tab bar rides in with the page during a
+            // back-swipe like on iOS.
+            data-bottom-nav=""
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 100 }}
+            // A gesture-driven swap must not replay the spring entrance — the
+            // nav is already in the destination preview and simply becomes
+            // real underneath it. The spring stays for tapped navigation.
+            transition={instantNav ? { duration: 0 } : { type: 'spring', damping: 20, stiffness: 100 }}
           >
             <BottomNav collapsible={isMapPage} />
           </motion.div>
