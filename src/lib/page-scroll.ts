@@ -5,9 +5,14 @@
  * so scroll save/restore (and the swipe-back snapshot) work uniformly.
  */
 
-function isVScroller(el: HTMLElement): boolean {
+function isVScroller(el: HTMLElement, excludeHidden: boolean): boolean {
   if (el.scrollHeight <= el.clientHeight + 8) return false;
-  const oy = getComputedStyle(el).overflowY;
+  const cs = getComputedStyle(el);
+  // Hidden keep-alive tab layers keep live layout while invisible — their
+  // scrollers must never be mistaken for the current page's (reading one
+  // saves the wrong offset; writing one corrupts a preserved tab).
+  if (excludeHidden && cs.visibility === 'hidden') return false;
+  const oy = cs.overflowY;
   return oy === 'auto' || oy === 'scroll';
 }
 
@@ -15,14 +20,14 @@ function isVScroller(el: HTMLElement): boolean {
 export function getPrimaryScroller(root: ParentNode = document): HTMLElement | null {
   let best: HTMLElement | null = null;
   let bestH = 0;
-  // The swipe-back reveal keeps an inert page clone attached (hidden) between
-  // gestures; its scrollers have live layout and must never be mistaken for
-  // the page's. Only when scanning the whole document — the gesture itself
-  // passes the clone as `root` to replay its scroll.
-  const excludeReveal = root === document;
+  // Document-wide scans must skip invisible content: the swipe-back reveal
+  // (an inert page clone, kept attached between gestures) and anything
+  // visibility-hidden. Scoped scans skip neither — the gesture passes the
+  // clone itself (inside the hidden reveal) as `root` to replay its scroll.
+  const documentScan = root === document;
   root.querySelectorAll<HTMLElement>('div, main, section, ul').forEach((el) => {
-    if (excludeReveal && el.closest('[data-swipe-reveal]')) return;
-    if (el.scrollHeight > bestH && isVScroller(el)) { bestH = el.scrollHeight; best = el; }
+    if (documentScan && el.closest('[data-swipe-reveal]')) return;
+    if (el.scrollHeight > bestH && isVScroller(el, documentScan)) { bestH = el.scrollHeight; best = el; }
   });
   return best;
 }
