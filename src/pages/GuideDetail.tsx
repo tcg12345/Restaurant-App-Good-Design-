@@ -297,7 +297,7 @@ export const GuideDetail: React.FC = () => {
         navigate(target);
       }
     },
-    onLike: (entry) => {
+    onSave: (entry) => {
       if (guide.type !== 'restaurants') return;
       const meta = getRestaurantInfo(entry.refId) || (() => {
         const { cuisine, price } = readEntryMeta(entry);
@@ -319,7 +319,7 @@ export const GuideDetail: React.FC = () => {
       })();
       openAddToListModal(entry.refId, meta);
     },
-    isLiked: (entry) => guide.type === 'restaurants' && isWishlisted(entry.refId),
+    isSaved: (entry) => guide.type === 'restaurants' && isWishlisted(entry.refId),
   };
 
   const onJump = (idx: number) => {

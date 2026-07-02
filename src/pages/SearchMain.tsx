@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Heart, UserPlus, Check, Loader2, ChefHat, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -474,7 +474,7 @@ export const SearchMain: React.FC = () => {
               )}
               aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
             >
-              <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+              <Bookmark size={16} className={cn(wishlisted && 'fill-primary')} />
             </button>
             <button
               type="button"
@@ -740,7 +740,7 @@ export const SearchMain: React.FC = () => {
                           )}
                           aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
                         >
-                          <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          <Bookmark size={16} className={cn(wishlisted && 'fill-primary')} />
                         </button>
                         <button
                           type="button"

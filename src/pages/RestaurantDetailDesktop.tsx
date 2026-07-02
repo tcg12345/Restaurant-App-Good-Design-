@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark, MoreHorizontal,
   Edit3, Send, Building2, TrendingUp, TrendingDown,
-  Car, Footprints, Trash2, RotateCw, Award, Heart, Plus, Image as ImageIcon,
+  Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -275,10 +275,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
           onPhoto
             ? 'bg-white/16 backdrop-blur-md text-white hover:bg-white/26'
             : 'bg-on-surface/[0.05] text-on-surface hover:bg-on-surface/[0.09]',
-          isWishlisted(place.id) && (onPhoto ? '!text-rose-300' : '!text-rose-500'),
+          isWishlisted(place.id) && (onPhoto ? '!text-amber-300' : '!text-primary'),
         )}
       >
-        <Heart size={20} className={isWishlisted(place.id) ? 'fill-current' : ''} />
+        <Bookmark size={20} className={isWishlisted(place.id) ? 'fill-current' : ''} />
       </button>
     </div>
   );

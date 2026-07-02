@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, ThumbsUp } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, Users } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -849,7 +849,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   };
 
   const FEED_OPTIONS: { value: FeedMode; label: string; icon: React.ReactNode }[] = [
-    { value: 'friends', label: 'Friend Activity', icon: <Heart size={12} /> },
+    { value: 'friends', label: 'Friend Activity', icon: <Users size={12} /> },
     { value: 'experts', label: 'Expert Picks', icon: <Star size={12} className="fill-amber-500 text-amber-500" /> },
     { value: 'recipes', label: 'Recipes', icon: <BookOpen size={12} /> },
   ];
@@ -1152,11 +1152,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                             onClick={() => toggleMealLike(m.id)}
                             className={cn(
                               'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                              liked ? 'text-primary' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
+                              liked ? 'text-red-500' : 'text-on-surface/60 hover:text-red-500 hover:bg-on-surface/[0.04]',
                             )}
                             aria-label={liked ? 'Remove like' : 'Like'}
                           >
-                            <ThumbsUp size={19} className={liked ? 'fill-primary' : ''} />
+                            <Heart size={19} className={liked ? 'fill-red-500' : ''} />
                             {likeCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>}
                           </button>
                           <button
@@ -1425,11 +1425,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       onClick={() => toggleMealLike(m.id)}
                       className={cn(
                         'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                        liked ? 'text-primary' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
+                        liked ? 'text-red-500' : 'text-on-surface/60 hover:text-red-500 hover:bg-on-surface/[0.04]',
                       )}
                       aria-label={liked ? 'Remove like' : 'Like'}
                     >
-                      <ThumbsUp size={19} className={liked ? 'fill-primary' : ''} />
+                      <Heart size={19} className={liked ? 'fill-red-500' : ''} />
                       {likeCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>}
                     </button>
                     <button

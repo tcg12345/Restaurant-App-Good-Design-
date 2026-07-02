@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
+  LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
   Shield, LifeBuoy,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
@@ -153,15 +153,6 @@ const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
         GUIDE
       </span>
 
-      {/* Bookmark top-right */}
-      <button
-        type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        aria-label="Save guide"
-        className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-black/35 backdrop-blur flex items-center justify-center text-white hover:bg-black/55 transition-colors"
-      >
-        <Bookmark size={14} className="fill-white" />
-      </button>
 
       {/* Bottom wash + place count */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black/80 via-black/30 to-transparent" />

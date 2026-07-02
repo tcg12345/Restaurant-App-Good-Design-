@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users, Plus, Heart } from 'lucide-react';
+import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users, Plus, Bookmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -480,7 +480,7 @@ export const FollowingFeed: React.FC = () => {
                         )}
                         aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                       >
-                        <Heart size={16} className={wishlisted ? 'fill-secondary' : ''} />
+                        <Bookmark size={16} className={wishlisted ? 'fill-secondary' : ''} />
                       </button>
                     </div>
                   </div>

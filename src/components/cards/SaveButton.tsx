@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Plus } from 'lucide-react';
+import { Bookmark, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 /** Stop a nested control from triggering the card's <Link>/onClick. */
@@ -10,11 +10,11 @@ const stop = (e: React.MouseEvent, fn?: () => void) => {
 };
 
 /**
- * Circular wishlist toggle, overlaid on a photo. Frosted white pill so it reads
- * over any image; fills with the brand color when saved. Lifted verbatim from
- * the old RestaurantCard so every surface gets the same control.
+ * Circular save-to-wishlist toggle, overlaid on a photo. Frosted white pill so
+ * it reads over any image; fills with the brand color when saved. Bookmark =
+ * save everywhere in the app (hearts are reserved for likes).
  */
-export const HeartButton: React.FC<{
+export const SaveButton: React.FC<{
   filled?: boolean;
   onClick?: () => void;
   className?: string;
@@ -29,11 +29,11 @@ export const HeartButton: React.FC<{
     )}
     aria-label={filled ? 'Remove from wishlist' : 'Add to wishlist'}
   >
-    <Heart size={16} className={cn(filled && 'fill-primary')} />
+    <Bookmark size={16} className={cn(filled && 'fill-primary')} />
   </button>
 );
 
-/** Circular "add to list" control, sibling to the heart on photo tiles. */
+/** Circular "add to list" control, sibling to the save toggle on photo tiles. */
 export const AddButton: React.FC<{
   onClick?: () => void;
   className?: string;

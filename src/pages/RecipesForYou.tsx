@@ -14,12 +14,13 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat,
-  ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown, Heart,
+  ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown,
   LayoutGrid, List, Plus, Search, Share2, Soup, Sparkles, Star, Sun, Tag,
   TrendingUp, UtensilsCrossed, Users, Wheat, Wine, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useLists } from '../contexts/ListsContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
@@ -102,8 +103,6 @@ const COLLECTIONS = [
     filter: { source: 'all' as SourceFilter, tag: 'vegetarian' },
   },
 ];
-
-const STORAGE_KEY_SAVED = 'gourmad-saved-recipes';
 
 // Hash a string to a stable hue 0–360. Used for author avatars when we
 // don't have an explicit color.
@@ -195,6 +194,38 @@ const friendHomeMealToRecipe = (m: FriendHomeMeal): Recipe => ({
   updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
 });
 
+/**
+ * Inverse of friendHomeMealToRecipe, for saving: shape a browsed public
+ * recipe as a HomeMeal so it can live on the "Want to Cook" pantry list.
+ * The original author is stamped so cards show "by @author" on the copy.
+ */
+const publicRecipeToHomeMeal = (r: Recipe, author?: UserProfile): HomeMeal => ({
+  id: r.id,
+  name: r.title,
+  date: (r.createdAt || new Date().toISOString()).slice(0, 10),
+  score: 0,
+  wouldMakeAgain: false,
+  description: r.description || '',
+  photos: (r.photos || []).map((url) => ({ url, caption: '', isFavorite: false })),
+  tags: r.tags || [],
+  dishes: [],
+  isPublic: true,
+  createdAt: Date.parse(r.createdAt) || Date.now(),
+  coverPhoto: r.photos?.[0] || undefined,
+  prepTime: r.prepTimeMinutes ?? undefined,
+  cookTime: r.cookTimeMinutes ?? undefined,
+  servings: r.servings ?? undefined,
+  difficulty: r.difficulty
+    ? ((r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)) as 'Easy' | 'Medium' | 'Hard')
+    : undefined,
+  cuisine: r.cuisine || undefined,
+  ingredients: r.ingredients || [],
+  steps: (r.steps || []).map((st) => st.text),
+  sourceAuthorId: r.userId,
+  sourceAuthorName: author?.display_name || author?.username || undefined,
+  sourceAuthorUsername: author?.username || undefined,
+});
+
 const sourceLabelOf = (s: SourceFilter): string =>
   s === 'chef' ? 'Chef' : s === 'friend' ? 'Friend' : 'Home Cook';
 
@@ -207,8 +238,9 @@ const SourceIcon: React.FC<{ source: SourceFilter; className?: string }> = ({ so
 
 export const RecipesForYou: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { homeMeals } = useLists();
+  const { user, isSignedIn } = useAuth();
+  const { requireSignIn } = useSignInModal();
+  const { homeMeals, lists, addRecipeToList, removeRecipeFromList } = useLists();
   const { phoneMode } = useSettings();
   const { setOverride: setPageAddAction } = usePageAddAction();
 
@@ -225,13 +257,13 @@ export const RecipesForYou: React.FC = () => {
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
-  // Saved set — local, persisted to localStorage so toggles survive a refresh.
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_SAVED);
-      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch { return new Set(); }
-  });
+  // Saved = on the "Want to Cook" pantry list, same as every other recipe
+  // save surface (recipe page sheet, feed cards) — one store, one meaning.
+  const wantToCookList = lists.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID);
+  const savedIds = useMemo(
+    () => new Set((wantToCookList?.recipes ?? []).map((r) => r.id)),
+    [wantToCookList?.recipes],
+  );
 
   // Filter / sort / view state.
   const [source, setSource] = useState<SourceFilter>('all');
@@ -327,15 +359,18 @@ export const RecipesForYou: React.FC = () => {
     return () => document.removeEventListener('mousedown', onClick);
   }, [sortMenuOpen]);
 
-  // ── Save toggle (localStorage-backed) ──
+  // ── Save toggle → Want to Cook list ──
   const toggleSave = useCallback((id: string) => {
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem(STORAGE_KEY_SAVED, JSON.stringify(Array.from(next))); } catch { /* ignore quota */ }
-      return next;
-    });
-  }, []);
+    if (!isSignedIn) { requireSignIn('Sign in to save recipes'); return; }
+    if (savedIds.has(id)) {
+      removeRecipeFromList(DEFAULT_WANT_TO_COOK_ID, id);
+      return;
+    }
+    const r = recipes.find((x) => x.id === id);
+    if (!r) return;
+    const isOwn = !!user?.id && r.userId === user.id;
+    addRecipeToList(DEFAULT_WANT_TO_COOK_ID, publicRecipeToHomeMeal(r, isOwn ? undefined : authors[r.userId]));
+  }, [isSignedIn, requireSignIn, savedIds, recipes, user?.id, authors, addRecipeToList, removeRecipeFromList]);
 
   // ── Derived: source classifier per recipe ──
   const recipeSource = useCallback((r: Recipe): SourceFilter => {
@@ -598,7 +633,7 @@ export const RecipesForYou: React.FC = () => {
               <div className="m-loc-line">Discover · Recipes</div>
               <div className="m-loc-name">The Recipe Box</div>
             </div>
-            <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate('/activity/saved')}>
+            <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate(`/pantry?list=${DEFAULT_WANT_TO_COOK_ID}`)}>
               <Bookmark />
             </button>
             <button type="button" className="m-icon-btn" title="Add Recipe" aria-label="Add Recipe" onClick={() => navigate('/create')}>
@@ -641,7 +676,7 @@ export const RecipesForYou: React.FC = () => {
                 onClick={() => toggleSave(recipeOfDay.id)}
                 aria-label={savedIds.has(recipeOfDay.id) ? 'Saved' : 'Save'}
               >
-                <Heart fill={savedIds.has(recipeOfDay.id) ? 'currentColor' : 'none'} />
+                <Bookmark fill={savedIds.has(recipeOfDay.id) ? 'currentColor' : 'none'} />
               </button>
             </div>
             <div className="m-rod-body">
@@ -1032,7 +1067,7 @@ const BrowseCard: React.FC<{
           onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
           aria-label={saved ? 'Saved' : 'Save'}
         >
-          <Heart fill={saved ? 'currentColor' : 'none'} />
+          <Bookmark fill={saved ? 'currentColor' : 'none'} />
         </button>
       </div>
       <div className="rbx-card-body">
@@ -1104,7 +1139,7 @@ const RecipeOfTheDay: React.FC<{
                 title={saved ? 'Saved' : 'Save'}
                 aria-label={saved ? 'Saved' : 'Save'}
               >
-                <Heart fill={saved ? 'currentColor' : 'none'} />
+                <Bookmark fill={saved ? 'currentColor' : 'none'} />
               </button>
               <button
                 type="button"
@@ -1182,7 +1217,7 @@ const MiniRecipeCard: React.FC<{
           title={saved ? 'Saved' : 'Save'}
           aria-label={saved ? 'Saved' : 'Save'}
         >
-          <Heart fill={saved ? 'currentColor' : 'none'} />
+          <Bookmark fill={saved ? 'currentColor' : 'none'} />
         </button>
       </div>
       <div className="rg-body">
@@ -1242,7 +1277,7 @@ const GridRecipeCard: React.FC<{
         title={saved ? 'Saved' : 'Save'}
         aria-label={saved ? 'Saved' : 'Save'}
       >
-        <Heart fill={saved ? 'currentColor' : 'none'} />
+        <Bookmark fill={saved ? 'currentColor' : 'none'} />
       </button>
     </div>
   );
@@ -1370,7 +1405,7 @@ const MobileExploreCard: React.FC<{
         onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
         aria-label={saved ? 'Saved' : 'Save'}
       >
-        <Heart fill={saved ? 'currentColor' : 'none'} />
+        <Bookmark fill={saved ? 'currentColor' : 'none'} />
       </button>
     </div>
   );

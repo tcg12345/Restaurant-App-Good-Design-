@@ -589,7 +589,7 @@ export async function getUserLists(userId: string): Promise<{ id: string; name: 
     // Wishlist always first
     const wishlistItems = (data.wishlist as any[]) || [];
     if (wishlistItems.length > 0) {
-      result.push({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: wishlistItems.map((w: any) => w.restaurantId) });
+      result.push({ id: '__wishlist__', name: 'Wishlist', emoji: '🔖', restaurantIds: wishlistItems.map((w: any) => w.restaurantId) });
     }
 
     // Then regular lists

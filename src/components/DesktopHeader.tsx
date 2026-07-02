@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, Heart, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
+import { Search, X, Plus, Bookmark, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
@@ -618,11 +618,11 @@ const SearchRow: React.FC<{
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
             wishlisted
-              ? 'bg-red-50 text-red-400 hover:bg-red-100'
-              : 'text-on-surface/45 hover:text-red-400 hover:bg-red-50',
+              ? 'bg-primary/[0.08] text-primary hover:bg-primary/[0.14]'
+              : 'text-on-surface/45 hover:text-primary hover:bg-primary/[0.08]',
           )}
         >
-          <Heart size={14} className={wishlisted ? 'fill-red-400' : ''} />
+          <Bookmark size={14} className={wishlisted ? 'fill-primary' : ''} />
         </span>
         <span
           role="button"

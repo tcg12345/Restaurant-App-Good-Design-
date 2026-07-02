@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
+import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -3244,7 +3244,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const dist = distanceFromAnchor(lat, lng);
     const metaText = [cuisine, price].filter(Boolean).join('  ·  ');
     const infoText = [dist, city].filter(Boolean).join('  ·  ');
-    const onHeart = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
+    const onSave = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
     const onAdd = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(restData); };
     return (
       <div
@@ -3265,9 +3265,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           <div className="relative h-[84px] w-[84px] flex-shrink-0 overflow-hidden rounded-2xl bg-on-surface/[0.05]">
             <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
             <div className="absolute left-1.5 top-1.5 flex gap-1">
-              <button type="button" onClick={onHeart} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+              <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
                 className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Heart size={13} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
+                <Bookmark size={13} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
               </button>
               <button type="button" onClick={onAdd} aria-label="Add to list"
                 className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
@@ -3294,9 +3294,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </div>
         {!hasImage && (
           <div className="flex flex-shrink-0 items-center gap-1.5">
-            <button type="button" onClick={onHeart} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+            <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
               className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
-              <Heart size={15} className={fav ? 'fill-primary text-primary' : 'text-on-surface/70'} />
+              <Bookmark size={15} className={fav ? 'fill-primary text-primary' : 'text-on-surface/70'} />
             </button>
             <button type="button" onClick={onAdd} aria-label="Add to list"
               className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
@@ -3509,9 +3509,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const topChrome = (
       <div className="px-5 pt-4 pb-4">
-        {/* Back arrow + wishlist heart. Heart is a soft circle that stays
-            visible whether or not the place is saved (the fill carries
-            the state). */}
+        {/* Back arrow + wishlist bookmark. The save control is a soft circle
+            that stays visible whether or not the place is saved (the fill
+            carries the state). */}
         <div className="flex items-center justify-between gap-3">
           {isDesktopMapMode ? (
             <button
@@ -3539,11 +3539,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             aria-pressed={fav}
             className={cn(
               "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-              fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+              fav ? "border-primary/25 bg-primary/[0.08] text-primary" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
             )}
             title={fav ? 'Saved' : 'Save'}
           >
-            <Heart size={15} className={fav ? "fill-current" : ""} />
+            <Bookmark size={15} className={fav ? "fill-current" : ""} />
           </button>
         </div>
 
@@ -3912,7 +3912,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           <MessageCircle size={20} />
         </button>
         <button type="button" onClick={() => navigate('/circle')} aria-label="Your Circle" className={miniIconBtn}>
-          <Heart size={20} />
+          <Users size={20} />
         </button>
       </div>
     </div>
@@ -4614,7 +4614,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
-                              onHeart={() => toggleWishlist({
+                              onSave={() => toggleWishlist({
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
@@ -4928,7 +4928,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                       )}
                                       aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                                     >
-                                      <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
+                                      <Bookmark size={14} className={wishlisted ? 'fill-current' : ''} />
                                     </button>
                                     {usingDesktopHeader && (
                                       <button
@@ -4980,7 +4980,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                       )}
                                       aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                                     >
-                                      <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
+                                      <Bookmark size={13} className={wishlisted ? 'fill-current' : ''} />
                                     </button>
                                     <button
                                       type="button"
@@ -5679,7 +5679,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                   >
                     {selectedListId === WISHLIST_LIST_ID
-                      ? <Heart size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
+                      ? <Bookmark size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
                       : <Star size={16} className={mapMode === 'myratings' ? "text-white" : "text-on-surface/50"} />}
                     <span className="text-xs font-bold uppercase tracking-wider max-w-[150px] truncate">
                       {mapMode !== 'myratings' || !selectedListId ? 'My Ratings'
@@ -5700,7 +5700,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           {([
                             { id: null as string | null, label: 'My Ratings', icon: 'star' as const, emoji: null as string | null },
                             ...myLists.filter((l: any) => l.type !== 'home-cooking' && ((l.restaurantIds?.length || 0) + (l.wishlistIds?.length || 0)) > 0).map((l: any) => ({ id: l.id as string | null, label: l.name as string, icon: 'emoji' as const, emoji: l.emoji as string | null })),
-                            { id: WISHLIST_LIST_ID as string | null, label: 'Wishlist', icon: 'heart' as const, emoji: null as string | null },
+                            { id: WISHLIST_LIST_ID as string | null, label: 'Wishlist', icon: 'wishlist' as const, emoji: null as string | null },
                           ]).map((opt) => {
                             const active = (selectedListId || null) === opt.id;
                             return (
@@ -5712,7 +5712,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               >
                                 <span className="w-[16px] flex-shrink-0 flex items-center justify-center">
                                   {opt.icon === 'star' && <Star size={15} className={active ? 'text-primary' : 'text-on-surface/45'} />}
-                                  {opt.icon === 'heart' && <Heart size={15} className={active ? 'text-primary fill-primary' : 'text-on-surface/45'} />}
+                                  {opt.icon === 'wishlist' && <Bookmark size={15} className={active ? 'text-primary fill-primary' : 'text-on-surface/45'} />}
                                   {opt.icon === 'emoji' && <span className="text-[14px] leading-none">{opt.emoji}</span>}
                                 </span>
                                 <span className={cn('text-[13.5px] font-semibold truncate flex-1', active ? 'text-primary' : 'text-on-surface')}>{opt.label}</span>

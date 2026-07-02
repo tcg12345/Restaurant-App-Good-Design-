@@ -24,7 +24,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
-  X, MapPin, Star, Heart, Plus, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff,
+  X, MapPin, Star, Bookmark, Plus, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff,
   Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
@@ -550,7 +550,7 @@ export const RestaurantPanelBody: React.FC<{
           </div>
         </motion.div>
 
-        {/* Heart + close pills — pinned to the top corners across both
+        {/* Save + close pills — pinned to the top corners across both
             states. Kept dark so they read against the map at the top of
             the panel AND remain visible against the cream surface when
             collapsed. */}
@@ -570,11 +570,11 @@ export const RestaurantPanelBody: React.FC<{
           className={cn(
             'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors z-10',
             wishlisted
-              ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-900/20'
+              ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
               : 'bg-black/55 text-white hover:bg-black/75',
           )}
         >
-          <Heart size={17} className={cn(wishlisted && 'fill-white')} />
+          <Bookmark size={17} className={cn(wishlisted && 'fill-white')} />
         </button>
 
         {/* Hairline separator that appears once the header has fully
@@ -627,7 +627,7 @@ export const RestaurantPanelBody: React.FC<{
             label="Friends"
             score={friends?.avg ?? 0}
             count={friends?.count ?? 0}
-            icon={<Heart size={11} />}
+            icon={<Users size={11} />}
           />
           <ScorePill
             label="Experts"

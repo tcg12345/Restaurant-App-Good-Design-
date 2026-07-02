@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -1031,13 +1031,13 @@ const WishlistGridCard: React.FC<{
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
               aria-label="Remove from wishlist"
               title="Remove from wishlist"
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center hover:bg-red-100 active:scale-95 transition-all"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
             >
-              <Heart size={15} className="fill-red-400" />
+              <Bookmark size={15} className="fill-primary" />
             </button>
           ) : (
-            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
-              <Heart size={15} className="fill-red-400" />
+            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center">
+              <Bookmark size={15} className="fill-primary" />
             </span>
           )}
         </div>
@@ -2150,7 +2150,7 @@ const ListDetailView: React.FC<{
     : isHotelBreakfast
       ? { eyebrow: 'Hotel mornings', icon: <Building2 size={26} className="text-amber-600" strokeWidth={1.7} />, accent: 'text-amber-600', chipBg: 'bg-amber-50' }
       : isWishlistView
-        ? { eyebrow: 'Your saved places', icon: <Heart size={24} className="text-red-400 fill-red-400" />, accent: 'text-red-400', chipBg: 'bg-red-50' }
+        ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
         : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
 
   // Distinct city count for the stats row.
@@ -2765,11 +2765,11 @@ const ListDetailView: React.FC<{
               knows the page isn't broken. */}
           {isWishlistView && wishlistedRestaurantsRaw.length === 0 && (
             <div className="text-center py-20">
-              <div className="w-14 h-14 rounded-full bg-red-50 text-red-400 flex items-center justify-center mx-auto mb-4">
-                <Heart size={20} />
+              <div className="w-14 h-14 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center mx-auto mb-4">
+                <Bookmark size={20} />
               </div>
               <p className="text-base font-serif font-bold text-on-surface mb-1">Your wishlist is empty</p>
-              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the heart on any restaurant card to save it here for later.</p>
+              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the bookmark on any restaurant card to save it here for later.</p>
             </div>
           )}
           {isWishlistView && wishlistedRestaurantsRaw.length > 0 && wishlistedRestaurantsFinal.length === 0 && (
@@ -2792,7 +2792,7 @@ const ListDetailView: React.FC<{
           {wishlistedRestaurantsFinal.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Heart size={14} className="text-red-400" />
+                <Bookmark size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
@@ -6536,7 +6536,7 @@ export const Pantry: React.FC = () => {
     if (!id) return null;
     if (id === '__wishlist__') {
       return {
-        id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+        id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
         restaurantIds: [], wishlistIds: [], createdAt: 0,
       } as CustomList;
     }
@@ -6788,7 +6788,7 @@ export const Pantry: React.FC = () => {
         // wishlist below, so any object with this id flows through the
         // same code path the pill row used.
         setSelectedList({
-          id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+          id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
           restaurantIds: [], wishlistIds: [], createdAt: 0,
         } as CustomList);
       } else {
@@ -7027,7 +7027,7 @@ export const Pantry: React.FC = () => {
   const currentViewLabel = (() => {
     if (selectedList) {
       if (selectedList.id === '__wishlist__') {
-        return { emoji: '❤️', name: 'Wishlist', count: regularWishlist.length };
+        return { emoji: '🔖', name: 'Wishlist', count: regularWishlist.length };
       }
       const isRecipeList = selectedList.type === 'home-cooking';
       const count = isRecipeList
@@ -7073,7 +7073,7 @@ export const Pantry: React.FC = () => {
     setShowHomeCooking(false); setShowTrips(false);
     setShowAllRated(false);
     setSelectedList({
-      id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+      id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
       restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
       createdAt: 0,
     } as CustomList);
@@ -7174,7 +7174,7 @@ export const Pantry: React.FC = () => {
                           onClick={switchToRated}
                         />
                         <SwitcherRow
-                          icon={<Heart size={14} className="text-red-400 fill-red-400" />}
+                          icon={<Bookmark size={14} className="text-primary fill-primary" />}
                           label="Wishlist"
                           count={regularWishlist.length}
                           active={selectedList?.id === '__wishlist__'}
@@ -7340,7 +7340,7 @@ export const Pantry: React.FC = () => {
               setSelectedList({
                 id: '__wishlist__',
                 name: 'Wishlist',
-                emoji: '❤️',
+                emoji: '🔖',
                 restaurantIds: [],
                 wishlistIds: regularWishlist.map((w) => w.restaurantId),
                 createdAt: 0,

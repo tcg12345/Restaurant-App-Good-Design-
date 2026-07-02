@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import { ThumbsUp, Send, Loader2, MessageSquare } from 'lucide-react';
+import { Heart, Send, Loader2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
@@ -137,10 +137,10 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
             type="button"
             onClick={() => toggleLike(c)}
             className={cn('inline-flex items-center gap-1 text-[12px] font-semibold transition-colors',
-              c.liked_by_me ? 'text-primary' : 'text-on-surface/45 hover:text-on-surface/70')}
+              c.liked_by_me ? 'text-red-500' : 'text-on-surface/45 hover:text-on-surface/70')}
             aria-label={c.liked_by_me ? 'Unlike comment' : 'Like comment'}
           >
-            <ThumbsUp size={13} className={c.liked_by_me ? 'fill-primary' : ''} />
+            <Heart size={13} className={c.liked_by_me ? 'fill-red-500' : ''} />
             {(c.like_count || 0) > 0 && <span className="tabular-nums">{c.like_count}</span>}
           </button>
           {!isReply && (
