@@ -44,7 +44,12 @@ export const ScrollRestoration: React.FC = () => {
       const t = e.target as Document | HTMLElement;
       let y: number | null = null;
       if (t === document || t === document.documentElement || t === document.body) y = window.scrollY;
-      else if (t instanceof HTMLElement && t.scrollHeight > t.clientHeight + 8) y = t.scrollTop;
+      else if (t instanceof HTMLElement && t.scrollHeight > t.clientHeight + 8) {
+        // Replaying scroll onto the swipe-back reveal's page clone fires real
+        // scroll events — those are the destination's offset, not this page's.
+        if (t.closest('[data-swipe-reveal]')) return;
+        y = t.scrollTop;
+      }
       if (y == null) return;
       positions.set(histIdx(), y);
     };

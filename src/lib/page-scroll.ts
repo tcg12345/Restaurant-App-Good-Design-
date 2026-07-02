@@ -15,7 +15,13 @@ function isVScroller(el: HTMLElement): boolean {
 export function getPrimaryScroller(root: ParentNode = document): HTMLElement | null {
   let best: HTMLElement | null = null;
   let bestH = 0;
+  // The swipe-back reveal keeps an inert page clone attached (hidden) between
+  // gestures; its scrollers have live layout and must never be mistaken for
+  // the page's. Only when scanning the whole document — the gesture itself
+  // passes the clone as `root` to replay its scroll.
+  const excludeReveal = root === document;
   root.querySelectorAll<HTMLElement>('div, main, section, ul').forEach((el) => {
+    if (excludeReveal && el.closest('[data-swipe-reveal]')) return;
     if (el.scrollHeight > bestH && isVScroller(el)) { bestH = el.scrollHeight; best = el; }
   });
   return best;
