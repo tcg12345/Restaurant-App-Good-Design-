@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
@@ -22,6 +22,7 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
+import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion } from 'motion/react';
@@ -138,9 +139,18 @@ const keepAliveElement = (path: string): React.ReactNode => {
 const AppContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const navType = useNavigationType();
   // Set true by the swipe-back gesture so a single route change swaps with no
   // AnimatePresence transition — the gesture drives the slide itself.
   const [instantNav, setInstantNav] = React.useState(false);
+  // Router history index of the current entry — keys the swipe-back snapshot
+  // store and the in-app nav-stack record.
+  const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
+  // Remember what lives at each history index so the swipe-back gesture knows
+  // where a pop would actually land (see lib/nav-stack.ts).
+  React.useEffect(() => {
+    recordNavEntry(historyIdx ?? 0, { pathname: location.pathname, search: location.search }, navType);
+  }, [location, historyIdx, navType]);
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
@@ -275,6 +285,9 @@ const AppContent: React.FC = () => {
         {!isKeepAlivePath && (
         <motion.div
           key={location.pathname}
+          // Lets the swipe-back gesture verify the destination is mounted and
+          // at rest before it drops the covering snapshot.
+          data-route-stack=""
           initial={motionInitial}
           animate={motionAnimate}
           exit={motionExit}
@@ -379,17 +392,17 @@ const AppContent: React.FC = () => {
   const allowPullToRefresh =
     !isReelsPage && !isFocusedReel && !isMapPage &&
     !['/messages', '/create', '/onboarding', '/location/map'].includes(location.pathname);
-  // Edge swipe-back is allowed wherever there's in-app history to pop, except
-  // on routes that own horizontal/vertical gestures or have no "back".
-  const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
-  const canGoBack = historyIdx !== null ? historyIdx > 0 : window.history.length > 1;
-  // Bottom-nav tab roots are NOT swipeable: you should never swipe between
-  // tabs, and on a tab root a route-back just crosses into whatever tab is
-  // behind it in history (e.g. swiping on Pantry would jump to Reels). Tabs
-  // are switched via the nav bar; their own in-page back closes sub-views.
-  const isTabRoot = KEEP_ALIVE_PATHS.includes(location.pathname) || location.pathname === '/search';
+  // Edge swipe-back is allowed wherever a back destination exists, except on
+  // routes that own horizontal/vertical gestures. Pure bottom-nav tab roots
+  // are NOT swipeable (you never swipe between tabs), but tab *sub-views*
+  // (e.g. /pantry?list=x) are — nav-stack.ts resolves where they go: a
+  // history pop when the previous entry is within the same flow, otherwise
+  // the sub-view's logical parent (a pantry list always backs out to the
+  // pantry root, never sideways into whatever tab history holds).
+  const backTarget = backTargetFor(historyIdx ?? 0, location.pathname, location.search);
+  const isTabRoot = isTabRootLocation(location.pathname, location.search);
   const allowSwipeBack =
-    canGoBack && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot &&
+    backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot &&
     !['/create', '/onboarding', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
@@ -398,8 +411,15 @@ const AppContent: React.FC = () => {
       <SwipeBackContainer
         enabled={allowSwipeBack}
         navKey={historyIdx ?? 0}
+        locationKey={location.key}
         snapshotable={!isMapPage && !isReelsPage && !isFocusedReel}
-        onBack={() => navigate(-1)}
+        revealSnapshotKey={backTarget?.kind === 'pop' ? (historyIdx ?? 0) - 1 : null}
+        backIsPop={backTarget?.kind === 'pop'}
+        onBack={() => {
+          if (!backTarget) return;
+          if (backTarget.kind === 'pop') navigate(-1);
+          else navigate(backTarget.to);
+        }}
         onLockTransition={setInstantNav}
       >
         {routesBlock}

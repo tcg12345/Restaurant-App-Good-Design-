@@ -11,23 +11,36 @@ const prefersReducedMotion = () =>
  *
  * The drag runs **off React's render path**: touch handlers write the page's
  * `transform` directly (coalesced in a rAF), no per-frame setState. Release
- * settles with the Web Animations API (GPU-composited).
+ * settles with the Web Animations API (GPU-composited), with the duration
+ * scaled to the remaining distance and release velocity.
  *
  * Activation has two zones — an always-back left edge (<= EDGE px) and an
  * intent zone everywhere else that only claims on a clear rightward swipe.
  * Vertical scroll and horizontal scrollers (carousels) keep their gestures;
- * we defer to a horizontal scroller while it can still scroll right.
- * Commit is distance OR velocity (a flick commits a short drag).
+ * the non-passive touchmove listener is bound per-touch and dropped the
+ * moment a touch is ruled out, so ordinary scrolling is never tied to the
+ * main thread. Commit is distance OR velocity (a flick commits a short
+ * drag; a clear leftward flick cancels even past the distance threshold),
+ * and a cancel settle can be re-grabbed mid-bounce like on iOS.
  *
  * Reveal — true iOS live parallax. We keep an inert `cloneNode` snapshot of
- * each page as it is left (captured in `getSnapshotBeforeUpdate`, before React
- * mutates the DOM), keyed by history index. During a back-swipe the
- * destination's snapshot is shown underneath the sliding page, offset left and
- * moving at a fraction of the page (parallax), with a leading-edge shadow and a
- * scrim that lightens to 0. On commit the real `navigate(-1)` restores the live
- * page (state preserved); nothing remounts during the gesture. Screens we can't
- * clone faithfully (map / reels — live canvas/video) simply have no snapshot and
- * fall back to the plain app-surface reveal.
+ * each page as it is left (captured in `getSnapshotBeforeUpdate`, before
+ * React mutates the DOM), keyed by history index. The snapshot for the
+ * *current* back destination is attached and laid out during idle time right
+ * after each navigation, so claiming a gesture only flips its visibility —
+ * no mid-gesture DOM building. During a back-swipe it shows underneath the
+ * sliding page, offset left and moving at a fraction of the page (parallax),
+ * with a leading-edge shadow and a scrim that lightens to 0.
+ *
+ * Commit — the route transition is locked to instant when the commit settle
+ * *starts* (so React has the whole settle to flush it), the real navigation
+ * fires when the page is parked off-screen, and the snapshot stays on top
+ * until the destination is verifiably committed and at rest (the
+ * [data-route-stack] wrapper present-and-untransformed, or gone), plus a
+ * settled frame — not a blind frame count. That's what kills the "previous
+ * page flashes back" glitch. Screens we can't clone faithfully (map / reels
+ * — live canvas/video) simply have no snapshot and fall back to the plain
+ * app-surface reveal.
  */
 
 // Activation
@@ -35,14 +48,19 @@ const EDGE = 28;
 const SLOP = 10;
 const ANGLE_TAN = Math.tan((30 * Math.PI) / 180);
 // Commit
-const COMMIT_RATIO = 0.4;
-const FLICK_VELOCITY = 0.35;
+const COMMIT_RATIO = 0.35;
+const FLICK_VELOCITY = 0.35;    // px/ms rightward — commits a short drag
+const CANCEL_VELOCITY = -0.25;  // px/ms leftward — cancels even past the ratio
 // Settle
-const SETTLE_MS = 320;
+const MIN_SETTLE_MS = 160;
+const MAX_SETTLE_MS = 320;
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Reveal
 const PARALLAX = 0.3;   // destination moves at 30% of the page's travel
 const SCRIM_MAX = 0.28; // darkest scrim over the destination at rest
+// Commit finalize — how long we'll wait for the destination to paint before
+// force-completing (rAF throttling, pathological renders).
+const FINALIZE_TIMEOUT_MS = 450;
 
 // ── Snapshot store ──────────────────────────────────────────────────────────
 // Inert clones of pages we've left, keyed by history index. We only ever need
@@ -52,18 +70,45 @@ interface Snap { node: HTMLElement; scrollY: number }
 const snapStore = new Map<number, Snap>();
 const KEEP = 3;
 
+/**
+ * Clone the page for a snapshot. Skips `aria-hidden` children — the hidden
+ * keep-alive tab layers (every visited tab stays mounted) and the edge-shadow
+ * strip — so the clone holds one page's DOM, not four tabs' worth.
+ */
+function clonePageNode(node: HTMLElement): HTMLElement {
+  const clone = node.cloneNode(false) as HTMLElement;
+  for (const child of Array.from(node.children) as HTMLElement[]) {
+    if (child.getAttribute('aria-hidden') === 'true') continue;
+    const c = child.cloneNode(true) as HTMLElement;
+    // A route wrapper can be mid-slide when captured (fast double-nav) —
+    // snapshot it at rest.
+    c.style.transform = '';
+    c.style.transition = 'none';
+    clone.appendChild(c);
+  }
+  // The clone stays attached (hidden) between gestures — cloned feed videos
+  // must not autoplay and stream in the background. First frame / poster is
+  // all a snapshot needs.
+  clone.querySelectorAll('video').forEach((v) => {
+    v.removeAttribute('autoplay');
+    v.autoplay = false;
+    v.preload = 'metadata';
+  });
+  clone.style.transform = '';
+  clone.style.transition = 'none';
+  clone.style.boxShadow = '';
+  clone.style.willChange = '';
+  clone.style.pointerEvents = 'none';
+  return clone;
+}
+
 /** Clones the live page into the store *before* React mutates the DOM. */
 class LeaveSnapshot extends React.Component<{ navKey: number; snapshotable: boolean; getNode: () => HTMLElement | null }> {
   getSnapshotBeforeUpdate(prev: Readonly<{ navKey: number; snapshotable: boolean }>) {
     if (prev.navKey !== this.props.navKey && prev.snapshotable) {
       const node = this.props.getNode();
       if (node) {
-        const clone = node.cloneNode(true) as HTMLElement;
-        clone.style.transform = '';
-        clone.style.transition = 'none';
-        clone.style.boxShadow = '';
-        clone.style.willChange = '';
-        snapStore.set(prev.navKey, { node: clone, scrollY: getPageScroll() });
+        snapStore.set(prev.navKey, { node: clonePageNode(node), scrollY: getPageScroll() });
         const keys = [...snapStore.keys()].sort((a, b) => b - a);
         for (const k of keys.slice(KEEP)) snapStore.delete(k);
       }
@@ -76,8 +121,13 @@ class LeaveSnapshot extends React.Component<{ navKey: number; snapshotable: bool
 
 interface Props {
   enabled: boolean;
-  navKey: number;        // history index of the current page
-  snapshotable: boolean; // false for screens we can't clone (map/reels)
+  navKey: number;             // history index of the current page
+  locationKey: string;        // router location.key — changes when a navigation commits
+  snapshotable: boolean;      // false for screens we can't clone (map/reels)
+  /** History index whose stored snapshot previews the back destination (pop only). */
+  revealSnapshotKey: number | null;
+  /** True when the back target is a history pop, false when it's a navigate-to-parent. */
+  backIsPop: boolean;
   onBack: () => void;
   onLockTransition: (locked: boolean) => void;
   children: ReactNode;
@@ -95,33 +145,71 @@ function findHScrollable(start: EventTarget | null, root: Element): HTMLElement 
   return null;
 }
 
-export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshotable, onBack, onLockTransition, children }) => {
+/** Current translateX of an element, animations included. */
+function txOf(el: Element): number {
+  const t = getComputedStyle(el).transform;
+  if (!t || t === 'none') return 0;
+  const m3 = /matrix3d\(([^)]+)\)/.exec(t);
+  if (m3) return parseFloat(m3[1].split(',')[12]) || 0;
+  const m = /matrix\(([^)]+)\)/.exec(t);
+  if (m) return parseFloat(m[1].split(',')[4]) || 0;
+  return 0;
+}
+
+export const SwipeBackContainer: React.FC<Props> = ({
+  enabled, navKey, locationKey, snapshotable, revealSnapshotKey, backIsPop,
+  onBack, onLockTransition, children,
+}) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const revealRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
 
   const enabledRef = useRef(enabled); enabledRef.current = enabled;
   const onBackRef = useRef(onBack); onBackRef.current = onBack;
   const onLockRef = useRef(onLockTransition); onLockRef.current = onLockTransition;
-  // Latest history index, readable inside the long-lived touch handlers.
   const navKeyRef = useRef(navKey); navKeyRef.current = navKey;
+  const locationKeyRef = useRef(locationKey); locationKeyRef.current = locationKey;
+  const revealKeyRef = useRef(revealSnapshotKey); revealKeyRef.current = revealSnapshotKey;
+  const backIsPopRef = useRef(backIsPop); backIsPopRef.current = backIsPop;
+  const rebuildRef = useRef<() => void>(() => {});
 
   const g = useRef({
-    tracking: false, claimed: false, busy: false,
+    tracking: false, claimed: false, busy: false, moveBound: false,
     sx: 0, sy: 0, lx: 0, lt: 0, vx: 0, claimDx: 0, w: 0,
     fromEdge: false, deferEl: null as HTMLElement | null,
     x: 0, raf: 0, reduce: false,
+    // live reveal (during a gesture)
     revealActive: false,
     destWrap: null as HTMLElement | null,
     scrim: null as HTMLElement | null,
-    destIdx: -1, destScrollY: 0,
+    destScrollY: 0,
+    // prepared reveal (built at idle, hidden until a gesture claims)
+    prepKey: null as number | null,
+    prepWrap: null as HTMLElement | null,
+    prepScrim: null as HTMLElement | null,
+    prepScrollY: 0,
+    rebuildTimer: 0,
+    // settle
+    settleMode: 'none' as 'none' | 'cancel' | 'commit',
+    anims: [] as Animation[],
+    disarmSettle: null as (() => void) | null,
+    // commit finalize
+    finalizing: false,
+    finalizeTimer: 0,
+    finFromLocKey: '',
+    finKey: null as number | null,
+    finHadSnap: false,
+    finScrollY: 0,
+    finIsPop: true,
   });
 
   useEffect(() => {
     const root = rootRef.current;
     const page = pageRef.current;
     const reveal = revealRef.current;
-    if (!root || !page || !reveal) return;
+    const shadow = shadowRef.current;
+    if (!root || !page || !reveal || !shadow) return;
     const width = () => root.clientWidth || window.innerWidth;
 
     const paintReveal = (x: number) => {
@@ -144,17 +232,31 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       if (!g.current.raf) g.current.raf = requestAnimationFrame(flush);
     };
 
-    const openReveal = () => {
+    // ── Prepared reveal ─────────────────────────────────────────────────
+    // The destination snapshot is attached (hidden) right after each
+    // navigation, during idle time: the attach + style + layout + scroll
+    // replay all happen while nothing is moving. Claiming a gesture then
+    // only flips visibility — that's the difference between a hitch on the
+    // first drag frame and none.
+
+    const teardownPrep = () => {
       const s = g.current;
-      // Reduced motion: skip the live parallax/scrim entirely, keep a plain slide.
-      if (s.reduce) { s.revealActive = false; return; }
-      s.destIdx = navKeyRef.current - 1;
-      const snap = snapStore.get(s.destIdx);
-      if (!snap) { s.revealActive = false; return; }
-      s.destScrollY = snap.scrollY;
-      reveal.textContent = '';
+      reveal.textContent = ''; // detaches the snapshot node (store keeps the ref)
+      s.prepKey = null; s.prepWrap = null; s.prepScrim = null; s.prepScrollY = 0;
+    };
+
+    const buildPrep = () => {
+      const s = g.current;
+      if (s.revealActive || s.finalizing) return; // never clobber a live reveal
+      if (!root.isConnected) return;
+      teardownPrep();
+      const key = revealKeyRef.current;
+      if (!enabledRef.current || key == null) return;
+      const snap = snapStore.get(key);
+      if (!snap) return;
+      const w = width();
       const destWrap = document.createElement('div');
-      destWrap.style.cssText = 'position:absolute;inset:0;will-change:transform;background:var(--color-surface);';
+      destWrap.style.cssText = 'position:absolute;inset:0;background:var(--color-surface);';
       const host = snap.node;
       host.style.position = 'absolute';
       host.style.top = '0'; host.style.left = '0'; host.style.right = '0';
@@ -162,138 +264,269 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       destWrap.appendChild(host);
       const scrim = document.createElement('div');
       scrim.style.cssText = `position:absolute;inset:0;background:#000;opacity:${SCRIM_MAX};pointer-events:none;`;
+      destWrap.style.transform = `translateX(${-PARALLAX * w}px)`;
       reveal.appendChild(destWrap);
       reveal.appendChild(scrim);
-      reveal.style.display = 'block';
-      destWrap.style.transform = `translateX(${-PARALLAX * s.w}px)`;
       // Replay the destination's scroll onto the clone so the reveal matches
       // where the page was left: an inner scroller gets its scrollTop; a
       // window-scrolled page gets a translateY on the clone.
       if (snap.scrollY > 0) {
-        const innerScroller = getPrimaryScroller(host);
-        if (innerScroller) innerScroller.scrollTop = snap.scrollY;
+        const inner = getPrimaryScroller(host);
+        if (inner) inner.scrollTop = snap.scrollY;
         else host.style.transform = `translateY(${-snap.scrollY}px)`;
       }
-      s.destWrap = destWrap; s.scrim = scrim; s.revealActive = true;
+      s.prepKey = key; s.prepWrap = destWrap; s.prepScrim = scrim; s.prepScrollY = snap.scrollY;
     };
 
-    const closeReveal = () => {
+    const scheduleRebuild = () => {
       const s = g.current;
-      reveal.style.display = 'none';
-      reveal.textContent = ''; // detaches the stored node (store keeps the ref)
-      s.destWrap = null; s.scrim = null; s.revealActive = false;
+      if (s.rebuildTimer) clearTimeout(s.rebuildTimer);
+      // Wait out the route transition, then build when the thread is idle.
+      s.rebuildTimer = window.setTimeout(() => {
+        s.rebuildTimer = 0;
+        const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+        if (w.requestIdleCallback) w.requestIdleCallback(() => buildPrep(), { timeout: 400 });
+        else setTimeout(buildPrep, 50); // WKWebView has no requestIdleCallback
+      }, 350);
     };
+    rebuildRef.current = scheduleRebuild;
 
-    const reset = () => {
+    const showReveal = () => {
       const s = g.current;
-      s.tracking = false; s.claimed = false; s.deferEl = null;
+      // Reduced motion: skip the live parallax/scrim entirely, keep a plain slide.
+      if (s.reduce) { s.revealActive = false; return; }
+      const key = revealKeyRef.current;
+      if (key == null) { s.revealActive = false; return; }
+      if (s.prepKey !== key || !s.prepWrap) buildPrep(); // gesture beat the idle build
+      if (s.prepKey !== key || !s.prepWrap) { s.revealActive = false; return; } // no snapshot — plain surface
+      s.destWrap = s.prepWrap; s.scrim = s.prepScrim; s.destScrollY = s.prepScrollY;
+      s.revealActive = true;
+      s.destWrap.style.willChange = 'transform';
+      paintReveal(s.x);
+      reveal.style.visibility = 'visible';
     };
 
-    // Run cb after a few paints, with a timeout fallback so cleanup never
-    // stalls if rAF is throttled (backgrounded tab). The extra frames give the
-    // destination (which was visibility:hidden and must repaint when it becomes
-    // active) time to paint while the snapshot still covers it — no flash.
-    const nextFrame = (cb: () => void) => {
-      let done = false;
-      const run = () => { if (done) return; done = true; cb(); };
-      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(run)));
-      setTimeout(run, 140);
+    const hideReveal = () => {
+      const s = g.current;
+      reveal.style.visibility = 'hidden';
+      if (s.destWrap) s.destWrap.style.willChange = '';
+      s.revealActive = false; s.destWrap = null; s.scrim = null;
     };
 
-    // Run `body` exactly once on settle. We null the listeners before the
-    // anim.cancel() inside `body` — cancelling a finished WAAPI animation
-    // re-fires `oncancel`, which would otherwise double-run (double-pop).
-    const onSettle = (anim: Animation, body: () => void) => {
+    // ── Gesture plumbing ────────────────────────────────────────────────
+
+    const bindMove = () => {
+      if (g.current.moveBound) return;
+      g.current.moveBound = true;
+      root.addEventListener('touchmove', move, { passive: false });
+    };
+    const unbindMove = () => {
+      if (!g.current.moveBound) return;
+      g.current.moveBound = false;
+      root.removeEventListener('touchmove', move);
+    };
+    const stopTracking = () => {
+      const s = g.current;
+      s.tracking = false; s.deferEl = null;
+      unbindMove();
+    };
+
+    /** Run `body` exactly once when the settle finishes/cancels/times out. */
+    const onSettleOnce = (anim: Animation, ms: number, body: () => void) => {
       let done = false;
-      const run = () => { if (done) return; done = true; anim.onfinish = null; anim.oncancel = null; body(); };
+      let timer = 0;
+      const run = () => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        anim.onfinish = null; anim.oncancel = null;
+        body();
+      };
       anim.onfinish = run; anim.oncancel = run;
       // Safety net: if the compositor stalls (tab backgrounded mid-settle) the
       // WAAPI finish event may never fire — force completion so we never get
       // stuck with the page parked off-screen.
-      setTimeout(run, SETTLE_MS + 80);
+      timer = window.setTimeout(run, ms + 80);
+      return () => { done = true; if (timer) clearTimeout(timer); anim.onfinish = null; anim.oncancel = null; };
     };
+
+    // ── Commit finalize ─────────────────────────────────────────────────
+    // The page is parked off-screen over the destination snapshot while the
+    // real navigation runs. We hand control back only when the destination is
+    // *verifiably* in and at rest — the route-stack wrapper untransformed (or
+    // unmounted, for keep-alive destinations) after the location actually
+    // changed — instead of trusting a fixed frame count. A timeout guarantees
+    // we always complete.
+
+    const finishCommit = () => {
+      const s = g.current;
+      if (!s.finalizing) return;
+      s.finalizing = false;
+      if (s.finalizeTimer) { clearTimeout(s.finalizeTimer); s.finalizeTimer = 0; }
+      // Land the destination at the right scroll before it covers the snapshot,
+      // so there's no jump-to-top flash on commit. A navigate-to-parent is a
+      // fresh "up" view — it starts at the top.
+      if (s.finHadSnap) setPageScroll(s.finScrollY);
+      else if (!s.finIsPop) setPageScroll(0);
+      page.style.transform = '';
+      page.style.willChange = '';
+      page.style.pointerEvents = '';
+      shadow.style.opacity = '0';
+      hideReveal();
+      if (s.finKey != null) snapStore.delete(s.finKey);
+      s.x = 0;
+      s.settleMode = 'none';
+      s.busy = false;
+      // Unlock on the next frame so the destination's first real render is
+      // still covered by the instant-transition lock.
+      requestAnimationFrame(() => onLockRef.current(false));
+      window.setTimeout(() => onLockRef.current(false), 120); // rAF-throttle fallback
+      scheduleRebuild();
+    };
+
+    const beginCommit = (w: number) => {
+      const s = g.current;
+      // Keep the page off-screen (the snapshot underneath shows the
+      // destination) while the real route swaps in, then drop the now-real
+      // page to 0 and remove the snapshot.
+      page.style.transform = `translateX(${w}px)`;
+      s.finalizing = true;
+      s.finFromLocKey = locationKeyRef.current;
+      s.finKey = revealKeyRef.current;
+      s.finHadSnap = s.revealActive;
+      s.finScrollY = s.destScrollY;
+      s.finIsPop = backIsPopRef.current;
+      onBackRef.current();
+      const started = performance.now();
+      let settledFrames = 0;
+      const tick = () => {
+        if (!s.finalizing) return;
+        let ready = false;
+        if (locationKeyRef.current !== s.finFromLocKey) {
+          const stackEl = page.querySelector<HTMLElement>('[data-route-stack]');
+          ready = !stackEl || Math.abs(txOf(stackEl)) < 2;
+        }
+        settledFrames = ready ? settledFrames + 1 : 0;
+        if (settledFrames >= 2 || performance.now() - started > FINALIZE_TIMEOUT_MS) { finishCommit(); return; }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      s.finalizeTimer = window.setTimeout(finishCommit, FINALIZE_TIMEOUT_MS + 100);
+    };
+
+    // ── Settle ──────────────────────────────────────────────────────────
 
     const settle = (toX: number, commit: boolean) => {
       const s = g.current;
       const w = s.w || width();
       if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
       s.busy = true;
-      const pageAnim = page.animate(
+      s.settleMode = commit ? 'commit' : 'cancel';
+      if (commit) {
+        // Lock route transitions to instant NOW — React gets the whole settle
+        // to re-render with the lock before navigate() fires, so the exiting
+        // page can never replay the slide the gesture already performed.
+        onLockRef.current(true);
+        // And nothing on a committed page should still take taps.
+        page.style.pointerEvents = 'none';
+      }
+      // Duration tracks the remaining distance and the release velocity — a
+      // hard flick lands fast, a gentle release glides.
+      const remaining = Math.abs(toX - s.x);
+      const v = Math.abs(s.vx);
+      const dur = Math.round(Math.min(MAX_SETTLE_MS, Math.max(
+        MIN_SETTLE_MS,
+        v > 0.15 ? remaining / v : MAX_SETTLE_MS * (0.35 + 0.65 * (remaining / w)),
+      )));
+      const anims: Animation[] = [];
+      anims.push(page.animate(
         [{ transform: `translateX(${s.x}px)` }, { transform: `translateX(${toX}px)` }],
-        { duration: SETTLE_MS, easing: EASE, fill: 'both' },
-      );
+        { duration: dur, easing: EASE, fill: 'both' },
+      ));
       if (s.revealActive && s.destWrap && s.scrim) {
         const pFrom = Math.max(0, Math.min(1, s.x / w));
         const pTo = commit ? 1 : 0;
-        s.destWrap.animate(
+        anims.push(s.destWrap.animate(
           [{ transform: `translateX(${-PARALLAX * w * (1 - pFrom)}px)` }, { transform: `translateX(${-PARALLAX * w * (1 - pTo)}px)` }],
-          { duration: SETTLE_MS, easing: EASE, fill: 'both' },
-        );
-        s.scrim.animate(
+          { duration: dur, easing: EASE, fill: 'both' },
+        ));
+        anims.push(s.scrim.animate(
           [{ opacity: SCRIM_MAX * (1 - pFrom) }, { opacity: SCRIM_MAX * (1 - pTo) }],
-          { duration: SETTLE_MS, easing: EASE, fill: 'both' },
-        );
+          { duration: dur, easing: EASE, fill: 'both' },
+        ));
       }
-      onSettle(pageAnim, () => {
-        pageAnim.cancel();
+      s.anims = anims;
+      s.disarmSettle = onSettleOnce(anims[0], dur, () => {
+        s.disarmSettle = null;
+        // Cancelling finished fill:both animations releases their style
+        // overrides; inline styles take over in the same task — no flash.
+        for (const a of s.anims) a.cancel();
+        s.anims = [];
         if (commit) {
-          // Keep the page off-screen (the snapshot underneath shows the
-          // destination) while the real route swaps in instantly, then drop
-          // the now-real page to 0 and remove the snapshot — no flash.
-          page.style.transform = `translateX(${w}px)`;
-          // Lock route transitions to instant FIRST and let the exiting page
-          // re-render with that instant transition (one frame) before we
-          // navigate — otherwise AnimatePresence replays the page's slide-out
-          // exit, which the gesture already did: a second "swipe" flash.
-          onLockRef.current(true);
-          let swapped = false;
-          const swap = () => {
-            if (swapped) return; swapped = true;
-            onBackRef.current();
-            snapStore.delete(s.destIdx);
-            nextFrame(() => {
-              // Land the real page at the snapshot's scroll before it covers the
-              // snapshot, so there's no jump-to-top flash on commit.
-              if (s.revealActive) setPageScroll(s.destScrollY);
-              page.style.transform = '';
-              page.style.boxShadow = '';
-              page.style.willChange = '';
-              closeReveal();
-              onLockRef.current(false);
-              s.busy = false;
-            });
-          };
-          requestAnimationFrame(swap);
-          setTimeout(swap, 60); // fallback if rAF is throttled
+          beginCommit(w);
         } else {
           page.style.transform = '';
-          page.style.boxShadow = '';
           page.style.willChange = '';
-          closeReveal();
+          shadow.style.opacity = '0';
+          hideReveal();
           s.x = 0;
+          s.settleMode = 'none';
           s.busy = false;
         }
       });
     };
 
+    /** Re-grab the page mid-cancel-settle (iOS lets you catch the bounce). */
+    const grab = (t: Touch, now: number) => {
+      const s = g.current;
+      s.disarmSettle?.(); s.disarmSettle = null;
+      const cur = txOf(page);
+      for (const a of s.anims) a.cancel();
+      s.anims = [];
+      s.busy = false;
+      s.settleMode = 'none';
+      s.x = cur;
+      page.style.transform = `translateX(${cur}px)`;
+      paintReveal(cur);
+      s.tracking = true; s.claimed = true;
+      s.sx = t.clientX; s.sy = t.clientY;
+      s.claimDx = -cur; // continue the drag from where we caught it
+      s.lx = t.clientX; s.lt = now; s.vx = 0;
+      s.w = s.w || width();
+      s.reduce = prefersReducedMotion();
+      bindMove();
+    };
+
+    // ── Touch handlers ──────────────────────────────────────────────────
+
     const start = (e: TouchEvent) => {
       const s = g.current;
-      // Stand down on the root screen, while settling, with an overlay open,
-      // or on multi-touch.
-      if (s.busy || !enabledRef.current || isOverlayOpen() || e.touches.length !== 1) { s.tracking = false; return; }
+      if (e.touches.length !== 1) { if (s.tracking && !s.claimed) stopTracking(); return; }
       const t = e.touches[0];
+      if (s.busy) {
+        // A commit is past the point of no return; a cancel bounce is catchable.
+        if (s.settleMode === 'cancel' && s.anims.length) grab(t, e.timeStamp || Date.now());
+        return;
+      }
+      if (!enabledRef.current || isOverlayOpen()) return;
       s.tracking = true; s.claimed = false;
       s.sx = t.clientX; s.sy = t.clientY; s.lx = t.clientX; s.lt = e.timeStamp || Date.now();
       s.vx = 0; s.claimDx = 0; s.w = width();
       s.fromEdge = t.clientX <= EDGE;
       s.reduce = prefersReducedMotion();
       s.deferEl = findHScrollable(e.target, root);
+      // An edge touch is very likely a back-swipe: promote the page to its
+      // own layer while the finger is still, so the first drag frame doesn't
+      // pay for it. Mid-screen touches are usually scrolls/taps — for those
+      // the promotion happens at claim time instead.
+      if (s.fromEdge) page.style.willChange = 'transform';
+      bindMove();
     };
 
     const move = (e: TouchEvent) => {
       const s = g.current;
       if (!s.tracking || s.busy) return;
-      if (e.touches.length !== 1) { reset(); return; }
+      if (e.touches.length !== 1) { cancelGesture(); return; }
       const t = e.touches[0];
       const dx = t.clientX - s.sx;
       const dy = t.clientY - s.sy;
@@ -301,66 +534,122 @@ export const SwipeBackContainer: React.FC<Props> = ({ enabled, navKey, snapshota
       if (!s.claimed) {
         if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
         const horizontalRight = dx > 0 && Math.abs(dy) <= dx * ANGLE_TAN;
-        if (!horizontalRight) { s.tracking = false; return; }
-        if (!s.fromEdge && s.deferEl && s.deferEl.scrollLeft > 0) { s.tracking = false; return; }
+        if (!horizontalRight || (!s.fromEdge && s.deferEl && s.deferEl.scrollLeft > 0)) {
+          // Not ours — unbind immediately so the rest of this scroll runs
+          // natively, untouched by a non-passive listener.
+          stopTracking();
+          page.style.willChange = '';
+          return;
+        }
         s.claimed = true;
         s.claimDx = dx;
         page.style.willChange = 'transform';
-        if (!s.reduce) page.style.boxShadow = '-14px 0 38px rgba(0,0,0,0.26)';
-        openReveal();
+        if (!s.reduce) shadow.style.opacity = '1';
+        showReveal();
       }
 
       e.preventDefault();
       const now = e.timeStamp || Date.now();
       const dt = now - s.lt;
-      if (dt > 0) s.vx = (t.clientX - s.lx) / dt;
+      if (dt > 0) {
+        // Low-pass the velocity — raw two-sample deltas are too noisy to
+        // decide flick-commit vs flick-cancel reliably.
+        const inst = (t.clientX - s.lx) / dt;
+        s.vx = s.vx === 0 ? inst : s.vx * 0.6 + inst * 0.4;
+      }
       s.lx = t.clientX; s.lt = now;
       schedule(Math.max(0, Math.min(s.w, dx - s.claimDx)));
     };
 
     const end = () => {
       const s = g.current;
-      if (!s.claimed) { reset(); return; }
-      reset();
-      const commit = s.x > s.w * COMMIT_RATIO || s.vx > FLICK_VELOCITY;
+      const wasClaimed = s.claimed;
+      s.claimed = false;
+      stopTracking();
+      if (!wasClaimed) {
+        if (!s.busy) page.style.willChange = '';
+        return;
+      }
+      const flickBack = s.vx > FLICK_VELOCITY;
+      const flickForward = s.vx < CANCEL_VELOCITY;
+      const commit = flickBack || (!flickForward && s.x > s.w * COMMIT_RATIO);
       settle(commit ? s.w : 0, commit);
     };
 
-    const cancel = () => {
+    const cancelGesture = () => {
       const s = g.current;
-      if (s.claimed) { reset(); settle(0, false); }
-      else reset();
+      if (s.claimed) {
+        s.claimed = false;
+        stopTracking();
+        settle(0, false);
+      } else {
+        stopTracking();
+        if (!s.busy) page.style.willChange = '';
+      }
     };
 
     // Cancel cleanly when the app is backgrounded mid-gesture.
-    const onVisibility = () => { if (document.hidden && g.current.claimed) cancel(); };
+    const onVisibility = () => { if (document.hidden && g.current.claimed) cancelGesture(); };
 
     root.addEventListener('touchstart', start, { passive: true });
-    root.addEventListener('touchmove', move, { passive: false });
     root.addEventListener('touchend', end, { passive: true });
-    root.addEventListener('touchcancel', cancel, { passive: true });
+    root.addEventListener('touchcancel', cancelGesture, { passive: true });
     document.addEventListener('visibilitychange', onVisibility);
+    scheduleRebuild();
     return () => {
+      const s = g.current;
       root.removeEventListener('touchstart', start);
-      root.removeEventListener('touchmove', move);
       root.removeEventListener('touchend', end);
-      root.removeEventListener('touchcancel', cancel);
+      root.removeEventListener('touchcancel', cancelGesture);
       document.removeEventListener('visibilitychange', onVisibility);
-      if (g.current.raf) cancelAnimationFrame(g.current.raf);
+      unbindMove();
+      if (s.raf) cancelAnimationFrame(s.raf);
+      if (s.rebuildTimer) clearTimeout(s.rebuildTimer);
+      if (s.finalizeTimer) clearTimeout(s.finalizeTimer);
+      s.disarmSettle?.();
+      for (const a of s.anims) a.cancel();
+      // Never leave the app with instant transitions locked on.
+      if (s.finalizing || s.settleMode === 'commit') onLockRef.current(false);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rebuild the prepared reveal whenever the back target changes.
+  useEffect(() => { rebuildRef.current(); }, [navKey, enabled, revealSnapshotKey]);
 
   return (
     <div ref={rootRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
       <LeaveSnapshot navKey={navKey} snapshotable={snapshotable} getNode={() => pageRef.current} />
-      {/* Destination snapshot lives here during a back-swipe, behind the page. */}
-      <div ref={revealRef} style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', display: 'none', background: 'var(--color-surface)', contain: 'layout paint' }} />
+      {/* Destination snapshot lives here, behind the page. Prebuilt (hidden)
+          at idle after each navigation; shown the moment a back-swipe claims. */}
+      {/* data-swipe-reveal: the clone inside keeps live layout (it's only
+          visibility-hidden), so scroll helpers must know to skip it — see
+          page-scroll.ts / ScrollRestoration. */}
+      <div
+        ref={revealRef}
+        aria-hidden="true"
+        data-swipe-reveal=""
+        style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', visibility: 'hidden', background: 'var(--color-surface)', contain: 'layout paint', pointerEvents: 'none' }}
+      />
       {/* No z-index here: it would create a stacking context that traps
           in-page bottom sheets (z-[110]) below the bottom nav (z-50). The page
           still paints above the reveal by DOM order (it comes after it), and
           the transform during a drag promotes it for that moment anyway. */}
       <div ref={pageRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
         {children}
+        {/* Leading-edge shadow. A child of the page, so it rides the drag for
+            free; parked just outside the left edge, so it never overlaps
+            content and repaints nothing when toggled. aria-hidden also keeps
+            it (and the hidden keep-alive layers) out of page snapshots. */}
+        <div
+          ref={shadowRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute', top: 0, bottom: 0, left: -24, width: 24,
+            pointerEvents: 'none', opacity: 0, transition: 'opacity 0.2s ease',
+            background: 'linear-gradient(to left, rgba(0,0,0,0.22), rgba(0,0,0,0))',
+          }}
+        />
       </div>
     </div>
   );

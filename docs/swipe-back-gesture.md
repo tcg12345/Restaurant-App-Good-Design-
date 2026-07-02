@@ -65,6 +65,49 @@ Original: `src/components/SwipeBackContainer.tsx`, wired in the phone layout of
 **Process:** separate commits per step; build & validate on **RestaurantDetail
 (mobile)** first, then extend. Tune thresholds on a real device.
 
+## Second polish pass (nav-stack + flash + smoothness)
+
+Field testing surfaced three problems; each got a structural fix rather than
+a tuned constant:
+
+1. **Wrong back destinations** ("swipe on a pantry list lands somewhere
+   random"). Root cause: the gesture blindly popped chronological history,
+   and tab sub-views that live in query params (`/pantry?list=x`) were
+   gated off entirely because the tab-root check only looked at pathname.
+   Fix: `src/lib/nav-stack.ts` — a session record of what lives at each
+   history index plus a table of logical parents (pantry sub-views →
+   `/pantry`, `/activity/*` → `/activity`, `/restaurant/:id/circle` →
+   `/restaurant/:id`, `/guides/:id/edit` → `/guides/:id`). The back target
+   is a history **pop** when the previous entry is inside the same flow, and
+   a **navigate-to-parent** otherwise (deep link, tab switch, reload) — so a
+   pantry list always backs out to the pantry root, never sideways into
+   whatever tab history holds. Pure tab roots stay unswipeable; sub-views of
+   a tab are now swipeable.
+2. **Destination flash after commit** (old page pops back for a split
+   second). Two causes: the instant-transition lock raced React's render
+   (it was set inside the settle's finish callback, one rAF before
+   `navigate()`), and cleanup was a blind 3-rAF/140ms wait. Now the lock is
+   engaged when the commit settle *starts* (React gets the whole ~200-300ms
+   settle to flush it), and the snapshot stays on top until the destination
+   is *verifiably* committed and at rest — the router location changed and
+   the `[data-route-stack]` wrapper is untransformed (or unmounted, for
+   keep-alive destinations) for two settled frames — with a hard timeout so
+   it always completes.
+3. **Choppiness.** The reveal (a full-page snapshot) was cloned into the DOM
+   + styled + laid out synchronously inside the claiming `touchmove`; the
+   full-page `box-shadow` and `will-change` flips forced repaints mid-drag;
+   and the app-wide non-passive `touchmove` listener tied *every* scroll to
+   the main thread. Now the snapshot is attached and laid out at idle right
+   after each navigation (claiming just flips visibility), the shadow is a
+   static edge-gradient strip riding the page, edge touches pre-promote the
+   layer at `touchstart`, and the non-passive move listener is bound
+   per-touch and dropped the instant a touch is ruled not-ours. Snapshots
+   also skip the hidden keep-alive tab layers (they used to quadruple the
+   clone). Feel: velocity is low-pass filtered, a leftward flick cancels
+   even past the distance threshold, settle duration scales with remaining
+   distance/velocity, and a cancel bounce can be re-grabbed mid-settle like
+   iOS.
+
 ## Tunable constants (in SwipeBackContainer.tsx)
 
 | Constant | Value | Meaning |
@@ -72,24 +115,31 @@ Original: `src/components/SwipeBackContainer.tsx`, wired in the phone layout of
 | `EDGE` | 28px | always-back left-edge zone |
 | `SLOP` | 10px | travel before the axis is decided |
 | `ANGLE_TAN` | tan(30°) | intent must be within 30° of horizontal |
-| `COMMIT_RATIO` | 0.4 | distance fraction that commits |
-| `FLICK_VELOCITY` | 0.35 px/ms | velocity that commits a short drag |
-| `SETTLE_MS` | 320ms | settle duration |
+| `COMMIT_RATIO` | 0.35 | distance fraction that commits |
+| `FLICK_VELOCITY` | 0.35 px/ms | rightward velocity that commits a short drag |
+| `CANCEL_VELOCITY` | −0.25 px/ms | leftward velocity that cancels past the ratio |
+| `MIN_SETTLE_MS` / `MAX_SETTLE_MS` | 160 / 320ms | settle duration bounds (scaled by distance + velocity) |
 | `PARALLAX` | 0.3 | destination travels at 30% of the page |
 | `SCRIM_MAX` | 0.28 | darkest scrim over the destination |
+| `FINALIZE_TIMEOUT_MS` | 450ms | max wait for the destination to paint on commit |
 
 ## Coverage & fallback
 
 The gesture wraps every phone route (one `SwipeBackContainer` around the
 routes), so it's "rolled out" by construction. Per-screen behaviour:
 
-- **Live snapshot reveal:** any page that was left while `snapshotable`
-  (everything except map / reels / focused-reel).
+- **Live snapshot reveal:** any pop whose destination page was left while
+  `snapshotable` (everything except map / reels / focused-reel).
 - **App-surface fallback (no live content):** map, reels, focused reel as a
   *destination* — their clones can't paint live WebGL/video, so no snapshot is
-  stored and the page slides over the plain surface.
-- **No gesture (source):** root screen (no history), map, reels, focused reel,
-  `/create`, `/onboarding`, `/location/map`, and while any sheet/modal is open.
+  stored and the page slides over the plain surface. Navigate-to-parent
+  commits (deep-linked sub-views) also use the plain surface: the parent was
+  never left this session, so there is nothing truthful to preview.
+- **No gesture (source):** screens with no back target (session root without
+  a logical parent), pure tab roots (`/`, `/search/main`, `/pantry`,
+  `/profile`, `/search` — tabs are switched via the nav bar, never by
+  swiping), map, reels, focused reel, `/create`, `/onboarding`,
+  `/location/map`, and while any sheet/modal is open.
 
 ## On-device verification checklist
 
