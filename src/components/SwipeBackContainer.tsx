@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import { getPageScroll, setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
+import { isKeepAlivePath } from '../lib/keep-alive';
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia &&
@@ -403,8 +404,23 @@ export const SwipeBackContainer: React.FC<Props> = ({
         if (!s.finalizing) return;
         let ready = false;
         if (locationKeyRef.current !== s.finFromLocKey) {
+          const destPath = window.location.pathname;
           const stackEl = page.querySelector<HTMLElement>('[data-route-stack]');
-          ready = !stackEl || Math.abs(txOf(stackEl)) < 2;
+          if (isKeepAlivePath(destPath)) {
+            // Keep-alive destinations live outside the stack — ready once the
+            // exiting stack page is fully gone.
+            ready = !stackEl;
+          } else {
+            // Stack destinations must be MOUNTED and at rest. The wrapper has
+            // to carry the destination's own pathname: mode="wait" leaves an
+            // empty-stack gap between the old page's exit and the new page's
+            // enter, and the exiting wrapper itself can sit at x≈0 for a
+            // frame — neither may count as done, or the snapshot drops early
+            // and the enter slide plays in plain sight.
+            ready = !!stackEl
+              && stackEl.getAttribute('data-route-stack') === destPath
+              && Math.abs(txOf(stackEl)) < 2;
+          }
         }
         settledFrames = ready ? settledFrames + 1 : 0;
         if (settledFrames >= 2 || performance.now() - started > FINALIZE_TIMEOUT_MS) { finishCommit(); return; }
@@ -458,8 +474,18 @@ export const SwipeBackContainer: React.FC<Props> = ({
       s.anims = anims;
       s.disarmSettle = onSettleOnce(anims[0], dur, () => {
         s.disarmSettle = null;
-        // Cancelling finished fill:both animations releases their style
-        // overrides; inline styles take over in the same task — no flash.
+        // Pin the reveal at this settle's end state BEFORE cancelling:
+        // cancelling a fill:both animation reverts to inline styles, and
+        // those still hold the last drag frame (parallax offset + darkened
+        // scrim). On a commit that would visibly knock the destination
+        // preview left and re-tint it for the whole finalize.
+        if (s.revealActive && s.destWrap && s.scrim) {
+          const pEnd = commit ? 1 : 0;
+          s.destWrap.style.transform = `translateX(${-PARALLAX * w * (1 - pEnd)}px)`;
+          s.scrim.style.opacity = String(SCRIM_MAX * (1 - pEnd));
+        }
+        // Cancelling releases the WAAPI style overrides; the inline styles
+        // above take over in the same task — no repaint in between.
         for (const a of s.anims) a.cancel();
         s.anims = [];
         if (commit) {

@@ -285,9 +285,10 @@ const AppContent: React.FC = () => {
         {!isKeepAlivePath && (
         <motion.div
           key={location.pathname}
-          // Lets the swipe-back gesture verify the destination is mounted and
-          // at rest before it drops the covering snapshot.
-          data-route-stack=""
+          // Lets the swipe-back gesture verify the destination (this exact
+          // pathname) is mounted and at rest before it drops the covering
+          // snapshot — the exiting page's wrapper must not pass for it.
+          data-route-stack={location.pathname}
           initial={motionInitial}
           animate={motionAnimate}
           exit={motionExit}
