@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, Users } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -41,15 +41,20 @@ const ActivityPhoto: React.FC<{
   aria: string;
   /** Absolutely-positioned layer over the photo (e.g. the score ring). */
   overlay?: React.ReactNode;
-}> = ({ src, onClick, aria, overlay }) => {
+  /** Phone feed: bleed to the viewport edges, square corners (Instagram). */
+  flush?: boolean;
+}> = ({ src, onClick, aria, overlay, flush = false }) => {
   const [failed, setFailed] = useState(false);
   if (!src || failed) return null;
   return (
-    <div className="relative mt-3 mb-3">
+    <div className={cn('relative mt-3 mb-3', flush && '-mx-3')}>
       <button
         type="button"
         onClick={onClick}
-        className="block w-full aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className={cn(
+          'block w-full aspect-[4/3] overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+          !flush && 'rounded-2xl',
+        )}
         aria-label={aria}
       >
         <img
@@ -80,7 +85,9 @@ const ActivityPhoto: React.FC<{
  */
 const PostMediaCarousel: React.FC<{
   items: { id: string; mediaType: 'photo' | 'video'; mediaUrl: string; caption?: string }[];
-}> = ({ items }) => {
+  /** Phone feed: bleed exactly to the px-3 container edges. */
+  flush?: boolean;
+}> = ({ items, flush = false }) => {
   const photos = items.filter((it) => it.mediaType === 'photo' && it.mediaUrl);
   const [activeIdx, setActiveIdx] = useState(0);
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -102,7 +109,7 @@ const PostMediaCarousel: React.FC<{
     // card edges). Desktop: cap to a narrower centered column so the
     // photos don't dominate the card now that the feed list itself is
     // wider than a typical instagram column.
-    <div className="relative -mx-4 mt-3 mb-1 select-none lg:mx-auto lg:max-w-[420px] lg:rounded-2xl lg:overflow-hidden">
+    <div className={cn('relative mt-3 mb-1 select-none lg:mx-auto lg:max-w-[420px] lg:rounded-2xl lg:overflow-hidden', flush ? '-mx-3' : '-mx-4')}>
       <div
         ref={trackRef}
         onScroll={handleScroll}
@@ -405,9 +412,12 @@ interface SocialFeedProps {
    *  a quiet empty state (instead of nothing) when there's no activity, so
    *  the parent's column never collapses. */
   feedOnly?: boolean;
+  /** Optional node interleaved into the feed after `afterIndex` items —
+   *  Discover slides its guides rail in here, Instagram-style. */
+  inlineSlot?: { afterIndex: number; node: React.ReactNode };
 }
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [], feedOnly = false }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [], feedOnly = false, inlineSlot }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const { requireSignIn } = useSignInModal();
@@ -442,7 +452,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
   const { dragProps: postCommentsDragProps } = useBottomSheet(!!openPostCommentsId, () => setOpenPostCommentsId(null));
   // Ratings authored by experts the user follows. Loaded lazily the first
-  // time the user switches the feed dropdown to "Expert Picks".
+  // time the Experts filter is opened.
   const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
   const [expertLoading, setExpertLoading] = useState(false);
   const [expertLoaded, setExpertLoaded] = useState(false);
@@ -475,10 +485,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
-  // Hoisted earlier than the rest of the feed-mode UI plumbing so the
-  // feedItems memo below can switch its source based on the current tab.
-  type FeedMode = 'friends' | 'experts' | 'recipes';
-  const [feedMode, setFeedMode] = useState<FeedMode>('friends');
+  // Hoisted earlier than the header UI so the feedItems merge below can
+  // switch its sources based on the current tab. Posts = friends' photo
+  // posts; Activity = everything friends (or followed experts) have added:
+  // restaurant ratings + home-cooked recipes.
+  const [feedTab, setFeedTab] = useState<'posts' | 'activity'>('posts');
+  const [activityFilter, setActivityFilter] = useState<'friends' | 'experts'>('friends');
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -638,15 +650,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     }
   }, [userId, expertLoaded, profiles]);
 
-  // Merge and sort feed items by recency. Newest activity surfaces first
-  // regardless of the source kind (rating / home meal / post).
-  // Expert Picks mode shows ratings from followed experts only (no
-  // home-meal logger entries or posts, since experts publish via
-  // ratings). Friend Activity is the existing mix of friend ratings +
-  // home meals + posts.
-  const ratingSource = feedMode === 'experts' ? expertActivity : activity;
-  const mealSource = feedMode === 'experts' ? [] : homeMeals;
-  const postSource = feedMode === 'experts' ? [] : posts;
+  // Merge and sort feed items by recency. Posts shows friends' photo
+  // posts; Activity shows friend ratings + home-cooked recipes, or followed
+  // experts' ratings when the Experts filter is on (experts publish via
+  // ratings).
+  const ratingSource = feedTab === 'activity' ? (activityFilter === 'experts' ? expertActivity : activity) : [];
+  const mealSource = feedTab === 'activity' && activityFilter === 'friends' ? homeMeals : [];
+  const postSource = feedTab === 'posts' ? posts : [];
   const feedItems: FeedItem[] = [
     ...ratingSource.map((r): FeedItem => ({
       type: 'rating', data: r,
@@ -848,87 +858,63 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
-  const FEED_OPTIONS: { value: FeedMode; label: string; icon: React.ReactNode }[] = [
-    { value: 'friends', label: 'Friend Activity', icon: <Users size={12} /> },
-    { value: 'experts', label: 'Expert Picks', icon: <Star size={12} className="fill-amber-500 text-amber-500" /> },
-    { value: 'recipes', label: 'Recipes', icon: <BookOpen size={12} /> },
-  ];
-  const [feedDropdownOpen, setFeedDropdownOpen] = useState(false);
-  const feedDropdownRef = React.useRef<HTMLDivElement>(null);
-
-  // Sub-filter row shown under the Friend Activity header. Filters the
-  // existing feedItems by their `type` discriminator — no schema change.
-  const [friendsTab, setFriendsTab] = useState<'all' | 'cooking' | 'ratings'>('all');
-
-  // Lazy-load expert ratings the first time the dropdown switches into the
-  // "Expert Picks" tab. Subsequent switches reuse what's already in state.
+  // Lazy-load expert ratings the first time the Experts filter is opened.
+  // Subsequent switches reuse what's already in state.
   useEffect(() => {
-    if (feedMode === 'experts' && !expertLoaded && !expertLoading) loadExperts();
-  }, [feedMode, expertLoaded, expertLoading, loadExperts]);
+    if (feedTab === 'activity' && activityFilter === 'experts' && !expertLoaded && !expertLoading) loadExperts();
+  }, [feedTab, activityFilter, expertLoaded, expertLoading, loadExperts]);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!feedDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (feedDropdownRef.current && !feedDropdownRef.current.contains(e.target as Node)) setFeedDropdownOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [feedDropdownOpen]);
-
-  const currentOption = FEED_OPTIONS.find((o) => o.value === feedMode)!;
-
-  const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
-    <div className="flex items-center gap-3 mb-2">
-      <div className="relative" ref={feedDropdownRef}>
-        <button
-          onClick={() => setFeedDropdownOpen((p) => !p)}
-          className="flex items-center gap-1.5 -ml-1 px-1 py-0.5 transition-colors hover:text-primary"
-        >
-          <span className="text-[24px] font-bold font-serif tracking-[-0.02em]">{currentOption.label}</span>
-          <ChevronDown size={16} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
-        </button>
-        <AnimatePresence>
-          {feedDropdownOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              className="absolute top-full left-0 mt-1.5 z-50 bg-white rounded-xl shadow-lg border border-on-surface/10 overflow-hidden min-w-[180px]"
-            >
-              {FEED_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => { setFeedMode(opt.value); setFeedDropdownOpen(false); }}
-                  className={cn(
-                    "w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium transition-colors",
-                    feedMode === opt.value
-                      ? "bg-primary/5 text-primary font-semibold"
-                      : "text-on-surface/70 hover:bg-on-surface/[0.03]"
-                  )}
-                >
-                  <span className="flex-shrink-0">{opt.icon}</span>
-                  {opt.label}
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-      {feedMode === 'friends' && (
-        <>
+  const SectionHeader: React.FC = () => (
+    <div className="mb-3">
+      {!phoneMode && (
+        <div className="flex items-center gap-3 mb-2.5">
+          <span className="text-[24px] font-bold font-serif tracking-[-0.02em]">From your circle</span>
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
           <span className="text-[13px] font-semibold text-emerald-600">Live</span>
-          {typeof count === 'number' && count > 0 && (
-            <span className="ml-auto text-[12px] font-semibold text-on-surface/70 bg-on-surface/5 px-2.5 py-1 rounded-full">
-              {count} new
-            </span>
-          )}
-        </>
+        </div>
+      )}
+      {/* One switch, two meanings: Posts = photo posts; Activity = every
+          restaurant + recipe your people have added. */}
+      <div className="flex h-10 rounded-full bg-on-surface/[0.05] p-1">
+        {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFeedTab(key)}
+            aria-pressed={feedTab === key}
+            className={cn(
+              'flex-1 rounded-full text-[13.5px] font-semibold transition-colors',
+              feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {feedTab === 'activity' && (
+        <div className="mt-2.5 flex gap-2">
+          {([['friends', 'Friends'], ['experts', 'Experts']] as const).map(([key, label]) => {
+            const active = activityFilter === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActivityFilter(key)}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1.5 rounded-full border px-3.5 text-[12.5px] font-semibold transition-colors',
+                  active ? 'bg-on-surface text-surface border-on-surface' : 'text-on-surface/60 border-on-surface/15',
+                )}
+              >
+                {key === 'experts' && <Star size={12} className="fill-amber-500 text-amber-500" />}
+                {label}
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -968,37 +954,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       </section>
     );
   }
-  if (feedItems.length === 0 && feedMode === 'friends') {
-    // In feed-only mode the parent owns a column for us, so render a quiet
-    // empty state rather than collapsing it.
-    if (!feedOnly) return null;
-    return (
-      <section className="mb-2">
-        <SectionHeader />
-        <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
-          <p className="text-[14px] font-semibold text-on-surface/55">No activity from your circle yet</p>
-          <p className="mt-1 text-[12.5px] text-on-surface/40">Follow friends and tastemakers to see where they're eating.</p>
-          <Link to="/circle" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline underline-offset-2">
-            Find people to follow
-          </Link>
-        </div>
-      </section>
-    );
-  }
-
-  // Recipes-only mode uses its own list rendered from homeMeals.
-  const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
-
-  // Apply the friends sub-tab filter to the feed list. Only takes effect
-  // when feedMode === 'friends' (experts/recipes have their own renderers).
-  const cookingCount = feedItems.filter((i) => i.type === 'homeMeal').length;
-  const filteredFeedItems = feedMode === 'friends'
-    ? friendsTab === 'cooking'
-      ? feedItems.filter((i) => i.type === 'homeMeal')
-      : friendsTab === 'ratings'
-        ? feedItems.filter((i) => i.type === 'rating')
-        : feedItems
-    : feedItems;
+  // Interleave the optional inline slot (the Discover guides rail) after
+  // the requested number of feed items; when the feed is short or empty it
+  // lands at the end / above the empty state so it stays reachable.
+  type FeedRow = { kind: 'item'; item: FeedItem } | { kind: 'slot' };
+  const feedRows: FeedRow[] = feedItems.map((item) => ({ kind: 'item' as const, item }));
+  if (inlineSlot) feedRows.splice(Math.min(Math.max(inlineSlot.afterIndex, 0), feedRows.length), 0, { kind: 'slot' });
 
   return (
     <section className="mb-2">
@@ -1006,37 +967,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         !phoneMode && !feedOnly && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
-      <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : filteredFeedItems.length} />
-      {feedMode === 'friends' && (
-        <div className="flex items-center gap-6 border-b border-on-surface/10 mb-1">
-          {([
-            { key: 'all' as const, label: 'All', badge: null },
-            { key: 'cooking' as const, label: 'Cooking', badge: cookingCount > 0 ? cookingCount : null },
-            { key: 'ratings' as const, label: 'Ratings', badge: null },
-          ]).map((t) => {
-            const active = friendsTab === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setFriendsTab(t.key)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 pb-2 -mb-px text-[14px] transition-colors',
-                  active
-                    ? 'border-b-2 border-primary text-on-surface font-semibold'
-                    : 'text-on-surface/55 hover:text-on-surface/80',
-                )}
-              >
-                {t.label}
-                {t.badge != null && (
-                  <span className="text-[12px] font-semibold text-primary">{t.badge}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {feedMode === 'experts' && expertLoading ? (
+      <SectionHeader />
+      {feedTab === 'activity' && activityFilter === 'experts' && expertLoading ? (
         <ul>
           {[0, 1, 2].map((i) => (
             <li key={i} className="border-b border-on-surface/[0.08] last:border-0 py-5">
@@ -1054,153 +986,46 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </li>
           ))}
         </ul>
-      ) : feedMode === 'experts' && feedItems.length === 0 ? (
-        <EmptyState
-          icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
-          heading="No expert picks yet"
-          description="Follow critics, chefs, and writers to see their ratings show up here."
-        />
-      ) : feedMode === 'recipes' ? (
-        recipesSorted.length === 0 ? (
-          <EmptyState
-            icon={<ChefHat size={48} />}
-            heading="No recipes yet"
-            description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
-          />
-        ) : (
-          <ul>
-            {recipesSorted.map((m) => {
-              const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
-              const summary = mealRatingSummaries[m.id];
-              return (
-                <li key={`recipe-${m.userId}-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
-                  <article>
-                    {/* Cook header — chef avatar + name + "Cooked at home · time" */}
-                    <div className="flex items-center gap-3">
-                      <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 grid place-items-center">
-                          <ChefHat size={17} className="text-emerald-700" />
-                        </div>
-                      </Link>
-                      <div className="flex-1 min-w-0">
-                        <Link to={`/user/${getUsername(m.userId)}`} className="block truncate text-[14px] font-bold text-on-surface leading-tight hover:text-primary">
-                          {getName(m.userId)}
-                        </Link>
-                        <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Cooked at home · {mealTimeAgo}</p>
-                      </div>
-                    </div>
-
-                    {/* Photo */}
-                    <ActivityPhoto
-                      src={getMealCoverUrl(m)}
-                      onClick={() => openFriendRecipe(m)}
-                      aria={`View ${m.name}`}
-                    />
-
-                    {/* Caption — meal name + date/dishes + description + tags;
-                        community star summary inline (right of the name). */}
-                    <button
-                      type="button"
-                      onClick={() => openFriendRecipe(m)}
-                      className="mt-3 block w-full text-left group focus-visible:outline-none"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="font-serif text-[19px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-1 group-hover:text-primary transition-colors">
-                            {m.name}
-                          </h3>
-                          <p className="mt-0.5 text-[12.5px] font-medium text-on-surface/55">
-                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {m.dishes.length > 0 && <>  ·  {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                          </p>
-                        </div>
-                        {summary && summary.count > 0 && (
-                          <div className="flex flex-shrink-0 flex-col items-end gap-0.5 pt-0.5">
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <Star key={n} size={12} className={cn(
-                                  n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                )} />
-                              ))}
-                            </div>
-                            <span className="text-[12px] font-bold tabular-nums text-on-surface/55">{summary.average.toFixed(1)}</span>
-                          </div>
-                        )}
-                      </div>
-                      {m.description && (
-                        <p className="mt-2 text-[14px] leading-[1.5] text-on-surface/75 line-clamp-3">{m.description}</p>
-                      )}
-                      {m.tags.length > 0 && (
-                        <div className="mt-2.5 flex flex-wrap gap-1.5">
-                          {m.tags.slice(0, 4).map((t) => (
-                            <span key={t} className="rounded-full bg-on-surface/[0.05] px-2.5 py-0.5 text-[11.5px] font-medium text-on-surface/60">{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </button>
-
-                    {/* Action bar — like / comment (left); add (+) / save (right) */}
-                    {(() => {
-                      const liked = mealLikedByMe.has(m.id);
-                      const saved = myHomeMeals.some((x) => x.id === m.id);
-                      const likeCount = mealLikeCounts[m.id] || 0;
-                      const commentCount = mealCommentCounts[m.id] || 0;
-                      return (
-                        <div className="mt-2.5 flex items-center -ml-2">
-                          <button
-                            type="button"
-                            onClick={() => toggleMealLike(m.id)}
-                            className={cn(
-                              'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                              liked ? 'text-red-500' : 'text-on-surface/60 hover:text-red-500 hover:bg-on-surface/[0.04]',
-                            )}
-                            aria-label={liked ? 'Remove like' : 'Like'}
-                          >
-                            <Heart size={19} className={liked ? 'fill-red-500' : ''} />
-                            {likeCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{likeCount}</span>}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setOpenMealComments(m)}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                            aria-label="Comments"
-                          >
-                            <MessageSquare size={19} />
-                            {commentCount > 0 && <span className="text-[12.5px] font-semibold tabular-nums">{commentCount}</span>}
-                          </button>
-                          <div className="ml-auto flex items-center gap-0.5">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
-                              className="grid h-9 w-9 place-items-center rounded-full text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                              aria-label="Share"
-                            >
-                              <Share2 size={18} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleMealSave(m)}
-                              className={cn(
-                                'grid h-9 w-9 place-items-center rounded-full transition-colors',
-                                saved ? 'text-primary hover:bg-primary/5' : 'text-on-surface/60 hover:text-primary hover:bg-on-surface/[0.04]',
-                              )}
-                              aria-label={saved ? 'Saved to your recipes' : 'Save to your recipes'}
-                            >
-                              <Bookmark size={19} className={saved ? 'fill-primary' : ''} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </article>
-                </li>
-              );
-            })}
-          </ul>
-        )
+      ) : feedItems.length === 0 ? (
+        <>
+          {inlineSlot && (
+            <div className="border-b border-on-surface/[0.08] py-4">{inlineSlot.node}</div>
+          )}
+          {feedTab === 'posts' ? (
+            <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
+              <p className="text-[14px] font-semibold text-on-surface/55">No photo posts from friends yet</p>
+              <p className="mt-1 text-[12.5px] text-on-surface/40">When people you follow share photos, they'll show up here.</p>
+              <Link to="/circle" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline underline-offset-2">
+                Find people to follow
+              </Link>
+            </div>
+          ) : activityFilter === 'experts' ? (
+            <EmptyState
+              icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
+              heading="No expert picks yet"
+              description="Follow critics, chefs, and writers to see their ratings show up here."
+            />
+          ) : (
+            <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
+              <p className="text-[14px] font-semibold text-on-surface/55">No activity from your circle yet</p>
+              <p className="mt-1 text-[12.5px] text-on-surface/40">Follow friends and tastemakers to see where they're eating and cooking.</p>
+              <Link to="/circle" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline underline-offset-2">
+                Find people to follow
+              </Link>
+            </div>
+          )}
+        </>
       ) : (
       <ul>
-        {filteredFeedItems.map((item) => {
+        {feedRows.map((row) => {
+          if (row.kind === 'slot') {
+            return (
+              <li key="inline-slot" className="border-b border-on-surface/[0.08] py-4">
+                {inlineSlot!.node}
+              </li>
+            );
+          }
+          const item = row.item;
           if (item.type === 'post') {
             const p = item.data;
             const author = p.author;
@@ -1221,7 +1046,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 ].filter(Boolean).join(' · ')
               : '';
             return (
-              <li key={`post-${p.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+              <li key={`post-${p.id}`} className={cn('border-b border-on-surface/[0.08] last:border-0', phoneMode ? 'py-4' : 'py-5')}>
                 <article>
                   {/* Author header */}
                   <div className="flex items-center gap-3">
@@ -1244,7 +1069,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   {/* Photo carousel (Instagram-style) — only photos for
                       now per design choice. Videos still play in the
                       dedicated reels viewer. */}
-                  <PostMediaCarousel items={p.items} />
+                  <PostMediaCarousel items={p.items} flush={phoneMode} />
 
                   {/* Action row — directly beneath the image (Instagram-style):
                       like / comment on the left, share + save on the right. */}
@@ -1352,7 +1177,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const likeCount = mealLikeCounts[m.id] || 0;
             const commentCount = mealCommentCounts[m.id] || 0;
             return (
-              <li key={`meal-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+              <li key={`meal-${m.id}`} className={cn('border-b border-on-surface/[0.08] last:border-0', phoneMode ? 'py-4' : 'py-5')}>
                 <article>
                   {/* Cook header — chef avatar + name + "Cooked at home · time" */}
                   <div className="flex items-center gap-3">
@@ -1371,6 +1196,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
                   {/* Photo */}
                   <ActivityPhoto
+                    flush={phoneMode}
                     src={getMealCoverUrl(m)}
                     onClick={() => openFriendRecipe(m)}
                     aria={`View ${m.name}`}
@@ -1482,7 +1308,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             address: r.address || '',
           };
           return (
-          <li key={r.id} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+          <li key={r.id} className={cn('border-b border-on-surface/[0.08] last:border-0', phoneMode ? 'py-4' : 'py-5')}>
             <article>
               {/* Header — avatar + name + "Rated · time" */}
               <div className="flex items-center gap-3">
@@ -1506,6 +1332,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
               {/* Photo — score ring overlaid bottom-left when a cover resolves */}
               <ActivityPhoto
+                flush={phoneMode}
                 src={r.photo_url}
                 onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                 aria={`View ${r.restaurant_name}`}

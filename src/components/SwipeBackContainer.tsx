@@ -391,10 +391,15 @@ export const SwipeBackContainer: React.FC<Props> = ({
       s.finalizing = false;
       if (s.finalizeTimer) { clearTimeout(s.finalizeTimer); s.finalizeTimer = 0; }
       // Land the destination at the right scroll before it covers the snapshot,
-      // so there's no jump-to-top flash on commit. A navigate-to-parent is a
-      // fresh "up" view — it starts at the top.
-      if (s.finHadSnap) setPageScroll(s.finScrollY);
-      else if (!s.finIsPop) setPageScroll(0);
+      // so there's no jump-to-top flash on commit. Only REMOUNTING stack pages
+      // need this; keep-alive destinations keep their inner scrollers live and
+      // get their window offset from ScrollRestoration's keep-alive POP branch
+      // — writing here would clobber that restore (capture and restore can
+      // resolve different scrollers). A navigate-to-parent is a fresh "up"
+      // view — it starts at the top.
+      const destKeepAlive = isKeepAlivePath(window.location.pathname);
+      if (!s.finIsPop) setPageScroll(0);
+      else if (s.finHadSnap && !destKeepAlive) setPageScroll(s.finScrollY);
       page.style.transform = '';
       page.style.willChange = '';
       page.style.pointerEvents = '';
