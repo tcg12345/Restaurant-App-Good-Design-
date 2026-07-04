@@ -324,16 +324,19 @@ function hashToHue(str: string): number {
 
 /** The phone home's location control — a real button that unmistakably
  *  reads as tappable (the old eyebrow-text trigger looked like static copy). */
-const LocationPill: React.FC<{ neighborhood: string | null; onOpen: () => void }> = ({ neighborhood, onOpen }) => (
+const LocationPill: React.FC<{ neighborhood: string | null; onOpen: () => void; className?: string }> = ({ neighborhood, onOpen, className }) => (
   <button
     type="button"
     onClick={onOpen}
     aria-label="Change location"
-    className="inline-flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-paper border border-on-surface/[0.12] shadow-sm active:scale-[0.98] transition-transform"
+    className={cn(
+      'inline-flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-paper border border-on-surface/[0.12] shadow-sm active:scale-[0.98] transition-transform',
+      className,
+    )}
   >
-    <MapPin size={15} className="text-primary" />
-    <span className="text-[14px] font-semibold text-on-surface">{neighborhood || 'Pick a location'}</span>
-    <ChevronDown size={14} className="text-on-surface/45" />
+    <MapPin size={15} className="text-primary flex-shrink-0" />
+    <span className="min-w-0 truncate text-[14px] font-semibold text-on-surface">{neighborhood || 'Pick a location'}</span>
+    <ChevronDown size={14} className="text-on-surface/45 flex-shrink-0" />
   </button>
 );
 
@@ -3932,18 +3935,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </button>
         ) : undefined}
       />
-      <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
         <button
           type="button"
           onClick={() => navigate('/search/main')}
-          className="flex-1 relative"
+          className="flex-1 min-w-0 relative"
           aria-label="Open search"
         >
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left truncate">
             Search restaurants, cuisines...
           </div>
         </button>
+        {mode === 'home' && (
+          <LocationPill
+            neighborhood={homeLocation?.label?.split(',')[0]?.trim() || null}
+            onOpen={() => setMobileLocationPickerOpen(true)}
+            className="max-w-[46%] flex-shrink-0"
+          />
+        )}
       </div>
     </>
   );
@@ -4721,23 +4731,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 );
               })()}
               {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
-                const dayName = HERO_DAY_NAMES[new Date().getDay()];
                 const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
-                // Minimal top: day eyebrow + a location control that clearly
-                // reads as a button, then one prominent dual-action prompt in
+                // Minimal top: the location pill lives in the header's search
+                // row; content opens straight with the dual-action prompt in
                 // place of the old greeting + chips + three stacked rails.
+                // The wrapper ref anchors the scroll-header fade distance.
                 return (
-                  <>
-                    <div ref={dayLocRef} className="mt-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">{dayName}</p>
-                      <div className="mt-2">
-                        <LocationPill
-                          neighborhood={neighborhood || null}
-                          onOpen={() => setMobileLocationPickerOpen(true)}
-                        />
-                      </div>
-                    </div>
-
+                  <div ref={dayLocRef}>
                     <DualPromptCard
                       onFindRestaurant={() => {
                         if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
@@ -4748,7 +4748,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       cookSubtitle={recommendedRecipes.length > 0 ? `${recommendedRecipes.length} picked for you` : 'from your circle'}
                     />
 
-                    {/* Headless picker — triggered by the location pill. */}
+                    {/* Headless picker — triggered by the header's location pill. */}
                     <HomeLocationBar
                       variant="headless"
                       location={homeLocation}
@@ -4757,7 +4757,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       open={mobileLocationPickerOpen}
                       onOpenChange={setMobileLocationPickerOpen}
                     />
-                  </>
+                  </div>
                 );
               })()}
               {!discoverSearchActive && (
