@@ -239,7 +239,14 @@ const AppContent: React.FC = () => {
   // also covers the tab during its first repaint, so there's no flash.
   const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
   const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { x: 0 };
-  const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
+  // Non-create pages live in normal flow (so the document is as tall as the
+  // page and sticky chrome works) and only become absolute for the exit
+  // slide, where they must overlay what's revealed underneath. Motion applies
+  // the non-animatable position/inset values instantly at exit start — the
+  // geometry is identical to the in-flow box, so there's no jump.
+  const motionExit = isCreateRoute
+    ? { x: '-100%', opacity: 1 }
+    : { x: '100%', position: 'absolute' as const, top: 0, left: 0, right: 0 };
   const motionTransition = instantNav
     ? { duration: 0 }
     : isCreateRoute
@@ -258,15 +265,16 @@ const AppContent: React.FC = () => {
           return (
             <div
               key={path}
-              // Inactive tabs are hidden with `visibility` (not display:none)
-              // and positioned absolutely — display:none would reset inner
-              // scroll positions, defeating the point of keep-alive. No
-              // z-index: it would create a stacking context that traps in-page
-              // bottom sheets below the nav. The stack (rendered after this in
-              // DOM) overlays it by tree order.
+              // The ACTIVE tab sits in normal flow so the document grows with
+              // its content — position:sticky chrome (the desktop sidebar and
+              // header) only sticks within its parent's real height. Inactive
+              // tabs are absolutely positioned and hidden with `visibility`
+              // (not display:none — that would reset inner scroll positions,
+              // defeating keep-alive). No z-index: it would create a stacking
+              // context that traps in-page bottom sheets below the nav. The
+              // stack (rendered after this in DOM) overlays it by tree order.
               style={{
-                position: 'absolute',
-                inset: 0,
+                ...(active ? { position: 'relative' as const } : { position: 'absolute' as const, inset: 0 }),
                 visibility: active ? 'visible' : 'hidden',
                 pointerEvents: active ? undefined : 'none',
               }}
@@ -293,7 +301,7 @@ const AppContent: React.FC = () => {
           animate={motionAnimate}
           exit={motionExit}
           transition={motionTransition}
-          className={isCreateRoute ? 'absolute inset-0 z-30' : 'absolute inset-0 bg-surface'}
+          className={isCreateRoute ? 'absolute inset-0 z-30' : 'relative bg-surface'}
         >
         <React.Fragment key={refreshNonce}>
         <Routes location={location}>
@@ -371,12 +379,16 @@ const AppContent: React.FC = () => {
   // chrome doesn't fight the rendered content.
   if (useSidebar) {
     const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
+    // Detail pages bring their own sticky nav (recipe rd-nav, restaurant
+    // header, …) — the global header scrolls away so they can take the top
+    // edge cleanly instead of fighting a pinned bar.
+    const headerScrollsAway = ['/restaurant/', '/recipe/', '/meal/', '/user/', '/guides/', '/review/'].some((p) => location.pathname.startsWith(p)) || location.pathname === '/location';
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <ScrollRestoration />
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
-          {!hideHeader && <DesktopHeader />}
+          {!hideHeader && <DesktopHeader sticky={!headerScrollsAway} />}
           <div className="flex-1 min-w-0 relative">
             {routesBlock}
           </div>

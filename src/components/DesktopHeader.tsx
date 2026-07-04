@@ -84,7 +84,12 @@ function placeToRecent(place: PlaceResult): RecentSearch {
   };
 }
 
-export const DesktopHeader: React.FC = () => {
+/**
+ * @param sticky When false the header scrolls away with the page — detail
+ * pages (recipe/restaurant/…) bring their own sticky nav and take the top
+ * edge once the global bar has passed.
+ */
+export const DesktopHeader: React.FC<{ sticky?: boolean }> = ({ sticky = true }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
@@ -315,7 +320,7 @@ export const DesktopHeader: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
+    <header className={cn(sticky ? 'sticky top-0' : 'relative', 'z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]')}>
       <div className="px-6 py-2.5 flex items-center gap-3">
         {/* ── Location chip — on Discover home and on the /location route.
               Reuses HomeLocationBar's bottom-sheet picker so cities /
