@@ -16,6 +16,7 @@ import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/Res
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { addScrollSettleListener } from '../lib/scroll-settle';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -377,7 +378,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
   };
 
   return (
-    <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
+    <div className="relative h-full w-full overflow-hidden bg-black">
       {/* Video / gradient placeholder. The foreground video uses
           object-contain so it preserves its native 9:16 aspect on any
           screen size — on tall phones (19:9, 20:9, ...) that means
@@ -2037,27 +2038,29 @@ export const Reels: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, feedItems.length]);
 
-  // Track which slide is on screen by picking the one whose centre is
-  // closest to the viewport's centre on every scroll. Snap-mandatory
-  // scrolling means this resolves cleanly to one slide per rest, and
-  // doing it scroll-driven (rather than IntersectionObserver +
-  // threshold gate) means activeKey updates the instant the new slide
-  // takes over the center — fixes the bug where the desktop side
-  // panel kept showing the previous reel's details after scrolling
-  // onto a post because the threshold callback never fired with a
-  // ratio above the gate.
+  // Track which slide is on screen with scroll-position arithmetic
+  // (rather than IntersectionObserver + threshold gate) — the observer
+  // version had a bug where the desktop side panel kept showing the
+  // previous reel's details after scrolling onto a post because the
+  // threshold callback never fired with a ratio above the gate.
+  //
+  // The commit is deferred to scroll REST (scrollend / idle fallback),
+  // not run per scroll frame: flipping activeKey at the swipe midpoint
+  // re-rendered slides, mounted <mux-player>, and started playback while
+  // the native snap glide was still animating, and that DOM churn inside
+  // a snap-mandatory scroller made WebKit interrupt the glide and
+  // visibly re-correct the landing ("the slide wiggles into place").
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    let raf = 0;
 
     const update = () => {
       // Every slide is exactly one viewport tall and snap-aligned, so the
       // active one is just round(scrollTop / slideHeight). Computing it
       // arithmetically avoids calling getBoundingClientRect() on every
-      // slide each scroll frame — those per-frame layout reads forced
-      // reflows mid-scroll and were a major source of the choppiness.
+      // slide — those layout reads forced reflows mid-scroll and were a
+      // major source of the choppiness.
       const h = root.clientHeight;
       if (h <= 0) return;
       const slides = root.querySelectorAll<HTMLDivElement>('[data-feed-key]');
@@ -2067,20 +2070,20 @@ export const Reels: React.FC = () => {
       if (key) setActiveKey((prev) => (prev === key ? prev : key));
     };
 
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(update);
-    };
-
-    root.addEventListener('scroll', onScroll, { passive: true });
+    const detach = addScrollSettleListener(root, update, {
+      idleMs: 140,
+      // A rest parked between snap points is the deceleration tail still
+      // gliding with sparse events — hold the commit until it lands.
+      isAligned: (el) => {
+        const h = el.clientHeight;
+        return h > 0 && Math.abs(el.scrollTop - Math.round(el.scrollTop / h) * h) <= 2;
+      },
+    });
     // Initial resolution — covers the case where the feed mounts with
     // a non-zero scrollTop (restored position) so the side panel
     // starts in sync with the visible slide.
     update();
-    return () => {
-      root.removeEventListener('scroll', onScroll);
-      cancelAnimationFrame(raf);
-    };
+    return detach;
   }, [feedItems.length]);
 
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -2250,7 +2253,7 @@ export const Reels: React.FC = () => {
   const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean; onActiveVideoChange?: (media: ActiveReelMedia | null) => void }) => (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
+      className="h-full w-full overflow-y-auto snap-y snap-mandatory overscroll-y-contain bg-black scrollbar-hide"
       style={{ scrollbarWidth: 'none' }}
     >
       {/* AnimatePresence used to wrap the per-slide motion.div fade-in;
@@ -2618,7 +2621,7 @@ export const Reels: React.FC = () => {
 
   /* ── Mobile / phone-frame layout ── */
   return (
-    <div className="relative h-screen w-full bg-black overflow-hidden">
+    <div className="relative h-dvh w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
       {focused && (
         <button
