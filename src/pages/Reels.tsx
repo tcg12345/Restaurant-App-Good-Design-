@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -201,7 +201,6 @@ interface ReelSlideProps {
   reel: Reel;
   active: boolean;
   muted: boolean;
-  setMuted: (m: boolean) => void;
   isMine: boolean;
   currentUserId: string | null;
   /** True when this slide is the active one, OR within ±1 of it. Drives
@@ -232,7 +231,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadFull = false, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadFull = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const { requireSignIn } = useSignInModal();
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
@@ -245,9 +244,15 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     || (reel.kind === 'recipe' && !!reel.recipe);
   const [infoOpen, setInfoOpen] = useState(true);
   // Persistent paused state — stays true while the user has the video
-  // paused, drives a centered overlay (audio toggle + play icon) so the
-  // user can resume or change audio without an always-on mute button.
+  // paused, drives a centered play-icon overlay so the paused state
+  // stays visible until the user resumes.
   const [isPaused, setIsPaused] = useState(false);
+  // Transient play/pause feedback: each user tap flashes the action's
+  // glyph in the centre (pop + fade, YouTube-style). Keyed by seq so
+  // rapid re-taps restart the animation instead of being swallowed.
+  const [flash, setFlash] = useState<{ kind: 'play' | 'pause'; seq: number } | null>(null);
+  const flashSeq = useRef(0);
+  const triggerFlash = (kind: 'play' | 'pause') => setFlash({ kind, seq: ++flashSeq.current });
 
   // Follow state for the reel's author. Resolved from the DB on first
   // mount; mutated optimistically when the user taps the follow pill.
@@ -369,9 +374,11 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     const bg = backdropRef.current;
     if (!el) return;
     if (el.paused) {
+      triggerFlash('play');
       el.play().catch(() => {});
       if (bg) bg.play().catch(() => {});
     } else {
+      triggerFlash('pause');
       el.pause();
       if (bg) bg.pause();
     }
@@ -397,6 +404,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             muted={muted}
             phoneMode={phoneMode}
             onPausedChange={setIsPaused}
+            onUserToggle={(nowPaused) => triggerFlash(nowPaused ? 'pause' : 'play')}
             onActiveMedia={onActiveVideoChange}
           />
         ) : reel.muxStatus === 'processing' ? (
@@ -480,34 +488,43 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
 
-      {/* Persistent paused overlay — when the active reel is paused,
-          a centered audio toggle sits above a play icon. Disappears
-          immediately on resume, so a playing video has no chrome in
-          the middle of the frame. */}
+      {/* Transient play/pause flash — pops the tapped action's glyph in
+          the centre and fades out, YouTube-style. Purely decorative
+          (pointer-events-none); keyed by seq so quick re-taps restart it. */}
+      {flash && (
+        <motion.div
+          key={flash.seq}
+          initial={{ opacity: 0.9, scale: 0.55 }}
+          animate={{ opacity: 0, scale: 1.25 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          onAnimationComplete={() => setFlash((f) => (f && f.seq === flash.seq ? null : f))}
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+        >
+          <div className="w-20 h-20 rounded-full bg-black/50 backdrop-blur flex items-center justify-center shadow-lg">
+            {flash.kind === 'pause' ? (
+              <Pause size={34} className="text-white fill-white" strokeWidth={1.5} />
+            ) : (
+              <Play size={34} className="text-white fill-white ml-1" strokeWidth={1.5} />
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Persistent paused indicator — a centered play icon while the
+          active reel stays paused. Entrance is delayed so the pause
+          flash above finishes first; exit is immediate so resuming
+          reads as the circle bursting into the play flash. (Audio
+          control lives in the volume slider / top bar now.) */}
       <AnimatePresence>
         {active && isPaused && (
           <motion.div
             initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.85 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            animate={{ opacity: 1, scale: 1, transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1], delay: 0.32 } }}
+            exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.12 } }}
             className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
           >
-            <div className="flex flex-col items-center gap-4">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMuted(!muted);
-                }}
-                className="pointer-events-auto w-12 h-12 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white shadow-lg hover:bg-black/70 transition-colors"
-                aria-label={muted ? 'Unmute' : 'Mute'}
-              >
-                {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-              </button>
-              <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
-                <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
-              </div>
+            <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
+              <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
             </div>
           </motion.div>
         )}
@@ -1674,6 +1691,104 @@ interface TopBarProps {
   setMuted: (m: boolean) => void;
 }
 
+/* ── Hover volume control (desktop) ─────────────────────────────────── */
+
+/** Bottom-right mute button that expands into a vertical volume slider on
+ *  hover — a translucent pill with a draggable thumb, like Instagram's
+ *  desktop player. Clicking the icon toggles mute; dragging sets volume
+ *  (dragging to the bottom mutes, dragging up from muted unmutes). */
+const VolumeControl: React.FC<{
+  muted: boolean;
+  setMuted: (m: boolean) => void;
+  volume: number;
+  setVolume: (v: number) => void;
+}> = ({ muted, setMuted, volume, setVolume }) => {
+  const [open, setOpen] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+
+  // What the user hears right now — a muted player shows an empty slider
+  // so dragging always starts from what the ear perceives.
+  const effective = muted ? 0 : volume;
+  const pct = Math.round(effective * 100);
+
+  const setFromClientY = (clientY: number) => {
+    const r = trackRef.current?.getBoundingClientRect();
+    if (!r || r.height === 0) return;
+    const v = Math.round(Math.max(0, Math.min(1, (r.bottom - clientY) / r.height)) * 100) / 100;
+    setVolume(v);
+    if (v > 0 && muted) setMuted(false);
+    if (v === 0 && !muted) setMuted(true);
+  };
+
+  return (
+    <div
+      className="absolute bottom-3 right-3 z-40 flex flex-col items-center"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => { if (!draggingRef.current) setOpen(false); }}
+    >
+      <motion.div
+        animate={{ height: open ? 168 : 44 }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="w-11 rounded-full bg-black/55 backdrop-blur shadow-lg overflow-hidden flex flex-col items-center justify-end"
+      >
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { delay: 0.1, duration: 0.15 } }}
+              exit={{ opacity: 0, transition: { duration: 0.1 } }}
+              // Wide hit area around the slim track so the thumb is easy
+              // to grab; pointer capture keeps the drag alive outside it.
+              className="relative flex-1 w-full flex items-start justify-center pt-4 pb-1 cursor-pointer touch-none select-none"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                draggingRef.current = true;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setFromClientY(e.clientY);
+              }}
+              onPointerMove={(e) => { if (draggingRef.current) setFromClientY(e.clientY); }}
+              onPointerUp={() => { draggingRef.current = false; }}
+              onPointerCancel={() => { draggingRef.current = false; }}
+              role="slider"
+              aria-label="Volume"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct}
+            >
+              <div ref={trackRef} className="relative h-full w-[4px] rounded-full bg-white/25">
+                <div
+                  className="absolute bottom-0 inset-x-0 rounded-full bg-white"
+                  style={{ height: `${pct}%` }}
+                />
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow"
+                  style={{ bottom: `${pct}%` }}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <button
+          type="button"
+          onClick={() => {
+            if (muted) {
+              setMuted(false);
+              if (volume === 0) setVolume(1);
+            } else {
+              setMuted(true);
+            }
+          }}
+          className="w-11 h-11 flex-shrink-0 flex items-center justify-center text-white hover:text-white/80 transition-colors"
+          aria-label={muted ? 'Unmute' : 'Mute'}
+        >
+          {effective === 0 ? <VolumeX size={19} /> : effective < 0.5 ? <Volume1 size={19} /> : <Volume2 size={19} />}
+        </button>
+      </motion.div>
+    </div>
+  );
+};
+
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   const { phoneMode } = useSettings();
   return (
@@ -1705,10 +1820,10 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
         })}
       </div>
       <div className="flex justify-end">
-        {/* Mute toggle lives in the paused-state overlay on phone, so the
-            top-right slot stays empty there. Desktop keeps the always-on
-            button since pausing isn't the primary interaction model. */}
-        {!phoneMode && (
+        {/* Phone keeps a simple always-on mute toggle here (no hover on
+            touch). Desktop's audio control is the hover volume slider
+            pinned to the bottom-right of the reel frame instead. */}
+        {phoneMode && (
           <button
             type="button"
             onClick={() => setMuted(!muted)}
@@ -1766,9 +1881,21 @@ export const Reels: React.FC = () => {
   })();
   const [kind, setKind] = useState<FeedKind>(initialKind);
   const [muted, setMuted] = useState(true);
+  // Playback volume (0–1) set from the desktop hover slider. Applied to
+  // whichever media element is currently active (below); mute stays a
+  // separate flag so unmuting returns to the last chosen level.
+  const [volume, setVolume] = useState(1);
   // The active reel's <video> element, published by ReelSlide via
   // onActiveVideoChange. Drives the page-level scrub progress bar.
   const [activeMedia, setActiveMedia] = useState<ActiveReelMedia | null>(null);
+  // Mirror the chosen volume onto each newly-active media element (and
+  // live while dragging the slider). Legacy <video> and the Mux player
+  // both expose the HTMLMediaElement volume property.
+  useEffect(() => {
+    const el = activeMedia?.el as HTMLMediaElement | undefined;
+    if (!el) return;
+    try { el.volume = volume; } catch { /* some engines throw on set */ }
+  }, [activeMedia, volume]);
   // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
   // unified scroll-snap feed can track exactly one playing slide.
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -2347,7 +2474,6 @@ export const Reels: React.FC = () => {
                   near={isNear}
                   preloadFull={preloadFull}
                   muted={muted}
-                  setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
                   currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
@@ -2528,6 +2654,7 @@ export const Reels: React.FC = () => {
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveMedia })}
+          <VolumeControl muted={muted} setMuted={setMuted} volume={volume} setVolume={setVolume} />
         </div>
 
         {/* Right column — action rail in-flow at bottom-left; side panels

@@ -46,12 +46,16 @@ interface MuxReelMediaProps {
   objectFit?: 'cover' | 'contain';
   /** Toggle handler shared with the slide (e.g. to flip a play/pause overlay). */
   onPausedChange?: (paused: boolean) => void;
+  /** Fires on a user tap that toggles playback, with the state the tap
+   *  produced — lets the slide flash its play/pause animation. Distinct
+   *  from onPausedChange, which also fires for system pauses/autoplay. */
+  onUserToggle?: (nowPaused: boolean) => void;
   /** Publish this player to the page scrub bar when active, null when not. */
   onActiveMedia?: (media: ActiveReelMedia | null) => void;
 }
 
 export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
-  playbackId, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onActiveMedia,
+  playbackId, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onUserToggle, onActiveMedia,
 }) => {
   const fit = objectFit ?? (phoneMode ? 'cover' : 'contain');
   const ref = useRef<MuxPlayerElement | null>(null);
@@ -115,8 +119,13 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
   const onTap = () => {
     const el = ref.current;
     if (!el) return;
-    if (el.paused) void el.play?.()?.catch?.(() => {});
-    else el.pause?.();
+    if (el.paused) {
+      onUserToggle?.(false);
+      void el.play?.()?.catch?.(() => {});
+    } else {
+      onUserToggle?.(true);
+      el.pause?.();
+    }
   };
 
   return (
