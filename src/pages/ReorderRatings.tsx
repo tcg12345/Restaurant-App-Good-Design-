@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Undo2, Save, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
+import { settleScores } from '../lib/settleScores';
 
 interface RatedItem {
   restaurantId: string;
@@ -76,7 +77,7 @@ const ReorderItem: React.FC<{
 
 export const ReorderRatings: React.FC = () => {
   const navigate = useNavigate();
-  const { ratings, updateRating } = useLists();
+  const { ratings, applySettledScores } = useLists();
 
   // Build initial sorted list from rated restaurants (not wishlist)
   const buildInitialItems = useCallback((): RatedItem[] => {
@@ -151,14 +152,30 @@ export const ReorderRatings: React.FC = () => {
   }, []);
 
   const handleSave = useCallback(() => {
+    // Merge the dragged scores into a hypothetical full ratings array and let
+    // the settle engine relax every tier around the new order (the dragged
+    // order carries through duplicate scores via explicitOrder). Union the
+    // raw drag diffs with the settle output — settle wins where both touch a
+    // row — and persist in one batch.
+    const dragged = new Map(items.map((i) => [i.restaurantId, i.score]));
+    const merged = ratings.map((r) => {
+      const s = dragged.get(r.restaurantId);
+      return s === undefined || s === r.score ? r : { ...r, score: s };
+    });
+    const settled = settleScores(merged, {
+      allTiers: true,
+      explicitOrder: items.map((i) => i.restaurantId),
+    });
+    const byId = new Map<string, number>();
     for (const item of items) {
-      const original = originalScores.current[item.restaurantId];
-      if (original !== item.score) {
-        updateRating(item.restaurantId, { score: item.score });
+      if (originalScores.current[item.restaurantId] !== item.score) {
+        byId.set(item.restaurantId, item.score);
       }
     }
+    for (const c of settled) byId.set(c.restaurantId, c.score);
+    applySettledScores([...byId.entries()].map(([restaurantId, score]) => ({ restaurantId, score })));
     navigate(-1);
-  }, [items, updateRating, navigate]);
+  }, [items, ratings, applySettledScores, navigate]);
 
   const handleCancel = useCallback(() => {
     navigate(-1);

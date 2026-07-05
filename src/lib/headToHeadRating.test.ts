@@ -273,7 +273,7 @@ describe('comparison budget', () => {
       kind: 'choice', pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
       prevLo: 0, prevHi: 0, prevUpper: 0, prevLower: 0,
       prevUpperFromComparison: false, prevLowerFromComparison: false,
-      prevExcluded: [], prevTiedScores: [],
+      prevExcluded: [], prevTiedScores: [], prevTerminalTie: null,
     });
     const base: Omit<H2HState, 'similarity'> = {
       tier: 'loved',
@@ -286,6 +286,7 @@ describe('comparison budget', () => {
       lowerBoundFromComparison: true,
       excluded: [],
       tiedScores: [],
+      terminalTie: null,
       history: [fakeStep(), fakeStep(), fakeStep()],
       initialPoolSize: 3,
       target: null,
@@ -303,16 +304,58 @@ describe('comparison budget', () => {
 /* ── Ties ──────────────────────────────────────────────────────────────── */
 
 describe('tie handling', () => {
-  it('averages the tied scores when nothing tightened a bound', () => {
+  it('one tie is terminal and anchors the final score to the pivot', () => {
     const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
-    while (!isComplete(state)) {
-      state = applyTie(state);
-    }
-    expect(state.history.length).toBe(3); // ties count toward progress
-    expect(state.excluded.length).toBe(3);
-    expect(state.tiedScores.slice().sort()).toEqual([7.0, 7.5, 8.0]);
-    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6); // (8+7.5+7)/3
+    const pivot = pickComparison(state)!;
+    expect(pivot.restaurantId).toBe('b'); // midpoint of the 3-item window
+    state = applyTie(state);
+    expect(state.terminalTie).toEqual({ comparisonId: 'b', score: 7.5 });
+    expect(isComplete(state)).toBe(true); // decisive — no more questions
+    expect(state.history.length).toBe(1);
+    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6); // the pivot's score
+  });
+
+  it('a tie after real choices still returns the pivot score, not the bounds midpoint', () => {
+    const ratings = Array.from({ length: 7 }, (_, i) => mk(`r${i}`, 9.6 - i * 0.4));
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    state = applyChoice(state, true); // beat the first pivot → window moves up
+    expect(isComplete(state)).toBe(false);
+    const pivot = pickComparison(state)!;
+    state = applyTie(state);
+    expect(isComplete(state)).toBe(true);
+    // Anchored to the tied pivot exactly — ignores lower/upper bound midpoints.
+    expect(computeFinalScore(state)).toBeCloseTo(pivot.score, 6);
+    expect(comparisonsMade(state)).toBe(2);
+  });
+
+  it('a terminal tie is undoable and the same pivot comes back', () => {
+    const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    state = applyTie(state);
+    expect(isComplete(state)).toBe(true);
+    state = undoLastChoice(state);
+    expect(state.terminalTie).toBeNull();
+    expect(isComplete(state)).toBe(false);
+    expect(pickComparison(state)!.restaurantId).toBe('b'); // session resumes intact
+    state = applyTie(state);
+    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6);
+  });
+
+  it('a tie in a tie-break session terminates at the tied score', () => {
+    const ratings = [
+      mk('x', 8.0),
+      mk('y', 8.0),
+      mk('z', 8.0),
+      mk('above', 9.0),
+      mk('below', 7.0),
+    ];
+    let state = initH2HTieBreak(ratings, 8.0, 'self')!;
+    expect(state.candidates).toHaveLength(3);
+    state = applyTie(state);
+    expect(isComplete(state)).toBe(true);
+    expect(state.history.length).toBe(1);
+    expect(computeFinalScore(state)).toBeCloseTo(8.0, 6);
   });
 
   it('applies the strict-bound nudge when a comparison beats the only peer', () => {

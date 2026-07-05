@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
+import { settleScores, applySettleChanges, type SettleChange } from '../lib/settleScores';
 
 /* ── Types ── */
 
@@ -316,6 +317,10 @@ interface ListsContextValue {
    *  visit record gets created. */
   rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
+  /** Apply a batch of settle-engine score changes in one persist/sync pass
+   *  (the Reorder page's save). Each changed row is republished to the
+   *  community feed (signed-in users only). */
+  applySettledScores: (changes: SettleChange[]) => void;
   removeRating: (restaurantId: string) => void;
   getRating: (restaurantId: string) => RestaurantRating | undefined;
   /** Delete a single visit from the history timeline. If the visit
@@ -1874,6 +1879,17 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [restaurantMeta, ratings, wishlist]);
 
   // Ratings
+  /** Push one rating row's current fields to community_ratings (same payload
+   *  shape as the boot-time bulk republish). Fire-and-forget. */
+  const publishRatingRow = useCallback((uid: string, row: RestaurantRating) => {
+    publishCommunityRating(uid, row.restaurantId, {
+      name: row.name, score: row.score, notes: row.notes,
+      cuisine: row.cuisine, price: row.price, address: row.address,
+      visitDate: row.visitDate, tags: row.tags, wouldReturn: row.wouldReturn,
+      friendIds: row.friendIds || [], photoUrl: row.image || '',
+    });
+  }, []);
+
   const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
@@ -1927,8 +1943,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
       }
     }
-    setRatings((prev) => {
-      const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
+    // Beli-style settle: a score-changing save may shift tier-mates so the
+    // ranked order gets breathing room (crowding fix). Computed from the
+    // committed `ratings` closure — the same source `wasRated` reads — so the
+    // settled array is available to the publish + toast below. Note-only
+    // edits keep the score identical and must NOT settle (drift guard).
+    const scoreChanged = !existingForArchive || existingForArchive.score !== rating.score;
+    const baseNext = [rating, ...ratings.filter((r) => r.restaurantId !== rating.restaurantId)];
+    const settleChanges: SettleChange[] = scoreChanged
+      ? settleScores(baseNext, {
+          justRatedId: rating.restaurantId,
+          previousScore: existingForArchive ? existingForArchive.score : undefined,
+        })
+      : [];
+    const next = applySettleChanges(baseNext, settleChanges);
+    const settledSelf = next.find((r) => r.restaurantId === rating.restaurantId) ?? rating;
+    const otherChanged = settleChanges.filter((c) => c.restaurantId !== rating.restaurantId);
+    setRatings(() => {
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
       return next;
@@ -1960,12 +1991,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
     // Publish to community
     if (userIdRef.current) {
-      publishCommunityRating(userIdRef.current, rating.restaurantId, {
-        name: rating.name, score: rating.score, notes: rating.notes,
-        cuisine: rating.cuisine, price: rating.price, address: rating.address,
-        visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
-        friendIds: rating.friendIds || [], photoUrl: rating.image || '',
-      });
+      // The rated row publishes its SETTLED score (may differ from the raw
+      // slider/H2H value); every other row the settle moved is republished
+      // too, sequential fire-and-forget like the boot-time bulk sync.
+      publishRatingRow(userIdRef.current, settledSelf);
+      for (const c of otherChanged) {
+        const row = next.find((r) => r.restaurantId === c.restaurantId);
+        if (row) publishRatingRow(userIdRef.current, row);
+      }
       // Reconcile the community gallery with this save: publish the
       // current photo set when the account is public; otherwise (photos
       // removed, or account private) clear any previously published rows.
@@ -1982,20 +2015,47 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
       {
-        subtitle: `${rating.name} · ${rating.score.toFixed(1)} / 10`,
+        subtitle: `${rating.name} · ${settledSelf.score.toFixed(1)} / 10${otherChanged.length > 0 ? ' · nearby ratings adjusted' : ''}`,
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast, untombstone, syncVisitHistoryToCloud]);
+  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
       const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial } : r);
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
+      // Keep the community copy in step — without this, reorder/edit paths
+      // left profiles showing the stale pre-edit score until next boot.
+      const row = next.find((r) => r.restaurantId === restaurantId);
+      if (row && userIdRef.current) publishRatingRow(userIdRef.current, row);
       return next;
     });
-  }, [syncRatingsToCloud]);
+  }, [syncRatingsToCloud, publishRatingRow]);
+
+  const applySettledScores = useCallback((changes: SettleChange[]) => {
+    if (changes.length === 0) return;
+    setRatings((prev) => {
+      // Drop no-ops so a save with nothing to do stays a no-op end to end.
+      const real = changes.filter((c) => {
+        const row = prev.find((r) => r.restaurantId === c.restaurantId);
+        return row !== undefined && row.score !== c.score;
+      });
+      if (real.length === 0) return prev;
+      const next = applySettleChanges(prev, real);
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+      const uid = userIdRef.current;
+      if (uid) {
+        for (const c of real) {
+          const row = next.find((r) => r.restaurantId === c.restaurantId);
+          if (row) publishRatingRow(uid, row);
+        }
+      }
+      return next;
+    });
+  }, [syncRatingsToCloud, publishRatingRow]);
 
   const removeRating = useCallback((restaurantId: string) => {
     // Tombstone the restaurant so the load-time union can't resurrect it from a
@@ -2476,7 +2536,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   return (
     <ListsContext.Provider value={{
-      ratings, rateRestaurant, updateRating, removeRating, getRating, deleteVisit,
+      ratings, rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,

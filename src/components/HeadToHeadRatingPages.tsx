@@ -226,7 +226,11 @@ export const InlineH2H: React.FC<{
   /** Resolves a rated restaurant's geo/locality meta so comparisons can be
    *  picked by relevance. Optional — without it, location simply degrades. */
   resolveMeta?: CandidateMetaResolver;
-}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta }) => {
+  /** Maps the raw H2H score to what will actually be saved once the tier
+   *  settles around it (Beli-style rebalance). Shown on the result step so
+   *  the dial matches the score that lands in the list. */
+  settlePreview?: (rawScore: number) => number;
+}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta, settlePreview }) => {
   // Tier select (skipped when the caller supplies state externally)
   if (!state) {
     if (skipTierSelect) return null;
@@ -264,6 +268,7 @@ export const InlineH2H: React.FC<{
     return (
       <InlineResult
         state={state}
+        settledScore={settlePreview ? settlePreview(computeFinalScore(state)) : undefined}
         onUse={() => onComplete(computeFinalScore(state))}
         onRedo={() => setState(null)}
       />
@@ -533,10 +538,16 @@ const InlineCompareCard: React.FC<{
 
 const InlineResult: React.FC<{
   state: H2HState;
+  /** What the score becomes after the tier settles (may differ from the raw
+   *  H2H midpoint — e.g. a "too close to call" lands one display step below
+   *  the pivot). When provided, the dial shows this saved-to-list value. */
+  settledScore?: number;
   onUse: () => void;
   onRedo: () => void;
-}> = ({ state, onUse, onRedo }) => {
-  const target = computeFinalScore(state);
+}> = ({ state, settledScore, onUse, onRedo }) => {
+  const raw = computeFinalScore(state);
+  const target = settledScore ?? raw;
+  const rebalanced = settledScore !== undefined && settledScore !== raw;
   const [display, setDisplay] = useState(0);
   useEffect(() => {
     const duration = 700;
@@ -595,6 +606,11 @@ const InlineResult: React.FC<{
           ? "No others to compare to — fine-tune the score below if needed."
           : `Based on ${comparisonsMade(state)} comparison${comparisonsMade(state) === 1 ? '' : 's'}.`}
       </p>
+      {rebalanced && (
+        <p className="text-center text-[10.5px] font-medium text-primary/80 mt-1.5 max-w-[260px] leading-relaxed">
+          Your rankings were rebalanced to make room.
+        </p>
+      )}
       <div className="mt-3 flex items-center gap-2 w-full max-w-xs">
         <button
           type="button"

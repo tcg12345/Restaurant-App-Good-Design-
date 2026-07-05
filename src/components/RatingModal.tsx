@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
-import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
+import { settleScores } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
@@ -146,6 +147,24 @@ export const RatingModal: React.FC = () => {
     if (!newName.trim()) return;
     createList(newName.trim(), newEmoji);
     setNewName(''); setNewEmoji('📋'); setCreatingList(false);
+  };
+
+  // Pure preview of what a raw H2H score becomes once the tier settles
+  // around it — mirrors the settle rateRestaurant runs on save, so the
+  // result dial shows the value that will actually land in the list.
+  const previewSettledScore = (rawScore: number): number => {
+    if (!ratingModalRestaurant) return rawScore;
+    const self: RestaurantRating = {
+      restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
+      cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
+      score: rawScore, notes: '', visitDate: '', wouldReturn: true, tags: [], photos: [],
+      listIds: [], friendIds: [], createdAt: 0,
+    };
+    const change = settleScores(
+      [self, ...ratings.filter((r) => r.restaurantId !== self.restaurantId)],
+      { justRatedId: self.restaurantId, previousScore: existing ? existing.score : undefined },
+    ).find((c) => c.restaurantId === self.restaurantId);
+    return change ? change.score : rawScore;
   };
 
   const persistRating = (finalScore: number) => {
@@ -402,6 +421,7 @@ export const RatingModal: React.FC = () => {
                             excludeId={ratingModalRestaurant.id}
                             newRestaurant={{ ...ratingModalRestaurant, tags: selectedTags }}
                             resolveMeta={getRestaurantInfo}
+                            settlePreview={previewSettledScore}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}

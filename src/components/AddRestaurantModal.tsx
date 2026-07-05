@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
-import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
+import { settleScores } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
@@ -249,6 +250,24 @@ export const AddRestaurantModal: React.FC = () => {
   // date on a Log New Visit save) so the Date sub-page opens and the
   // save button briefly shakes.
   const [dateError, setDateError] = useState(false);
+
+  // Pure preview of what a raw H2H score becomes once the tier settles
+  // around it — mirrors the settle rateRestaurant runs on save, so the
+  // result dial shows the value that will actually land in the list.
+  const previewSettledScore = (rawScore: number): number => {
+    if (!restaurant) return rawScore;
+    const self: RestaurantRating = {
+      restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+      score: rawScore, notes: '', visitDate: '', wouldReturn: true, tags: [], photos: [],
+      listIds: [], friendIds: [], createdAt: 0,
+    };
+    const change = settleScores(
+      [self, ...ratings.filter((r) => r.restaurantId !== self.restaurantId)],
+      { justRatedId: self.restaurantId, previousScore: existing ? existing.score : undefined },
+    ).find((c) => c.restaurantId === self.restaurantId);
+    return change ? change.score : rawScore;
+  };
 
   const persistRating = (finalScore: number) => {
     if (!restaurant) return;
@@ -594,6 +613,7 @@ export const AddRestaurantModal: React.FC = () => {
                             excludeId={restaurant.id}
                             newRestaurant={{ ...restaurant, tags: selectedTags }}
                             resolveMeta={getRestaurantInfo}
+                            settlePreview={previewSettledScore}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}
