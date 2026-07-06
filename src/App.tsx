@@ -24,7 +24,6 @@ import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
-import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -57,7 +56,6 @@ import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
-import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
@@ -180,38 +178,6 @@ const AppContent: React.FC = () => {
   // exact inverse of `isDesktop` (≥1024px), so every viewport is either phone
   // or desktop-sidebar with no intermediate "tablet" layout in between.
   const useSidebar = isDesktop && !phoneMode;
-
-  // Desktop header visibility (also drives the content-height math below).
-  // Hidden where the page owns the whole viewport (map/reels/messages); on
-  // detail pages it scrolls away so their own sticky nav can take the top.
-  const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
-  const headerScrollsAway = ['/restaurant/', '/recipe/', '/meal/', '/user/', '/guides/', '/review/'].some((p) => location.pathname.startsWith(p)) || location.pathname === '/location';
-
-  // The desktop page header is a flow sibling above the routed content, so a
-  // page whose root is `min-h-screen` (100vh — correct on mobile, where it
-  // fills the screen) overshoots the viewport by the header's height and lets
-  // you scroll into empty space below the content. Measure the header and
-  // publish its height as `--desktop-header-h` on the content region; a scoped
-  // CSS rule (see index.css `.desktop-content-scope`) shrinks those
-  // full-viewport minimums by exactly that much. Phone layout never gets the
-  // scope class, so its `min-h-screen` pages are untouched.
-  const desktopHeaderRef = React.useRef<HTMLElement | null>(null);
-  const desktopContentRef = React.useRef<HTMLDivElement | null>(null);
-  React.useLayoutEffect(() => {
-    const content = desktopContentRef.current;
-    if (!content) return; // phone layout (no scope element mounted)
-    const setVar = (h: number) => content.style.setProperty('--desktop-header-h', `${Math.round(h)}px`);
-    const header = desktopHeaderRef.current;
-    if (hideHeader || !header) { setVar(0); return; }
-    setVar(header.getBoundingClientRect().height);
-    const ro = new ResizeObserver(() => setVar(header.getBoundingClientRect().height));
-    ro.observe(header);
-    return () => ro.disconnect();
-    // Auth/viewport gates are deps too: the desktop layout (and thus the
-    // content scope + header) only mounts once auth resolves, and no route
-    // change fires on the guest-continue transition — without them the var
-    // would never get written on the first page you land on.
-  }, [hideHeader, headerScrollsAway, location.pathname, useSidebar, loading, isSignedIn, isGuest, isDesktop, phoneMode]);
 
   // Pull-to-refresh (phone): bump a nonce keyed onto <Routes> so the current
   // route remounts and its mount-time data loads re-run, and broadcast
@@ -442,18 +408,17 @@ const AppContent: React.FC = () => {
   );
 
   // ── Desktop sidebar layout ───────────────────────────────────────────
-  // Wide viewports (>= lg) render a sticky left sidebar + a sticky page
-  // header instead of the floating BottomNav. The header is hidden on
-  // the map page (and on /messages, which has its own chrome) so its
-  // chrome doesn't fight the rendered content.
+  // Wide viewports (>= lg) render a sticky left sidebar instead of the
+  // floating BottomNav. There is no global top bar: search is a sidebar
+  // tab, the quick-add action lives in the sidebar's Create menu, and
+  // Discover hosts the home-location chip itself.
   if (useSidebar) {
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <ScrollRestoration />
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
-          {!hideHeader && <DesktopHeader ref={desktopHeaderRef} sticky={!headerScrollsAway} />}
-          <div ref={desktopContentRef} className="desktop-content-scope flex-1 min-w-0 relative">
+          <div className="flex-1 min-w-0 relative">
             {routesBlock}
           </div>
         </main>
@@ -543,21 +508,19 @@ export default function App() {
                 <ChatProvider>
                   <ReelsProvider>
                     <PostsProvider>
-                      <PageSearchProvider>
-                        <PageAddActionProvider>
-                          <CirclePanelProvider>
-                            <GuideCreatorProvider>
-                              <HomeLocationProvider>
-                                <AssistantProvider>
-                                  <AiChatHistoryProvider>
-                                    <AppContent />
-                                  </AiChatHistoryProvider>
-                                </AssistantProvider>
-                              </HomeLocationProvider>
-                            </GuideCreatorProvider>
-                          </CirclePanelProvider>
-                        </PageAddActionProvider>
-                      </PageSearchProvider>
+                      <PageAddActionProvider>
+                        <CirclePanelProvider>
+                          <GuideCreatorProvider>
+                            <HomeLocationProvider>
+                              <AssistantProvider>
+                                <AiChatHistoryProvider>
+                                  <AppContent />
+                                </AiChatHistoryProvider>
+                              </AssistantProvider>
+                            </HomeLocationProvider>
+                          </GuideCreatorProvider>
+                        </CirclePanelProvider>
+                      </PageAddActionProvider>
                     </PostsProvider>
                   </ReelsProvider>
                 </ChatProvider>

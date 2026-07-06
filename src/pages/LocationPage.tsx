@@ -2353,6 +2353,21 @@ export const LocationPage: React.FC = () => {
           );
         })()}
 
+        {/* Desktop: compact city chip — the global top bar that used to
+            mirror the URL's city (and open the picker) is gone, so the
+            page hosts its own. Same URL-replace flow as the mobile
+            picker. */}
+        {!isMobile && (
+          <section className="pt-4 pb-1">
+            <HomeLocationBar
+              location={currentLocation}
+              onChange={handleLocationChange}
+              onUseCurrent={handleUseCurrent}
+              variant="chip"
+            />
+          </section>
+        )}
+
         {/* ── Sticky filter bar (desktop only — the mobile redesign
             uses a single compact filter row inserted between Local
             experts and the Search box further down) ───────────────── */}

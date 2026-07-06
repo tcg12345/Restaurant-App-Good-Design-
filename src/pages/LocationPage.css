@@ -202,12 +202,11 @@
    Color/background-only transitions keep every interaction
    compositor-cheap.
 
-   Sticky offset: sits flush under the global DesktopHeader. The header
-   measures 67px tall (py-2.5 + content + border); 66px overlaps the
-   border seam by 1px so no gap ever shows between the two bars. */
+   Sticky offset: the app no longer renders a global desktop top bar, so
+   this bar pins straight to the viewport top. */
 .location-page-root .loc-filterbar {
   position: sticky;
-  top: 66px;
+  top: 0;
   z-index: 20;
   background: var(--loc-bar-bg);
   backdrop-filter: saturate(160%) blur(16px);

@@ -279,17 +279,6 @@ interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
-/** Time-of-day → greeting word. Drives "Good morning, Tyler" etc. */
-function getGreetingPart(now = new Date()): string {
-  const h = now.getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
-}
-
-/** Day-of-week label for the hero eyebrow. */
-const HERO_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 /** Prominent "See all / Browse all" pill — white surface, primary outline,
  *  primary label, and a filled primary circle with a right arrow. Matches the
  *  redesign reference and is reused across every Discover-home rail/section so
@@ -4690,46 +4679,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching.
-                  Desktop renders a personalized greeting hero with a
-                  featured restaurant card alongside; phone shows the
-                  compact stacked "DINING IN" block. */}
-              {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (() => {
-                const greetingPart = getGreetingPart();
-                const dayName = HERO_DAY_NAMES[new Date().getDay()];
-                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
-                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
-                  .split(' ')[0]
-                  .split('@')[0];
-                // Spare editorial greeting — eyebrow (day · neighborhood) + serif
-                // greeting. The page leads straight into Recommended below; the
-                // stats and Editor's Pick were intentionally removed to declutter.
-                return (
-                  <section className="pt-8 pb-1">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
-                      {dayName}{neighborhood && (
-                        <>
-                          <span className="text-on-surface/25 font-bold"> · </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate(
-                                `/location?label=${encodeURIComponent(homeLocation!.label)}&lat=${homeLocation!.lat}&lng=${homeLocation!.lng}`,
-                              )
-                            }
-                            className="hover:underline underline-offset-4"
-                          >
-                            {neighborhood}
-                          </button>
-                        </>
-                      )}
-                    </p>
-                    <h1 className="mt-3 font-serif font-semibold text-on-surface text-[44px] xl:text-[52px] leading-[1.0] tracking-[-0.03em]">
-                      Good {greetingPart},{' '}
-                      <span className="font-serif italic font-medium text-primary">{firstName}</span>
-                    </h1>
-                  </section>
-                );
-              })()}
+                  Desktop top: just the location chip (formerly in the
+                  removed top bar) — the big greeting hero was dropped so
+                  the page leads straight into Recommended. */}
+              {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (
+                <section className="pt-6 flex items-center">
+                  <HomeLocationBar
+                    location={homeLocation}
+                    onChange={handleHomeLocationChange}
+                    onUseCurrent={handleHomeUseCurrent}
+                    variant="chip"
+                  />
+                </section>
+              )}
               {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
                 const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
                 // Minimal top: the location pill lives in the header's search

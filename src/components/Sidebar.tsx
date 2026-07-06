@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat } from 'lucide-react';
+import { Compass, Search, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -10,6 +10,7 @@ import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -35,13 +36,18 @@ export const SIDEBAR_COLLAPSED_WIDTH = 72;
 
 export const Sidebar: React.FC = () => {
   const location = useLocation();
-  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const { profile, pendingRequestCount } = useAuth();
   const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
   const { openAddReelModal } = useReels();
   const { openAddPostModal } = usePosts();
   const { openGuideCreator } = useGuideCreator();
   const { open: circleOpen, toggle: toggleCircle, setOpen: setCircleOpen } = useCirclePanel();
+  // Page-contextual quick-add (was the removed desktop header's CTA): Pantry
+  // and RecipesForYou override the label/action per view; the default rates a
+  // new restaurant via the full search page.
+  const { override: addAction } = usePageAddAction();
 
   // Auto-close the panel whenever the route changes — otherwise it
   // hovers over the new page and confuses the user.
@@ -92,6 +98,7 @@ export const Sidebar: React.FC = () => {
   const ratingCount = ratings.length;
 
   const isHomeActive = location.pathname === '/' || location.pathname === '/index.html';
+  const isSearchActive = location.pathname === '/search/main' || location.pathname === '/search';
   const isMapActive = location.pathname === '/map';
   const isReelsActive = location.pathname === '/reels';
   const isPantryActive = location.pathname === '/pantry' || location.pathname.startsWith('/pantry/');
@@ -187,6 +194,37 @@ export const Sidebar: React.FC = () => {
                   : 'left-3 right-3 top-[calc(100%-0.25rem)]',
               )}
             >
+              {/* Page-contextual quick add — the removed top bar's "Add
+                  Rating" CTA. Pantry/RecipesForYou override the label and
+                  action for their current view; default rates a new
+                  restaurant via the full search page. */}
+              {!addAction?.hidden && (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setCreateMenuOpen(false);
+                      if (addAction) addAction.onClick();
+                      else navigate('/search/main');
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                      <Star size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-bold leading-tight">{addAction?.label ?? 'Add Rating'}</span>
+                      <span className="block text-[12px] text-on-surface/50 leading-tight">
+                        {(addAction?.label ?? 'Add Rating').toLowerCase().includes('recipe')
+                          ? 'Log a recipe you cooked'
+                          : 'Search & rate a restaurant'}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="border-t border-on-surface/[0.06]" />
+                </>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -262,6 +300,16 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
+          {/* Search — the full search surface (restaurants, recipes,
+              friends). Replaces the search input that lived in the old
+              desktop top bar. */}
+          <li>
+            <NavLink to="/search/main" className={navRowClass(isSearchActive)} title={collapsed ? 'Search' : undefined}>
+              <Search size={20} strokeWidth={isSearchActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isSearchActive ? 'text-on-surface' : 'text-on-surface/65')} />
+              {!collapsed && <span className="truncate">Search</span>}
+            </NavLink>
+          </li>
+
           {/* Map */}
           <li>
             <NavLink to="/map" className={navRowClass(isMapActive)} title={collapsed ? 'Map' : undefined}>
@@ -299,8 +347,22 @@ export const Sidebar: React.FC = () => {
               )}
               title={collapsed ? 'Circle' : undefined}
             >
-              <Users size={20} strokeWidth={(circleOpen || isCircleActive) ? 2.4 : 1.9} className={cn('flex-shrink-0', (circleOpen || isCircleActive) ? 'text-on-surface' : 'text-on-surface/65')} />
-              {!collapsed && <span className="truncate">Circle</span>}
+              <span className="relative flex-shrink-0">
+                <Users size={20} strokeWidth={(circleOpen || isCircleActive) ? 2.4 : 1.9} className={cn((circleOpen || isCircleActive) ? 'text-on-surface' : 'text-on-surface/65')} />
+                {pendingRequestCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
+                    {pendingRequestCount > 9 ? '9+' : pendingRequestCount}
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1 text-left">Circle</span>
+                  {pendingRequestCount > 0 && (
+                    <span className="text-[11px] font-bold text-red-500 tabular-nums">{pendingRequestCount}</span>
+                  )}
+                </>
+              )}
             </button>
           </li>
 
