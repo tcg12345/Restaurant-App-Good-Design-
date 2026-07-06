@@ -25,7 +25,7 @@ import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
@@ -135,6 +135,15 @@ const keepAliveElement = (path: string): React.ReactNode => {
     default: return null;
   }
 };
+
+// Every destination reachable directly from the bottom nav or the desktop
+// sidebar. Landing on one via a tap/click is a tab SWITCH and must swap with
+// no motion — the iOS push/pop slide is only for detail-page navigation.
+// (Keep-alive tabs never animate anyway; listing them still matters for the
+// EXIT side: leaving a Stack page for a kept tab must also be instant.)
+const TAB_SWITCH_PATHS = new Set<string>([
+  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels', '/messages',
+]);
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -247,11 +256,32 @@ const AppContent: React.FC = () => {
   const motionExit = isCreateRoute
     ? { x: '-100%', opacity: 1 }
     : { x: '100%', position: 'absolute' as const, top: 0, left: 0, right: 0 };
-  const motionTransition = instantNav
-    ? { duration: 0 }
-    : isCreateRoute
-      ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
-      : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
+  const motionTransition = isCreateRoute
+    ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
+    : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
+  // Tapping a bottom-nav / sidebar destination is a tab SWITCH, not a push —
+  // it must swap with no motion. The iOS slide stays reserved for pushes
+  // into detail pages and their pops (navType POP keeps the slide so an
+  // in-app back button still plays the exit reveal; the swipe gesture sets
+  // `instantNav` itself and drives the motion with its own drag).
+  const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
+  const stackInstant = instantNav || isTabSwitchNav;
+  // The instant flag travels via AnimatePresence `custom`, not props: an
+  // exiting page keeps its STALE variants (that's what preserves /create's
+  // leftward exit direction after leaving it), but framer refreshes `custom`
+  // on exiting clones — so the new navigation's instant-ness reaches the old
+  // page's exit transition while its direction stays source-correct.
+  const stackVariants: Variants = {
+    enter: (instant: boolean) => (instant ? { x: 0 } : motionInitial),
+    center: (instant: boolean) => ({
+      ...motionAnimate,
+      transition: instant ? { duration: 0 } : motionTransition,
+    }),
+    exit: (instant: boolean) => ({
+      ...motionExit,
+      transition: instant ? { duration: 0 } : motionTransition,
+    }),
+  };
 
   const isKeepAlivePath = KEEP_ALIVE_PATHS.includes(location.pathname);
   const routesBlock = (
@@ -289,7 +319,7 @@ const AppContent: React.FC = () => {
       {/* Stack — every non-keep-alive route (details, map, reels, create…).
           Absolutely positioned so it overlays the tab layer; on exit it
           animates away to reveal the kept-alive tab underneath. */}
-      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
+      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false} custom={stackInstant}>
         {!isKeepAlivePath && (
         <motion.div
           key={location.pathname}
@@ -297,10 +327,11 @@ const AppContent: React.FC = () => {
           // pathname) is mounted and at rest before it drops the covering
           // snapshot — the exiting page's wrapper must not pass for it.
           data-route-stack={location.pathname}
-          initial={motionInitial}
-          animate={motionAnimate}
-          exit={motionExit}
-          transition={motionTransition}
+          variants={stackVariants}
+          custom={stackInstant}
+          initial="enter"
+          animate="center"
+          exit="exit"
           className={isCreateRoute ? 'absolute inset-0 z-30' : 'relative bg-surface'}
         >
         <React.Fragment key={refreshNonce}>
