@@ -1851,7 +1851,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -2137,7 +2137,11 @@ const ListDetailView: React.FC<{
       : list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
   const handlePlusClick = () => {
-    if (isHomeCooking) openAddRecipeModal(list.id);
+    // New recipes always go through the full three-tab builder
+    // (Basic / Advanced / AI); targetListId lands the result in this
+    // list as well as the cookbook. The basic AddRecipeModal remains
+    // only for EDITING this list's existing legacy entries.
+    if (isHomeCooking) openHomeMealModal(undefined, { targetListId: list.id });
     else if (isHotelBreakfast) setHotelModalOpen(true);
     else setAddSheetOpen(true);
   };
@@ -2630,7 +2634,7 @@ const ListDetailView: React.FC<{
             <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
             <p className="text-sm font-medium text-on-surface/40">No recipes yet</p>
             <p className="text-xs text-on-surface/30 mt-1">Add your first home cooking recipe</p>
-            <button onClick={() => openAddRecipeModal(list.id)}
+            <button onClick={() => openHomeMealModal(undefined, { targetListId: list.id })}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
               <Plus size={14} />Add Recipe
             </button>
@@ -2674,7 +2678,7 @@ const ListDetailView: React.FC<{
             {/* Add more button — phone only. On desktop the header's
                 "Add Recipe" CTA replaces this footer. */}
             {phoneMode && (
-              <button onClick={() => openAddRecipeModal(list.id)}
+              <button onClick={() => openHomeMealModal(undefined, { targetListId: list.id })}
                 className="mt-3 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
                 <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
               </button>
@@ -6621,7 +6625,6 @@ export const Pantry: React.FC = () => {
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
-    openAddRecipeModal,
   } = useLists();
 
   /**
@@ -6831,8 +6834,8 @@ export const Pantry: React.FC = () => {
   // Phone keeps the default behavior. On desktop, the button label and
   // click handler swap based on which list is open:
   //   • Recipe view (All Recipes or a custom recipe list) → "Add Recipe",
-  //     opens the right recipe modal directly (HomeMeal modal for All
-  //     Recipes; AddRecipeModal scoped to the list otherwise).
+  //     opens the three-tab recipe builder (targeted at the current
+  //     list when one is selected).
   //   • Custom restaurant list / Wishlist → "Add Rating", opens the
   //     SearchPopup in 'add-to-list' mode (rated section + search).
   //   • Rated list → "Add Rating", opens the SearchPopup in 'rate-new'
@@ -6858,7 +6861,10 @@ export const Pantry: React.FC = () => {
     if (selectedList && selectedList.type === 'home-cooking') {
       setPageAddAction({
         label: 'Add Recipe',
-        onClick: () => openAddRecipeModal(selectedList.id),
+        // Same three-tab builder as the cookbook — targetListId lands the
+        // new recipe in this list too. (The basic AddRecipeModal is only
+        // for editing a list's existing legacy entries.)
+        onClick: () => openHomeMealModal(undefined, { targetListId: selectedList.id }),
       });
       return;
     }
@@ -6877,7 +6883,7 @@ export const Pantry: React.FC = () => {
       label: 'Add Rating',
       onClick: () => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); },
     });
-  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, openAddRecipeModal, setPageAddAction]);
+  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, setPageAddAction]);
 
   // Reset the override when Pantry unmounts so other pages start clean.
   useEffect(() => {

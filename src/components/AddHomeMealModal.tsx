@@ -141,8 +141,8 @@ type Page = 'main' | 'tags' | 'photos' | 'dishList' | 'dishes' | 'ingredients' |
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, closeHomeMealModal,
-    createHomeMeal, updateHomeMeal, deleteHomeMeal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, closeHomeMealModal,
+    createHomeMeal, updateHomeMeal, deleteHomeMeal, addRecipeToList,
   } = useLists();
   const { phoneMode } = useSettings();
   const { myRecipes } = useRecipes();
@@ -208,6 +208,8 @@ export const AddHomeMealModal: React.FC = () => {
   const handleAiPublish = (meal: HomeMeal) => {
     const { id: _id, createdAt: _createdAt, ...payload } = meal;
     const created = createHomeMeal(payload);
+    // Honor the originating recipe list, same as the Basic tab's save.
+    if (created && homeMealModalTargetListId) addRecipeToList(homeMealModalTargetListId, created);
     setAiDraft(null);
     closeHomeMealModal();
     showToast('Recipe published', { variant: 'success' });
@@ -705,7 +707,10 @@ export const AddHomeMealModal: React.FC = () => {
     if (existing) {
       updateHomeMeal(existing.id, mealData);
     } else {
-      createHomeMeal(mealData);
+      const created = createHomeMeal(mealData);
+      // Opened from a specific recipe list ("Add recipe" on a list page):
+      // the new recipe also lands in that list, not just the cookbook.
+      if (created && homeMealModalTargetListId) addRecipeToList(homeMealModalTargetListId, created);
     }
     closeHomeMealModal();
   };
