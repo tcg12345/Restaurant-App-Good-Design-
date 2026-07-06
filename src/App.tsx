@@ -181,6 +181,38 @@ const AppContent: React.FC = () => {
   // or desktop-sidebar with no intermediate "tablet" layout in between.
   const useSidebar = isDesktop && !phoneMode;
 
+  // Desktop header visibility (also drives the content-height math below).
+  // Hidden where the page owns the whole viewport (map/reels/messages); on
+  // detail pages it scrolls away so their own sticky nav can take the top.
+  const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
+  const headerScrollsAway = ['/restaurant/', '/recipe/', '/meal/', '/user/', '/guides/', '/review/'].some((p) => location.pathname.startsWith(p)) || location.pathname === '/location';
+
+  // The desktop page header is a flow sibling above the routed content, so a
+  // page whose root is `min-h-screen` (100vh — correct on mobile, where it
+  // fills the screen) overshoots the viewport by the header's height and lets
+  // you scroll into empty space below the content. Measure the header and
+  // publish its height as `--desktop-header-h` on the content region; a scoped
+  // CSS rule (see index.css `.desktop-content-scope`) shrinks those
+  // full-viewport minimums by exactly that much. Phone layout never gets the
+  // scope class, so its `min-h-screen` pages are untouched.
+  const desktopHeaderRef = React.useRef<HTMLElement | null>(null);
+  const desktopContentRef = React.useRef<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => {
+    const content = desktopContentRef.current;
+    if (!content) return; // phone layout (no scope element mounted)
+    const setVar = (h: number) => content.style.setProperty('--desktop-header-h', `${Math.round(h)}px`);
+    const header = desktopHeaderRef.current;
+    if (hideHeader || !header) { setVar(0); return; }
+    setVar(header.getBoundingClientRect().height);
+    const ro = new ResizeObserver(() => setVar(header.getBoundingClientRect().height));
+    ro.observe(header);
+    return () => ro.disconnect();
+    // Auth/viewport gates are deps too: the desktop layout (and thus the
+    // content scope + header) only mounts once auth resolves, and no route
+    // change fires on the guest-continue transition — without them the var
+    // would never get written on the first page you land on.
+  }, [hideHeader, headerScrollsAway, location.pathname, useSidebar, loading, isSignedIn, isGuest, isDesktop, phoneMode]);
+
   // Pull-to-refresh (phone): bump a nonce keyed onto <Routes> so the current
   // route remounts and its mount-time data loads re-run, and broadcast
   // `app:refresh` for any context that wants to refetch in place — a soft
@@ -303,8 +335,14 @@ const AppContent: React.FC = () => {
               // defeating keep-alive). No z-index: it would create a stacking
               // context that traps in-page bottom sheets below the nav. The
               // stack (rendered after this in DOM) overlays it by tree order.
+              // Inactive tabs also clip overflow so an oversized hidden page
+              // (e.g. a 100vh root taller than the current viewport-minus-
+              // header content box) can't extend the document's scroll height
+              // and let you scroll into empty space below the active page.
               style={{
-                ...(active ? { position: 'relative' as const } : { position: 'absolute' as const, inset: 0 }),
+                ...(active
+                  ? { position: 'relative' as const }
+                  : { position: 'absolute' as const, inset: 0, overflow: 'hidden' as const }),
                 visibility: active ? 'visible' : 'hidden',
                 pointerEvents: active ? undefined : 'none',
               }}
@@ -409,18 +447,13 @@ const AppContent: React.FC = () => {
   // the map page (and on /messages, which has its own chrome) so its
   // chrome doesn't fight the rendered content.
   if (useSidebar) {
-    const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
-    // Detail pages bring their own sticky nav (recipe rd-nav, restaurant
-    // header, …) — the global header scrolls away so they can take the top
-    // edge cleanly instead of fighting a pinned bar.
-    const headerScrollsAway = ['/restaurant/', '/recipe/', '/meal/', '/user/', '/guides/', '/review/'].some((p) => location.pathname.startsWith(p)) || location.pathname === '/location';
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <ScrollRestoration />
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
-          {!hideHeader && <DesktopHeader sticky={!headerScrollsAway} />}
-          <div className="flex-1 min-w-0 relative">
+          {!hideHeader && <DesktopHeader ref={desktopHeaderRef} sticky={!headerScrollsAway} />}
+          <div ref={desktopContentRef} className="desktop-content-scope flex-1 min-w-0 relative">
             {routesBlock}
           </div>
         </main>

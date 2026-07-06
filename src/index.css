@@ -405,6 +405,26 @@
   display: none;
 }
 
+/* Desktop content region (App.tsx `.desktop-content-scope`). The routed page
+   sits below the sticky/relative DesktopHeader, which is a flow sibling that
+   consumes vertical space. Pages declare `min-h-screen` (min-height:100vh) so
+   they fill the viewport on their own (mobile), but under the header that
+   100vh overshoots by the header's height and you can scroll into empty space
+   below the content. Shrink those full-viewport minimums by the measured
+   header height (published as `--desktop-header-h`, 0 when the header is
+   hidden) so a page fills exactly the area beneath the header and no further.
+   Unlayered + a two-class selector so it beats Tailwind's `min-h-screen`
+   utility; phone layout never carries this scope class, so its pages keep the
+   full 100vh minimum. `h-screen` (Discover's fixed-height flex/scroll root)
+   gets the same treatment on `height`. When the header is hidden the var is 0,
+   so these collapse back to the original 100vh. */
+.desktop-content-scope .min-h-screen {
+  min-height: calc(100vh - var(--desktop-header-h, 0px));
+}
+.desktop-content-scope .h-screen {
+  height: calc(100vh - var(--desktop-header-h, 0px));
+}
+
 /* Standard list-row highlight reused across Circle, SearchMain, feeds. */
 .list-row-hover {
   @apply transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05];
