@@ -233,7 +233,7 @@ export const LocationMap: React.FC = () => {
         })
       : places;
     const out = hoursActive
-      ? result.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter))
+      ? result.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter))
       : result;
     return out;
   }, [places, filtersActive, selectedCuisines, selectedPrice, minScore, hoursFilter, restaurantMeta]);

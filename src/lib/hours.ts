@@ -77,8 +77,16 @@ export function parseWeekdayHours(hours: string[] | undefined | null): Interval[
     for (const period of rest.split(/,\s*/)) {
       const parts = period.split(/\s*[–—-]\s*/); // en/em dash or hyphen
       if (parts.length !== 2) continue;
-      const start = parseTime(parts[0]);
+      let start = parseTime(parts[0]);
       let end = parseTime(parts[1]);
+      // Same-meridiem ranges are sometimes written with a bare start —
+      // "5:00 – 10:00 PM" means 5 PM. Borrow the end's meridiem for a
+      // start that's digits-only. (Cross-meridiem ranges are always fully
+      // qualified, so the borrow can't misread "11:00 AM – 2:00 PM".)
+      if (start === null && end !== null && /^\d{1,2}(?::\d{2})?$/.test(parts[0].trim())) {
+        const meridiem = /p\.?m\.?/i.test(parts[1]) ? 'pm' : 'am';
+        start = parseTime(`${parts[0].trim()} ${meridiem}`);
+      }
       if (start === null || end === null) continue;
       if (end <= start) end += 1440; // overnight
       out.push({ day, start, end });

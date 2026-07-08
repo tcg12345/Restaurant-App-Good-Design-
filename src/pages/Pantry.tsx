@@ -28,6 +28,7 @@ import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
@@ -2055,6 +2056,19 @@ const ListDetailView: React.FC<{
           const wishItem = wishlist.find((w) => w.restaurantId === id);
           return { id, info, wishItem };
         }).filter(({ info }) => info);
+
+  // Backfill hours for every candidate in this list while the hours filter
+  // is active — the filter reads cached meta, and unknown hours never hide
+  // a place, so without warming the filter is a no-op for unvisited spots.
+  const listHoursWarmActive = isHoursFilterActive(wishlistHoursFilter);
+  const listHoursWarmIds = useMemo(
+    () => (listHoursWarmActive
+      ? [...ratedRestaurantsRaw.map(({ id }) => id), ...wishlistedRestaurantsRaw.map(({ id }) => id)]
+      : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listHoursWarmActive, ratedRestaurantsRaw, wishlistedRestaurantsRaw],
+  );
+  useWarmHoursForFilter(listHoursWarmIds, listHoursWarmActive);
 
   // Filter + sort options pulled from the list's actual contents, so
   // the dropdowns only ever offer cuisines / cities the user has on
@@ -6626,6 +6640,16 @@ export const Pantry: React.FC = () => {
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
+
+  // Backfill hours for every rated restaurant while the hours filter is
+  // active — the filter reads cached meta, and unknown hours never hide a
+  // place, so without warming the filter is a no-op for unvisited spots.
+  const ratedHoursWarmActive = isHoursFilterActive(hoursFilter);
+  const ratedHoursWarmIds = useMemo(
+    () => (ratedHoursWarmActive ? ratings.map((r) => r.restaurantId) : []),
+    [ratedHoursWarmActive, ratings],
+  );
+  useWarmHoursForFilter(ratedHoursWarmIds, ratedHoursWarmActive);
 
   /**
    * URL-driven view selection. The desktop sidebar navigates between

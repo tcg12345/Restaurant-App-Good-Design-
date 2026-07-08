@@ -1344,10 +1344,12 @@ export const LocationPage: React.FC = () => {
       // michelinReady is in the deps so the list re-filters once it lands).
       if (selectedMichelin.length > 0
         && !passesMichelinFilter(selectedMichelin, p.name, p.lat, p.lng, p.fullAddress || p.address)) continue;
-      // Opening-hours filter (breakfast/lunch/dinner + open now). Keeps
+      // Opening-hours filter (breakfast/lunch/dinner + open now). Search
+      // results carry their own hours (regularOpeningHours in the search
+      // FieldMask); the cached meta is the fallback for merged rows. Keeps
       // unknown-hours places and is a no-op when the filter is inactive.
       if (isHoursFilterActive(hoursFilter)
-        && !passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter)) continue;
+        && !passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter)) continue;
       out.push(p);
     }
 
@@ -1367,7 +1369,7 @@ export const LocationPage: React.FC = () => {
         if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
         const mPlace: ScoredPlace = { ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] };
         if (isHoursFilterActive(hoursFilter)
-          && !passesHoursFilter(restaurantMeta[mPlace.id]?.hours, hoursFilter)) continue;
+          && !passesHoursFilter(mPlace.hours ?? restaurantMeta[mPlace.id]?.hours, hoursFilter)) continue;
         out.push(mPlace);
       }
     }

@@ -40,6 +40,7 @@ import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilt
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -1778,11 +1779,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         passesMichelinFilter(mich, p.name, p.lat, p.lng, p.fullAddress || p.address));
     }
 
-    // Filter by opening hours (breakfast/lunch/dinner + open now). Hours come
-    // from restaurantMeta, read via a ref so this stays a stable callback.
+    // Filter by opening hours (breakfast/lunch/dinner + open now). Search
+    // results carry their own hours; cached meta is the fallback (read via
+    // a ref so this stays a stable callback).
     const hf = filtersRef.current.hoursFilter;
     if (isHoursFilterActive(hf)) {
-      filtered = filtered.filter((p) => passesHoursFilter(restaurantMetaRef.current[p.id]?.hours, hf));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf));
     }
 
     // Sort
@@ -2787,6 +2789,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const filteredExpertRatings = useMemo(() => filterRatings(expertRatings), [expertRatings, filterRatings]);
 
+  // Ratings-based map modes filter hours from cached meta, which is only
+  // warmed when a card/detail page renders — proactively backfill hours for
+  // the active mode's pool while an hours filter is on, so the filter works
+  // on data instead of falling through the unknown-hours keep-everything rule.
+  const hoursWarmActive = isHoursFilterActive(hoursFilter);
+  const hoursWarmIds = useMemo(() => {
+    if (!hoursWarmActive) return [] as string[];
+    const base = mapMode === 'myratings' ? [...myRatings, ...wishlistRatings]
+      : mapMode === 'friends' ? friendRatings
+        : mapMode === 'experts' ? expertRatings
+          : [];
+    return base.map((r) => r.restaurant_id);
+  }, [hoursWarmActive, mapMode, myRatings, wishlistRatings, friendRatings, expertRatings]);
+  useWarmHoursForFilter(hoursWarmIds, hoursWarmActive);
+
   const filteredHotelPlaces = useMemo(() => {
     let filtered = hotelPlaces;
     if (hotelStarFilter > 0) {
@@ -2795,7 +2812,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter));
     }
     const sorted = [...filtered];
     switch (hotelSortBy) {

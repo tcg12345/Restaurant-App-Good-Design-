@@ -17,6 +17,7 @@ import { extractCityState } from '../lib/places';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { HoursFilterSection } from './filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -245,6 +246,15 @@ export const FollowingFeed: React.FC = () => {
 
     return result;
   }, [uniqueRestaurants, query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, hoursFilter, restaurantMeta]);
+
+  // Backfill hours for the feed's restaurants while the hours filter is
+  // active — the filter reads cached meta, which is empty for places the
+  // viewer never opened, and unknown hours are never hidden.
+  const hoursWarmIds = useMemo(
+    () => (isHoursFilterActive(hoursFilter) ? uniqueRestaurants.map((r) => r.restaurant_id) : []),
+    [hoursFilter, uniqueRestaurants],
+  );
+  useWarmHoursForFilter(hoursWarmIds, isHoursFilterActive(hoursFilter));
 
   // Reset infinite scroll window whenever the filtered list shape changes
   useEffect(() => {

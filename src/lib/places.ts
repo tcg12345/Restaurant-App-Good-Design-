@@ -36,6 +36,11 @@ export interface PlaceResult {
    *  restaurants may not have it; the formatter falls back to the
    *  formatted address in that case. */
   addressComponents?: AddressComponent[];
+  /** Weekday opening-hour descriptions from the search response — lets the
+   *  hours filter (breakfast/lunch/dinner/open-now) work on search results
+   *  immediately instead of waiting for a per-place details backfill.
+   *  Undefined when Google has no hours for the place. */
+  hours?: string[];
 }
 
 export interface PlaceDetails extends PlaceResult {
@@ -106,6 +111,7 @@ interface GooglePlace {
   addressComponents?: AddressComponent[];
   types?: string[];
   userRatingCount?: number;
+  regularOpeningHours?: { weekdayDescriptions?: string[]; openNow?: boolean };
 }
 
 function mapPlaces(places: GooglePlace[]): PlaceResult[] {
@@ -123,6 +129,7 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     photoUrl: null,
     types: p.types || [],
     userRatingCount: p.userRatingCount ?? 0,
+    hours: p.regularOpeningHours?.weekdayDescriptions,
   }));
 }
 
@@ -138,7 +145,11 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // NOTE: places.photos is intentionally omitted — rendering any photoUrl
 // generated from it triggers a separate (billed) Places Photos media call
 // per image. The app now surfaces user-uploaded photos only.
-const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.userRatingCount';
+// regularOpeningHours powers the hours filter on search results directly.
+// Billing: searches already request rating/priceLevel/userRatingCount, which
+// put them in the Enterprise SKU — regularOpeningHours is the same tier, so
+// adding it does not change the per-request cost.
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.userRatingCount,places.regularOpeningHours';
 
 // Google's `places:searchText` endpoint only accepts `locationRestriction`
 // with a `rectangle`; passing a `circle` there returns a 400. (The
