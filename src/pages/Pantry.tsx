@@ -646,24 +646,29 @@ const ConfirmDeleteDialog: React.FC<{ name: string; onCancel: () => void; onConf
   );
 
 /* ── Open/Closed + today's-hours status line (Restaurant Cards Redesign).
-   Dot + Open/Closed + the next boundary ("opens 5:00 PM" / "closes 10:00 PM"),
-   the split-day schedule, and an optional trailing value (distance). ── */
+   Dot + Open/Closed + the concise next boundary ("opens 5:00 PM" /
+   "closes 10:00 PM") and an optional trailing value (distance). Always ONE
+   line — the boundary truncates before anything wraps, and the full day
+   schedule lives in the hover tooltip. ── */
 const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: string }> = ({ hours, trailing, className }) => {
   const s = getOpenStatus(hours);
   if (!s.label && !s.detail && !trailing) return null;
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] font-semibold', className)}>
+    <div
+      className={cn('flex min-w-0 items-center gap-x-1.5 text-[12.5px] font-semibold', className)}
+      title={s.schedule ? `Today: ${s.schedule}` : undefined}
+    >
       {s.label && (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? '#10b981' : '#ef4444' }} />
           <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
         </span>
       )}
-      {s.detail && <span className="font-medium text-on-surface/40">{s.detail}</span>}
+      {s.detail && <span className="truncate font-medium text-on-surface/40">{s.detail}</span>}
       {trailing && (
         <>
-          <span className="text-on-surface/20">·</span>
-          <span className="font-medium tabular-nums text-on-surface/55">{trailing}</span>
+          {(s.label || s.detail) && <span className="flex-shrink-0 text-on-surface/20">·</span>}
+          <span className="flex-shrink-0 font-medium tabular-nums text-on-surface/55">{trailing}</span>
         </>
       )}
     </div>
@@ -1188,28 +1193,30 @@ const RestaurantGridCard: React.FC<{
     return () => document.removeEventListener('mousedown', onDoc);
   }, [moreOpen]);
 
-  // Text-only boxed card per the Restaurant Cards Redesign — no photo. Score
-  // ring top-right, name, cuisine · price, Add Notes affordance, location, and
-  // the Open/Closed + hours · distance status line. Edit / more fade in on hover.
+  // Text-only boxed card per the Restaurant Cards Redesign — no photo. Fixed
+  // row structure so every card in a grid row is the same height: identity
+  // (name + score ring, cuisine · price), then a facts block (location +
+  // single-line Open/Closed · distance status), then a bottom-pinned footer
+  // (notes affordance left, hover edit/more right).
   return (
-    <div className="group relative">
+    <div className="group relative h-full">
       <Link
         to={`/restaurant/${restaurantId}`}
-        className="relative flex flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-[22px] pb-5 pt-[22px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+        className="relative flex h-full flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-5 pb-3.5 pt-5 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
       >
         {/* Score — inset ring, top-right */}
         {hasScore && (
-          <div className="absolute right-[22px] top-[22px]"><ScoreRing score={score} size={44} /></div>
+          <div className="absolute right-5 top-5"><ScoreRing score={score} size={44} /></div>
         )}
 
-        <h3 className="line-clamp-2 pr-14 font-serif text-[21px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
+        <h3 className="line-clamp-2 pr-14 font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
           {name}
         </h3>
 
         {(cuisineLabel || showPrice || (showMichelin && mich.michelin)) && (
-          <p className="mt-1.5 text-[13px] font-semibold text-on-surface/70">
+          <p className="mt-1 pr-14 truncate text-[13px] font-semibold text-on-surface/60">
             {cuisineLabel}
-            {cuisineLabel && showPrice ? '  ·  ' : ''}
+            {cuisineLabel && showPrice ? ' · ' : ''}
             {showPrice && mich.price}
             {showMichelin && mich.michelin && (
               <span className="ml-1.5 inline-flex items-center align-middle">
@@ -1219,106 +1226,114 @@ const RestaurantGridCard: React.FC<{
           </p>
         )}
 
-        {/* Notes affordance — Notes dropdown when present, else "Add Notes". */}
-        {hasNotes ? (
-          <div className="mt-3.5">
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotesOpen((v) => !v); }}
-              aria-expanded={notesOpen}
-              className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 hover:text-on-surface transition-colors"
-            >
-              <StickyNote size={12} className="text-on-surface/45" />
-              <span>Notes</span>
-              <ChevronDown size={12} className={cn('transition-transform', notesOpen && 'rotate-180')} />
-            </button>
-            <AnimatePresence initial={false}>
-              {notesOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
-                >
-                  <p className="mt-1.5 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
-                    &ldquo;{trimmedNotes}&rdquo;
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ) : onEditNotes ? (
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEditNotes(); }}
-            className="mt-3.5 inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 hover:text-primary transition-colors"
-          >
-            <Plus size={14} />
-            <span>Add Notes</span>
-          </button>
-        ) : null}
-
-        {/* Location */}
-        {locationLabel && (
-          <div className="mt-3.5 flex items-center gap-1.5 text-[12.5px] font-medium text-on-surface/55">
-            <MapPin size={14} className="flex-shrink-0 text-on-surface/40" />
-            <span className="truncate">{locationLabel}</span>
-          </div>
-        )}
-
-        {/* Open/Closed + hours · distance, with hover edit/more on the right */}
-        <div className="mt-2 flex min-h-[28px] items-center justify-between gap-2">
-          <StatusLine hours={meta?.hours} trailing={distanceLabel} />
-          {(onEdit || onRemove) && (
-            <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              {onEdit && (
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                  aria-label="Edit"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary"
-                >
-                  <Edit3 size={13} />
-                </button>
-              )}
-              {onRemove && (
-                <div className="relative" ref={moreRef}>
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
-                    aria-label="More options"
-                    aria-haspopup="menu"
-                    aria-expanded={moreOpen}
-                    className={cn(
-                      'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-                      moreOpen ? 'bg-on-surface/[0.06] text-on-surface' : 'text-on-surface/35 hover:bg-on-surface/[0.05] hover:text-on-surface',
-                    )}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                  <AnimatePresence>
-                    {moreOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                        transition={{ duration: 0.12, ease: 'easeOut' }}
-                        role="menu"
-                        className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
-                      >
-                        <button
-                          role="menuitem"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
+        {/* Facts — location + status share one tight block */}
+        <div className="mt-3.5 space-y-1.5">
+          {locationLabel && (
+            <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-medium text-on-surface/55">
+              <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
+              <span className="truncate">{locationLabel}</span>
             </div>
           )}
+          <StatusLine hours={meta?.hours} trailing={distanceLabel} />
+        </div>
+
+        {/* Footer — pinned to the card bottom: notes left, actions right */}
+        <div className="mt-auto pt-3">
+          <div className="flex min-h-[30px] items-center justify-between gap-2 border-t border-on-surface/[0.06] pt-2.5">
+            {hasNotes ? (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotesOpen((v) => !v); }}
+                aria-expanded={notesOpen}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold transition-colors',
+                  notesOpen
+                    ? 'bg-on-surface/[0.07] text-on-surface'
+                    : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.07] hover:text-on-surface',
+                )}
+              >
+                <StickyNote size={12} />
+                <span>Notes</span>
+                <ChevronDown size={12} className={cn('transition-transform', notesOpen && 'rotate-180')} />
+              </button>
+            ) : onEditNotes ? (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEditNotes(); }}
+                className="inline-flex h-7 items-center gap-1 rounded-full px-1.5 -ml-1.5 text-[11px] font-bold text-on-surface/40 transition-colors hover:text-primary"
+              >
+                <Plus size={13} />
+                <span>Add notes</span>
+              </button>
+            ) : (
+              <span aria-hidden className="h-7" />
+            )}
+            {(onEdit || onRemove) && (
+              <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                {onEdit && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                    aria-label="Edit"
+                    className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary"
+                  >
+                    <Edit3 size={13} />
+                  </button>
+                )}
+                {onRemove && (
+                  <div className="relative" ref={moreRef}>
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                      aria-label="More options"
+                      aria-haspopup="menu"
+                      aria-expanded={moreOpen}
+                      className={cn(
+                        'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                        moreOpen ? 'bg-on-surface/[0.06] text-on-surface' : 'text-on-surface/35 hover:bg-on-surface/[0.05] hover:text-on-surface',
+                      )}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    <AnimatePresence>
+                      {moreOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                          transition={{ duration: 0.12, ease: 'easeOut' }}
+                          role="menu"
+                          className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
+                        >
+                          <button
+                            role="menuitem"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Notes body — expands below the footer row */}
+          <AnimatePresence initial={false}>
+            {hasNotes && notesOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <p className="pt-2 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
+                  &ldquo;{trimmedNotes}&rdquo;
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </Link>
 
@@ -2718,7 +2733,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                 {ratedRestaurants.map(({ id, info, rating }, idx) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -2795,7 +2810,7 @@ const ListDetailView: React.FC<{
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
                     <RestaurantGridCard
                       key={id}
@@ -7533,7 +7548,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
