@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -11,6 +11,8 @@ import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
+import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { getCuisineLabel } from './useRestaurantDetail';
 import {
   searchUsersByUsername, getFriends, getSentRequestIds, getPendingRequests,
   getFollowerIds, sendFriendRequest, acceptFriendRequest, followPublicAccount,
@@ -172,16 +174,22 @@ function useIsDesktop(): boolean {
 }
 
 /** Desktop zero-state quick searches — clicking one runs a real located
- *  search for that craving (and scopes the tabs to Restaurants). */
+ *  search for that craving (and scopes the tabs to Restaurants). Rendered
+ *  as an Uber-Eats-style horizontally scrollable rail. */
 const BROWSE_CUISINES: Array<{ label: string; emoji: string }> = [
-  { label: 'Italian', emoji: '🍝' }, { label: 'Japanese', emoji: '🍣' },
-  { label: 'Mexican', emoji: '🌮' }, { label: 'Chinese', emoji: '🥡' },
-  { label: 'Thai', emoji: '🍜' }, { label: 'Indian', emoji: '🍛' },
-  { label: 'French', emoji: '🥐' }, { label: 'Korean', emoji: '🍲' },
-  { label: 'Pizza', emoji: '🍕' }, { label: 'Burgers', emoji: '🍔' },
-  { label: 'Sushi', emoji: '🍱' }, { label: 'Steakhouse', emoji: '🥩' },
-  { label: 'Seafood', emoji: '🦞' }, { label: 'Brunch', emoji: '🥞' },
-  { label: 'Bakery', emoji: '🥖' }, { label: 'Dessert', emoji: '🍰' },
+  { label: 'Pizza', emoji: '🍕' }, { label: 'Sushi', emoji: '🍣' },
+  { label: 'Italian', emoji: '🍝' }, { label: 'Japanese', emoji: '🍱' },
+  { label: 'Chinese', emoji: '🥡' }, { label: 'Mexican', emoji: '🌮' },
+  { label: 'Thai', emoji: '🍜' }, { label: 'Vietnamese', emoji: '🥢' },
+  { label: 'Indian', emoji: '🍛' }, { label: 'Korean', emoji: '🍲' },
+  { label: 'French', emoji: '🥐' }, { label: 'Greek', emoji: '🥙' },
+  { label: 'Mediterranean', emoji: '🫒' }, { label: 'Spanish', emoji: '🥘' },
+  { label: 'Middle Eastern', emoji: '🧆' }, { label: 'Ramen', emoji: '🍥' },
+  { label: 'BBQ', emoji: '🍖' }, { label: 'Burgers', emoji: '🍔' },
+  { label: 'Steakhouse', emoji: '🥩' }, { label: 'Seafood', emoji: '🦞' },
+  { label: 'Caribbean', emoji: '🍹' }, { label: 'Vegan', emoji: '🥗' },
+  { label: 'Brunch', emoji: '🥞' }, { label: 'Bakery', emoji: '🥖' },
+  { label: 'Coffee', emoji: '☕' }, { label: 'Dessert', emoji: '🍰' },
 ];
 
 const SectionHeading: React.FC<{ label: string; count: number; phoneMode: boolean }> = ({ label, count, phoneMode }) => (
@@ -241,12 +249,32 @@ export const SearchMain: React.FC = () => {
   const [userLng, setUserLng] = useState(DEFAULT_LNG);
   const [locationKnown, setLocationKnown] = useState(false);
 
+  // Desktop anchors search + distances to the CHOSEN home location when one
+  // is saved — matching the "Near {city}" label the layout shows — and only
+  // falls back to browser geolocation when none is set. Phone keeps the
+  // original pure-geolocation behavior.
+  const homeAnchor = useMemo(() => {
+    const loc = loadLastSelectedLocation();
+    return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) ? loc : null;
+  }, []);
+  const preferHome = isDesktop && homeAnchor !== null;
+  useEffect(() => {
+    if (!preferHome || !homeAnchor) return;
+    setUserLat(homeAnchor.lat);
+    setUserLng(homeAnchor.lng);
+    setLocationKnown(true);
+  }, [preferHome, homeAnchor]);
+  const anchorLabel = preferHome && homeAnchor
+    ? homeAnchor.label.split(',').slice(0, 2).join(',').trim()
+    : locationKnown ? 'your location' : '';
+
   const inputRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const recipesSectionRef = useRef<HTMLElement>(null);
   const friendsSectionRef = useRef<HTMLElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastQueryRef = useRef<string>('');
+  const railRef = useRef<HTMLDivElement>(null);
 
   // Michelin overlay for restaurant rows.
   const michelinReady = useMichelinIndexReady();
@@ -266,6 +294,7 @@ export const SearchMain: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (preferHome) return; // the saved home location is the anchor
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -276,7 +305,7 @@ export const SearchMain: React.FC = () => {
       () => { /* keep defaults; locationKnown stays false so distance is hidden */ },
       { timeout: 5000 },
     );
-  }, []);
+  }, [preferHome]);
 
   // Build the recipe search pool once: public home meals (where most recipes
   // live) + the public recipes table, deduped by id. Filtered client-side as
@@ -638,14 +667,16 @@ export const SearchMain: React.FC = () => {
         ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
         : '';
       const wishlisted = isWishlisted(place.id);
+      const mich = michelinByPlaceId[place.id];
+      // Real cuisine from the place's Google types (Michelin's when matched)
+      // — the card reads "Sushi · Manhattan · $$", not just the location.
+      const label = mich ? mich.cuisine : getCuisineLabel(place.types);
+      const priceText = mich ? michelinPriceDisplay(mich) : price;
       const meta = {
         id: place.id, name: place.name, image: place.photoUrl || '',
-        cuisine: location || 'Restaurant', price,
+        cuisine: label, price,
         address: place.fullAddress || place.address || '',
       };
-      const mich = michelinByPlaceId[place.id];
-      const label = mich ? mich.cuisine : (location || 'Restaurant');
-      const priceText = mich ? michelinPriceDisplay(mich) : price;
       return (
         <div
           key={place.id}
@@ -661,6 +692,7 @@ export const SearchMain: React.FC = () => {
             <h3 className="font-serif font-bold text-[16px] leading-snug line-clamp-2 group-hover:text-primary transition-colors">{place.name}</h3>
             <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
               {label}
+              {location && <><span className="text-on-surface/25 mx-1.5">·</span>{location}</>}
               {priceText && <><span className="text-on-surface/25 mx-1.5">·</span>{priceText}</>}
             </p>
             <div className="mt-1.5 flex items-center gap-2 text-xs text-on-surface/50">
@@ -825,7 +857,7 @@ export const SearchMain: React.FC = () => {
                   type="button"
                   onClick={() => setScope(t.key)}
                   className={cn(
-                    'relative pb-2.5 text-[13.5px] font-semibold transition-colors',
+                    'relative pb-2.5 text-[13.5px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-md',
                     scope === t.key ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/75',
                   )}
                 >
@@ -836,6 +868,12 @@ export const SearchMain: React.FC = () => {
                   {scope === t.key && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-primary rounded-full" />}
                 </button>
               ))}
+              {anchorLabel && (
+                <span className="ml-auto mb-1 inline-flex items-center gap-1.5 pb-1.5 text-[12px] font-semibold text-on-surface/45">
+                  <MapPin size={12} className="flex-shrink-0 text-on-surface/35" />
+                  Near {anchorLabel}
+                </span>
+              )}
             </div>
           </div>
         </header>
@@ -878,18 +916,49 @@ export const SearchMain: React.FC = () => {
               )
             ) : (
               <section>
-                <h2 className="font-serif font-bold text-[20px] text-on-surface mb-1">Browse by cuisine</h2>
-                <p className="text-[13px] text-on-surface/50 mb-4">Jump straight into a craving — results are matched near your location.</p>
-                <div className="grid grid-cols-3 2xl:grid-cols-4 gap-3">
+                <div className="mb-1 flex items-center justify-between gap-4">
+                  <h2 className="font-serif font-bold text-[20px] text-on-surface">Browse by cuisine</h2>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-label="Scroll cuisines left"
+                      onClick={() => railRef.current?.scrollBy({ left: -560, behavior: 'smooth' })}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-on-surface/[0.09] text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-on-surface"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Scroll cuisines right"
+                      onClick={() => railRef.current?.scrollBy({ left: 560, behavior: 'smooth' })}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-on-surface/[0.09] text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-on-surface"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[13px] text-on-surface/50 mb-3">
+                  Tap a craving to search
+                  {anchorLabel ? <> near <span className="font-semibold text-on-surface/70">{anchorLabel}</span></> : ' near you'}.
+                </p>
+                <div
+                  ref={railRef}
+                  className="scrollbar-hide -mx-2 flex gap-1 overflow-x-auto px-2 pb-1"
+                  style={{ scrollbarWidth: 'none' }}
+                >
                   {BROWSE_CUISINES.map((c) => (
                     <button
                       key={c.label}
                       type="button"
                       onClick={() => { setScope('restaurants'); setSearchQuery(c.label); }}
-                      className="group flex items-center gap-3 p-4 rounded-2xl border border-on-surface/[0.07] hover:border-primary/40 hover:bg-primary/[0.03] transition-all text-left"
+                      className="group flex w-[92px] flex-shrink-0 flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors hover:bg-on-surface/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
-                      <span className="text-[22px] leading-none">{c.emoji}</span>
-                      <span className="text-[14px] font-bold text-on-surface group-hover:text-primary transition-colors">{c.label}</span>
+                      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-on-surface/[0.045] text-[26px] leading-none transition-transform duration-150 group-hover:scale-105">
+                        {c.emoji}
+                      </span>
+                      <span className="max-w-full truncate text-[12.5px] font-semibold text-on-surface/75 transition-colors group-hover:text-primary">
+                        {c.label}
+                      </span>
                     </button>
                   ))}
                 </div>
