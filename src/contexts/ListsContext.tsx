@@ -1994,6 +1994,31 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
       return next;
     });
+    // Rating a wishlisted restaurant graduates it off the wishlist — it has
+    // been visited now. Mirrors removeFromWishlist (declared below, so the
+    // logic is inlined): tombstone the entry so a stale cloud copy can't
+    // resurrect it, drop it from the wishlist array, and strip it from every
+    // list's want-to-try (wishlistIds) section. The listIds block above may
+    // have just added the restaurant to those lists' RATED section, so this
+    // reads as "moved from want-to-try to been".
+    const wasWishlisted = wishlist.some((w) => w.restaurantId === rating.restaurantId);
+    if (wasWishlisted) {
+      tombstone('wishlist', rating.restaurantId);
+      setWishlist((prev) => {
+        const nextW = prev.filter((w) => w.restaurantId !== rating.restaurantId);
+        saveToStorage(STORAGE_KEY_WISHLIST, nextW);
+        syncWishlistToCloud(nextW);
+        return nextW;
+      });
+      setLists((prev) => {
+        const nextL = prev.map((l) => l.wishlistIds.includes(rating.restaurantId)
+          ? { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== rating.restaurantId) }
+          : l);
+        saveToStorage(STORAGE_KEY_LISTS, nextL);
+        syncListsToCloud(nextL);
+        return nextL;
+      });
+    }
     // Publish to community
     if (userIdRef.current) {
       // The rated row publishes its SETTLED score (may differ from the raw
@@ -2020,11 +2045,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
       {
-        subtitle: `${rating.name} · ${settledSelf.score.toFixed(1)} / 10${otherChanged.length > 0 ? ' · nearby ratings adjusted' : ''}`,
+        subtitle: `${rating.name} · ${settledSelf.score.toFixed(1)} / 10${wasWishlisted ? ' · removed from wishlist' : ''}${otherChanged.length > 0 ? ' · nearby ratings adjusted' : ''}`,
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
+  }, [ratings, wishlist, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
