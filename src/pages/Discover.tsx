@@ -279,22 +279,18 @@ interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
-/** Prominent "See all / Browse all" pill — white surface, primary outline,
- *  primary label, and a filled primary circle with a right arrow. Matches the
- *  redesign reference and is reused across every Discover-home rail/section so
- *  the call-to-action reads the same everywhere. Renders a <Link> when `to` is
- *  given, otherwise a <button> with `onClick`. */
-const SeeAllPill: React.FC<{ label: string; to?: string; onClick?: () => void; className?: string }> = ({ label, to, onClick, className }) => {
+/** Quiet "See all / Browse all" text link for section headers — label +
+ *  small arrow, no pill chrome, so sidebar sections defer to their content.
+ *  Renders a <Link> when `to` is given, otherwise a <button> with `onClick`. */
+const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; className?: string }> = ({ label, to, onClick, className }) => {
   const cls = cn(
-    'inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-paper border-[1.5px] border-primary pl-4 pr-2 py-[7px] text-[13px] font-bold text-primary shadow-sm transition-colors hover:bg-primary/[0.06] active:scale-[0.98]',
+    'group inline-flex flex-shrink-0 items-center gap-1 text-[12px] font-bold text-primary transition-opacity hover:opacity-75',
     className,
   );
   const inner = (
     <>
       {label}
-      <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-primary text-white">
-        <ArrowRight size={13} strokeWidth={2.6} />
-      </span>
+      <ArrowRight size={12} strokeWidth={2.6} className="transition-transform group-hover:translate-x-0.5" />
     </>
   );
   return to
@@ -4674,10 +4670,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching.
-                  Desktop top: a hero band in place of the old Recommended
-                  rail — recommendation browsing lives on the location page
-                  now, so the band's single job is routing there (plus the
-                  location chip, formerly in the removed top bar). */}
+                  Desktop top: a compact typography-led masthead — no hero
+                  card, no oversized CTA. One baseline row: title block left,
+                  location chip + a normal-height recommendations button
+                  right, closed by a hairline that the whole lower zone hangs
+                  from. Recommendation browsing lives on the location page. */}
               {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (() => {
                 const city = homeLocation?.label?.split(',')[0]?.trim() || '';
                 const goToRecommendations = () => {
@@ -4685,56 +4682,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   navigate(`/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`);
                 };
                 return (
-                  <section className="pt-7">
-                    <div className="relative overflow-hidden rounded-[26px] border border-on-surface/[0.07] bg-white">
-                      {/* Soft brand wash + oversized watermark so the band
-                          reads designed rather than a bordered box — faint
-                          enough to stay calm behind the type. */}
-                      <div aria-hidden className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-primary/[0.07] blur-3xl" />
-                      <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-20 h-64 w-64 rounded-full bg-on-surface/[0.04] blur-3xl" />
-                      <UtensilsCrossed
-                        aria-hidden
-                        className="pointer-events-none absolute -bottom-9 -right-7 h-40 w-40 rotate-[-8deg] text-on-surface/[0.045]"
-                        strokeWidth={1.1}
-                      />
-                      <div className="relative flex items-center justify-between gap-8 px-9 py-8 xl:px-11 xl:gap-12">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Curated for you</p>
-                          <h1 className="mt-2.5 font-serif font-bold text-[32px] xl:text-[36px] leading-[1.05] tracking-[-0.02em] text-on-surface">
-                            Find your next table
-                          </h1>
-                          <p className="mt-2 max-w-[54ch] text-[14px] leading-relaxed text-on-surface/55">
-                            {city ? (
-                              <>Recommendations near <span className="font-semibold text-on-surface/75">{city}</span> — tuned to your taste and refreshed as you rate.</>
-                            ) : (
-                              'Set a location and we’ll line up restaurants tuned to your taste.'
-                            )}
-                          </p>
-                          <div className="mt-5">
-                            <HomeLocationBar
-                              location={homeLocation}
-                              onChange={handleHomeLocationChange}
-                              onUseCurrent={handleHomeUseCurrent}
-                              variant="chip"
-                            />
-                          </div>
-                        </div>
+                  <section className="pt-8">
+                    <div className="flex items-end justify-between gap-8 border-b border-on-surface/[0.07] pb-6">
+                      <div className="min-w-0">
+                        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary">Curated for you</p>
+                        <h1 className="mt-1.5 font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.02em] text-on-surface">
+                          Find your next table
+                        </h1>
+                        <p className="mt-1.5 truncate text-[13.5px] text-on-surface/55">
+                          {city ? (
+                            <>Tuned to your taste near <span className="font-semibold text-on-surface/75">{city}</span> — refreshed as you rate.</>
+                          ) : (
+                            'Set a location and we’ll line up restaurants tuned to your taste.'
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-2.5 pb-0.5">
+                        <HomeLocationBar
+                          location={homeLocation}
+                          onChange={handleHomeLocationChange}
+                          onUseCurrent={handleHomeUseCurrent}
+                          variant="chip"
+                        />
                         <button
                           type="button"
                           onClick={goToRecommendations}
-                          className="group flex flex-shrink-0 items-center gap-5 rounded-[20px] bg-primary py-5 pl-6 pr-5 text-left text-white shadow-lg shadow-primary/25 transition-all hover:-translate-y-0.5 hover:bg-primary/95 hover:shadow-xl hover:shadow-primary/30 active:translate-y-0 active:scale-[0.99]"
+                          className="group inline-flex h-10 flex-shrink-0 items-center gap-2 rounded-full bg-primary pl-4.5 pr-4 text-[13px] font-bold text-white transition-colors hover:bg-primary/90 active:scale-[0.98]"
                         >
-                          <span>
-                            <span className="block font-serif font-bold text-[20px] leading-tight tracking-[-0.01em]">
-                              See recommendations
-                            </span>
-                            <span className="mt-1 block text-[12.5px] font-medium text-white/75">
-                              {city ? `Top picks near ${city}` : 'Pick a location to start'}
-                            </span>
-                          </span>
-                          <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-full bg-white/15 transition-all group-hover:translate-x-0.5 group-hover:bg-white/25">
-                            <ArrowRight size={19} strokeWidth={2.2} />
-                          </span>
+                          See recommendations
+                          <ArrowRight size={15} strokeWidth={2.4} className="transition-transform group-hover:translate-x-0.5" />
                         </button>
                       </div>
                     </div>
@@ -4796,7 +4772,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   stack of rails on wide screens. Mobile keeps the stacked
                   rails below. ── */}
               {usingDesktopHeader && (
-                <section className="mt-9 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
+                <section className="mt-7 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
                   {/* Left — friend activity feed */}
                   <div className="min-w-0">
                     <SocialFeed
@@ -4808,16 +4784,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
 
                   {/* Right — Recipes for you + Featured guides. Always beside
-                      the feed in desktop mode (≥1024px), never stacked below. */}
-                  <div className="space-y-9">
+                      the feed in desktop mode (≥1024px), never stacked below.
+                      Editorial-sidebar styling: small-caps labels + quiet
+                      text links, so the columns read as one composition with
+                      the masthead instead of competing section heroes. */}
+                  <div className="space-y-8">
                     {/* Recipes for you */}
                     <div>
-                      <div className="flex items-end justify-between gap-3 mb-1.5">
-                        <h2 className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">Recipes for you</h2>
-                        <SeeAllPill label="See all" to="/recipes-for-you" />
+                      <div className="flex items-baseline justify-between gap-3 border-b border-on-surface/[0.07] pb-2">
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recipes for you</h2>
+                        <SectionLink label="See all" to="/recipes-for-you" />
                       </div>
                       {recommendedRecipes.length === 0 ? (
-                        <p className="text-[13px] text-on-surface/45 py-3">No recipes yet.</p>
+                        <p className="py-3 text-[12.5px] text-on-surface/45">No recipes yet.</p>
                       ) : (
                         <div className="divide-y divide-on-surface/[0.06]">
                           {recommendedRecipes.slice(0, 5).map((r) => {
@@ -4863,9 +4842,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
                     {/* Featured guides */}
                     <div>
-                      <div className="flex items-end justify-between gap-3 mb-1.5">
-                        <h2 className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">Featured guides</h2>
-                        <SeeAllPill label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
+                      <div className="flex items-baseline justify-between gap-3 border-b border-on-surface/[0.07] pb-2">
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h2>
+                        <SectionLink label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
                       </div>
                       <div className="divide-y divide-on-surface/[0.06]">
                         {feedGuides.slice(0, 4).map((g) => {

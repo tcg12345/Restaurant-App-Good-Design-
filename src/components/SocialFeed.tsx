@@ -866,34 +866,56 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   const SectionHeader: React.FC = () => (
     <div className="mb-3">
-      {!phoneMode && (
-        <div className="flex items-center gap-3 mb-2.5">
-          <span className="text-[24px] font-bold font-serif tracking-[-0.02em]">From your circle</span>
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-          </span>
-          <span className="text-[13px] font-semibold text-emerald-600">Live</span>
+      {/* One switch, two meanings: Posts = photo posts; Activity = every
+          restaurant + recipe your people have added. Desktop keeps the
+          header to a single compact row — title + live dot left, slim
+          right-aligned tabs — so it doesn't tower over the feed. Phone
+          keeps the full-width tab bar (its title lives in the page chrome). */}
+      {!phoneMode ? (
+        <div className="flex items-center justify-between gap-4 border-b border-on-surface/[0.07] pb-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="truncate text-[19px] font-bold font-serif tracking-[-0.02em]">From your circle</span>
+            <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+            </span>
+            <span className="text-[11.5px] font-semibold text-emerald-600 flex-shrink-0">Live</span>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-0.5 rounded-full bg-on-surface/[0.045] p-0.5">
+            {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFeedTab(key)}
+                aria-pressed={feedTab === key}
+                className={cn(
+                  'rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors whitespace-nowrap',
+                  feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55 hover:text-on-surface',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex h-10 rounded-full bg-on-surface/[0.05] p-1">
+          {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFeedTab(key)}
+              aria-pressed={feedTab === key}
+              className={cn(
+                'flex-1 rounded-full text-[13.5px] font-semibold transition-colors',
+                feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55',
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
-      {/* One switch, two meanings: Posts = photo posts; Activity = every
-          restaurant + recipe your people have added. */}
-      <div className="flex h-10 rounded-full bg-on-surface/[0.05] p-1">
-        {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setFeedTab(key)}
-            aria-pressed={feedTab === key}
-            className={cn(
-              'flex-1 rounded-full text-[13.5px] font-semibold transition-colors',
-              feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
       {feedTab === 'activity' && (
         <div className="mt-2.5 flex gap-2">
           {([['friends', 'Friends'], ['experts', 'Experts']] as const).map(([key, label]) => {
