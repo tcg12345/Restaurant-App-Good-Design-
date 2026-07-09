@@ -537,3 +537,119 @@ describe('v3 candidate queries', () => {
     expect(out.filter((q) => !q.priceLevels).length).toBe(2);
   });
 });
+
+/* ── v3.1: hard price band, Michelin taste, in-app popularity ──────────── */
+
+describe('v3.1 hard price band (rec surfaces)', () => {
+  it('a $$$/$$$$ palate gets NO $ recs at all when enforced — and still soft-ranks them elsewhere', () => {
+    const p = premium70(); // t1 share ≈ 3%, t2 ≈ 7% → only $ is out of band
+    const candidates = [
+      place({ id: 'dollar', types: [], priceLevel: 1, rating: 4.7, userRatingCount: 2000 }),
+      place({ id: 'fancy', types: [], priceLevel: 4, rating: 4.4, userRatingCount: 300 }),
+    ];
+    const enforced = scoreCandidates(candidates, p, emptySignals(), TARGET, RADIUS, { enforcePriceBand: true });
+    expect(enforced.map((x) => x.id)).not.toContain('dollar');
+    expect(enforced.map((x) => x.id)).toContain('fancy');
+    // Browse surfaces (LocationPage) keep listing everything.
+    const browse = scoreCandidates(candidates, p, emptySignals(), TARGET, RADIUS, { enforcePriceBand: false });
+    expect(browse.map((x) => x.id)).toContain('dollar');
+  });
+
+  it('vice versa: a strictly-$ palate gets no $$$$ recs', () => {
+    const p = buildTasteProfile(
+      Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `c${i}`, cuisine: 'Mexican', price: '$', score: 9 })),
+      [], [], [],
+    );
+    const out = scoreCandidates(
+      [
+        place({ id: 'splurge', types: [], priceLevel: 4, rating: 4.8, userRatingCount: 900 }),
+        place({ id: 'value', types: [], priceLevel: 1, rating: 4.3, userRatingCount: 200 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+      { enforcePriceBand: true },
+    );
+    expect(out.map((x) => x.id)).not.toContain('splurge');
+    expect(out.map((x) => x.id)).toContain('value');
+  });
+
+  it('wishlisted places are exempt — explicit intent beats the band', () => {
+    const ratings = Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `c${i}`, price: '$$$$', score: 9 }));
+    const wishlist = [wish({ restaurantId: 'cheap-wish', cuisine: 'Italian', price: '$' })];
+    const p = buildTasteProfile(ratings, wishlist, [], []);
+    const out = scoreCandidates(
+      [place({ id: 'cheap-wish', types: [], priceLevel: 1 })],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+      { enforcePriceBand: true, keepWishlisted: true },
+    );
+    expect(out.map((x) => x.id)).toContain('cheap-wish');
+  });
+
+  it('thin histories (<8 priced ratings) never hard-exclude', () => {
+    const p = buildTasteProfile(
+      Array.from({ length: 4 }, (_, i) => rating({ restaurantId: `c${i}`, price: '$$$$', score: 9 })),
+      [], [], [],
+    );
+    const out = scoreCandidates(
+      [place({ id: 'dollar', types: [], priceLevel: 1 })],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+      { enforcePriceBand: true },
+    );
+    expect(out.map((x) => x.id)).toContain('dollar');
+  });
+});
+
+describe('v3.1 Michelin taste match', () => {
+  it('a demonstrated star-chaser gets starred candidates lifted beyond the generic boost', () => {
+    const base = premium70();
+    const starChaser: TasteProfile = { ...base, michelinTaste: { starShare: 0.4, bibShare: 0, selectedShare: 0 } };
+    const cand = (id: string): RecCandidate => ({
+      ...place({ id, types: ['french_restaurant'], priceLevel: 4, rating: 4.5, userRatingCount: 400 }),
+      michelin: mich(1),
+    });
+    const [withTaste] = scoreCandidates([cand('a')], starChaser, emptySignals(), TARGET, RADIUS);
+    const [withoutTaste] = scoreCandidates([cand('a')], base, emptySignals(), TARGET, RADIUS);
+    expect(withTaste.recScore).toBeGreaterThan(withoutTaste.recScore + 0.5);
+  });
+
+  it('the boost tracks the matching distinction bucket, not all of them', () => {
+    const base = premium70();
+    const bibHunter: TasteProfile = { ...base, michelinTaste: { starShare: 0, bibShare: 0.3, selectedShare: 0 } };
+    const starred: RecCandidate = { ...place({ id: 's', types: [], priceLevel: 3, rating: 4.5, userRatingCount: 400 }), michelin: mich(1) };
+    const bib: RecCandidate = { ...place({ id: 'b', types: [], priceLevel: 3, rating: 4.5, userRatingCount: 400 }), michelin: mich(0, { bibGourmand: true }) };
+    const out = scoreCandidates([starred, bib], bibHunter, emptySignals(), TARGET, RADIUS);
+    // Bib candidate gains the taste boost; the starred one only keeps the
+    // generic distinctiveness (higher weight) — net: bib closes the gap.
+    const noTaste = scoreCandidates([starred, bib], base, emptySignals(), TARGET, RADIUS);
+    const gapWith = out.find((x) => x.id === 's')!.recScore - out.find((x) => x.id === 'b')!.recScore;
+    const gapWithout = noTaste.find((x) => x.id === 's')!.recScore - noTaste.find((x) => x.id === 'b')!.recScore;
+    expect(gapWith).toBeLessThan(gapWithout);
+  });
+});
+
+describe('v3.1 in-app popularity', () => {
+  it('more community raters lift a place and chip it', () => {
+    const p = premium70();
+    const popular: RecCandidate = { ...place({ id: 'pop', types: [], priceLevel: 4, rating: 4.4, userRatingCount: 400 }), appRatingCount: 12 };
+    const unknown: RecCandidate = { ...place({ id: 'unk', types: [], priceLevel: 4, rating: 4.4, userRatingCount: 400 }), appRatingCount: 0 };
+    const out = scoreCandidates([popular, unknown], p, emptySignals(), TARGET, RADIUS);
+    expect(out[0].id).toBe('pop');
+    expect(out[0].reasons!.join(' | ')).toContain('Rated by 12 in the community');
+  });
+
+  it('is dormant when nobody has rated anything (today’s state)', () => {
+    const p = premium70();
+    const a: RecCandidate = { ...place({ id: 'a', types: [], priceLevel: 4 }), appRatingCount: 0 };
+    const b = place({ id: 'b', types: [], priceLevel: 4 });
+    const out = scoreCandidates([a, b], p, emptySignals(), TARGET, RADIUS);
+    expect(Math.abs(out[0].recScore - out[1].recScore)).toBeLessThan(0.001);
+  });
+});

@@ -8,6 +8,7 @@ import {
   getTagSimilarRestaurants,
   getFollowedExpertIds,
   getCommunityPricesForPlaces,
+  getCommunityRatingCounts,
 } from './supabase-community';
 import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
@@ -17,6 +18,7 @@ import {
   michelinNearbySync,
   michelinToPlaceResult,
   isMichelinSyntheticId,
+  isMichelinIndexReady,
   normalize as normalizeName,
   type MichelinInfo,
 } from './michelin';
@@ -70,6 +72,11 @@ export interface TasteProfile {
    *  synthetic candidates that duplicate an already-rated place under a
    *  different id. */
   ratedNames?: Set<string>;
+  /** Share of the user's positively-weighted ratings that match each Michelin
+   *  distinction bucket. Only computed once the dataset has loaded (the
+   *  builder is sync); a heavy star-chaser gets starred candidates boosted,
+   *  a Bib hunter gets Bibs. */
+  michelinTaste?: { starShare: number; bibShare: number; selectedShare: number };
 }
 
 export interface RecTargetLocation {
@@ -91,12 +98,20 @@ export interface RecOptions {
   /** Keep wishlisted places in the ranking (they get an "On your wishlist"
    *  reason chip instead of being hidden — a wishlisted spot IS a good rec). */
   keepWishlisted?: boolean;
+  /** Hard-drop price tiers the user demonstrably never spends in (see
+   *  ScoreCandidatesOptions.enforcePriceBand). Default true here — this is
+   *  the recommendation entry point, not a browse surface. */
+  enforcePriceBand?: boolean;
 }
 
-/** A candidate entering the scorer. Michelin info (when the pool stage found
- *  a match) rides along so scoring stays synchronous and dataset-free. */
+/** A candidate entering the scorer. Michelin info and the in-app community
+ *  rating count (when the pool stage found them) ride along so scoring stays
+ *  synchronous and dataset-free. */
 export interface RecCandidate extends PlaceResult {
   michelin?: { stars: 0 | 1 | 2 | 3; bibGourmand: boolean; selected: boolean };
+  /** Distinct app users who have rated this place — the platform-popularity
+   *  signal. Near-zero today; grows with the community. */
+  appRatingCount?: number;
 }
 
 export interface ScoredPlace extends RecCandidate {
@@ -121,9 +136,11 @@ export const DEFAULT_WEIGHTS = {
   price: 0.9,              // base — grows up to 2.0 with price concentration
   pair: 1.8,
   tagOverlap: 1.1,
-  popularity: 0.5,         // dampened as distinctiveTaste rises
+  popularity: 0.5,         // Google crowds — dampened as distinctiveTaste rises
+  appPopularity: 0.8,      // in-app raters; saturates at ~20 (dormant until the community grows)
   quality: 1.5,
   distinctive: 1.4,        // Michelin / boutique boost, scaled by the palate
+  michelinTaste: 1.0,      // extra lift when the user demonstrably chases that distinction
   expert: 1.0,
   friend: 1.6,
   wishlist: 0.6,
@@ -324,6 +341,37 @@ export function buildTasteProfile(
     ? [...positiveScores].sort((a, b) => a - b)[Math.floor((positiveScores.length - 1) * 0.9)]
     : undefined;
 
+  // ── Michelin taste ──
+  // How much of the user's (positive) history is Guide-recognized, split by
+  // distinction. Sync-gated on the dataset being loaded: the recs browser
+  // loads it during the pool gather and rebuilds the profile when it lands;
+  // other callers simply skip the boost until then. Name+city matching (the
+  // rating rows carry no coords).
+  let michelinTaste: TasteProfile['michelinTaste'];
+  if (isMichelinIndexReady() && scoreN > 0) {
+    let starHits = 0;
+    let bibHits = 0;
+    let selectedHits = 0;
+    let positiveN = 0;
+    for (const r of ratings) {
+      if (r.score <= 0) continue;
+      if (r.score < anchor) continue; // only places they'd actually vouch for
+      positiveN++;
+      const info = findMichelinMatchSync(r.name, undefined, undefined, r.address);
+      if (!info) continue;
+      if (info.stars > 0) starHits++;
+      else if (info.bibGourmand) bibHits++;
+      else if (info.selected) selectedHits++;
+    }
+    if (positiveN > 0) {
+      michelinTaste = {
+        starShare: starHits / positiveN,
+        bibShare: bibHits / positiveN,
+        selectedShare: selectedHits / positiveN,
+      };
+    }
+  }
+
   return {
     cuisineScore,
     priceScore,
@@ -348,6 +396,7 @@ export function buildTasteProfile(
     anchor,
     scoreP90,
     ratedNames,
+    michelinTaste,
   };
 }
 
@@ -516,6 +565,14 @@ export interface ScoreCandidatesOptions {
    *  this: a wishlisted spot is a good recommendation — it gets an
    *  "On your wishlist" chip and a small boost instead of being hidden. */
   keepWishlisted?: boolean;
+  /** Hard price-band enforcement for RECOMMENDATION surfaces: with enough
+   *  priced history (n ≥ 8), tiers holding <5% of the user's positive price
+   *  mass AND sitting more than one tier from their spending center are
+   *  dropped entirely — a $$$/$$$$-only rater simply doesn't get $/$$ recs,
+   *  and vice versa (wishlisted places are exempt: explicit intent wins).
+   *  OFF by default so browse-everything surfaces (/location) keep listing
+   *  the whole city. */
+  enforcePriceBand?: boolean;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -610,6 +667,7 @@ export function scoreCandidates(
   const limit = options.limit ?? 12;
   const skipUserHistory = options.skipUserHistory ?? true;
   const keepWishlisted = options.keepWishlisted ?? false;
+  const enforcePriceBand = options.enforcePriceBand ?? false;
 
   const googleTypeToLabel: Record<string, string> = {};
   for (const entry of CUISINE_TYPES) {
@@ -675,6 +733,19 @@ export function scoreCandidates(
     // A Michelin synthetic candidate can duplicate an already-rated place
     // under a different id — suppress by normalized name.
     if (isMichelinSyntheticId(c.id) && profile.ratedNames?.has(normalizeName(c.name))) continue;
+    // Hard price band (rec surfaces only): with real history behind the
+    // distribution, tiers the user demonstrably never spends in aren't
+    // demoted — they're not recommended at all.
+    if (
+      enforcePriceBand &&
+      dist &&
+      dist.n >= 8 &&
+      c.priceLevel >= 1 &&
+      c.priceLevel <= 4 &&
+      dist.share[c.priceLevel - 1] < 0.05 &&
+      Math.abs(c.priceLevel - dist.center) > 1 &&
+      !profile.wishlistedIds.has(c.id)
+    ) continue;
 
     const cuisine = inferCuisine(c.types);
     const price = c.priceLevel;
@@ -774,6 +845,23 @@ export function scoreCandidates(
       reasons.push({ w: 0.2, label: michelinChip(c.michelin) });
     }
 
+    // ── Michelin taste match ──
+    // Beyond generic distinctiveness: a user whose loved places are FULL of
+    // starred rooms gets starred candidates lifted specifically (and a Bib
+    // hunter gets Bibs). Share saturates at ⅓ of their history.
+    if (c.michelin && profile.michelinTaste) {
+      const mt = profile.michelinTaste;
+      const share = c.michelin.stars > 0
+        ? mt.starShare
+        : c.michelin.bibGourmand
+          ? mt.bibShare
+          : mt.selectedShare;
+      if (share > 0) {
+        const mTerm = W.michelinTaste * Math.min(1, share * 3) * MICHELIN_DIST_WEIGHT(c.michelin);
+        personalFit += mTerm;
+      }
+    }
+
     // ── Quality prior (Bayesian) ──
     // Shrink the star rating toward the 3.8 baseline by review count, so a
     // 4.6 backed by a thousand reviews beats a 5.0 backed by three.
@@ -796,6 +884,19 @@ export function scoreCandidates(
       bayesForPredict = 3.8 + qSub;
     }
     genericQuality += wPopularity * Math.min(1, Math.log1p(c.userRatingCount || 0) / Math.log1p(3000));
+
+    // ── In-app popularity ──
+    // Distinct users of THIS app who rated the place. Saturates fast (~20
+    // raters) because the platform is young; today this contributes ~0 and
+    // it strengthens automatically as the community rates more.
+    const appN = c.appRatingCount ?? 0;
+    if (appN > 0) {
+      const aTerm = W.appPopularity * Math.min(1, Math.log1p(appN) / Math.log1p(20));
+      genericQuality += aTerm;
+      if (appN >= 3) {
+        reasons.push({ w: aTerm, label: `Rated by ${appN} in the community` });
+      }
+    }
 
     // ── Expert signal (bounded) ──
     let expertRaw = 0;
@@ -1104,23 +1205,29 @@ export async function gatherRecCandidates(
     if (dist <= slackKm) candidates.push(c);
   }
 
-  // ── Community price backfill ──
-  // One batched query fills tiers the Guide couldn't, so the scorer's
-  // unknown-price prior only ever hits places nobody has priced anywhere.
+  // ── Community backfill: prices + in-app popularity ──
+  // Two batched queries: unknown tiers fill from the community's price
+  // consensus (so the scorer's unknown-price prior only hits places nobody
+  // has priced anywhere), and every candidate gets its distinct-rater count
+  // for the platform-popularity term. Counts refresh on cache hits too —
+  // cached pools may carry stale numbers.
+  const nonSyntheticIds = candidates.filter((c) => !isMichelinSyntheticId(c.id)).map((c) => c.id);
   const unpricedIds = candidates
     .filter((c) => c.priceLevel < 1 && !isMichelinSyntheticId(c.id))
     .map((c) => c.id);
-  if (unpricedIds.length > 0) {
-    try {
-      const communityPrices = await getCommunityPricesForPlaces(unpricedIds);
-      for (const c of candidates) {
-        if (c.priceLevel < 1) {
-          const tier = (communityPrices[c.id] || '').length;
-          if (tier >= 1 && tier <= 4) c.priceLevel = tier;
-        }
+  try {
+    const [communityPrices, ratingCounts] = await Promise.all([
+      unpricedIds.length > 0 ? getCommunityPricesForPlaces(unpricedIds) : Promise.resolve({} as Record<string, string>),
+      nonSyntheticIds.length > 0 ? getCommunityRatingCounts(nonSyntheticIds) : Promise.resolve({} as Record<string, number>),
+    ]);
+    for (const c of candidates) {
+      if (c.priceLevel < 1) {
+        const tier = (communityPrices[c.id] || '').length;
+        if (tier >= 1 && tier <= 4) c.priceLevel = tier;
       }
-    } catch { /* display-quality data only — never block the pool */ }
-  }
+      c.appRatingCount = ratingCounts[c.id] ?? 0;
+    }
+  } catch { /* display-quality data only — never block the pool */ }
 
   // Only fetch if we actually have candidates to look up. One batched query.
   const candidateIds = candidates.map((c) => c.id);
@@ -1201,6 +1308,11 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     pool.signals,
     opts.target,
     opts.radiusMeters,
-    { limit, skipUserHistory: true, keepWishlisted: opts.keepWishlisted },
+    {
+      limit,
+      skipUserHistory: true,
+      keepWishlisted: opts.keepWishlisted,
+      enforcePriceBand: opts.enforcePriceBand ?? true,
+    },
   );
 }

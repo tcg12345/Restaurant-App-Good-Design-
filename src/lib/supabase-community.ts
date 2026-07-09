@@ -155,6 +155,37 @@ export async function getCommunityPricesForPlaces(
 }
 
 /**
+ * Distinct-rater count per restaurant across ALL community ratings — the
+ * "popular on this app" signal for the recommendation engine. One batched
+ * query; restaurants nobody has rated are omitted. Counts distinct users so
+ * one enthusiast logging five visits doesn't read as five fans.
+ */
+export async function getCommunityRatingCounts(
+  restaurantIds: string[],
+): Promise<Record<string, number>> {
+  if (!supabaseConfigured) return {};
+  const ids = Array.from(new Set(restaurantIds.filter(Boolean)));
+  if (ids.length === 0) return {};
+  try {
+    const { data, error } = await supabase
+      .from('community_ratings')
+      .select('restaurant_id, user_id')
+      .in('restaurant_id', ids);
+    if (error) { console.error('[Community] getCommunityRatingCounts error:', error); return {}; }
+    const raters: Record<string, Set<string>> = {};
+    for (const row of (data || []) as Array<{ restaurant_id: string; user_id: string }>) {
+      (raters[row.restaurant_id] || (raters[row.restaurant_id] = new Set())).add(row.user_id);
+    }
+    const out: Record<string, number> = {};
+    for (const [rid, set] of Object.entries(raters)) out[rid] = set.size;
+    return out;
+  } catch (err) {
+    console.error('[Community] getCommunityRatingCounts exception:', err);
+    return {};
+  }
+}
+
+/**
  * Get friends' ratings for a restaurant.
  */
 export async function getFriendsStats(userId: string, restaurantId: string): Promise<FriendsStats> {

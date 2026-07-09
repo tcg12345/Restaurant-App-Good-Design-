@@ -28,6 +28,7 @@ import {
 } from './HomeLocationBar';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
+import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 
 /* ── Ranked recommendations browser ──────────────────────────────────────
    Opened from the Pantry's "For you" button. A full-surface popup that
@@ -43,6 +44,13 @@ import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 
 const RADIUS_OPTIONS = [2, 5, 8, 15, 25] as const;
 const PRICE_TIERS = [1, 2, 3, 4] as const;
+
+type MichKey = 'star' | 'bib' | 'selected';
+const MICH_FILTERS: Array<{ key: MichKey; label: string }> = [
+  { key: 'star', label: 'Michelin ★' },
+  { key: 'bib', label: 'Bib Gourmand' },
+  { key: 'selected', label: 'Michelin Guide' },
+];
 
 type SortKey = 'match' | 'rating' | 'distance';
 const SORTS: Array<{ key: SortKey; label: string }> = [
@@ -86,6 +94,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   const [cuisineSel, setCuisineSel] = useState<Set<string>>(new Set());
   const [priceSel, setPriceSel] = useState<Set<number>>(new Set());
+  const [michSel, setMichSel] = useState<Set<MichKey>>(new Set());
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('match');
 
@@ -105,6 +114,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     });
     setCuisineSel(new Set());
     setPriceSel(new Set());
+    setMichSel(new Set());
     setOpenNowOnly(false);
     setSortBy('match');
     setRadiusMenuOpen(false);
@@ -125,8 +135,15 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   // The taste profile stays LIVE: any rating add/edit/delete rebuilds it and
   // the scoring memo below re-ranks the cached pool synchronously — no
-  // refetch, no stale rows, predictions and chips update in place.
-  const liveProfile = useMemo(() => buildTasteProfile(ratings, wishlist, lists, []), [ratings, wishlist, lists]);
+  // refetch, no stale rows, predictions and chips update in place. The
+  // Michelin-readiness flag is a dep so the profile's michelinTaste shares
+  // (index-gated inside the builder) appear once the dataset loads.
+  const michelinReady = useMichelinIndexReady();
+  const liveProfile = useMemo(
+    () => buildTasteProfile(ratings, wishlist, lists, []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ratings, wishlist, lists, michelinReady],
+  );
 
   // Gather the candidate pool (network) — profile changes deliberately do
   // NOT re-run this; they only re-score.
@@ -171,7 +188,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       pool.signals,
       { label: target.label, lat: target.lat, lng: target.lng },
       Math.round(radiusMiles * 1609.34),
-      { limit: 60, skipUserHistory: true, keepWishlisted: true },
+      { limit: 60, skipUserHistory: true, keepWishlisted: true, enforcePriceBand: true },
     );
   }, [pool, liveProfile, target, radiusMiles]);
 
@@ -198,10 +215,33 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       .slice(0, 10);
   }, [enriched]);
 
+  // Michelin distinction chips only render for categories actually present
+  // in the current pool — no dead filters in Guide-less cities.
+  const michelinCounts = useMemo(() => {
+    const counts: Record<MichKey, number> = { star: 0, bib: 0, selected: 0 };
+    for (const e of enriched) {
+      const m = e.place.michelin;
+      if (!m) continue;
+      if (m.stars > 0) counts.star++;
+      else if (m.bibGourmand) counts.bib++;
+      else if (m.selected) counts.selected++;
+    }
+    return counts;
+  }, [enriched]);
+
   const visible = useMemo(() => {
     const list = enriched.filter((e) => {
       if (cuisineSel.size > 0 && !cuisineSel.has(e.cuisineLabel)) return false;
       if (priceSel.size > 0 && !(e.place.priceLevel > 0 && priceSel.has(e.place.priceLevel))) return false;
+      if (michSel.size > 0) {
+        const m = e.place.michelin;
+        const hit = !!m && (
+          (michSel.has('star') && m.stars > 0) ||
+          (michSel.has('bib') && m.bibGourmand) ||
+          (michSel.has('selected') && m.selected && m.stars === 0 && !m.bibGourmand)
+        );
+        if (!hit) return false;
+      }
       // "Open now" keeps unknown-hours places (same convention as the app's
       // hours filter): missing data shouldn't read as "closed".
       if (openNowOnly && getOpenStatus(e.place.hours).open === false) return false;
@@ -215,7 +255,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       default:
         return list; // engine order = best match
     }
-  }, [enriched, cuisineSel, priceSel, openNowOnly, sortBy]);
+  }, [enriched, cuisineSel, priceSel, michSel, openNowOnly, sortBy]);
 
   const city = target?.label?.split(',')[0]?.trim() || '';
 
@@ -232,6 +272,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       const next = new Set(prev);
       if (next.has(tier)) next.delete(tier);
       else next.add(tier);
+      return next;
+    });
+
+  const toggleMich = (key: MichKey) =>
+    setMichSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
@@ -414,6 +462,31 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
               )}
             >
               {'$'.repeat(tier)}
+            </button>
+          );
+        })}
+        {(michelinCounts.star > 0 || michelinCounts.bib > 0 || michelinCounts.selected > 0) && (
+          <span aria-hidden className="mx-0.5 h-5 w-px flex-shrink-0 bg-on-surface/[0.10]" />
+        )}
+        {MICH_FILTERS.map(({ key, label }) => {
+          const count = michelinCounts[key];
+          if (count === 0) return null;
+          const active = michSel.has(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleMich(key)}
+              aria-pressed={active}
+              className={cn(
+                'flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
+                active
+                  ? 'border-on-surface bg-on-surface text-surface'
+                  : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/35',
+              )}
+            >
+              {label}
+              <span className={cn('text-[10.5px] font-bold', active ? 'text-surface/60' : 'text-on-surface/35')}>{count}</span>
             </button>
           );
         })}
@@ -613,7 +686,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           ) : (
             <button
               type="button"
-              onClick={() => { setCuisineSel(new Set()); setPriceSel(new Set()); setOpenNowOnly(false); }}
+              onClick={() => { setCuisineSel(new Set()); setPriceSel(new Set()); setMichSel(new Set()); setOpenNowOnly(false); }}
               className="mt-4 rounded-full bg-on-surface px-4 py-2 text-[13px] font-semibold text-surface transition-opacity hover:opacity-90"
             >
               Clear filters
