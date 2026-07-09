@@ -1,5 +1,5 @@
 import type { PlaceResult } from './places';
-import { extractCityState, CUISINE_TYPES, searchPlacesByText } from './places';
+import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace } from './places';
 import type { CommunityRating } from './supabase-community';
 import {
   getExpertRatings,
@@ -7,9 +7,20 @@ import {
   getExpertProfiles,
   getTagSimilarRestaurants,
   getFollowedExpertIds,
+  getCommunityPricesForPlaces,
 } from './supabase-community';
 import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
+import {
+  ensureMichelinIndex,
+  findMichelinMatchSync,
+  michelinNearbySync,
+  michelinToPlaceResult,
+  isMichelinSyntheticId,
+  normalize as normalizeName,
+  type MichelinInfo,
+} from './michelin';
+import { haversineDistanceMi } from './distance';
 
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
@@ -35,6 +46,30 @@ export interface TasteProfile {
   /** Own score per rated restaurant — powers friend taste-similarity, which
    *  weighs a friend's opinion by how often you two have agreed. */
   myScoreById: Map<string, number>;
+  /** Where the user's money actually goes: positive-weight share per price
+   *  tier, its center of mass, and how concentrated it is. Drives the price
+   *  fit term and the price-restricted candidate queries. */
+  priceDist?: {
+    share: [number, number, number, number]; // index 0 = tier 1 ($)
+    center: number;        // μ = Σ tier·share
+    sigma: number;         // spread of the distribution
+    concentration: number; // 0..1 — high = spends in a narrow band, trusted with volume
+    n: number;             // positively-weighted priced ratings behind it
+  };
+  /** 0..1 — how much this palate skews distinctive (premium tiers + breadth
+   *  of cuisines). Scales the Michelin/boutique boost and dampens raw
+   *  popularity for users who clearly don't chase crowds. */
+  distinctiveTaste?: number;
+  /** The shrunk personal mean the affinity weights center on — exposed so the
+   *  predicted score speaks the user's own scale. */
+  anchor?: number;
+  /** 90th percentile of the user's own scores (undefined under 8 ratings) —
+   *  caps predictions so we never promise above their realistic ceiling. */
+  scoreP90?: number;
+  /** normalize()d names of every rated restaurant — suppresses Michelin
+   *  synthetic candidates that duplicate an already-rated place under a
+   *  different id. */
+  ratedNames?: Set<string>;
 }
 
 export interface RecTargetLocation {
@@ -58,14 +93,21 @@ export interface RecOptions {
   keepWishlisted?: boolean;
 }
 
-export interface ScoredPlace extends PlaceResult {
+/** A candidate entering the scorer. Michelin info (when the pool stage found
+ *  a match) rides along so scoring stays synchronous and dataset-free. */
+export interface RecCandidate extends PlaceResult {
+  michelin?: { stars: 0 | 1 | 2 | 3; bibGourmand: boolean; selected: boolean };
+}
+
+export interface ScoredPlace extends RecCandidate {
   recScore: number;
-  sources: Array<'google' | 'tagSimilar' | 'expert' | 'friend' | 'expertRec'>;
+  sources: Array<'google' | 'tagSimilar' | 'expert' | 'friend' | 'expertRec' | 'michelin'>;
   /** Human-readable "why this" chips, strongest factor first (≤3). Absent on
    *  legacy call sites that fabricate ScoredPlace literals. */
   reasons?: string[];
-  /** 0–100 calibrated match confidence (logistic squash of recScore). */
-  match?: number;
+  /** Beli-style prediction of the score THIS user would give the place, on
+   *  their own 0–10 scale (one decimal, floor 5.0). Replaces the old match %. */
+  predicted?: number;
 }
 
 /**
@@ -76,11 +118,12 @@ export interface ScoredPlace extends PlaceResult {
  */
 export const DEFAULT_WEIGHTS = {
   cuisine: 1.6,
-  price: 0.9,
+  price: 0.9,              // base — grows up to 2.0 with price concentration
   pair: 1.8,
   tagOverlap: 1.1,
-  popularity: 0.5,
+  popularity: 0.5,         // dampened as distinctiveTaste rises
   quality: 1.5,
+  distinctive: 1.4,        // Michelin / boutique boost, scaled by the palate
   expert: 1.0,
   friend: 1.6,
   wishlist: 0.6,
@@ -122,9 +165,19 @@ export function buildTasteProfile(
   const anchor = scoreN > 0 ? (scoreSum + 7 * 5) / (scoreN + 5) : 7;
   const now = Date.now();
 
+  // Accumulators for the price distribution / distinctive-taste stats —
+  // positive-weight side only, so they describe where the user's enthusiasm
+  // actually goes rather than every place they've merely been.
+  const priceMass: [number, number, number, number] = [0, 0, 0, 0];
+  let pricedPositiveN = 0;
+  const positiveCuisines = new Set<string>();
+  const positiveScores: number[] = [];
+  const ratedNames = new Set<string>();
+
   for (const r of ratings) {
     if (r.score <= 0) continue;
     myScoreById.set(r.restaurantId, r.score);
+    if (r.name) ratedNames.add(normalizeName(r.name));
     const centered = r.score - anchor;
     let weight = centered >= 0 ? centered + 1 : centered * 1.25;
 
@@ -158,6 +211,14 @@ export function buildTasteProfile(
 
     if (price > 0) {
       priceScore[price] = (priceScore[price] || 0) + weight;
+    }
+    if (weight > 0) {
+      positiveScores.push(r.score);
+      for (const token of splitCuisines(r.cuisine)) positiveCuisines.add(token);
+      if (price >= 1 && price <= 4) {
+        priceMass[price - 1] += weight;
+        pricedPositiveN++;
+      }
     }
 
     const city = extractCityState(r.address, r.address);
@@ -236,6 +297,33 @@ export function buildTasteProfile(
   const wishlistedIds = new Set(wishlist.map((w) => w.restaurantId));
   const recentlyViewedIds = new Set(recentViews.map((v) => v.id));
 
+  // ── Price distribution ──
+  // Wishlist mass is deliberately excluded: declared intent isn't proven
+  // spend, and it's exactly what would water a premium profile back down.
+  const totalMass = priceMass[0] + priceMass[1] + priceMass[2] + priceMass[3];
+  let priceDist: TasteProfile['priceDist'];
+  if (totalMass > 0) {
+    const share = priceMass.map((m) => m / totalMass) as [number, number, number, number];
+    const center = share.reduce((sum, s, i) => sum + s * (i + 1), 0);
+    const sigma = Math.sqrt(share.reduce((sum, s, i) => sum + s * (i + 1 - center) ** 2, 0));
+    const confidence = pricedPositiveN / (pricedPositiveN + 6);
+    const concentration = Math.max(0, Math.min(1, 1 - sigma / 1.5)) * confidence;
+    priceDist = { share, center, sigma, concentration, n: pricedPositiveN };
+  }
+
+  // ── Distinctive taste ──
+  // Premium share carries most of it; cuisine breadth adds the "explores
+  // beyond the obvious" dash. Confidence-scaled like concentration.
+  const premiumShare = totalMass > 0 ? (priceMass[2] + priceMass[3]) / totalMass : 0;
+  const breadth = Math.max(0, Math.min(1, (positiveCuisines.size - 3) / 9));
+  const distinctiveTaste =
+    Math.max(0, Math.min(1, 0.75 * premiumShare + 0.25 * breadth)) *
+    (pricedPositiveN / (pricedPositiveN + 6));
+
+  const scoreP90 = positiveScores.length >= 8
+    ? [...positiveScores].sort((a, b) => a - b)[Math.floor((positiveScores.length - 1) * 0.9)]
+    : undefined;
+
   return {
     cuisineScore,
     priceScore,
@@ -255,14 +343,38 @@ export function buildTasteProfile(
     recentlyViewedIds,
     avgScore,
     myScoreById,
+    priceDist,
+    distinctiveTaste,
+    anchor,
+    scoreP90,
+    ratedNames,
   };
+}
+
+export interface RecQuery {
+  text: string;
+  /** Google price-level tiers (1–4) to restrict the search to server-side.
+   *  Omitted = unrestricted. NOTE: a price filter also excludes places whose
+   *  price Google doesn't know, so the builder always leaves some queries
+   *  unrestricted to keep unpriced hidden gems in the pool. */
+  priceLevels?: number[];
+}
+
+/** Price tiers the user demonstrably favors: every tier holding ≥ 15% of the
+ *  positive price mass. Falls back to the rounded distribution center. */
+export function preferredPriceTiers(profile: TasteProfile): number[] {
+  const dist = profile.priceDist;
+  if (!dist) return [];
+  const tiers = [1, 2, 3, 4].filter((t) => dist.share[t - 1] >= 0.15);
+  if (tiers.length > 0) return tiers;
+  return [Math.max(1, Math.min(4, Math.round(dist.center)))];
 }
 
 export function buildCandidateQueries(
   profile: TasteProfile,
   target: RecTargetLocation,
-): string[] {
-  const { topCuisines, topPrices, topPairs } = profile;
+): RecQuery[] {
+  const { topCuisines, topPrices, topPairs, priceDist } = profile;
   const label = target.label.trim();
   const isCurrent = !label || label === 'Current Location';
   const city = isCurrent
@@ -274,22 +386,35 @@ export function buildCandidateQueries(
         .filter(Boolean)
         .join(', ');
 
+  // Server-side price restriction kicks in once the user's spending is
+  // demonstrably concentrated — that's what actually keeps a premium
+  // palate's pool from filling with cheap crowd-pleasers ("best $$$$
+  // French" text alone barely biases Google).
+  const restrict = (priceDist?.concentration ?? 0) >= 0.35;
+  const allowedTiers = preferredPriceTiers(profile);
+  const share = priceDist?.share ?? [0, 0, 0, 0];
+  const lowShare = share[0] + share[1];
+  const premiumShare = share[2] + share[3];
+
   const PRICE_SYMBOLS = ['', '$', '$$', '$$$', '$$$$'];
   const seen = new Set<string>();
-  const out: string[] = [];
-  const push = (raw: string) => {
+  const out: RecQuery[] = [];
+  const push = (raw: string, priceLevels?: number[]) => {
     const q = raw.trim().replace(/\s+/g, ' ');
     if (!q) return;
     const key = q.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(q);
+    out.push(priceLevels && priceLevels.length > 0 ? { text: q, priceLevels } : { text: q });
   };
 
-  // Tier 1: pairs
+  // Tier 1: pairs — restricted to the pair's own tier when restricting.
   for (const pair of topPairs) {
     const sym = PRICE_SYMBOLS[pair.price] ?? '';
-    push(`best ${sym} ${pair.cuisine} restaurants${city ? ' in ' + city : ''}`);
+    push(
+      `best ${sym} ${pair.cuisine} restaurants${city ? ' in ' + city : ''}`,
+      restrict && pair.price >= 1 ? [pair.price] : undefined,
+    );
   }
 
   // Tier 2: cuisine × price cross (only for cuisines not in a top pair)
@@ -298,33 +423,48 @@ export function buildCandidateQueries(
     if (pairedCuisines.has(cuisine)) continue;
     for (const price of topPrices) {
       const sym = PRICE_SYMBOLS[price] ?? '';
-      push(`best ${sym} ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+      push(
+        `best ${sym} ${cuisine} restaurants${city ? ' in ' + city : ''}`,
+        restrict && price >= 1 ? [price] : undefined,
+      );
     }
   }
 
-  // Tier 3: price anchors
-  if (topPrices.length > 0) {
-    const maxP = Math.max(...topPrices);
-    const minP = Math.min(...topPrices);
-    if (maxP >= 3) {
+  // Tier 3: price anchors. "cheap X" only when the LOW tiers genuinely hold
+  // real mass (≥ 35%) — a premium rater's couple of good $$ spots used to be
+  // enough to inject cheap queries into their pool.
+  if (priceDist) {
+    if (premiumShare >= 0.5) {
+      push(`fine dining${city ? ' ' + city : ' restaurants'}`);
+      push(`tasting menu${city ? ' ' + city : ' restaurants'}`);
+      push(`michelin star restaurants${city ? ' in ' + city : ''}`);
+      for (const cuisine of topCuisines.slice(0, 3)) {
+        push(`${cuisine} fine dining${city ? ' ' + city : ''}`);
+      }
+    } else if (Math.max(...(topPrices.length ? topPrices : [0])) >= 3) {
       push(`fine dining${city ? ' ' + city : ' restaurants'}`);
       for (const cuisine of topCuisines.slice(0, 3)) {
         push(`${cuisine} fine dining${city ? ' ' + city : ''}`);
       }
     }
-    if (minP <= 2) {
+    if (lowShare >= 0.35) {
       for (const cuisine of topCuisines.slice(0, 3)) {
         push(`cheap ${cuisine}${city ? ' ' + city : ' restaurants'}`);
       }
     }
   }
 
-  // Tier 4: variety
+  // Tier 4: variety — restricted to the user's favored band when restricting.
   for (const cuisine of topCuisines) {
-    push(`best ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+    push(
+      `best ${cuisine} restaurants${city ? ' in ' + city : ''}`,
+      restrict ? allowedTiers : undefined,
+    );
   }
 
-  // Tier 5: tail
+  // Tier 5: tail — always UNRESTRICTED. A price filter would drop every
+  // place Google can't price, and hidden gems are disproportionately
+  // unpriced; these queries keep them flowing into the pool.
   for (const cuisine of topCuisines) {
     push(`top rated ${cuisine} restaurants${city ? ' in ' + city : ''}`);
     push(`hidden gem ${cuisine} restaurants${city ? ' ' + city : ''}`);
@@ -450,8 +590,16 @@ function diversifyByCuisine(
   return [...out, ...rest];
 }
 
+/** Michelin distinction → distinctiveness weight / quality substitute. */
+const MICHELIN_DIST_WEIGHT = (m: NonNullable<RecCandidate['michelin']>): number =>
+  m.stars === 3 ? 1.0 : m.stars === 2 ? 0.9 : m.stars === 1 ? 0.8 : m.selected ? 0.55 : m.bibGourmand ? 0.45 : 0;
+const MICHELIN_QUALITY_SUB = (m: NonNullable<RecCandidate['michelin']>): number =>
+  m.stars === 3 ? 0.85 : m.stars === 2 ? 0.75 : m.stars === 1 ? 0.65 : m.bibGourmand ? 0.45 : m.selected ? 0.35 : 0;
+const michelinChip = (m: NonNullable<RecCandidate['michelin']>): string =>
+  m.stars > 0 ? `Michelin ${m.stars}-star` : m.bibGourmand ? 'Michelin Bib Gourmand' : 'In the Michelin Guide';
+
 export function scoreCandidates(
-  candidates: PlaceResult[],
+  candidates: RecCandidate[],
   profile: TasteProfile,
   signals: CandidateSignals,
   target: RecTargetLocation,
@@ -484,6 +632,17 @@ export function scoreCandidates(
     }
   }
 
+  // Palate stats driving the v3 terms. Price weight and its mismatch slope
+  // both grow with concentration — a user whose spend clusters in one band
+  // has earned a hard opinion; a scattered profile keeps the mild v2 weight.
+  const dist = profile.priceDist;
+  const conc = dist?.concentration ?? 0;
+  const distinct = profile.distinctiveTaste ?? 0;
+  const wPrice = W.price + 1.1 * conc;
+  const priceSlope = 0.6 + 0.6 * conc;
+  const shareMax = dist ? Math.max(...dist.share, 0.0001) : 1;
+  const wPopularity = W.popularity * (1 - 0.7 * distinct);
+
   // ── Normalizers ──
   // Raw profile sums are unbounded (a 200-rating power user's cuisine sums
   // run 50× a new user's), so every affinity is squashed to [-1, 1] against
@@ -513,6 +672,9 @@ export function scoreCandidates(
 
   for (const c of candidates) {
     if (skipIds.has(c.id)) continue;
+    // A Michelin synthetic candidate can duplicate an already-rated place
+    // under a different id — suppress by normalized name.
+    if (isMichelinSyntheticId(c.id) && profile.ratedNames?.has(normalizeName(c.name))) continue;
 
     const cuisine = inferCuisine(c.types);
     const price = c.priceLevel;
@@ -522,7 +684,12 @@ export function scoreCandidates(
     );
     const communityRows = signals.communityByRestaurant.get(c.id) || [];
 
-    let score = 0;
+    // Personal-fit terms and generic-quality terms accumulate separately so
+    // the predicted score can weigh taste evidence far above generic acclaim
+    // (the old match % conflated them — a popular 4.6★ with zero taste fit
+    // read as "80% match").
+    let personalFit = 0;
+    let genericQuality = 0;
     const sources: ScoredPlace['sources'] = ['google'];
     const reasons: Array<{ w: number; label: string }> = [];
 
@@ -530,23 +697,32 @@ export function scoreCandidates(
     if (ramp > 0) {
       const cA = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax);
       const cTerm = W.cuisine * (cA < 0 ? cA * W.negativeMult : cA) * ramp;
-      score += cTerm;
+      personalFit += cTerm;
       if (cA >= 0.35 && cuisine) reasons.push({ w: cTerm, label: `Top cuisine: ${cuisine}` });
 
-      let pA = aff(price > 0 ? profile.priceScore[price] : undefined, priceMax);
-      // Price-distance: two tiers away from everything the user actually
-      // favors is a miss even if that tier's raw sum is mildly positive.
-      if (price > 0 && profile.topPrices.length > 0) {
-        const gap = Math.min(...profile.topPrices.map((p) => Math.abs(p - price)));
-        if (gap >= 2) pA -= 0.5 * (gap - 1);
+      // Price fit from the user's actual spend distribution: reward tiers
+      // holding real mass, charge a concentration-scaled slope for straying
+      // from the center — and give unknown prices a mild prior penalty
+      // instead of the old free pass (backfill upstream fills most of them).
+      let pA: number;
+      if (dist && price >= 1 && price <= 4) {
+        pA = clamp(
+          dist.share[price - 1] / shareMax - priceSlope * Math.max(0, Math.abs(price - dist.center) - 0.5),
+          -1,
+          1,
+        );
+      } else if (dist) {
+        pA = -0.35 * conc;
+      } else {
+        pA = 0;
       }
-      const pTerm = W.price * clamp(pA, -1, 1) * ramp;
-      score += pTerm;
+      const pTerm = wPrice * pA * ramp;
+      personalFit += pTerm;
       if (pA >= 0.35 && price > 0) reasons.push({ w: pTerm, label: `In your price range (${'$'.repeat(price)})` });
 
       const prA = aff(cuisine && price > 0 ? profile.pairScore[`${cuisine}|${price}`] : undefined, pairMax);
       const prTerm = W.pair * (prA < 0 ? prA * W.negativeMult : prA) * ramp;
-      score += prTerm;
+      personalFit += prTerm;
       if (prA >= 0.5 && cuisine && price > 0) {
         reasons.push({ w: prTerm, label: `Your sweet spot: ${'$'.repeat(price)} ${cuisine}` });
       }
@@ -564,7 +740,7 @@ export function scoreCandidates(
       }
       const tTerm = W.tagOverlap * Math.min(1, tagSum) * ramp;
       if (tTerm > 0) {
-        score += tTerm;
+        personalFit += tTerm;
         sources.push('tagSimilar');
         matchedTags.sort((x, y) => y.a - x.a);
         if (tTerm >= 0.3) {
@@ -573,20 +749,53 @@ export function scoreCandidates(
       }
     }
 
+    // ── Distinctiveness (Michelin / boutique) ──
+    // Scaled by the user's own palate: a crowd-follower gets ~nothing from a
+    // star; the premium-and-curious profile gets a real lift. Not ramped —
+    // distinctiveTaste already grows with data volume.
+    const candDistinct = c.michelin
+      ? MICHELIN_DIST_WEIGHT(c.michelin)
+      : c.rating >= 4.5 && c.userRatingCount >= 25 && c.userRatingCount <= 800 && price >= 3
+        ? 0.5
+        : 0;
+    if (candDistinct > 0 && distinct > 0) {
+      const dTerm = W.distinctive * distinct * candDistinct;
+      personalFit += dTerm;
+      if (c.michelin) {
+        sources.push('michelin');
+        reasons.push({ w: dTerm + 1, label: michelinChip(c.michelin) });
+      } else if (dTerm >= 0.4) {
+        reasons.push({ w: dTerm, label: 'Under-the-radar find' });
+      }
+    } else if (c.michelin) {
+      // Still badge the star for context even when the palate doesn't earn
+      // a boost from it.
+      sources.push('michelin');
+      reasons.push({ w: 0.2, label: michelinChip(c.michelin) });
+    }
+
     // ── Quality prior (Bayesian) ──
     // Shrink the star rating toward the 3.8 baseline by review count, so a
     // 4.6 backed by a thousand reviews beats a 5.0 backed by three.
+    // Michelin-only candidates carry no Google rating — the distinction
+    // itself substitutes (a starred kitchen isn't a coin flip on quality).
+    let bayesForPredict = 3.8;
     if (c.rating > 0) {
       const v = c.userRatingCount || 0;
       const bayes = (v * c.rating + 25 * 3.8) / (v + 25);
+      bayesForPredict = bayes;
       const q = clamp(bayes - 3.8, -1, 1);
       const qTerm = W.quality * q;
-      score += qTerm;
+      genericQuality += qTerm;
       if (q >= 0.55 && v >= 150) {
         reasons.push({ w: qTerm, label: `${c.rating.toFixed(1)}★ from ${formatReviewCount(v)} reviews` });
       }
+    } else if (c.michelin) {
+      const qSub = MICHELIN_QUALITY_SUB(c.michelin);
+      genericQuality += W.quality * qSub;
+      bayesForPredict = 3.8 + qSub;
     }
-    score += W.popularity * Math.min(1, Math.log1p(c.userRatingCount || 0) / Math.log1p(3000));
+    genericQuality += wPopularity * Math.min(1, Math.log1p(c.userRatingCount || 0) / Math.log1p(3000));
 
     // ── Expert signal (bounded) ──
     let expertRaw = 0;
@@ -603,7 +812,7 @@ export function scoreCandidates(
     if (expertRaw > 3) expertRaw = 3;
     if (expertRaw > 0) {
       const eTerm = W.expert * (expertRaw / 3);
-      score += eTerm;
+      personalFit += eTerm;
       sources.push('expert');
       if (hasExpertRec) sources.push('expertRec');
       reasons.push({ w: eTerm, label: followedExpert ? 'Pick from experts you follow' : 'Expert pick' });
@@ -623,7 +832,7 @@ export function scoreCandidates(
     }
     if (friendRaw !== 0) {
       const fTerm = W.friend * (clamp(friendRaw, -1.5, 2) / 2);
-      score += fTerm;
+      personalFit += fTerm;
       if (fTerm > 0) {
         sources.push('friend');
         if (friendsLoved > 0) {
@@ -637,22 +846,42 @@ export function scoreCandidates(
 
     // ── Wishlist (only when kept in the pool) ──
     if (keepWishlisted && profile.wishlistedIds.has(c.id)) {
-      score += W.wishlist;
+      personalFit += W.wishlist;
       reasons.push({ w: W.wishlist, label: 'On your wishlist' });
     }
 
     // ── Distance decay (soft, past half the radius; capped) ──
+    // Ranks by it, but the predicted score deliberately ignores it — how much
+    // you'd LIKE a place doesn't depend on how far you are from it today.
     const extra = Math.max(0, distKm - radiusKm * 0.5);
-    score -= W.distance * Math.min(1.5, extra / Math.max(radiusKm, 0.5));
+    const distancePenalty = W.distance * Math.min(1.5, extra / Math.max(radiusKm, 0.5));
+    const score = personalFit + genericQuality - distancePenalty;
+
+    // ── Predicted score (Beli-style, the user's own 0–10 scale) ──
+    // Anchored to their shrunk personal mean (−0.35 self-selection correction:
+    // people rate places they chose to visit, so the mean overstates a random
+    // rec), spread by taste evidence, nudged by generic quality, capped by
+    // their own realistic ceiling. Cold accounts fall back to Bayesian stars.
+    const anchor = profile.anchor ?? 7;
+    const fitN = Math.tanh(personalFit / 3.2);
+    const qualN = Math.tanh(genericQuality / 2.5);
+    const personalPredicted = anchor - 0.35 + 1.8 * fitN + 0.45 * qualN;
+    const coldPredicted = clamp(2 * bayesForPredict - 1.6, 5.0, 9.0);
+    const nPos = profile.myScoreById.size;
+    const rampP = nPos / (nPos + 5);
+    const cap = Math.min(9.8, (profile.scoreP90 ?? 9.4) + 0.4);
+    const own = profile.myScoreById.get(c.id);
+    const predicted = own !== undefined
+      ? own
+      : Math.round(clamp(rampP * personalPredicted + (1 - rampP) * coldPredicted, 5.0, cap) * 10) / 10;
 
     reasons.sort((a, b) => b.w - a.w);
-    const match = Math.round(clamp(100 / (1 + Math.exp(-score * 0.55)), 5, 99));
     scored.push({
       ...c,
       recScore: score,
       sources,
       reasons: reasons.slice(0, 3).map((r) => r.label),
-      match,
+      predicted,
     });
   }
 
@@ -660,20 +889,54 @@ export function scoreCandidates(
   return diversifyByCuisine(scored, inferCuisine).slice(0, limit);
 }
 
+/** A gathered, score-ready candidate pool. Scoring is separate so the UI can
+ *  re-rank the same pool synchronously whenever the user's ratings change. */
+export interface RecPool {
+  candidates: RecCandidate[];
+  signals: CandidateSignals;
+  fetchedAt: number;
+}
+
+/** First `max` queries, but always with ≥2 unrestricted ones mixed in — a
+ *  price filter excludes every place Google can't price, and hidden gems are
+ *  disproportionately unpriced. Exported for tests. */
+export function sliceQueriesBalanced(queries: RecQuery[], max: number): RecQuery[] {
+  const head = queries.slice(0, max);
+  if (queries.length <= max) return head;
+  const unrestricted = head.filter((q) => !q.priceLevels).length;
+  if (unrestricted >= 2) return head;
+  const extras = queries.slice(max).filter((q) => !q.priceLevels).slice(0, 2 - unrestricted);
+  if (extras.length === 0) return head;
+  return [...head.slice(0, max - extras.length), ...extras];
+}
+
+const toMichelinBadge = (info: MichelinInfo): NonNullable<RecCandidate['michelin']> => ({
+  stars: info.stars,
+  bibGourmand: info.bibGourmand,
+  selected: info.selected,
+});
+
 /**
- * Full recommendation pipeline: candidate pool (Google text queries + cached
- * pool + community rows) → social signals → scoreCandidates. Unlike the old
- * version this ALWAYS ranks — a cache hit skips the Google spend, never the
- * scoring — so results always carry recScore / reasons / match, and the
- * social lifts stay current even when the pool comes from cache.
+ * Gather a score-ready candidate pool for a location: price-aware Google text
+ * queries + cached pool + community rows + nearby Michelin entries, with
+ * unknown prices backfilled (Michelin tier, then community mode) so nothing
+ * dodges the price term. Runs NO scoring — callers pass the pool through
+ * scoreCandidates, and can re-score it for free when the profile changes.
  */
-export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[]> {
-  const limit = opts.limit ?? 12;
+export async function gatherRecCandidates(
+  opts: Omit<RecOptions, 'limit' | 'keepWishlisted'>,
+): Promise<RecPool> {
   const maxQueries = opts.maxQueries ?? 5;
+  const allowedTiers = preferredPriceTiers(opts.profile);
+  // The v3 marker + tier fingerprint invalidates every pre-v3 cached pool —
+  // pools assembled without price-restricted queries skew cheap and would
+  // otherwise keep satisfying cache hits for two more days.
   const prefsHash =
     preferencesHash(opts.profile.topCuisines, opts.profile.topPrices) +
     '|r=' +
-    opts.radiusMeters;
+    opts.radiusMeters +
+    '|v3:' +
+    allowedTiers.join('');
   const locKey = locationKey(opts.target.lat, opts.target.lng);
 
   let mergeCached: PlaceResult[] = [];
@@ -690,11 +953,11 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     }
   }
 
-  if (opts.signal?.aborted) return [];
+  if (opts.signal?.aborted) return { candidates: [], signals: emptySignals(), fetchedAt: Date.now() };
 
   const queries = skipGoogle
     ? []
-    : buildCandidateQueries(opts.profile, opts.target).slice(0, maxQueries);
+    : sliceQueriesBalanced(buildCandidateQueries(opts.profile, opts.target), maxQueries);
 
   const [
     googleBatches,
@@ -706,14 +969,27 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
   ] = await Promise.all([
     Promise.all(
       queries.map((q) =>
-        searchPlacesByText(
-          q,
-          opts.target.lat,
-          opts.target.lng,
-          opts.target.label || undefined,
-          /* useRestriction */ true,
-          opts.radiusMeters,
-        ).catch(() => [] as PlaceResult[]),
+        q.priceLevels && q.priceLevels.length > 0
+          ? // Price-restricted: the paged search sends `priceLevels` so Google
+            // filters server-side (one request; no food-type filter, so apply
+            // ours locally).
+            searchPlacesByTextPaged(q.text, {
+              lat: opts.target.lat,
+              lng: opts.target.lng,
+              radiusMeters: opts.radiusMeters,
+              useRestriction: true,
+              priceLevels: q.priceLevels,
+            })
+              .then((page) => page.places.filter((p) => isFoodPlace(p.types)))
+              .catch(() => [] as PlaceResult[])
+          : searchPlacesByText(
+              q.text,
+              opts.target.lat,
+              opts.target.lng,
+              opts.target.label || undefined,
+              /* useRestriction */ true,
+              opts.radiusMeters,
+            ).catch(() => [] as PlaceResult[]),
       ),
     ),
     getTagSimilarRestaurants(
@@ -730,9 +1006,12 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     opts.userId
       ? getFollowedExpertIds(opts.userId).catch(() => new Set<string>())
       : Promise.resolve(new Set<string>()),
+    // Michelin dataset rides along in the same wait — needed below for the
+    // nearby merge and the price/star attach. Free (local JSON chunk).
+    ensureMichelinIndex().catch(() => undefined),
   ]);
 
-  if (opts.signal?.aborted) return [];
+  if (opts.signal?.aborted) return { candidates: [], signals: emptySignals(), fetchedAt: Date.now() };
 
   const expertUserIds = new Set<string>(experts.map((e) => e.user_id));
   const friendUserIds = new Set<string>(friendRatings.map((r) => r.user_id));
@@ -751,7 +1030,7 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
 
   // Candidate pool: Google results win on id conflicts (richer metadata),
   // then cached places, then pseudo-places from community rows.
-  const byId = new Map<string, PlaceResult>();
+  const byId = new Map<string, RecCandidate>();
   for (const batch of googleBatches) {
     for (const p of batch) {
       if (!byId.has(p.id)) byId.set(p.id, p);
@@ -785,16 +1064,62 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     });
   }
 
+  // ── Michelin attach + nearby merge ──
+  // 1) Stamp star/price info onto Google candidates that match the Guide.
+  // 2) Add nearby Guide entries the queries missed as candidates of their
+  //    own (synthetic ids resolve to real places on the detail page).
+  for (const c of byId.values()) {
+    if (c.michelin || isMichelinSyntheticId(c.id)) continue;
+    const info = findMichelinMatchSync(c.name, c.lat, c.lng, c.fullAddress || c.address);
+    if (!info) continue;
+    c.michelin = toMichelinBadge(info);
+    if (c.priceLevel < 1 && info.priceTier >= 1) c.priceLevel = info.priceTier;
+  }
+  const radiusMi = opts.radiusMeters / 1609.34;
+  const existing = Array.from(byId.values());
+  let added = 0;
+  for (const m of michelinNearbySync(opts.target.lat, opts.target.lng, Math.min(radiusMi, 31))) {
+    if (added >= 30) break;
+    const mName = m.name.toLowerCase();
+    const dup = existing.some(
+      (p) => p.name.toLowerCase() === mName && haversineDistanceMi(p.lat, p.lng, m.lat, m.lng) < 0.12,
+    );
+    if (dup) continue;
+    const place = michelinToPlaceResult(m) as RecCandidate;
+    if (byId.has(place.id)) continue;
+    place.michelin = toMichelinBadge(m);
+    byId.set(place.id, place);
+    added++;
+  }
+
   // Post-filter by radius with 25% slack; the distance penalty handles the rest.
   const radiusKm = opts.radiusMeters / 1000;
   const slackKm = radiusKm * 1.25;
-  const candidates: PlaceResult[] = [];
+  const candidates: RecCandidate[] = [];
   for (const c of byId.values()) {
     const dist = haversineKm(
       { lat: c.lat, lng: c.lng },
       { lat: opts.target.lat, lng: opts.target.lng },
     );
     if (dist <= slackKm) candidates.push(c);
+  }
+
+  // ── Community price backfill ──
+  // One batched query fills tiers the Guide couldn't, so the scorer's
+  // unknown-price prior only ever hits places nobody has priced anywhere.
+  const unpricedIds = candidates
+    .filter((c) => c.priceLevel < 1 && !isMichelinSyntheticId(c.id))
+    .map((c) => c.id);
+  if (unpricedIds.length > 0) {
+    try {
+      const communityPrices = await getCommunityPricesForPlaces(unpricedIds);
+      for (const c of candidates) {
+        if (c.priceLevel < 1) {
+          const tier = (communityPrices[c.id] || '').length;
+          if (tier >= 1 && tier <= 4) c.priceLevel = tier;
+        }
+      }
+    } catch { /* display-quality data only — never block the pool */ }
   }
 
   // Only fetch if we actually have candidates to look up. One batched query.
@@ -821,30 +1146,61 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     expertRecRestaurantIds: expertRecIds,
   };
 
-  const scored = scoreCandidates(
-    candidates,
+  // Persist the pool (not a scored page of it) whenever we actually hit
+  // Google, so the next open of the same city ranks instantly with zero
+  // Places spend. Michelin synthetics are excluded — they rebuild for free
+  // from the local dataset. Ordered by a quality proxy so the cap keeps the
+  // most useful 60.
+  if (opts.userId && !skipGoogle && candidates.length > 0) {
+    const persistable = candidates
+      .filter((c) => !isMichelinSyntheticId(c.id))
+      .sort((a, b) => {
+        const bayes = (p: RecCandidate) =>
+          p.rating > 0 ? (p.userRatingCount * p.rating + 25 * 3.8) / (p.userRatingCount + 25) : 3.8;
+        return bayes(b) - bayes(a);
+      })
+      .slice(0, 60);
+    if (persistable.length > 0) {
+      void saveHomeRecsCache(
+        opts.userId,
+        locKey,
+        opts.target.label,
+        opts.target.lat,
+        opts.target.lng,
+        prefsHash,
+        persistable,
+      );
+    }
+  }
+
+  return { candidates, signals, fetchedAt: Date.now() };
+}
+
+function emptySignals(): CandidateSignals {
+  return {
+    expertUserIds: new Set(),
+    followedExpertIds: new Set(),
+    friendUserIds: new Set(),
+    communityByRestaurant: new Map(),
+    expertRecRestaurantIds: new Set(),
+  };
+}
+
+/**
+ * Full pipeline: gather a pool, rank it. A cache hit skips the Google spend,
+ * never the scoring — results always carry recScore / reasons / predicted,
+ * and the social lifts stay current even when the pool comes from cache.
+ */
+export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[]> {
+  const limit = opts.limit ?? 12;
+  const pool = await gatherRecCandidates(opts);
+  if (opts.signal?.aborted) return [];
+  return scoreCandidates(
+    pool.candidates,
     opts.profile,
-    signals,
+    pool.signals,
     opts.target,
     opts.radiusMeters,
     { limit, skipUserHistory: true, keepWishlisted: opts.keepWishlisted },
   );
-
-  // Persist the ranked pool (not just a page of it) whenever we actually hit
-  // Google, so the next open of the same city ranks instantly with zero
-  // Places spend. Extra ScoredPlace fields serialize harmlessly and are
-  // simply re-scored on the way back out of the cache.
-  if (opts.userId && !skipGoogle && scored.length > 0) {
-    void saveHomeRecsCache(
-      opts.userId,
-      locKey,
-      opts.target.label,
-      opts.target.lat,
-      opts.target.lng,
-      prefsHash,
-      scored.slice(0, 60),
-    );
-  }
-
-  return scored;
 }

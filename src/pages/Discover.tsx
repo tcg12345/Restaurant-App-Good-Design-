@@ -1231,7 +1231,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const buildRecQueries = useCallback((cityOverride?: string | null) => {
     const label = cityOverride ?? userPreferences.topCity ?? '';
     // buildCandidateQueries only reads target.label; lat/lng are unused here.
-    return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 });
+    // The rail's batch fetcher speaks plain text queries — the v3 price
+    // restrictions only apply on the recs-browser path.
+    return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 }).map((q) => q.text);
   }, [userPreferences]);
 
   // Fetch a batch of recommendations. Home mode anchors to the selected home

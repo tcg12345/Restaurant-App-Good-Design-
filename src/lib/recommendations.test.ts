@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   buildTasteProfile,
   scoreCandidates,
+  buildCandidateQueries,
+  sliceQueriesBalanced,
   type TasteProfile,
   type CandidateSignals,
+  type RecCandidate,
 } from './recommendations';
 import type { PlaceResult } from './places';
 import type { RestaurantRating, WishlistItem } from '../contexts/ListsContext';
@@ -300,7 +303,7 @@ describe('scoreCandidates', () => {
     expect(jpRank).toBeLessThanOrEqual(2); // interleaved near the top, not dead last
   });
 
-  it('emits reason chips for the strongest factors and a bounded match %', () => {
+  it('emits reason chips for the strongest factors and a bounded predicted score', () => {
     const profile = italianLover();
     const signals = emptySignals();
     signals.friendUserIds = new Set(['f1', 'f2']);
@@ -318,8 +321,10 @@ describe('scoreCandidates', () => {
     expect(top.reasons!.length).toBeGreaterThan(0);
     expect(top.reasons!.length).toBeLessThanOrEqual(3);
     expect(top.reasons!.join(' | ')).toMatch(/Top cuisine: Italian|sweet spot|Loved by 2 friends/);
-    expect(top.match).toBeGreaterThanOrEqual(5);
-    expect(top.match).toBeLessThanOrEqual(99);
+    expect(top.predicted).toBeGreaterThanOrEqual(5);
+    expect(top.predicted).toBeLessThanOrEqual(9.8);
+    // One decimal, always.
+    expect(Math.round(top.predicted! * 10) / 10).toBe(top.predicted);
   });
 
   it('always hides rated places; keepWishlisted surfaces wishlisted ones with a chip', () => {
@@ -338,5 +343,197 @@ describe('scoreCandidates', () => {
     expect(kept.map((p) => p.id)).not.toContain('been-there');
     const wanted = kept.find((p) => p.id === 'want-to-go')!;
     expect(wanted.reasons).toContain('On your wishlist');
+  });
+});
+
+/* ── v3: price fidelity, distinctiveness, predicted score, queries ─────── */
+
+// ~70-rating premium palate: 2×$, 5×$$, 25×$$$, 38×$$$$ across 8 cuisines,
+// scores 7.0–9.4 (mean 8.2). Mirrors the real complaint profile.
+const P70_CUISINES = ['French', 'Japanese', 'Korean', 'Italian', 'Spanish', 'Creative', 'Indian', 'Thai'];
+const premium70 = (): TasteProfile => {
+  const rs: Parameters<typeof buildTasteProfile>[0] = [];
+  let i = 0;
+  const add = (price: string, count: number) => {
+    for (let k = 0; k < count; k++, i++) {
+      rs.push(rating({
+        restaurantId: `p70-${i}`,
+        cuisine: P70_CUISINES[i % P70_CUISINES.length],
+        price,
+        score: 7 + (i % 5) * 0.6,
+      }));
+    }
+  };
+  add('$', 2);
+  add('$$', 5);
+  add('$$$', 25);
+  add('$$$$', 38);
+  return buildTasteProfile(rs, [], [], []);
+};
+
+const mich = (stars: 0 | 1 | 2 | 3, over: Partial<NonNullable<RecCandidate['michelin']>> = {}) =>
+  ({ stars, bibGourmand: false, selected: false, ...over });
+
+describe('v3 price fidelity', () => {
+  it('REGRESSION: a popular cheap spot ranks well below a premium taste match', () => {
+    const p = premium70();
+    const out = scoreCandidates(
+      [
+        place({ id: 'cheap-trap', types: ['italian_restaurant'], priceLevel: 1, rating: 4.6, userRatingCount: 3000 }),
+        place({ id: 'premium-match', types: ['french_restaurant'], priceLevel: 4, rating: 4.5, userRatingCount: 400 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+    );
+    const trap = out.find((x) => x.id === 'cheap-trap')!;
+    const match = out.find((x) => x.id === 'premium-match')!;
+    expect(out[0].id).toBe('premium-match');
+    expect(match.recScore).toBeGreaterThan(trap.recScore + 1.5);
+    expect(trap.predicted!).toBeLessThan(match.predicted!);
+  });
+
+  it('unknown price is a mild negative for a concentrated palate — not a free pass, not assumed-cheap', () => {
+    const p = premium70();
+    const base = { types: [] as string[], rating: 4.4, userRatingCount: 400 };
+    const out = scoreCandidates(
+      [
+        place({ id: 'mystery', ...base, priceLevel: -1 }),
+        place({ id: 'known-4', ...base, priceLevel: 4 }),
+        place({ id: 'known-1', ...base, priceLevel: 1 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+    );
+    const score = (id: string) => out.find((x) => x.id === id)!.recScore;
+    expect(score('known-4')).toBeGreaterThan(score('mystery'));
+    expect(score('mystery')).toBeGreaterThan(score('known-1'));
+  });
+});
+
+describe('v3 distinctiveness', () => {
+  it('a Michelin star lifts candidates for a distinctive palate, with a chip and source', () => {
+    const p = premium70();
+    const base = { types: ['french_restaurant'], priceLevel: 4, rating: 4.5, userRatingCount: 900 };
+    const starred: RecCandidate = { ...place({ id: 'starred', ...base }), michelin: mich(1) };
+    const out = scoreCandidates([place({ id: 'plain', ...base }), starred], p, emptySignals(), TARGET, RADIUS);
+    expect(out[0].id).toBe('starred');
+    expect(out[0].reasons!.join(' | ')).toContain('Michelin 1-star');
+    expect(out[0].sources).toContain('michelin');
+  });
+
+  it('Michelin-only candidates (no Google rating) get a quality substitute instead of sinking', () => {
+    const p = premium70();
+    const ghost: RecCandidate = {
+      ...place({ id: 'michelin:40.73,-73.99,Ghost', name: 'Ghost', types: ['french_restaurant'], priceLevel: 4, rating: 0, userRatingCount: 0 }),
+      michelin: mich(2),
+    };
+    const noSignal = place({ id: 'nosignal', types: ['french_restaurant'], priceLevel: 4, rating: 0, userRatingCount: 0 });
+    const out = scoreCandidates([noSignal, ghost], p, emptySignals(), TARGET, RADIUS);
+    expect(out[0].id).toBe('michelin:40.73,-73.99,Ghost');
+    expect(out[0].recScore).toBeGreaterThan(out[1].recScore + 1);
+  });
+
+  it('drops Michelin synthetic duplicates of places already rated, by normalized name', () => {
+    const p = buildTasteProfile(
+      [rating({ restaurantId: 'g-1', name: 'Le Fantôme', cuisine: 'French', price: '$$$$', score: 9.5 })],
+      [], [], [],
+    );
+    const synth: RecCandidate = {
+      ...place({ id: 'michelin:40.73,-73.99,Le%20Fant%C3%B4me', name: 'Le Fantôme', types: ['french_restaurant'], priceLevel: 4, rating: 0, userRatingCount: 0 }),
+      michelin: mich(1),
+    };
+    const out = scoreCandidates([synth], p, emptySignals(), TARGET, RADIUS, { keepWishlisted: true });
+    expect(out.length).toBe(0);
+  });
+
+  it('crowd size matters less to a distinctive palate', () => {
+    const premium = premium70();
+    const massMarket = buildTasteProfile(
+      Array.from({ length: 12 }, (_, i) => rating({ restaurantId: `m${i}`, cuisine: 'Italian', price: '$', score: 9 })),
+      [], [], [],
+    );
+    const busy = place({ id: 'busy', types: [], priceLevel: 2, rating: 4.5, userRatingCount: 3000 });
+    const quiet = place({ id: 'quiet', types: [], priceLevel: 2, rating: 4.5, userRatingCount: 50 });
+    const delta = (profile: TasteProfile) => {
+      const out = scoreCandidates([busy, quiet], profile, emptySignals(), TARGET, RADIUS);
+      return out.find((x) => x.id === 'busy')!.recScore - out.find((x) => x.id === 'quiet')!.recScore;
+    };
+    expect(delta(premium)).toBeLessThan(delta(massMarket));
+  });
+});
+
+describe('v3 predicted score', () => {
+  it("speaks each grader's own scale", () => {
+    const candidates = [place({ id: 'nice', types: ['italian_restaurant'], priceLevel: 2, rating: 4.5, userRatingCount: 500 })];
+    const generous = buildTasteProfile(
+      Array.from({ length: 12 }, (_, i) => rating({ restaurantId: `g${i}`, cuisine: 'Italian', price: '$$', score: 8.6 })),
+      [], [], [],
+    );
+    const tough = buildTasteProfile(
+      Array.from({ length: 12 }, (_, i) => rating({ restaurantId: `t${i}`, cuisine: 'Italian', price: '$$', score: 6.8 })),
+      [], [], [],
+    );
+    const [gOut] = scoreCandidates(candidates, generous, emptySignals(), TARGET, RADIUS);
+    const [tOut] = scoreCandidates(candidates, tough, emptySignals(), TARGET, RADIUS);
+    expect(gOut.predicted!).toBeGreaterThan(tOut.predicted! + 0.8);
+    // Never promises above the user's own realistic ceiling.
+    expect(tOut.predicted!).toBeLessThanOrEqual(6.8 + 0.4);
+  });
+
+  it('spreads predictions instead of pinning everything at the top', () => {
+    const p = premium70();
+    const out = scoreCandidates(
+      [
+        place({ id: 'dream', types: ['french_restaurant'], priceLevel: 4, rating: 4.7, userRatingCount: 600 }),
+        place({ id: 'meh', types: [], priceLevel: 1, rating: 4.0, userRatingCount: 80 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+    );
+    const dream = out.find((x) => x.id === 'dream')!.predicted!;
+    const meh = out.find((x) => x.id === 'meh')!.predicted!;
+    expect(dream - meh).toBeGreaterThan(1.2);
+    expect(dream).toBeLessThanOrEqual(9.8);
+    expect(meh).toBeGreaterThanOrEqual(5.0);
+  });
+
+  it("keeps rated rows at the user's own score (LocationPage path)", () => {
+    const p = buildTasteProfile([rating({ restaurantId: 'mine', score: 6.3 })], [], [], []);
+    const out = scoreCandidates([place({ id: 'mine' })], p, emptySignals(), TARGET, RADIUS, { skipUserHistory: false });
+    expect(out[0].predicted).toBe(6.3);
+  });
+});
+
+describe('v3 candidate queries', () => {
+  it('premium palate: no cheap queries, tasting-menu/michelin added, tiers restricted', () => {
+    const qs = buildCandidateQueries(premium70(), TARGET);
+    const texts = qs.map((q) => q.text).join(' | ');
+    expect(texts).not.toMatch(/cheap /);
+    expect(texts).toMatch(/tasting menu/);
+    expect(texts).toMatch(/michelin star restaurants/);
+    expect(qs.some((q) => q.priceLevels && q.priceLevels.every((t) => t >= 3))).toBe(true);
+  });
+
+  it('a genuinely value-leaning palate keeps its cheap queries', () => {
+    const p = buildTasteProfile(
+      Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `v${i}`, cuisine: 'Mexican', price: i % 2 ? '$' : '$$', score: 9 })),
+      [], [], [],
+    );
+    const texts = buildCandidateQueries(p, TARGET).map((q) => q.text).join(' | ');
+    expect(texts).toMatch(/cheap Mexican/);
+  });
+
+  it('sliceQueriesBalanced always keeps ≥2 unrestricted queries in the slice', () => {
+    const restricted = Array.from({ length: 8 }, (_, i) => ({ text: `r${i}`, priceLevels: [4] }));
+    const tail = [{ text: 'u1' }, { text: 'u2' }];
+    const out = sliceQueriesBalanced([...restricted, ...tail], 8);
+    expect(out.length).toBe(8);
+    expect(out.filter((q) => !q.priceLevels).length).toBe(2);
   });
 });

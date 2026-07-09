@@ -509,7 +509,10 @@ const FOOD_TYPES = new Set([
   'vietnamese_restaurant', 'ice_cream_shop', 'juice_shop', 'sandwich_shop',
 ]);
 
-function isFoodPlace(types: string[]): boolean {
+// Exported for the recommendation engine's price-restricted query path — the
+// paged text search has no server-side food-type filter, so it applies this
+// one client-side.
+export function isFoodPlace(types: string[]): boolean {
   return types.some((t) => FOOD_TYPES.has(t));
 }
 

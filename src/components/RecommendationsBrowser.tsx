@@ -12,10 +12,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import {
   buildTasteProfile,
-  getRecommendations,
+  gatherRecCandidates,
+  scoreCandidates,
   haversineKm,
+  type RecPool,
   type ScoredPlace,
 } from '../lib/recommendations';
+import { ScoreRing } from './cards';
 import {
   HomeLocationBar,
   loadLastSelectedLocation,
@@ -75,10 +78,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [radiusMenuOpen, setRadiusMenuOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<ScoredPlace[]>([]);
-  // One fetch per (location, radius) per mount — reopening the popup or
-  // toggling filters re-ranks instantly from this pool with zero API spend.
-  const poolCacheRef = useRef<Map<string, ScoredPlace[]>>(new Map());
+  const [pool, setPool] = useState<RecPool | null>(null);
+  // One GATHER per (location, radius) per mount — the pool is unscored, so
+  // reopening, filtering, and every rating change re-rank instantly from it
+  // with zero API spend.
+  const poolCacheRef = useRef<Map<string, RecPool>>(new Map());
 
   const [cuisineSel, setCuisineSel] = useState<Set<string>>(new Set());
   const [priceSel, setPriceSel] = useState<Set<number>>(new Set());
@@ -87,10 +91,18 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   // Sync to the app-wide saved location every open (it may have changed on
   // Discover / the location page since the last one), and reset the view
-  // filters so each visit starts from the honest full ranking.
+  // filters so each visit starts from the honest full ranking. Keep the
+  // previous object identity when nothing changed — a fresh-but-equal target
+  // would re-fire the gather effect mid-flight and double the Places spend.
   useEffect(() => {
     if (!open) return;
-    setTarget(loadLastSelectedLocation());
+    setTarget((prev) => {
+      const next = loadLastSelectedLocation();
+      if (prev && next && prev.lat === next.lat && prev.lng === next.lng && prev.label === next.label) {
+        return prev;
+      }
+      return next;
+    });
     setCuisineSel(new Set());
     setPriceSel(new Set());
     setOpenNowOnly(false);
@@ -111,56 +123,68 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Run the engine. The taste profile is snapshotted at fetch time on
-  // purpose — rating something from inside the popup shouldn't trigger a
-  // full Places refetch (the just-rated place is dropped client-side below).
+  // The taste profile stays LIVE: any rating add/edit/delete rebuilds it and
+  // the scoring memo below re-ranks the cached pool synchronously — no
+  // refetch, no stale rows, predictions and chips update in place.
+  const liveProfile = useMemo(() => buildTasteProfile(ratings, wishlist, lists, []), [ratings, wishlist, lists]);
+
+  // Gather the candidate pool (network) — profile changes deliberately do
+  // NOT re-run this; they only re-score.
   useEffect(() => {
     if (!open || !target) return;
     const key = `${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}`;
     const cached = poolCacheRef.current.get(key);
     if (cached) {
-      setResults(cached);
+      setPool(cached);
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    setResults([]);
-    const profile = buildTasteProfile(ratings, wishlist, lists, []);
-    getRecommendations({
+    setPool(null);
+    gatherRecCandidates({
       userId,
-      profile,
+      profile: liveProfile,
       target: { label: target.label, lat: target.lat, lng: target.lng },
       radiusMeters: Math.round(radiusMiles * 1609.34),
-      limit: 60,
       maxQueries: 8,
-      keepWishlisted: true,
     })
       .then((out) => {
         if (cancelled) return;
         poolCacheRef.current.set(key, out);
-        setResults(out);
+        setPool(out);
       })
-      .catch(() => { if (!cancelled) setResults([]); })
+      .catch(() => { if (!cancelled) setPool(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, target, radiusMiles, userId]);
 
-  const ratedIds = useMemo(() => new Set(ratings.map((r) => r.restaurantId)), [ratings]);
+  // Rank the pool against the live profile. Rated places drop out here
+  // (skipUserHistory), so rating from inside the popup removes the row and
+  // re-ranks the rest in the same render.
+  const results = useMemo<ScoredPlace[]>(() => {
+    if (!pool || !target) return [];
+    return scoreCandidates(
+      pool.candidates,
+      liveProfile,
+      pool.signals,
+      { label: target.label, lat: target.lat, lng: target.lng },
+      Math.round(radiusMiles * 1609.34),
+      { limit: 60, skipUserHistory: true, keepWishlisted: true },
+    );
+  }, [pool, liveProfile, target, radiusMiles]);
 
   const enriched = useMemo(
     () =>
-      results
-        .filter((p) => !ratedIds.has(p.id))
-        .map((p) => ({
-          place: p,
-          cuisineLabel: getCuisineLabel(p.types || []),
-          distanceMi: target
-            ? haversineKm({ lat: p.lat, lng: p.lng }, { lat: target.lat, lng: target.lng }) * 0.621371
-            : Number.NaN,
-        })),
-    [results, ratedIds, target],
+      results.map((p) => ({
+        place: p,
+        cuisineLabel: getCuisineLabel(p.types || []),
+        distanceMi: target
+          ? haversineKm({ lat: p.lat, lng: p.lng }, { lat: target.lat, lng: target.lng }) * 0.621371
+          : Number.NaN,
+      })),
+    [results, target],
   );
 
   // Cuisine chips, ordered by how many picks carry each label.
@@ -472,11 +496,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             stack (rating lives on the detail page) so the name and reason
             chips get the width; desktop shows both actions on hover. */}
         {isMobile ? (
-          <div className="flex w-12 flex-shrink-0 flex-col items-end gap-1.5">
-            {typeof p.match === 'number' && (
-              <div className="text-right">
-                <p className="text-[14px] font-bold leading-none text-primary tabular-nums">{p.match}%</p>
-                <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-on-surface/35">match</p>
+          <div className="flex flex-shrink-0 flex-col items-center gap-1">
+            {typeof p.predicted === 'number' && (
+              <div className="flex flex-col items-center">
+                <ScoreRing score={p.predicted} size={40} />
+                <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-on-surface/35">for you</p>
               </div>
             )}
             <button
@@ -493,10 +517,10 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           </div>
         ) : (
           <div className="flex flex-shrink-0 items-center gap-2.5">
-            {typeof p.match === 'number' && (
-              <div className="w-11 text-right">
-                <p className="text-[15px] font-bold leading-none text-primary tabular-nums">{p.match}%</p>
-                <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.12em] text-on-surface/35">match</p>
+            {typeof p.predicted === 'number' && (
+              <div className="flex flex-col items-center">
+                <ScoreRing score={p.predicted} size={44} />
+                <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.12em] text-on-surface/35">for you</p>
               </div>
             )}
             <div className="flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
