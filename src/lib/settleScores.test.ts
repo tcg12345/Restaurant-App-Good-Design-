@@ -321,3 +321,126 @@ describe('explicitOrder and overflow', () => {
     expect(settleScores([], { allTiers: true })).toEqual([]);
   });
 });
+
+/* ── placementOrder + explicit-order settle (crowded-insertion fix) ───── */
+
+import { placementOrder, applyTie } from './headToHeadRating';
+import { normalizeScores } from './settleScores';
+
+describe('placementOrder', () => {
+  // Drive a real search answering with ground truth: the new restaurant is
+  // better than anything scored ≤ `beats`, worse than anything above it.
+  function runSearch(all: RestaurantRating[], beats: number) {
+    let st = initH2H(all, 'loved');
+    while (!isComplete(st)) {
+      const comp = pickComparison(st)!;
+      st = applyChoice(st, comp.score <= beats);
+    }
+    return st;
+  }
+
+  it('closed window: inserts exactly between the loser and the winner', () => {
+    const all = [mk('r10', 10), mk('r99', 9.9), mk('r98', 9.8), mk('r97', 9.7), mk('r96', 9.6)];
+    const st = runSearch(all, 9.7); // beats 9.7 and below, loses to 9.8 up
+    const final = computeFinalScore(st);
+    const order = placementOrder(st, 'new', final);
+    expect(order).toEqual(['r10', 'r99', 'r98', 'new', 'r97', 'r96']);
+  });
+
+  it('terminal tie: lands directly below the pivot', () => {
+    const all = [mk('a', 9.9), mk('b', 9.5), mk('c', 9.1)];
+    let st = initH2H(all, 'loved');
+    st = applyTie(st); // pivot = b (midpoint)
+    const order = placementOrder(st, 'new', computeFinalScore(st));
+    expect(order).toEqual(['a', 'b', 'new', 'c']);
+  });
+
+  it("THE crowded case: beating the 9.7 in a 0.1 gap shifts the block DOWN, never inverts", () => {
+    const all = [mk('r10', 10), mk('r99', 9.9), mk('r98', 9.8), mk('r97', 9.7), mk('r96', 9.6)];
+    const st = runSearch(all, 9.7);
+    const final = computeFinalScore(st);
+    // The raw score collides with the beaten neighbor — that's the trap.
+    expect(final).toBe(9.7);
+    const order = placementOrder(st, 'new', final);
+    const next = settleAndApply([mk('new', final), ...all], {
+      justRatedId: 'new',
+      explicitOrder: order,
+    });
+    const score = (id: string) => next.find((r) => r.restaurantId === id)!.score;
+    // Order faithful to the comparisons: new sits between r98 and r97 …
+    expect(score('r98')).toBeGreaterThan(score('new'));
+    expect(score('new')).toBeGreaterThan(score('r97'));
+    // … and the block below shifted down to make room (no crowding).
+    expect(score('r97')).toBeLessThanOrEqual(9.6);
+    expect(score('r97') - score('r96')).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
+    // Everything stays distinct on the 0.1 grid.
+    const sorted = [...next].sort((a, b) => b.score - a.score).map((r) => r.score);
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i - 1] - sorted[i]).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
+    }
+  });
+
+  it('without the explicit order the same save used to invert — guard the regression', () => {
+    const all = [mk('r10', 10), mk('r99', 9.9), mk('r98', 9.8), mk('r97', 9.7), mk('r96', 9.6)];
+    const withOrder = settleAndApply([mk('new', 9.7), ...all], {
+      justRatedId: 'new',
+      explicitOrder: ['r10', 'r99', 'r98', 'new', 'r97', 'r96'],
+    });
+    const score = (id: string) => withOrder.find((r) => r.restaurantId === id)!.score;
+    expect(score('new')).toBeGreaterThan(score('r97'));
+  });
+});
+
+/* ── normalizeScores (one-shot decompression) ──────────────────────────── */
+
+describe('normalizeScores', () => {
+  it('decompresses a crowded top: full spread at maturity, order kept, grid gaps', () => {
+    const scores = [10, 9.9, 9.9, 9.8, 9.8, 9.8, 9.7, 9.7, 9.6, 9.6, 9.5, 9.5];
+    const all = scores.map((s, i) => mk(`r${String(i).padStart(2, '0')}`, s));
+    const next = applySettleChanges(all, normalizeScores(all));
+    const rows = tierRows(next, 'loved');
+    // Same order (ids were minted in descending-score order).
+    expect(rows.map((r) => r.restaurantId)).toEqual(all.map((r) => r.restaurantId));
+    // Mature tier (n−1 ≥ K): top anchored at 10, span stretched to the band.
+    expect(rows[0].score).toBe(10);
+    expect(rows[0].score - rows[rows.length - 1].score).toBeGreaterThanOrEqual(2.5);
+    // Strictly descending on the 0.1 grid, inside the band.
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i - 1].score - rows[i].score).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
+    }
+    expect(rows[rows.length - 1].score).toBeGreaterThanOrEqual(7.0);
+  });
+
+  it('is NOT an even respace: a standout gap stays the largest', () => {
+    const all = [mk('a', 10), mk('b', 9.9), mk('c', 9.8), mk('d', 8.5), mk('e', 8.4)];
+    const next = applySettleChanges(all, normalizeScores(all));
+    const s = (id: string) => next.find((r) => r.restaurantId === id)!.score;
+    const gaps = [s('a') - s('b'), s('b') - s('c'), s('c') - s('d'), s('d') - s('e')];
+    expect(Math.max(...gaps)).toBe(gaps[2]); // the c→d chasm survives
+    expect(gaps[2]).toBeGreaterThan(gaps[0] + 0.1);
+  });
+
+  it('anchors disliked to the floor as it matures and keeps tiers contained', () => {
+    const disliked = Array.from({ length: 11 }, (_, i) => mk(`d${String(i).padStart(2, '0')}`, 3.9 - i * 0.05));
+    const fine = [mk('f1', 5.5), mk('f2', 5.4)];
+    const next = applySettleChanges([...disliked, ...fine], normalizeScores([...disliked, ...fine]));
+    const dRows = tierRows(next, 'disliked');
+    expect(dRows[dRows.length - 1].score).toBe(1);
+    expect(dRows[0].score).toBeLessThanOrEqual(3.9);
+    for (const r of tierRows(next, 'fine')) {
+      expect(r.score).toBeGreaterThanOrEqual(4.0);
+      expect(r.score).toBeLessThanOrEqual(6.9);
+    }
+  });
+
+  it('leaves an already well-spread list essentially alone', () => {
+    const all = [mk('a', 9.8), mk('b', 9.2), mk('c', 8.6), mk('d', 8.0)];
+    const changes = normalizeScores(all);
+    // f = 0.3 → gentle: nothing should move more than a few display steps.
+    const next = applySettleChanges(all, changes);
+    for (const r of all) {
+      const now = next.find((x) => x.restaurantId === r.restaurantId)!.score;
+      expect(Math.abs(now - r.score)).toBeLessThanOrEqual(0.4);
+    }
+  });
+});

@@ -10,7 +10,6 @@ import {
   type H2HCandidate,
   type CandidateMetaResolver,
   TIER_LABELS,
-  TIER_BLURB,
   initH2H,
   pickComparison,
   applyChoice,
@@ -343,7 +342,6 @@ const InlineTierSelect: React.FC<{
           <span className={cn("w-2 h-2 rounded-full flex-shrink-0", TIER_DOT[tier])} />
           <div className="flex-1 min-w-0">
             <div className="font-serif font-bold text-[15px] leading-snug">{TIER_LABELS[tier]}</div>
-            <div className="text-[11px] text-on-surface/50 leading-snug">{TIER_BLURB[tier]}</div>
           </div>
           <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
         </motion.button>

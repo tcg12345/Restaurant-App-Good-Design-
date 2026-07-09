@@ -314,8 +314,13 @@ interface ListsContextValue {
    *  visit history (locally and to Supabase) before the new rating
    *  takes its place. Without the flag (the default) the call is an
    *  in-place update: the current rating is replaced and no phantom
-   *  visit record gets created. */
-  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean }) => void;
+   *  visit record gets created.
+   *
+   *  Pass `settleOrder` (descending restaurant ids) when the score came out
+   *  of a head-to-head — it carries the search's exact placement through the
+   *  settle pass, so a score collision with a bracketing neighbor can't
+   *  invert the order the user just decided. */
+  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[] }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   /** Apply a batch of settle-engine score changes in one persist/sync pass
    *  (the Reorder page's save). Each changed row is republished to the
@@ -1895,7 +1900,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, []);
 
-  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean }) => {
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[] }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
     // record needs to be pushed into visit history. When it's false
@@ -1959,6 +1964,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ? settleScores(baseNext, {
           justRatedId: rating.restaurantId,
           previousScore: existingForArchive ? existingForArchive.score : undefined,
+          // Head-to-head saves carry the search's exact placement so the
+          // settle can't invert an order the comparisons already decided.
+          explicitOrder: options?.settleOrder,
         })
       : [];
     const next = applySettleChanges(baseNext, settleChanges);

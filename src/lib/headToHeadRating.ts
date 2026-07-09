@@ -146,12 +146,6 @@ export const TIER_EMOJI: Record<Tier, string> = {
   disliked: '😕',
 };
 
-export const TIER_BLURB: Record<Tier, string> = {
-  loved: '8s–10s',
-  fine: '5s–6s',
-  disliked: '1s–3s',
-};
-
 export function tierRange(tier: Tier): { min: number; max: number } {
   if (tier === 'loved') return { min: 7.0, max: 10.0 };
   if (tier === 'fine') return { min: 4.0, max: 6.9 };
@@ -697,6 +691,49 @@ export function computeFinalScore(state: H2HState): number {
   }
 
   return clamp(rounded, 0, 10);
+}
+
+/**
+ * The exact descending order a completed search implies: every candidate id
+ * with the new restaurant inserted at its resolved slot.
+ *
+ * This is the search's REAL result — the final 0-10 number is derived from it
+ * and can collide with a neighbor's score when the bracketing gap is only one
+ * display step (beat the 9.7, lost to the 9.8 → lands ON 9.7). Feeding this
+ * order into the settle pass as `explicitOrder` keeps the ranking faithful
+ * through such collisions: the beaten neighbor (and the block below it)
+ * shifts DOWN to make room instead of the new arrival being sorted under
+ * the very restaurant it just beat.
+ *
+ *  - Terminal tie → directly below the pivot (matches the settle tie rule).
+ *  - Closed window (lo > hi) → exact: everything above `lo` beat the new
+ *    item, everything from `lo` down lost to it.
+ *  - Budget-capped open window → indices inside [lo..hi] were never compared;
+ *    they order against the interpolated final score.
+ */
+export function placementOrder(
+  state: H2HState,
+  newId: string,
+  finalScore: number,
+): string[] {
+  const ids = state.candidates.map((c) => c.restaurantId);
+  if (state.terminalTie) {
+    const pivot = state.terminalTie.comparisonId;
+    const out: string[] = [];
+    for (const id of ids) {
+      out.push(id);
+      if (id === pivot) out.push(newId);
+    }
+    if (!out.includes(newId)) out.push(newId);
+    return out;
+  }
+  let insertAt = state.lo;
+  if (state.lo <= state.hi) {
+    // Open window: place among the un-compared block by score.
+    while (insertAt <= state.hi && state.candidates[insertAt].score > finalScore) insertAt++;
+  }
+  insertAt = Math.max(0, Math.min(ids.length, insertAt));
+  return [...ids.slice(0, insertAt), newId, ...ids.slice(insertAt)];
 }
 
 /**

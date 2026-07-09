@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, GripVertical, Undo2, Save, X } from 'lucide-react';
+import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
-import { settleScores } from '../lib/settleScores';
+import { settleScores, normalizeScores } from '../lib/settleScores';
 
 interface RatedItem {
   restaurantId: string;
@@ -185,6 +185,34 @@ export const ReorderRatings: React.FC = () => {
     (item) => originalScores.current[item.restaurantId] !== item.score
   );
 
+  // One-shot "spread my scores out": rank-preserving decompression of every
+  // tier (see normalizeScores). Applies immediately through the same batch
+  // path the Save button uses, then refreshes the on-screen list so the new
+  // numbers are visible in place. Momentary flag drives the button feedback.
+  const [normalized, setNormalized] = useState(false);
+  const handleNormalize = useCallback(() => {
+    const changes = normalizeScores(ratings, {
+      explicitOrder: items.map((i) => i.restaurantId),
+    });
+    if (changes.length > 0) {
+      applySettledScores(changes);
+      const byId = new Map(changes.map((c) => [c.restaurantId, c.score]));
+      setItems((current) => {
+        const next = current
+          .map((it) => {
+            const score = byId.get(it.restaurantId);
+            return score === undefined ? it : { ...it, score };
+          })
+          .sort((a, b) => b.score - a.score);
+        originalScores.current = Object.fromEntries(next.map((i) => [i.restaurantId, i.score]));
+        return next;
+      });
+      setUndoStack([]);
+    }
+    setNormalized(true);
+    window.setTimeout(() => setNormalized(false), 2000);
+  }, [ratings, items, applySettledScores]);
+
   return (
     <div className="min-h-screen bg-surface pb-8">
       {/* Header */}
@@ -205,6 +233,15 @@ export const ReorderRatings: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleNormalize}
+              disabled={items.length < 2 || hasChanges}
+              title={hasChanges ? 'Save or undo your reorder first' : 'Re-spread crowded scores across each band, keeping your order'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors disabled:opacity-30 text-on-surface/60 hover:bg-on-surface/5"
+            >
+              <Scale size={14} />
+              {normalized ? 'Spread!' : 'Spread out scores'}
+            </button>
             <button
               onClick={handleUndo}
               disabled={undoStack.length === 0}
