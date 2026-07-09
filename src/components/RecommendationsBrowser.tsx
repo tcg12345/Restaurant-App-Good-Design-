@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Bookmark, ChevronDown, Clock, Loader2, MapPin, Navigation,
-  Plus, Sparkles, Star, UtensilsCrossed, X,
+  Plus, Sparkles, Star, X,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
@@ -423,53 +423,19 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose(); navigate(`/restaurant/${p.id}`); }
         }}
         className={cn(
-          'group flex w-full cursor-pointer items-center gap-3 py-3 text-left transition-colors hover:bg-on-surface/[0.025] sm:gap-3.5',
+          'group flex w-full cursor-pointer items-center gap-3 py-3.5 text-left transition-colors hover:bg-on-surface/[0.025] sm:gap-3.5',
           isMobile ? 'px-4' : 'px-5',
         )}
       >
-        {/* Rank — its own column on desktop; overlaid on the photo corner on
-            phone so the text column keeps every pixel it can get. */}
-        {!isMobile && (
-          <span
-            className={cn(
-              'grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[12.5px] font-bold tabular-nums',
-              rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55',
-            )}
-          >
-            {rank}
-          </span>
-        )}
-
-        {/* Photo / monogram */}
-        <div className="relative flex-shrink-0">
-          <div className={cn('overflow-hidden rounded-xl bg-on-surface/[0.05]', isMobile ? 'h-[52px] w-[52px]' : 'h-14 w-14')}>
-            {p.photoUrl ? (
-              <img
-                src={p.photoUrl}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                referrerPolicy="no-referrer"
-                className="h-full w-full object-cover"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              <div className="grid h-full w-full place-items-center text-on-surface/25">
-                <UtensilsCrossed size={20} strokeWidth={1.6} />
-              </div>
-            )}
-          </div>
-          {isMobile && (
-            <span
-              className={cn(
-                'absolute -left-1.5 -top-1.5 grid h-[22px] w-[22px] place-items-center rounded-full text-[11px] font-bold tabular-nums ring-2 ring-surface',
-                rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/85 text-surface',
-              )}
-            >
-              {rank}
-            </span>
+        {/* Rank — text-only rows: the number IS the visual anchor. */}
+        <span
+          className={cn(
+            'grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[12.5px] font-bold tabular-nums',
+            rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55',
           )}
-        </div>
+        >
+          {rank}
+        </span>
 
         {/* Name · meta · reasons */}
         <div className="min-w-0 flex-1">
@@ -583,9 +549,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       ) : loading ? (
         <div className="divide-y divide-on-surface/[0.05]">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className={cn('flex items-center gap-3.5 py-3', isMobile ? 'px-4' : 'px-5')}>
-              {!isMobile && <div className="h-7 w-7 animate-pulse rounded-full bg-on-surface/[0.06]" />}
-              <div className={cn('animate-pulse rounded-xl bg-on-surface/[0.06]', isMobile ? 'h-[52px] w-[52px]' : 'h-14 w-14')} />
+            <div key={i} className={cn('flex items-center gap-3.5 py-4', isMobile ? 'px-4' : 'px-5')}>
+              <div className="h-7 w-7 animate-pulse rounded-full bg-on-surface/[0.06]" />
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="h-3.5 w-1/2 animate-pulse rounded bg-on-surface/[0.06]" />
                 <div className="h-3 w-1/3 animate-pulse rounded bg-on-surface/[0.05]" />
