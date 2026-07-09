@@ -154,33 +154,49 @@ export async function getCommunityPricesForPlaces(
   }
 }
 
+export interface CommunityRatingStats {
+  /** Distinct app users who rated the place (one enthusiast logging five
+   *  visits still reads as one fan). */
+  raters: number;
+  /** Mean community score, 0–10. */
+  avgScore: number;
+}
+
 /**
- * Distinct-rater count per restaurant across ALL community ratings — the
- * "popular on this app" signal for the recommendation engine. One batched
- * query; restaurants nobody has rated are omitted. Counts distinct users so
- * one enthusiast logging five visits doesn't read as five fans.
+ * Rating stats per restaurant across ALL community ratings — the "popular on
+ * this app" signal AND the community-quality source the recommendation
+ * engine hands over to as the platform grows (today's tiny sample means the
+ * Google rating still carries quality; that shifts automatically). One
+ * batched query; restaurants nobody has rated are omitted.
  */
-export async function getCommunityRatingCounts(
+export async function getCommunityRatingStats(
   restaurantIds: string[],
-): Promise<Record<string, number>> {
+): Promise<Record<string, CommunityRatingStats>> {
   if (!supabaseConfigured) return {};
   const ids = Array.from(new Set(restaurantIds.filter(Boolean)));
   if (ids.length === 0) return {};
   try {
     const { data, error } = await supabase
       .from('community_ratings')
-      .select('restaurant_id, user_id')
+      .select('restaurant_id, user_id, score')
       .in('restaurant_id', ids);
-    if (error) { console.error('[Community] getCommunityRatingCounts error:', error); return {}; }
-    const raters: Record<string, Set<string>> = {};
-    for (const row of (data || []) as Array<{ restaurant_id: string; user_id: string }>) {
-      (raters[row.restaurant_id] || (raters[row.restaurant_id] = new Set())).add(row.user_id);
+    if (error) { console.error('[Community] getCommunityRatingStats error:', error); return {}; }
+    const acc: Record<string, { users: Set<string>; sum: number; n: number }> = {};
+    for (const row of (data || []) as Array<{ restaurant_id: string; user_id: string; score: number | null }>) {
+      const slot = acc[row.restaurant_id] || (acc[row.restaurant_id] = { users: new Set(), sum: 0, n: 0 });
+      slot.users.add(row.user_id);
+      if (typeof row.score === 'number' && row.score > 0) {
+        slot.sum += row.score;
+        slot.n++;
+      }
     }
-    const out: Record<string, number> = {};
-    for (const [rid, set] of Object.entries(raters)) out[rid] = set.size;
+    const out: Record<string, CommunityRatingStats> = {};
+    for (const [rid, slot] of Object.entries(acc)) {
+      out[rid] = { raters: slot.users.size, avgScore: slot.n > 0 ? slot.sum / slot.n : 0 };
+    }
     return out;
   } catch (err) {
-    console.error('[Community] getCommunityRatingCounts exception:', err);
+    console.error('[Community] getCommunityRatingStats exception:', err);
     return {};
   }
 }

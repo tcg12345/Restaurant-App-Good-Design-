@@ -653,3 +653,26 @@ describe('v3.1 in-app popularity', () => {
     expect(Math.abs(out[0].recScore - out[1].recScore)).toBeLessThan(0.001);
   });
 });
+
+describe('v3.2 community-quality handover', () => {
+  it('with enough in-app raters, the community average outweighs the Google stars', () => {
+    const p = premium70();
+    const base = { types: [] as string[], priceLevel: 4, rating: 4.6, userRatingCount: 800 };
+    const communityLoved: RecCandidate = { ...place({ id: 'loved', ...base }), appRatingCount: 30, appAvgScore: 9.4 };
+    const communityPanned: RecCandidate = { ...place({ id: 'panned', ...base }), appRatingCount: 30, appAvgScore: 5.2 };
+    const out = scoreCandidates([communityPanned, communityLoved], p, emptySignals(), TARGET, RADIUS);
+    const loved = out.find((x) => x.id === 'loved')!;
+    const panned = out.find((x) => x.id === 'panned')!;
+    // Same Google stats — the community consensus separates them hard.
+    expect(loved.recScore).toBeGreaterThan(panned.recScore + 1);
+    expect(loved.predicted!).toBeGreaterThan(panned.predicted!);
+  });
+
+  it('with no in-app raters (today), Google stars still carry quality untouched', () => {
+    const p = premium70();
+    const withEmptyStats: RecCandidate = { ...place({ id: 'a', types: [], priceLevel: 4 }), appRatingCount: 0 };
+    const plain = place({ id: 'b', types: [], priceLevel: 4 });
+    const out = scoreCandidates([withEmptyStats, plain], p, emptySignals(), TARGET, RADIUS);
+    expect(Math.abs(out[0].recScore - out[1].recScore)).toBeLessThan(0.001);
+  });
+});

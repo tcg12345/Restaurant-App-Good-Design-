@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Bookmark, ChevronDown, Clock, Loader2, MapPin, Navigation,
+  ArrowLeft, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
   Plus, Sparkles, Star, X,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
@@ -29,13 +29,15 @@ import {
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
+import { MichelinMark } from './MichelinBadge';
+import type { MichelinInfo } from '../lib/michelin';
 
 /* ── Ranked recommendations browser ──────────────────────────────────────
    Opened from the Pantry's "For you" button. A full-surface popup that
    runs the recommendation engine for the selected location and shows the
-   ENTIRE ranked list — #1 downward — with the engine's "why this" reason
-   chips on every row, client-side filters (cuisine / price / open now /
-   radius / sort) and a location switcher.
+   ENTIRE ranked list — #1 downward — with dropdown filters (cuisine /
+   price / Michelin / open now / radius), sorting that keeps each place's
+   best-match rank number, and a location switcher.
 
    Chrome follows the app's two established popup modes (see GuidesBrowser):
    - Desktop: backdrop + centered spotlight card.
@@ -65,6 +67,73 @@ const fmtMiles = (mi: number): string => {
   if (mi < 10) return `${mi.toFixed(1)} mi`;
   return `${Math.round(mi)} mi`;
 };
+
+/* Compact dropdown filter pill — trigger + backdrop + anchored panel. The
+   panel stays open across multi-select toggles; the backdrop (or the pill)
+   closes it. */
+const DropdownPill: React.FC<{
+  label: string;
+  badge?: number;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  alignRight?: boolean;
+  children: React.ReactNode;
+}> = ({ label, badge, open, onToggle, onClose, alignRight, children }) => (
+  <div className="relative flex-shrink-0">
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors whitespace-nowrap',
+        badge
+          ? 'border-on-surface bg-on-surface text-surface'
+          : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/30',
+      )}
+    >
+      {label}
+      {badge ? <span className="text-[10.5px] font-bold text-surface/60">{badge}</span> : null}
+      <ChevronDown size={12} className={cn('transition-transform', open && 'rotate-180')} />
+    </button>
+    {open && (
+      <>
+        <div className="fixed inset-0 z-10" onClick={onClose} />
+        <div
+          className={cn(
+            'absolute top-full z-20 mt-1.5 max-h-72 w-56 overflow-y-auto overscroll-contain rounded-2xl border border-on-surface/[0.08] bg-white py-1 shadow-xl',
+            alignRight ? 'right-0' : 'left-0',
+          )}
+        >
+          {children}
+        </div>
+      </>
+    )}
+  </div>
+);
+
+const MenuOption: React.FC<{
+  label: string;
+  count?: number;
+  selected: boolean;
+  onToggle: () => void;
+}> = ({ label, count, selected, onToggle }) => (
+  <button
+    type="button"
+    onClick={onToggle}
+    aria-pressed={selected}
+    className={cn(
+      'flex w-full items-center justify-between gap-3 px-3.5 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-on-surface/[0.04]',
+      selected ? 'text-primary' : 'text-on-surface/75',
+    )}
+  >
+    <span className="min-w-0 truncate">{label}</span>
+    <span className="flex flex-shrink-0 items-center gap-2">
+      {count !== undefined && <span className="text-[11px] font-bold text-on-surface/35">{count}</span>}
+      {selected && <Check size={14} />}
+    </span>
+  </button>
+);
 
 interface RecommendationsBrowserProps {
   open: boolean;
@@ -97,6 +166,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [michSel, setMichSel] = useState<Set<MichKey>>(new Set());
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('match');
+  const [openFilter, setOpenFilter] = useState<'cuisine' | 'price' | 'michelin' | null>(null);
 
   // Sync to the app-wide saved location every open (it may have changed on
   // Discover / the location page since the last one), and reset the view
@@ -118,6 +188,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     setOpenNowOnly(false);
     setSortBy('match');
     setRadiusMenuOpen(false);
+    setOpenFilter(null);
   }, [open]);
 
   // The mobile full-pager covers the bottom nav's space — hide it.
@@ -204,7 +275,15 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     [results, target],
   );
 
-  // Cuisine chips, ordered by how many picks carry each label.
+  // Every place keeps its BEST-MATCH rank number no matter how the list is
+  // re-sorted or filtered — "#7" means the 7th best pick for you, always.
+  const rankById = useMemo(() => {
+    const m = new Map<string, number>();
+    enriched.forEach((e, i) => m.set(e.place.id, i + 1));
+    return m;
+  }, [enriched]);
+
+  // Cuisine dropdown options, ordered by how many picks carry each label.
   const cuisineOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const e of enriched) {
@@ -212,11 +291,19 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 10);
+      .slice(0, 16);
   }, [enriched]);
 
-  // Michelin distinction chips only render for categories actually present
-  // in the current pool — no dead filters in Guide-less cities.
+  const priceCounts = useMemo(() => {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    for (const e of enriched) {
+      if (e.place.priceLevel >= 1 && e.place.priceLevel <= 4) counts[e.place.priceLevel]++;
+    }
+    return counts;
+  }, [enriched]);
+
+  // The Michelin dropdown only renders for categories actually present in
+  // the current pool — no dead filters in Guide-less cities.
   const michelinCounts = useMemo(() => {
     const counts: Record<MichKey, number> = { star: 0, bib: 0, selected: 0 };
     for (const e of enriched) {
@@ -405,91 +492,81 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         </div>
       )}
 
-      {/* Cuisine + price chips (phone prepends the Open-now toggle) */}
-      <div className={cn('no-scrollbar flex items-center gap-2 overflow-x-auto', isMobile ? '-mx-4 px-4' : '-mx-5 px-5')}>
-        {isMobile && (
-          <>
-            {openNowBtn}
-            <span aria-hidden className="mx-0.5 h-5 w-px flex-shrink-0 bg-on-surface/[0.10]" />
-          </>
-        )}
-        <button
-          type="button"
-          onClick={() => setCuisineSel(new Set())}
-          className={cn(
-            'flex-shrink-0 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
-            cuisineSel.size === 0
-              ? 'border-on-surface bg-on-surface text-surface'
-              : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/35',
-          )}
+      {/* Filter dropdowns — compact pills instead of one long chip row.
+          Panels are anchored popovers, so this row never scrolls. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {isMobile && openNowBtn}
+        <DropdownPill
+          label="Cuisine"
+          badge={cuisineSel.size || undefined}
+          open={openFilter === 'cuisine'}
+          onToggle={() => setOpenFilter((v) => (v === 'cuisine' ? null : 'cuisine'))}
+          onClose={() => setOpenFilter(null)}
         >
-          All
-        </button>
-        {cuisineOptions.map(([label, count]) => {
-          const active = cuisineSel.has(label);
-          return (
-            <button
-              key={label}
-              type="button"
-              onClick={() => toggleCuisine(label)}
-              aria-pressed={active}
-              className={cn(
-                'flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
-                active
-                  ? 'border-on-surface bg-on-surface text-surface'
-                  : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/35',
-              )}
-            >
-              {label}
-              <span className={cn('text-[10.5px] font-bold', active ? 'text-surface/60' : 'text-on-surface/35')}>{count}</span>
-            </button>
-          );
-        })}
-        <span aria-hidden className="mx-0.5 h-5 w-px flex-shrink-0 bg-on-surface/[0.10]" />
-        {PRICE_TIERS.map((tier) => {
-          const active = priceSel.has(tier);
-          return (
-            <button
+          {cuisineOptions.length === 0 ? (
+            <p className="px-3.5 py-2 text-[12.5px] text-on-surface/45">No cuisines yet.</p>
+          ) : (
+            cuisineOptions.map(([label, count]) => (
+              <MenuOption
+                key={label}
+                label={label}
+                count={count}
+                selected={cuisineSel.has(label)}
+                onToggle={() => toggleCuisine(label)}
+              />
+            ))
+          )}
+        </DropdownPill>
+        <DropdownPill
+          label="Price"
+          badge={priceSel.size || undefined}
+          open={openFilter === 'price'}
+          onToggle={() => setOpenFilter((v) => (v === 'price' ? null : 'price'))}
+          onClose={() => setOpenFilter(null)}
+        >
+          {PRICE_TIERS.map((tier) => (
+            <MenuOption
               key={tier}
-              type="button"
-              onClick={() => togglePrice(tier)}
-              aria-pressed={active}
-              className={cn(
-                'flex-shrink-0 rounded-full border px-3 py-1.5 text-[12px] font-bold tracking-wide transition-colors',
-                active
-                  ? 'border-on-surface bg-on-surface text-surface'
-                  : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/35',
-              )}
-            >
-              {'$'.repeat(tier)}
-            </button>
-          );
-        })}
+              label={'$'.repeat(tier)}
+              count={priceCounts[tier]}
+              selected={priceSel.has(tier)}
+              onToggle={() => togglePrice(tier)}
+            />
+          ))}
+        </DropdownPill>
         {(michelinCounts.star > 0 || michelinCounts.bib > 0 || michelinCounts.selected > 0) && (
-          <span aria-hidden className="mx-0.5 h-5 w-px flex-shrink-0 bg-on-surface/[0.10]" />
+          <DropdownPill
+            label="Michelin"
+            badge={michSel.size || undefined}
+            open={openFilter === 'michelin'}
+            onToggle={() => setOpenFilter((v) => (v === 'michelin' ? null : 'michelin'))}
+            onClose={() => setOpenFilter(null)}
+          >
+            {MICH_FILTERS.map(({ key, label }) => {
+              const count = michelinCounts[key];
+              if (count === 0) return null;
+              return (
+                <MenuOption
+                  key={key}
+                  label={label}
+                  count={count}
+                  selected={michSel.has(key)}
+                  onToggle={() => toggleMich(key)}
+                />
+              );
+            })}
+          </DropdownPill>
         )}
-        {MICH_FILTERS.map(({ key, label }) => {
-          const count = michelinCounts[key];
-          if (count === 0) return null;
-          const active = michSel.has(key);
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => toggleMich(key)}
-              aria-pressed={active}
-              className={cn(
-                'flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors',
-                active
-                  ? 'border-on-surface bg-on-surface text-surface'
-                  : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/35',
-              )}
-            >
-              {label}
-              <span className={cn('text-[10.5px] font-bold', active ? 'text-surface/60' : 'text-on-surface/35')}>{count}</span>
-            </button>
-          );
-        })}
+        {(cuisineSel.size > 0 || priceSel.size > 0 || michSel.size > 0) && (
+          <button
+            type="button"
+            onClick={() => { setCuisineSel(new Set()); setPriceSel(new Set()); setMichSel(new Set()); }}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-semibold text-red-500/80 transition-colors hover:text-red-500"
+          >
+            <X size={11} />
+            Clear
+          </button>
+        )}
       </div>
     </div>
   );
@@ -534,12 +611,17 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           {rank}
         </span>
 
-        {/* Name · meta · reasons */}
+        {/* Name · meta. The engine's "why" chips are intentionally NOT
+            rendered — the card stays factual (name, cuisine, price,
+            distance, stars); the ranking itself is the recommendation. */}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <h4 className="min-w-0 truncate font-serif text-[15.5px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface group-hover:text-primary transition-colors">
               {p.name}
             </h4>
+            {p.michelin && (
+              <MichelinMark michelin={p.michelin as MichelinInfo} size={11} className="flex-shrink-0 self-center" />
+            )}
             {p.rating > 0 && (
               <span className="inline-flex flex-shrink-0 items-center gap-0.5 text-[11.5px] font-semibold text-on-surface/50">
                 <Star size={10.5} className="fill-amber-400 text-amber-400" />
@@ -548,26 +630,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             )}
           </div>
           {metaLine && <p className="mt-0.5 truncate text-[12px] font-medium text-on-surface/55">{metaLine}</p>}
-          {(p.reasons?.length ?? 0) > 0 && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1">
-              {p.reasons!.slice(0, isMobile ? 2 : 3).map((r, i) => (
-                <span
-                  key={r}
-                  className={cn(
-                    'inline-flex max-w-full items-center truncate rounded-full px-2 py-[3px] text-[10.5px] font-semibold leading-none',
-                    i === 0 ? 'bg-primary/[0.08] text-primary' : 'bg-on-surface/[0.045] text-on-surface/55',
-                  )}
-                >
-                  {r}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* Match + actions. Phone keeps this to a slim match% + bookmark
-            stack (rating lives on the detail page) so the name and reason
-            chips get the width; desktop shows both actions on hover. */}
+        {/* Prediction + actions. Phone keeps a slim ring + bookmark stack
+            (rating lives on the detail page); desktop shows both actions on
+            hover. */}
         {isMobile ? (
           <div className="flex flex-shrink-0 flex-col items-center gap-1">
             {typeof p.predicted === 'number' && (
@@ -695,7 +762,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         </div>
       ) : (
         <div className="divide-y divide-on-surface/[0.05] pb-4">
-          {visible.map((entry, i) => rankedRow(entry, i + 1))}
+          {visible.map((entry) => rankedRow(entry, rankById.get(entry.place.id) ?? 0))}
         </div>
       )}
     </div>

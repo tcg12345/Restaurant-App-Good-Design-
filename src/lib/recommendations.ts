@@ -8,7 +8,7 @@ import {
   getTagSimilarRestaurants,
   getFollowedExpertIds,
   getCommunityPricesForPlaces,
-  getCommunityRatingCounts,
+  getCommunityRatingStats,
 } from './supabase-community';
 import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
@@ -112,6 +112,10 @@ export interface RecCandidate extends PlaceResult {
   /** Distinct app users who have rated this place — the platform-popularity
    *  signal. Near-zero today; grows with the community. */
   appRatingCount?: number;
+  /** Mean community score (0–10). As raters accumulate, the quality term
+   *  hands over from the Google star rating to THIS — recs eventually run on
+   *  what users of the app actually think, not Google. */
+  appAvgScore?: number;
 }
 
 export interface ScoredPlace extends RecCandidate {
@@ -862,27 +866,39 @@ export function scoreCandidates(
       }
     }
 
-    // ── Quality prior (Bayesian) ──
-    // Shrink the star rating toward the 3.8 baseline by review count, so a
-    // 4.6 backed by a thousand reviews beats a 5.0 backed by three.
-    // Michelin-only candidates carry no Google rating — the distinction
-    // itself substitutes (a starred kitchen isn't a coin flip on quality).
-    let bayesForPredict = 3.8;
+    // ── Quality prior ──
+    // While the platform is young, quality = Google's Bayesian-shrunk stars
+    // (a 4.6 backed by a thousand reviews beats a 5.0 backed by three), with
+    // a Michelin-distinction substitute for Guide rows Google hasn't rated.
+    // As in-app raters accumulate on a place, the term HANDS OVER to the
+    // community's own 0-10 average (wComm: 0 today → ~1 at 20+ raters), so
+    // recs eventually run on what users of the app think, not Google.
+    // Friends already have their dedicated similarity-weighted term — this
+    // is the all-users consensus.
+    let googleQ = 0;
+    let googleCold10 = 2 * 3.8 - 1.6; // neutral 6.0 on the 10-scale
     if (c.rating > 0) {
       const v = c.userRatingCount || 0;
       const bayes = (v * c.rating + 25 * 3.8) / (v + 25);
-      bayesForPredict = bayes;
-      const q = clamp(bayes - 3.8, -1, 1);
-      const qTerm = W.quality * q;
-      genericQuality += qTerm;
-      if (q >= 0.55 && v >= 150) {
-        reasons.push({ w: qTerm, label: `${c.rating.toFixed(1)}★ from ${formatReviewCount(v)} reviews` });
+      googleQ = clamp(bayes - 3.8, -1, 1);
+      googleCold10 = 2 * bayes - 1.6;
+      if (googleQ >= 0.55 && v >= 150) {
+        reasons.push({ w: W.quality * googleQ, label: `${c.rating.toFixed(1)}★ from ${formatReviewCount(v)} reviews` });
       }
     } else if (c.michelin) {
       const qSub = MICHELIN_QUALITY_SUB(c.michelin);
-      genericQuality += W.quality * qSub;
-      bayesForPredict = 3.8 + qSub;
+      googleQ = qSub;
+      googleCold10 = 2 * (3.8 + qSub) - 1.6;
     }
+    const commAvg = c.appAvgScore;
+    const commN = c.appRatingCount ?? 0;
+    const wComm = commAvg !== undefined && commN > 0 ? commN / (commN + 8) : 0;
+    const commQ = commAvg !== undefined ? clamp((commAvg - 6.5) / 2.5, -1, 1) : 0;
+    genericQuality += W.quality * ((1 - wComm) * googleQ + wComm * commQ);
+    if (wComm > 0.5 && commAvg !== undefined && commAvg >= 8) {
+      reasons.push({ w: W.quality * wComm * commQ, label: `Community average ${commAvg.toFixed(1)}` });
+    }
+    const cold10 = (1 - wComm) * googleCold10 + wComm * clamp(commAvg ?? 6, 5, 9.4);
     genericQuality += wPopularity * Math.min(1, Math.log1p(c.userRatingCount || 0) / Math.log1p(3000));
 
     // ── In-app popularity ──
@@ -967,7 +983,7 @@ export function scoreCandidates(
     const fitN = Math.tanh(personalFit / 3.2);
     const qualN = Math.tanh(genericQuality / 2.5);
     const personalPredicted = anchor - 0.35 + 1.8 * fitN + 0.45 * qualN;
-    const coldPredicted = clamp(2 * bayesForPredict - 1.6, 5.0, 9.0);
+    const coldPredicted = clamp(cold10, 5.0, 9.0);
     const nPos = profile.myScoreById.size;
     const rampP = nPos / (nPos + 5);
     const cap = Math.min(9.8, (profile.scoreP90 ?? 9.4) + 0.4);
@@ -1216,16 +1232,20 @@ export async function gatherRecCandidates(
     .filter((c) => c.priceLevel < 1 && !isMichelinSyntheticId(c.id))
     .map((c) => c.id);
   try {
-    const [communityPrices, ratingCounts] = await Promise.all([
+    const [communityPrices, ratingStats] = await Promise.all([
       unpricedIds.length > 0 ? getCommunityPricesForPlaces(unpricedIds) : Promise.resolve({} as Record<string, string>),
-      nonSyntheticIds.length > 0 ? getCommunityRatingCounts(nonSyntheticIds) : Promise.resolve({} as Record<string, number>),
+      nonSyntheticIds.length > 0
+        ? getCommunityRatingStats(nonSyntheticIds)
+        : Promise.resolve({} as Awaited<ReturnType<typeof getCommunityRatingStats>>),
     ]);
     for (const c of candidates) {
       if (c.priceLevel < 1) {
         const tier = (communityPrices[c.id] || '').length;
         if (tier >= 1 && tier <= 4) c.priceLevel = tier;
       }
-      c.appRatingCount = ratingCounts[c.id] ?? 0;
+      const stats = ratingStats[c.id];
+      c.appRatingCount = stats?.raters ?? 0;
+      c.appAvgScore = stats && stats.avgScore > 0 ? stats.avgScore : undefined;
     }
   } catch { /* display-quality data only — never block the pool */ }
 
