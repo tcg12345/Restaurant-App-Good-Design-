@@ -594,7 +594,11 @@ export const LocationPage: React.FC = () => {
   // on this page is negligible.
   const profile = useMemo(
     () => buildTasteProfile(ratings, wishlist, lists, []),
-    [ratings, wishlist, lists],
+    // michelinReady is a rebuild trigger: the profile's michelinTaste shares
+    // are gated on the dataset index inside the builder, so the profile must
+    // be rebuilt once the index loads (same pattern as the recs popup).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ratings, wishlist, lists, michelinReady],
   );
 
   // Social scoring signals, fetched once per (user, city). These feed
@@ -1224,15 +1228,42 @@ export const LocationPage: React.FC = () => {
     if (augmentedPool.length === 0) return [];
     if (!hasCoords) return augmentedPool.map((p) => ({ ...p, recScore: 0, sources: ['google'] as ScoredPlace['sources'] }));
     const target = { label: cityDisplay, lat, lng };
+    // Stamp Michelin distinctions onto the pool before scoring — the same
+    // attach the popup's gather stage performs — so the engine's
+    // distinctiveness and michelin-taste terms fire on this page too, and
+    // Guide-priced entries backfill an unknown price tier.
+    const candidates = !michelinReady
+      ? augmentedPool
+      : augmentedPool.map((p) => {
+          if (isMichelinSyntheticId(p.id)) return p;
+          const info = findMichelinMatchSync(p.name, p.lat, p.lng, p.fullAddress || p.address);
+          if (!info) return p;
+          return {
+            ...p,
+            michelin: { stars: info.stars, bibGourmand: info.bibGourmand, selected: info.selected },
+            priceLevel: p.priceLevel < 1 && info.priceTier >= 1 ? info.priceTier : p.priceLevel,
+          };
+        });
     return scoreCandidates(
-      augmentedPool,
+      candidates,
       profile,
       signals,
       target,
       radiusMeters,
       { limit: Infinity, skipUserHistory: false },
     );
-  }, [augmentedPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters]);
+  }, [augmentedPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters, michelinReady]);
+
+  // Stable rank numbers: a badge shows the place's position in the
+  // RECOMMENDED ranking and keeps it through re-sorts, filters, and
+  // searches — the same rule the recommendations popup follows. Rows that
+  // never went through the engine (assistant result sets, Michelin-filter
+  // dataset extras) have no entry here and render without a badge.
+  const rankById = useMemo(() => {
+    const m = new Map<string, number>();
+    ranked.forEach((p, i) => m.set(p.id, i + 1));
+    return m;
+  }, [ranked]);
 
   // Mixed expert / friend / restaurant cards for the "Around {city}" row.
   // We interleave the three types so the row alternates kinds and the
@@ -3174,11 +3205,11 @@ export const LocationPage: React.FC = () => {
           ) : (
             <>
               <div className={cn('r-list', isMobile && 'is-mobile')}>
-                {visible.map((place, idx) => (
+                {visible.map((place) => (
                   <LocationListItem
                     key={place.id}
                     place={place}
-                    rank={idx + 1}
+                    rank={rankById.get(place.id) ?? 0}
                     origin={origin}
                     walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
                     driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
@@ -3342,162 +3373,10 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
 };
 
 
-/* ── Row ─────────────────────────────────────────────────────────────────────
-   A single restaurant line item. Photo-free by design: the name, the match
-   signals, and the travel context are all that matter on this surface. The
-   score badge pins to the right so the eye can scan a column of numbers.
-   ──────────────────────────────────────────────────────────────────────── */
-interface RestaurantRowProps {
-  place: ScoredPlace;
-  origin: { lat: number; lng: number } | null;
-  /** Number of distinct friends who rated this place. 0 when none. */
-  friendCount: number;
-  /** Number of distinct experts who rated (or recommended) this place. */
-  expertCount: number;
-  /** Walk / drive filter caps in minutes, or null when the filter is off.
-   *  When non-null, rows whose travel time exceeds the cap render nothing.
-   *  While travel times are still resolving, the row renders nothing too
-   *  so a not-yet-loaded time can't slip past the filter. */
-  walkMinCap: number | null;
-  driveMinCap: number | null;
-}
-
 const scoreBg = (rating: number): string => {
   if (rating >= 8) return 'bg-emerald-500';
   if (rating >= 5) return 'bg-amber-500';
   return 'bg-red-500';
-};
-
-const RestaurantRow: React.FC<RestaurantRowProps> = ({
-  place,
-  origin,
-  friendCount,
-  expertCount,
-  walkMinCap,
-  driveMinCap,
-}) => {
-  const distanceMi = origin
-    ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
-    : 0;
-  const distanceLabel = origin ? formatDistance(distanceMi) : '';
-
-  const { driveMin, walkMin } = useTravelTimes(
-    origin,
-    Number.isFinite(place.lat) && Number.isFinite(place.lng)
-      ? { lat: place.lat, lng: place.lng }
-      : null,
-  );
-  // Michelin override for cuisine + price (no marker on cards). Hook must run
-  // before the early returns below to satisfy Rules of Hooks.
-  const mich = useMichelinMatch(
-    place.name, place.lat, place.lng, place.fullAddress || place.address,
-    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
-  );
-  const driveLabel = formatTravelTime(driveMin);
-  const walkLabel = formatTravelTime(walkMin);
-
-  // When a travel-time filter is active, hide rows that don't fit. While
-  // the times are still loading (null) we also hide so the list can't
-  // optimistically show a row that'll later disappear — which is what
-  // caused the bottom-of-page glitch on earlier iterations.
-  if (walkMinCap != null) {
-    if (walkMin == null) return null;
-    if (walkMin > walkMinCap) return null;
-  }
-  if (driveMinCap != null) {
-    if (driveMin == null) return null;
-    if (driveMin > driveMinCap) return null;
-  }
-
-  const priceLabel = mich.price;
-  const cuisine = mich.cuisine;
-
-  const friendLabel = friendCount > 1
-    ? `${friendCount} friends rated`
-    : 'Friend rated';
-  const expertLabel = expertCount > 1
-    ? `${expertCount} experts rated`
-    : 'Expert pick';
-
-  return (
-    <li>
-      <Link
-        to={`/restaurant/${place.id}`}
-        className="block py-4 px-1 list-row-hover rounded-lg"
-      >
-        <div className="flex items-start gap-4">
-          <div className="flex-1 min-w-0">
-            <h3 className="font-serif text-[16px] sm:text-[17px] font-bold text-on-surface leading-snug line-clamp-2">
-              {place.name}
-            </h3>
-
-            <p className="mt-1 text-[11px] sm:text-xs text-on-surface/55 font-medium uppercase tracking-wider truncate">
-              {cuisine || 'Restaurant'}
-              {priceLabel && <span className="text-on-surface/25 mx-1.5">·</span>}
-              {priceLabel}
-            </p>
-
-            {/* Travel context — distance + drive + walk. Each pill only renders
-                if we've got a value for it, so the row collapses gracefully
-                when travel times aren't yet resolved (or aren't available). */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-on-surface/65">
-              {distanceLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin size={12} className="text-on-surface/40" />
-                  {distanceLabel}
-                </span>
-              )}
-              {driveLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <Car size={12} className="text-on-surface/40" />
-                  {driveLabel}
-                </span>
-              )}
-              {walkLabel && (
-                <span className="inline-flex items-center gap-1">
-                  <Footprints size={12} className="text-on-surface/40" />
-                  {walkLabel}
-                </span>
-              )}
-            </div>
-
-            {/* Friend / expert signal pills — mutually non-exclusive. Counts
-                upgrade the label to "N friends rated" / "N experts rated"
-                so the row visibly weights stronger circle signal. */}
-            {(friendCount > 0 || expertCount > 0) && (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {friendCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider">
-                    <Users size={10} />
-                    {friendLabel}
-                  </span>
-                )}
-                {expertCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/15 text-secondary text-[10px] font-bold uppercase tracking-wider">
-                    <UserCheck size={10} />
-                    {expertLabel}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Right-aligned score pill. Hidden when Google hasn't supplied a
-              usable rating, rather than surfacing a misleading 0.0. */}
-          {place.rating > 0 && (
-            <div
-              className={cn(
-                'mt-0.5 w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold tabular-nums flex-shrink-0',
-                scoreBg(place.rating * 2), // Google is 0–5; app score scale is 0–10
-              )}
-            >
-              {(place.rating * 2).toFixed(1)}
-            </div>
-          )}
-        </div>
-      </Link>
-    </li>
-  );
 };
 
 /* ── Suggestion card ─────────────────────────────────────────────────────────
@@ -3536,6 +3415,11 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
       : null;
     const cuisine = mich ? mich.cuisine : inferCuisineLabel(place.types);
     const priceLabel = mich ? michelinPriceDisplay(mich) : priceLevelToString(place.priceLevel);
+    // These cards are the engine's top picks, so lead with the predicted
+    // "for you" score; Google (×2) only backfills a missing prediction.
+    const pickScore = typeof place.predicted === 'number' && place.predicted > 0
+      ? place.predicted
+      : place.rating > 0 ? place.rating * 2 : 0;
     return (
       <Link
         to={`/restaurant/${place.id}`}
@@ -3545,14 +3429,14 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
           <span className="font-serif text-6xl font-bold text-primary/30">
             {place.name.charAt(0).toUpperCase()}
           </span>
-          {place.rating > 0 && (
+          {pickScore > 0 && (
             <div
               className={cn(
                 'absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold tabular-nums shadow-md',
-                scoreBg(place.rating * 2),
+                scoreBg(pickScore),
               )}
             >
-              {(place.rating * 2).toFixed(1)}
+              {pickScore.toFixed(1)}
             </div>
           )}
           <div className="absolute top-3 left-3 inline-flex items-center px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-primary">
@@ -4156,6 +4040,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     place.name, place.lat, place.lng, place.fullAddress || place.address,
     inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
   );
+  const { restaurantMeta, cacheRestaurantMeta, ratings } = useLists();
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
@@ -4168,7 +4053,13 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     if (driveMin > driveMinCap) return null;
   }
 
-  const score = place.rating > 0 ? place.rating * 2 : 0;
+  // Personal score first (new rec engine): your own rating when you've
+  // been, else the engine's predicted "for you" score; the Google rating
+  // (×2) remains only as the cold fallback so the circle never blanks.
+  const myRating = ratings.find((r) => r.restaurantId === place.id && r.score > 0);
+  const personal = myRating ? myRating.score : typeof place.predicted === 'number' ? place.predicted : 0;
+  const score = personal > 0 ? personal : place.rating > 0 ? place.rating * 2 : 0;
+  const scoreLabel = myRating ? 'your score' : personal > 0 ? 'for you' : '';
   const cuisine = mich.cuisine;
   const priceLabel = mich.price;
   const distMi = origin
@@ -4182,8 +4073,8 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // neighborhood for this place, fire the one-shot fetch and write
   // back via cacheRestaurantMeta. fetchLocationDataForPlace dedupes
   // in-flight calls per id and the cache is app-wide, so re-visiting a
-  // place across pages is free.
-  const { restaurantMeta, cacheRestaurantMeta } = useLists();
+  // place across pages is free. (useLists is called above, before the
+  // travel-time early returns.)
   const meta = restaurantMeta[place.id];
   // Include hours in the "fully cached" check: a place cached on an earlier
   // visit (address + neighborhood) but without opening hours must still
@@ -4292,13 +4183,24 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     </div>
   );
 
-  // Cuisine · price (+ Michelin). Location is appended inline on desktop and
-  // shown on its own line on mobile.
+  // Cuisine · price · ★ Google (+ Michelin). The Google rating moved into
+  // this meta line when the score circle became the personalized score, so
+  // the public signal stays visible without competing with "for you".
+  // Location is appended inline on desktop and shown on its own line on
+  // mobile.
   const cuisinePrice = (fs: number, withLocation: boolean) => (
     <div style={{ marginTop: 8, fontWeight: 600, fontSize: fs, lineHeight: 1.4 }}>
       {cuisine && <span style={{ color: 'var(--ink-2)', fontWeight: 700, letterSpacing: '0.01em' }}>{cuisine}</span>}
       {cuisine && priceLabel && <span style={{ color: 'var(--muted-2)' }}> · </span>}
       {priceLabel && <span style={{ color: 'var(--ink)', fontWeight: 700 }}>{priceLabel}</span>}
+      {place.rating > 0 && (
+        <>
+          {(cuisine || priceLabel) && <span style={{ color: 'var(--muted-2)' }}> · </span>}
+          <span style={{ color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <span style={{ color: '#f59e0b' }}>★</span> {place.rating.toFixed(1)}
+          </span>
+        </>
+      )}
       {withLocation && locationLabel && <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {locationLabel}</span>}
       {showMichelin && mich.michelin && (
         <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 8 }}>
@@ -4308,10 +4210,40 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     </div>
   );
 
+  // Recommended-rank badge — matches the popup's language: primary fill for
+  // the top three picks, quiet neutral otherwise. Rows without an engine
+  // rank (rank 0) render no badge rather than a fake number.
+  const rankBadge = (size: number, fs: number, marginTop = 0) =>
+    rank > 0 ? (
+      <span
+        className={cn(
+          'grid flex-shrink-0 place-items-center rounded-full font-bold tabular-nums',
+          rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55',
+        )}
+        style={{ width: size, height: size, fontSize: fs, marginTop }}
+      >
+        {rank}
+      </span>
+    ) : null;
+
+  // Score circle + its microlabel ("your score" / "for you"); no label when
+  // the value is the plain Google fallback.
+  const scoreColumn = (size: number, labelFs: number) => (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+      <div style={scoreBadge(size)}>{scoreText}</div>
+      {scoreLabel && (
+        <span style={{ fontSize: labelFs, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          {scoreLabel}
+        </span>
+      )}
+    </div>
+  );
+
   if (isMobile) {
     return (
       <Link to={`/restaurant/${place.id}`} style={{ display: 'block', padding: '20px 26px', borderTop: '1px solid var(--border)', textDecoration: 'none', color: 'inherit' }}>
-        <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+          {rankBadge(26, 12, 2)}
           <div style={{ flex: '1 1 auto', minWidth: 0 }}>
             <h3 style={{ fontFamily: 'var(--serif)', fontWeight: 700, fontSize: 21, lineHeight: 1.16, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               {place.name}
@@ -4325,7 +4257,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
             )}
             {statusRow(12.5)}
           </div>
-          <div style={scoreBadge(50)}>{scoreText}</div>
+          {scoreColumn(50, 8)}
         </div>
       </Link>
     );
@@ -4333,6 +4265,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
 
   return (
     <Link to={`/restaurant/${place.id}`} className="r-list-item">
+      {rankBadge(30, 13)}
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
         <h3 style={{ fontFamily: 'var(--serif)', fontWeight: 700, fontSize: 23, lineHeight: 1.16, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
           {place.name}
@@ -4340,7 +4273,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
         {cuisinePrice(13, true)}
         {statusRow(13)}
       </div>
-      <div style={scoreBadge(56)}>{scoreText}</div>
+      {scoreColumn(56, 8.5)}
     </Link>
   );
 };
