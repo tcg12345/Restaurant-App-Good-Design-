@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
-  Plus, Sparkles, Star, X,
+  Plus, Search, Star, X,
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
@@ -27,6 +27,7 @@ import {
   type HomeLocation,
 } from './HomeLocationBar';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
+import { CUISINE_TYPES } from '../lib/places';
 import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { MichelinMark } from './MichelinBadge';
@@ -47,12 +48,27 @@ import type { MichelinInfo } from '../lib/michelin';
 const RADIUS_OPTIONS = [2, 5, 8, 15, 25] as const;
 const PRICE_TIERS = [1, 2, 3, 4] as const;
 
-type MichKey = 'star' | 'bib' | 'selected';
+type MichKey = 'star1' | 'star2' | 'star3' | 'bib' | 'selected';
 const MICH_FILTERS: Array<{ key: MichKey; label: string }> = [
-  { key: 'star', label: 'Michelin ★' },
+  { key: 'star1', label: '1 Michelin star' },
+  { key: 'star2', label: '2 Michelin stars' },
+  { key: 'star3', label: '3 Michelin stars' },
   { key: 'bib', label: 'Bib Gourmand' },
   { key: 'selected', label: 'Michelin Guide' },
 ];
+
+// The full cuisine menu — every canonical label (same catalogue the location
+// page filters by), not just whatever the current pool happens to contain.
+const ALL_CUISINE_LABELS = CUISINE_TYPES.filter((c) => c.type !== '').map((c) => c.label);
+
+/* Gathered pools outlive the popup AND the page that mounted it: reopening
+   recs for a recently viewed city re-ranks the cached pool with ZERO network
+   spend (Google text search, Michelin sync, community batches all live in
+   the pool). TTL keeps hours/ratings from going stale; the size cap bounds
+   memory when someone tours many cities. */
+const POOL_TTL_MS = 30 * 60 * 1000;
+const POOL_CACHE_MAX = 12;
+const poolCache = new Map<string, RecPool>();
 
 type SortKey = 'match' | 'rating' | 'distance';
 const SORTS: Array<{ key: SortKey; label: string }> = [
@@ -78,8 +94,11 @@ const DropdownPill: React.FC<{
   onToggle: () => void;
   onClose: () => void;
   alignRight?: boolean;
+  /** Extra panel classes (tailwind-merged over the defaults) — used by the
+   *  cuisine menu to widen itself and pin a search box above the scroll. */
+  panelClassName?: string;
   children: React.ReactNode;
-}> = ({ label, badge, open, onToggle, onClose, alignRight, children }) => (
+}> = ({ label, badge, open, onToggle, onClose, alignRight, panelClassName, children }) => (
   <div className="relative flex-shrink-0">
     <button
       type="button"
@@ -103,6 +122,7 @@ const DropdownPill: React.FC<{
           className={cn(
             'absolute top-full z-20 mt-1.5 max-h-72 w-56 overflow-y-auto overscroll-contain rounded-2xl border border-on-surface/[0.08] bg-white py-1 shadow-xl',
             alignRight ? 'right-0' : 'left-0',
+            panelClassName,
           )}
         >
           {children}
@@ -156,12 +176,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   const [loading, setLoading] = useState(false);
   const [pool, setPool] = useState<RecPool | null>(null);
-  // One GATHER per (location, radius) per mount — the pool is unscored, so
-  // reopening, filtering, and every rating change re-rank instantly from it
-  // with zero API spend.
-  const poolCacheRef = useRef<Map<string, RecPool>>(new Map());
 
   const [cuisineSel, setCuisineSel] = useState<Set<string>>(new Set());
+  const [cuisineQuery, setCuisineQuery] = useState('');
   const [priceSel, setPriceSel] = useState<Set<number>>(new Set());
   const [michSel, setMichSel] = useState<Set<MichKey>>(new Set());
   const [openNowOnly, setOpenNowOnly] = useState(false);
@@ -183,6 +200,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       return next;
     });
     setCuisineSel(new Set());
+    setCuisineQuery('');
     setPriceSel(new Set());
     setMichSel(new Set());
     setOpenNowOnly(false);
@@ -220,13 +238,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   // NOT re-run this; they only re-score.
   useEffect(() => {
     if (!open || !target) return;
-    const key = `${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}`;
-    const cached = poolCacheRef.current.get(key);
-    if (cached) {
+    const key = `${userId ?? 'anon'}|${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}`;
+    const cached = poolCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < POOL_TTL_MS) {
       setPool(cached);
       setLoading(false);
       return;
     }
+    if (cached) poolCache.delete(key); // expired
     let cancelled = false;
     setLoading(true);
     setPool(null);
@@ -239,7 +258,13 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     })
       .then((out) => {
         if (cancelled) return;
-        poolCacheRef.current.set(key, out);
+        poolCache.set(key, out);
+        // Evict oldest-inserted entries past the cap (Map preserves order).
+        while (poolCache.size > POOL_CACHE_MAX) {
+          const oldest = poolCache.keys().next().value;
+          if (oldest === undefined) break;
+          poolCache.delete(oldest);
+        }
         setPool(out);
       })
       .catch(() => { if (!cancelled) setPool(null); })
@@ -283,16 +308,25 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     return m;
   }, [enriched]);
 
-  // Cuisine dropdown options, ordered by how many picks carry each label.
+  // Cuisine dropdown options: the FULL canonical catalogue (same list the
+  // location page filters by) plus any pool-only labels, with live counts.
+  // Cuisines present in the current ranking float to the top by count;
+  // the rest follow alphabetically so the search box has everything.
   const cuisineOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const e of enriched) {
       if (e.cuisineLabel) counts.set(e.cuisineLabel, (counts.get(e.cuisineLabel) ?? 0) + 1);
     }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 16);
+    const all = new Set<string>([...ALL_CUISINE_LABELS, ...counts.keys()]);
+    return Array.from(all, (label): [string, number] => [label, counts.get(label) ?? 0])
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [enriched]);
+
+  const visibleCuisineOptions = useMemo(() => {
+    const q = cuisineQuery.trim().toLowerCase();
+    if (!q) return cuisineOptions;
+    return cuisineOptions.filter(([label]) => label.toLowerCase().includes(q));
+  }, [cuisineOptions, cuisineQuery]);
 
   const priceCounts = useMemo(() => {
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -303,18 +337,22 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   }, [enriched]);
 
   // The Michelin dropdown only renders for categories actually present in
-  // the current pool — no dead filters in Guide-less cities.
+  // the current pool — no dead filters in Guide-less cities. Stars are
+  // bucketed per count so "only 3-star places" is one tap.
   const michelinCounts = useMemo(() => {
-    const counts: Record<MichKey, number> = { star: 0, bib: 0, selected: 0 };
+    const counts: Record<MichKey, number> = { star1: 0, star2: 0, star3: 0, bib: 0, selected: 0 };
     for (const e of enriched) {
       const m = e.place.michelin;
       if (!m) continue;
-      if (m.stars > 0) counts.star++;
+      if (m.stars >= 3) counts.star3++;
+      else if (m.stars === 2) counts.star2++;
+      else if (m.stars === 1) counts.star1++;
       else if (m.bibGourmand) counts.bib++;
       else if (m.selected) counts.selected++;
     }
     return counts;
   }, [enriched]);
+  const anyMichelin = MICH_FILTERS.some(({ key }) => michelinCounts[key] > 0);
 
   const visible = useMemo(() => {
     const list = enriched.filter((e) => {
@@ -323,8 +361,10 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       if (michSel.size > 0) {
         const m = e.place.michelin;
         const hit = !!m && (
-          (michSel.has('star') && m.stars > 0) ||
-          (michSel.has('bib') && m.bibGourmand) ||
+          (michSel.has('star1') && m.stars === 1) ||
+          (michSel.has('star2') && m.stars === 2) ||
+          (michSel.has('star3') && m.stars >= 3) ||
+          (michSel.has('bib') && m.bibGourmand && m.stars === 0) ||
           (michSel.has('selected') && m.selected && m.stars === 0 && !m.bibGourmand)
         );
         if (!hit) return false;
@@ -500,22 +540,39 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           label="Cuisine"
           badge={cuisineSel.size || undefined}
           open={openFilter === 'cuisine'}
-          onToggle={() => setOpenFilter((v) => (v === 'cuisine' ? null : 'cuisine'))}
+          onToggle={() => { setCuisineQuery(''); setOpenFilter((v) => (v === 'cuisine' ? null : 'cuisine')); }}
           onClose={() => setOpenFilter(null)}
+          panelClassName="flex max-h-80 w-64 flex-col overflow-hidden p-0"
         >
-          {cuisineOptions.length === 0 ? (
-            <p className="px-3.5 py-2 text-[12.5px] text-on-surface/45">No cuisines yet.</p>
-          ) : (
-            cuisineOptions.map(([label, count]) => (
-              <MenuOption
-                key={label}
-                label={label}
-                count={count}
-                selected={cuisineSel.has(label)}
-                onToggle={() => toggleCuisine(label)}
+          <div className="flex-shrink-0 border-b border-on-surface/[0.06] p-2">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/35" />
+              <input
+                type="text"
+                autoFocus={!isMobile}
+                value={cuisineQuery}
+                onChange={(e) => setCuisineQuery(e.target.value)}
+                placeholder="Search cuisines..."
+                aria-label="Search cuisines"
+                className="w-full rounded-lg bg-on-surface/[0.05] py-1.5 pl-8 pr-2.5 text-[12.5px] font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-            ))
-          )}
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+            {visibleCuisineOptions.length === 0 ? (
+              <p className="px-3.5 py-4 text-center text-[12.5px] text-on-surface/45">No matches</p>
+            ) : (
+              visibleCuisineOptions.map(([label, count]) => (
+                <MenuOption
+                  key={label}
+                  label={label}
+                  count={count || undefined}
+                  selected={cuisineSel.has(label)}
+                  onToggle={() => toggleCuisine(label)}
+                />
+              ))
+            )}
+          </div>
         </DropdownPill>
         <DropdownPill
           label="Price"
@@ -534,7 +591,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             />
           ))}
         </DropdownPill>
-        {(michelinCounts.star > 0 || michelinCounts.bib > 0 || michelinCounts.selected > 0) && (
+        {anyMichelin && (
           <DropdownPill
             label="Michelin"
             badge={michSel.size || undefined}
@@ -632,60 +689,42 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           {metaLine && <p className="mt-0.5 truncate text-[12px] font-medium text-on-surface/55">{metaLine}</p>}
         </div>
 
-        {/* Prediction + actions. Phone keeps a slim ring + bookmark stack
-            (rating lives on the detail page); desktop shows both actions on
-            hover. */}
-        {isMobile ? (
-          <div className="flex flex-shrink-0 flex-col items-center gap-1">
-            {typeof p.predicted === 'number' && (
-              <div className="flex flex-col items-center">
-                <ScoreRing score={p.predicted} size={40} />
-                <p className="mt-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-on-surface/35">for you</p>
-              </div>
-            )}
+        {/* Actions + prediction — one horizontal cluster on BOTH layouts:
+            wishlist and rate sit to the LEFT of the score ring and are
+            always visible (no hover reveal). */}
+        <div className={cn('flex flex-shrink-0 items-center', isMobile ? 'gap-2' : 'gap-2.5')}>
+          <div className={cn('flex items-center', isMobile ? 'gap-1' : 'gap-1.5')}>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
               className={cn(
-                'grid h-7 w-7 place-items-center rounded-full bg-on-surface/[0.05] transition-colors',
-                wishlisted ? 'text-primary' : 'text-on-surface/55',
+                'grid place-items-center rounded-full bg-on-surface/[0.05] transition-colors hover:bg-on-surface/[0.1]',
+                isMobile ? 'h-7 w-7' : 'h-8 w-8',
+                wishlisted ? 'text-primary' : 'text-on-surface/60',
               )}
               aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
             >
-              <Bookmark size={13} className={wishlisted ? 'fill-current' : ''} />
+              <Bookmark size={isMobile ? 13 : 14} className={wishlisted ? 'fill-current' : ''} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onClose(); openAddRestaurantModal(meta); }}
+              className={cn(
+                'grid place-items-center rounded-full bg-on-surface/[0.05] text-on-surface/60 transition-colors hover:bg-on-surface/[0.1]',
+                isMobile ? 'h-7 w-7' : 'h-8 w-8',
+              )}
+              aria-label="Rate"
+            >
+              <Plus size={isMobile ? 14 : 15} />
             </button>
           </div>
-        ) : (
-          <div className="flex flex-shrink-0 items-center gap-2.5">
-            {typeof p.predicted === 'number' && (
-              <div className="flex flex-col items-center">
-                <ScoreRing score={p.predicted} size={44} />
-                <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.12em] text-on-surface/35">for you</p>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
-                className={cn(
-                  'grid h-8 w-8 place-items-center rounded-full bg-on-surface/[0.05] transition-colors hover:bg-on-surface/[0.1]',
-                  wishlisted ? 'text-primary' : 'text-on-surface/60',
-                )}
-                aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-              >
-                <Bookmark size={14} className={wishlisted ? 'fill-current' : ''} />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onClose(); openAddRestaurantModal(meta); }}
-                className="grid h-8 w-8 place-items-center rounded-full bg-on-surface/[0.05] text-on-surface/60 transition-colors hover:bg-on-surface/[0.1]"
-                aria-label="Rate"
-              >
-                <Plus size={15} />
-              </button>
+          {typeof p.predicted === 'number' && (
+            <div className="flex flex-col items-center">
+              <ScoreRing score={p.predicted} size={isMobile ? 40 : 44} />
+              <p className={cn('mt-0.5 font-bold uppercase tracking-[0.12em] text-on-surface/35', isMobile ? 'text-[8px]' : 'text-[8.5px]')}>for you</p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   };
@@ -730,7 +769,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       ) : visible.length === 0 ? (
         <div className="flex flex-col items-center px-6 py-16 text-center">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-on-surface/[0.05] text-on-surface/40">
-            <Sparkles size={20} />
+            <MapPin size={20} />
           </div>
           <p className="mt-3 font-serif text-[17px] font-semibold text-on-surface">
             {enriched.length === 0 ? 'No recommendations here yet' : 'Nothing matches those filters'}
@@ -837,8 +876,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             >
               <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-on-surface/6 px-5 pb-4 pt-5">
                 <div className="min-w-0">
-                  <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-primary">
-                    <Sparkles size={11} />
+                  <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-primary">
                     Ranked for you
                   </p>
                   <h3 className="mt-1 truncate font-serif text-[24px] font-semibold leading-tight tracking-[-0.02em] text-on-surface">

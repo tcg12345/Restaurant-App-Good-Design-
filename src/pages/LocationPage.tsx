@@ -26,7 +26,6 @@ import {
   Search,
   Share2,
   SlidersHorizontal,
-  Sparkles,
   Soup,
   Star,
   UserCheck,
@@ -3556,8 +3555,7 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
               {(place.rating * 2).toFixed(1)}
             </div>
           )}
-          <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-primary">
-            <Sparkles size={9} />
+          <div className="absolute top-3 left-3 inline-flex items-center px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-primary">
             Pick
           </div>
         </div>

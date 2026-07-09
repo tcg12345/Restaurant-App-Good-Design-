@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2, Sparkles } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -7326,7 +7326,6 @@ export const Pantry: React.FC = () => {
                     onClick={() => setRecsOpen(true)}
                     className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex-shrink-0"
                   >
-                    <Sparkles size={14} />
                     <span>For you</span>
                   </button>
                   <button
@@ -7532,7 +7531,6 @@ export const Pantry: React.FC = () => {
                       onClick={() => setRecsOpen(true)}
                       className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
                     >
-                      <Sparkles size={13} />
                       <span>Recommendations</span>
                     </button>
                     {regularRatingsCount > 0 && (

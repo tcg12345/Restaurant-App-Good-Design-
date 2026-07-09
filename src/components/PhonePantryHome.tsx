@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Bookmark, ChefHat, ChevronRight, Clock, Flame, Plus, Sparkles, UtensilsCrossed } from 'lucide-react';
+import { Bookmark, ChefHat, ChevronRight, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
@@ -125,23 +125,16 @@ export const PhonePantryHome: React.FC<Props> = ({
 
       {tab === 'restaurants' ? (
         <>
-          {/* Recommendations entry — a full-width banner above the card
-              grid so "what should I try next?" is one tap from the
-              landing, not buried in the rated view's toolbar. */}
+          {/* Recommendations entry — a quiet hairline row, deliberately
+              subordinate to the card grid below it. */}
           {onOpenRecommendations && (
             <button
               type="button"
               onClick={onOpenRecommendations}
-              className="mt-5 w-full flex items-center gap-3 rounded-3xl bg-primary p-4 text-left text-white active:scale-[0.98] transition-transform"
+              className="mt-5 flex w-full items-center justify-between rounded-2xl border border-on-surface/[0.08] px-4 py-2.5 text-left transition-colors active:bg-on-surface/[0.04]"
             >
-              <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-white/15">
-                <Sparkles size={18} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block font-serif text-[17px] font-bold leading-tight">Recommended for you</span>
-                <span className="mt-0.5 block text-[12px] text-white/70">Ranked picks nearby, tuned to your taste</span>
-              </span>
-              <ChevronRight size={18} className="flex-shrink-0 text-white/70" />
+              <span className="text-[13px] font-semibold text-on-surface/65">Recommended for you</span>
+              <ChevronRight size={15} className="flex-shrink-0 text-on-surface/35" />
             </button>
           )}
           <RestaurantsTab
