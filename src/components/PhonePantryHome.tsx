@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
+import { Bookmark, ChefHat, ChevronRight, Clock, Flame, Plus, Sparkles, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
@@ -38,6 +38,9 @@ interface Props {
   onOpenWishlist: () => void;
   onOpenRated: () => void;
   onCreateRestaurantList: () => void;
+  /** Opens the ranked recommendations browser. Renders the "Recommended for
+   *  you" banner on the Restaurants tab when provided. */
+  onOpenRecommendations?: () => void;
   // Recipe tab handlers
   onOpenAllRecipes: () => void;
   onCreateRecipeList: () => void;
@@ -77,6 +80,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   onOpenWishlist,
   onOpenRated,
   onCreateRestaurantList,
+  onOpenRecommendations,
   onOpenAllRecipes,
   onCreateRecipeList,
 }) => {
@@ -120,16 +124,37 @@ export const PhonePantryHome: React.FC<Props> = ({
       </div>
 
       {tab === 'restaurants' ? (
-        <RestaurantsTab
-          lists={restaurantLists}
-          ratedCount={ratedCount}
-          ratedTopScores={ratedTopScores}
-          wishlistCount={wishlistCount}
-          onOpenList={onOpenList}
-          onOpenWishlist={onOpenWishlist}
-          onOpenRated={onOpenRated}
-          onCreateRestaurantList={onCreateRestaurantList}
-        />
+        <>
+          {/* Recommendations entry — a full-width banner above the card
+              grid so "what should I try next?" is one tap from the
+              landing, not buried in the rated view's toolbar. */}
+          {onOpenRecommendations && (
+            <button
+              type="button"
+              onClick={onOpenRecommendations}
+              className="mt-5 w-full flex items-center gap-3 rounded-3xl bg-primary p-4 text-left text-white active:scale-[0.98] transition-transform"
+            >
+              <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-white/15">
+                <Sparkles size={18} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-serif text-[17px] font-bold leading-tight">Recommended for you</span>
+                <span className="mt-0.5 block text-[12px] text-white/70">Ranked picks nearby, tuned to your taste</span>
+              </span>
+              <ChevronRight size={18} className="flex-shrink-0 text-white/70" />
+            </button>
+          )}
+          <RestaurantsTab
+            lists={restaurantLists}
+            ratedCount={ratedCount}
+            ratedTopScores={ratedTopScores}
+            wishlistCount={wishlistCount}
+            onOpenList={onOpenList}
+            onOpenWishlist={onOpenWishlist}
+            onOpenRated={onOpenRated}
+            onCreateRestaurantList={onCreateRestaurantList}
+          />
+        </>
       ) : (
         <RecipesTab
           lists={recipeLists}

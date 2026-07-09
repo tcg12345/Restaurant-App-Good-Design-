@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2, Sparkles } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -34,6 +34,7 @@ import { useToast } from '../contexts/ToastContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
@@ -6567,6 +6568,9 @@ export const Pantry: React.FC = () => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
+  // Ranked recommendations popup ("For you").
+  const [recsOpen, setRecsOpen] = useState(false);
+
   // Desktop list switcher — replaces the sidebar's old Pantry tray. The
   // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
   // and a popover lists every other list grouped by Restaurants / Recipes
@@ -7285,6 +7289,7 @@ export const Pantry: React.FC = () => {
             }}
             onOpenRated={() => setShowAllRated(true)}
             onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+            onOpenRecommendations={() => setRecsOpen(true)}
             onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
             onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
@@ -7318,8 +7323,16 @@ export const Pantry: React.FC = () => {
                   )}
                   <button
                     type="button"
+                    onClick={() => setRecsOpen(true)}
+                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex-shrink-0"
+                  >
+                    <Sparkles size={14} />
+                    <span>For you</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     <span>Add Rating</span>
@@ -7511,8 +7524,17 @@ export const Pantry: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Right side: live result count + avg score + view toggle */}
+                  {/* Right side: recommendations + live result count + avg
+                      score + view toggle */}
                   <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setRecsOpen(true)}
+                      className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
+                    >
+                      <Sparkles size={13} />
+                      <span>Recommendations</span>
+                    </button>
                     {regularRatingsCount > 0 && (
                       <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
                         <span className="font-bold text-on-surface">{filteredRatings.length}</span>
@@ -7663,6 +7685,12 @@ export const Pantry: React.FC = () => {
           with checkboxes so you can batch-add several at once via the
           Done button; search results stay single-pick (each one drops
           into the rating modal). */}
+      <RecommendationsBrowser
+        open={recsOpen}
+        onClose={() => setRecsOpen(false)}
+        isMobile={phoneMode}
+      />
+
       <SearchPopup
         open={searchPopupOpen}
         onClose={() => setSearchPopupOpen(false)}

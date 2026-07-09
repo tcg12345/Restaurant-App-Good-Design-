@@ -28,6 +28,13 @@ export interface TasteProfile {
   ratedIds: Set<string>;
   wishlistedIds: Set<string>;
   recentlyViewedIds: Set<string>;
+  /** The user's mean rating (0 when they haven't rated anything). Affinity
+   *  weights center on this (shrunk toward 7) so a tough grader's 6.5 and an
+   *  easy grader's 8.5 both read as "above their bar". */
+  avgScore: number;
+  /** Own score per rated restaurant — powers friend taste-similarity, which
+   *  weighs a friend's opinion by how often you two have agreed. */
+  myScoreById: Map<string, number>;
 }
 
 export interface RecTargetLocation {
@@ -42,25 +49,50 @@ export interface RecOptions {
   target: RecTargetLocation;
   radiusMeters: number;           // scopes Google queries and post-filters all pools
   signal?: AbortSignal;
+  /** Ranked results to return. Default 12; the full recs browser asks for ~60. */
+  limit?: number;
+  /** Google text queries per fresh fetch. Default 5; more = wider pool. */
+  maxQueries?: number;
+  /** Keep wishlisted places in the ranking (they get an "On your wishlist"
+   *  reason chip instead of being hidden — a wishlisted spot IS a good rec). */
+  keepWishlisted?: boolean;
 }
 
 export interface ScoredPlace extends PlaceResult {
   recScore: number;
   sources: Array<'google' | 'tagSimilar' | 'expert' | 'friend' | 'expertRec'>;
+  /** Human-readable "why this" chips, strongest factor first (≤3). Absent on
+   *  legacy call sites that fabricate ScoredPlace literals. */
+  reasons?: string[];
+  /** 0–100 calibrated match confidence (logistic squash of recScore). */
+  match?: number;
 }
 
+/**
+ * Every factor below is normalized to [-1, 1] before its weight is applied
+ * (see scoreCandidates), so these are directly comparable: taste-pair match
+ * and a like-minded friend's rave are the loudest signals, quality/cuisine
+ * next, popularity is a mild tiebreaker.
+ */
 export const DEFAULT_WEIGHTS = {
-  cuisine: 1.0,
-  price: 0.6,
-  pair: 1.5,
-  tagOverlap: 1.2,
-  popularity: 0.2,
-  quality: 0.4,
-  expert: 0.8,
-  friend: 0.5,
-  distancePerKm: 0.05,     // soft: applies to distance beyond 50% of the radius
-  negativePair: 2.0,
+  cuisine: 1.6,
+  price: 0.9,
+  pair: 1.8,
+  tagOverlap: 1.1,
+  popularity: 0.5,
+  quality: 1.5,
+  expert: 1.0,
+  friend: 1.6,
+  wishlist: 0.6,
+  distance: 1.2,           // max penalty for landing well past the radius edge
+  negativeMult: 1.5,       // disliked cuisines/pairs push down harder than likes lift
 } as const;
+
+/** "Korean, Contemporary" / "Sushi / Japanese" → ["Korean","Contemporary"] … */
+function splitCuisines(raw: string): string[] {
+  if (!raw) return [];
+  return raw.split(/[,/]|\s&\s/).map((s) => s.trim()).filter(Boolean);
+}
 
 export function buildTasteProfile(
   ratings: RestaurantRating[],
@@ -73,18 +105,49 @@ export function buildTasteProfile(
   const pairScore: Record<string, number> = {};
   const tagScore: Record<string, number> = {};
   const cityScore: Record<string, number> = {};
+  const myScoreById = new Map<string, number>();
   let highRatedCount = 0;
+
+  // Personal anchor: the user's own mean, shrunk toward 7 so tiny samples
+  // don't overreact. A tough grader's 6.5 counts as praise; a generous
+  // grader's 7.5 doesn't.
+  let scoreSum = 0;
+  let scoreN = 0;
+  for (const r of ratings) {
+    if (r.score <= 0) continue;
+    scoreSum += r.score;
+    scoreN++;
+  }
+  const avgScore = scoreN > 0 ? scoreSum / scoreN : 0;
+  const anchor = scoreN > 0 ? (scoreSum + 7 * 5) / (scoreN + 5) : 7;
+  const now = Date.now();
 
   for (const r of ratings) {
     if (r.score <= 0) continue;
-    const centered = r.score - 7;
-    const weight = centered >= 0 ? centered + 1 : centered * 1.25;
+    myScoreById.set(r.restaurantId, r.score);
+    const centered = r.score - anchor;
+    let weight = centered >= 0 ? centered + 1 : centered * 1.25;
+
+    // Recency: 18-month half-life on when the rating was logged, floored so
+    // old favorites fade but never vanish — tastes drift, they don't reset.
+    const ageDays = r.createdAt > 0 ? Math.max(0, (now - r.createdAt) / 86_400_000) : 0;
+    const recency = Math.max(0.35, Math.pow(0.5, ageDays / 540));
+    // wouldReturn is the strongest single bit we collect: a high score they
+    // WOULDN'T repeat is a novelty, not a taste anchor; a low score they'd
+    // still return to isn't a real dislike.
+    const returnMult = centered >= 0
+      ? (r.wouldReturn ? 1.15 : 0.6)
+      : (r.wouldReturn ? 0.6 : 1.25);
+    weight *= recency * returnMult;
+
     const price = r.price.length;
 
-    if (r.cuisine) {
-      cuisineScore[r.cuisine] = (cuisineScore[r.cuisine] || 0) + weight;
+    // Ratings often carry compound labels ("Korean, Contemporary"); credit
+    // every token so they match candidates' single inferred cuisine labels.
+    for (const token of splitCuisines(r.cuisine)) {
+      cuisineScore[token] = (cuisineScore[token] || 0) + weight;
       if (price > 0) {
-        const key = `${r.cuisine}|${price}`;
+        const key = `${token}|${price}`;
         pairScore[key] = (pairScore[key] || 0) + weight * 1.5;
       }
     }
@@ -105,10 +168,19 @@ export function buildTasteProfile(
     if (r.score >= 8) highRatedCount++;
   }
 
+  // Wishlisting is declared intent — a mild positive on the cuisine even when
+  // the price is unknown (the old `cuisine && price` guard silently dropped
+  // every priceless wishlist row).
   for (const w of wishlist) {
     const price = w.price.length;
-    if (w.cuisine && price > 0) {
-      cuisineScore[w.cuisine] = (cuisineScore[w.cuisine] || 0) + 0.5;
+    for (const token of splitCuisines(w.cuisine)) {
+      cuisineScore[token] = (cuisineScore[token] || 0) + 0.5;
+      if (price > 0) {
+        const key = `${token}|${price}`;
+        pairScore[key] = (pairScore[key] || 0) + 0.375;
+      }
+    }
+    if (price > 0) {
       priceScore[price] = (priceScore[price] || 0) + 0.25;
     }
   }
@@ -181,6 +253,8 @@ export function buildTasteProfile(
     ratedIds,
     wishlistedIds,
     recentlyViewedIds,
+    avgScore,
+    myScoreById,
   };
 }
 
@@ -297,6 +371,83 @@ export interface ScoreCandidatesOptions {
    *  show every matching restaurant regardless of history (again, /location)
    *  pass `false`. */
   skipUserHistory?: boolean;
+  /** With skipUserHistory on, keep wishlisted + recently-viewed places and
+   *  drop only the ones the user has actually rated. The recs browser uses
+   *  this: a wishlisted spot is a good recommendation — it gets an
+   *  "On your wishlist" chip and a small boost instead of being hidden. */
+  keepWishlisted?: boolean;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+const formatReviewCount = (n: number): string =>
+  n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
+
+/**
+ * Taste similarity per friend, from ratings you both logged: 1 point of
+ * agreement when your scores match, fading to 0 at a 4-point gap, blended
+ * with a neutral prior until enough co-ratings exist to trust it. Output is
+ * 0.35 (consistent disagree-er) … 1.0 (rated the same places, same way);
+ * friends with zero overlap fall back to 0.6 at the call site.
+ */
+function buildFriendSimilarity(
+  profile: TasteProfile,
+  signals: CandidateSignals,
+): Map<string, number> {
+  const sims = new Map<string, number>();
+  const mine = profile.myScoreById;
+  if (!mine || mine.size === 0) return sims;
+  const stats = new Map<string, { n: number; agree: number }>();
+  for (const rows of signals.communityByRestaurant.values()) {
+    for (const row of rows) {
+      if (!signals.friendUserIds.has(row.user_id)) continue;
+      const my = mine.get(row.restaurant_id);
+      if (my === undefined) continue;
+      const s = stats.get(row.user_id) || { n: 0, agree: 0 };
+      s.n++;
+      s.agree += 1 - Math.min(1, Math.abs(my - row.score) / 4);
+      stats.set(row.user_id, s);
+    }
+  }
+  for (const [fid, s] of stats) {
+    const conf = s.n / (s.n + 2);          // 1 co-rating → ⅓ trust, 4 → ⅔
+    const blend = conf * (s.agree / s.n) + (1 - conf) * 0.5;
+    sims.set(fid, 0.35 + 0.65 * blend);
+  }
+  return sims;
+}
+
+/**
+ * Greedy MMR-style re-rank of the top of the list: each pick charges a fading
+ * penalty to later same-cuisine picks, so a strong #1 still wins but the top
+ * of the page doesn't become five pizzerias. Places past `depth` keep their
+ * plain score order (the tail is browse territory, not the pitch).
+ */
+function diversifyByCuisine(
+  sorted: ScoredPlace[],
+  inferCuisine: (types: string[]) => string,
+  depth = 30,
+  penalty = 0.7,
+): ScoredPlace[] {
+  if (sorted.length <= 2) return sorted;
+  const pool = sorted.slice(0, depth);
+  const rest = sorted.slice(depth);
+  const out: ScoredPlace[] = [];
+  const counts: Record<string, number> = {};
+  while (pool.length > 0) {
+    let bestI = 0;
+    let bestV = -Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const cu = inferCuisine(pool[i].types);
+      const v = pool[i].recScore - (cu ? penalty * (counts[cu] || 0) : 0);
+      if (v > bestV) { bestV = v; bestI = i; }
+    }
+    const [pick] = pool.splice(bestI, 1);
+    const cu = inferCuisine(pick.types);
+    if (cu) counts[cu] = (counts[cu] || 0) + 1;
+    out.push(pick);
+  }
+  return [...out, ...rest];
 }
 
 export function scoreCandidates(
@@ -310,6 +461,7 @@ export function scoreCandidates(
   const W = DEFAULT_WEIGHTS;
   const limit = options.limit ?? 12;
   const skipUserHistory = options.skipUserHistory ?? true;
+  const keepWishlisted = options.keepWishlisted ?? false;
 
   const googleTypeToLabel: Record<string, string> = {};
   for (const entry of CUISINE_TYPES) {
@@ -322,14 +474,40 @@ export function scoreCandidates(
     return '';
   };
 
-  const coldStart = profile.highRatedCount < 3;
   const radiusKm = radiusMeters / 1000;
   const skipIds = new Set<string>();
   if (skipUserHistory) {
     profile.ratedIds.forEach((id) => skipIds.add(id));
-    profile.wishlistedIds.forEach((id) => skipIds.add(id));
-    profile.recentlyViewedIds.forEach((id) => skipIds.add(id));
+    if (!keepWishlisted) {
+      profile.wishlistedIds.forEach((id) => skipIds.add(id));
+      profile.recentlyViewedIds.forEach((id) => skipIds.add(id));
+    }
   }
+
+  // ── Normalizers ──
+  // Raw profile sums are unbounded (a 200-rating power user's cuisine sums
+  // run 50× a new user's), so every affinity is squashed to [-1, 1] against
+  // the profile's own strongest signal before its weight applies. That keeps
+  // the factor weights meaningful across account sizes: taste never drowns
+  // out quality/friends for heavy raters, and never vanishes for light ones.
+  const maxAbs = (m: Record<string, number> | Record<number, number>): number => {
+    let x = 0;
+    for (const v of Object.values(m)) x = Math.max(x, Math.abs(v));
+    return x;
+  };
+  const cuisineMax = maxAbs(profile.cuisineScore) || 1;
+  const priceMax = maxAbs(profile.priceScore) || 1;
+  const pairMax = maxAbs(profile.pairScore) || 1;
+  const tagMax = maxAbs(profile.tagScore) || 1;
+  const aff = (raw: number | undefined, max: number): number =>
+    raw === undefined ? 0 : clamp(raw / max, -1, 1);
+
+  // Taste terms ramp in as the user rates (0 ratings → pure quality/social,
+  // 3+ high ratings → full personalization) instead of the old binary
+  // cold-start cliff at exactly 3.
+  const ramp = clamp(profile.highRatedCount / 3, 0, 1);
+
+  const friendSim = buildFriendSimilarity(profile, signals);
 
   const scored: ScoredPlace[] = [];
 
@@ -338,7 +516,6 @@ export function scoreCandidates(
 
     const cuisine = inferCuisine(c.types);
     const price = c.priceLevel;
-    const pairKey = `${cuisine}|${price}`;
     const distKm = haversineKm(
       { lat: c.lat, lng: c.lng },
       { lat: target.lat, lng: target.lng },
@@ -347,103 +524,152 @@ export function scoreCandidates(
 
     let score = 0;
     const sources: ScoredPlace['sources'] = ['google'];
+    const reasons: Array<{ w: number; label: string }> = [];
 
-    if (!coldStart) {
-      score += W.cuisine * (profile.cuisineScore[cuisine] ?? 0);
-      score += W.price * (profile.priceScore[price] ?? 0);
-      score += W.pair * (profile.pairScore[pairKey] ?? 0);
+    // ── Taste match ──
+    if (ramp > 0) {
+      const cA = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax);
+      const cTerm = W.cuisine * (cA < 0 ? cA * W.negativeMult : cA) * ramp;
+      score += cTerm;
+      if (cA >= 0.35 && cuisine) reasons.push({ w: cTerm, label: `Top cuisine: ${cuisine}` });
 
-      // Tag overlap (capped)
+      let pA = aff(price > 0 ? profile.priceScore[price] : undefined, priceMax);
+      // Price-distance: two tiers away from everything the user actually
+      // favors is a miss even if that tier's raw sum is mildly positive.
+      if (price > 0 && profile.topPrices.length > 0) {
+        const gap = Math.min(...profile.topPrices.map((p) => Math.abs(p - price)));
+        if (gap >= 2) pA -= 0.5 * (gap - 1);
+      }
+      const pTerm = W.price * clamp(pA, -1, 1) * ramp;
+      score += pTerm;
+      if (pA >= 0.35 && price > 0) reasons.push({ w: pTerm, label: `In your price range (${'$'.repeat(price)})` });
+
+      const prA = aff(cuisine && price > 0 ? profile.pairScore[`${cuisine}|${price}`] : undefined, pairMax);
+      const prTerm = W.pair * (prA < 0 ? prA * W.negativeMult : prA) * ramp;
+      score += prTerm;
+      if (prA >= 0.5 && cuisine && price > 0) {
+        reasons.push({ w: prTerm, label: `Your sweet spot: ${'$'.repeat(price)} ${cuisine}` });
+      }
+
+      // Tag overlap — community tags on this place vs tags the user hands out.
       const tagSet = new Set<string>();
       for (const row of communityRows) {
         for (const t of row.tags || []) tagSet.add(t);
       }
-      let tagBonus = 0;
+      let tagSum = 0;
+      const matchedTags: Array<{ t: string; a: number }> = [];
       for (const t of tagSet) {
-        const ts = profile.tagScore[t];
-        if (ts !== undefined) tagBonus += W.tagOverlap * ts;
+        const a = aff(profile.tagScore[t], tagMax);
+        if (a > 0) { tagSum += a * 0.5; matchedTags.push({ t, a }); }
       }
-      const tagCap = W.tagOverlap * 6;
-      if (tagBonus > tagCap) tagBonus = tagCap;
-      score += tagBonus;
-      if (tagBonus > 0) sources.push('tagSimilar');
-
-      // Negative pair suppression
-      const pairVal = profile.pairScore[pairKey] ?? 0;
-      if (pairVal < 0) score -= W.negativePair * Math.abs(pairVal);
-
-      score += W.popularity * Math.log1p(c.userRatingCount);
-      score += W.quality * (c.rating - 3.5);
-    } else {
-      score += W.quality * (c.rating - 3.5);
-      score += W.popularity * Math.log1p(c.userRatingCount);
+      const tTerm = W.tagOverlap * Math.min(1, tagSum) * ramp;
+      if (tTerm > 0) {
+        score += tTerm;
+        sources.push('tagSimilar');
+        matchedTags.sort((x, y) => y.a - x.a);
+        if (tTerm >= 0.3) {
+          reasons.push({ w: tTerm, label: `Your vibe: ${matchedTags.slice(0, 2).map((m) => m.t).join(', ')}` });
+        }
+      }
     }
 
-    // Expert signal
+    // ── Quality prior (Bayesian) ──
+    // Shrink the star rating toward the 3.8 baseline by review count, so a
+    // 4.6 backed by a thousand reviews beats a 5.0 backed by three.
+    if (c.rating > 0) {
+      const v = c.userRatingCount || 0;
+      const bayes = (v * c.rating + 25 * 3.8) / (v + 25);
+      const q = clamp(bayes - 3.8, -1, 1);
+      const qTerm = W.quality * q;
+      score += qTerm;
+      if (q >= 0.55 && v >= 150) {
+        reasons.push({ w: qTerm, label: `${c.rating.toFixed(1)}★ from ${formatReviewCount(v)} reviews` });
+      }
+    }
+    score += W.popularity * Math.min(1, Math.log1p(c.userRatingCount || 0) / Math.log1p(3000));
+
+    // ── Expert signal (bounded) ──
     let expertRaw = 0;
+    let followedExpert = false;
     for (const row of communityRows) {
       if (row.score >= 8 && signals.expertUserIds.has(row.user_id)) {
-        const mult = signals.followedExpertIds.has(row.user_id) ? 0.75 : 0.5;
-        expertRaw += mult;
+        const followed = signals.followedExpertIds.has(row.user_id);
+        if (followed) followedExpert = true;
+        expertRaw += followed ? 0.75 : 0.5;
       }
     }
     const hasExpertRec = signals.expertRecRestaurantIds.has(c.id);
     if (hasExpertRec) expertRaw += 1;
     if (expertRaw > 3) expertRaw = 3;
-    const expertContribution = W.expert * expertRaw;
-    if (expertContribution > 0) {
-      score += expertContribution;
+    if (expertRaw > 0) {
+      const eTerm = W.expert * (expertRaw / 3);
+      score += eTerm;
       sources.push('expert');
       if (hasExpertRec) sources.push('expertRec');
+      reasons.push({ w: eTerm, label: followedExpert ? 'Pick from experts you follow' : 'Expert pick' });
     }
 
-    // Friend signal
+    // ── Friend signal: enthusiasm × taste similarity, negatives included ──
+    // A like-minded friend's 9 moves the needle hard; a friend whose taste
+    // has never matched yours barely registers; a friend's 3 pushes DOWN.
     let friendRaw = 0;
+    let friendsLoved = 0;
     for (const row of communityRows) {
-      if (row.score >= 8 && signals.friendUserIds.has(row.user_id)) {
-        friendRaw += 0.3;
+      if (!signals.friendUserIds.has(row.user_id)) continue;
+      const sim = friendSim.get(row.user_id) ?? 0.6;
+      const enthusiasm = clamp((row.score - 6.5) / 3.5, -1, 1);
+      friendRaw += enthusiasm * sim;
+      if (row.score >= 8) friendsLoved++;
+    }
+    if (friendRaw !== 0) {
+      const fTerm = W.friend * (clamp(friendRaw, -1.5, 2) / 2);
+      score += fTerm;
+      if (fTerm > 0) {
+        sources.push('friend');
+        if (friendsLoved > 0) {
+          reasons.push({
+            w: fTerm,
+            label: friendsLoved > 1 ? `Loved by ${friendsLoved} friends` : 'Loved by a friend',
+          });
+        }
       }
     }
-    if (friendRaw > 2) friendRaw = 2;
-    const friendContribution = W.friend * friendRaw;
-    if (friendContribution > 0) {
-      score += friendContribution;
-      sources.push('friend');
+
+    // ── Wishlist (only when kept in the pool) ──
+    if (keepWishlisted && profile.wishlistedIds.has(c.id)) {
+      score += W.wishlist;
+      reasons.push({ w: W.wishlist, label: 'On your wishlist' });
     }
 
-    // Distance penalty (soft, beyond 50% of radius)
+    // ── Distance decay (soft, past half the radius; capped) ──
     const extra = Math.max(0, distKm - radiusKm * 0.5);
-    score -= W.distancePerKm * extra;
+    score -= W.distance * Math.min(1.5, extra / Math.max(radiusKm, 0.5));
 
-    scored.push({ ...c, recScore: score, sources });
+    reasons.sort((a, b) => b.w - a.w);
+    const match = Math.round(clamp(100 / (1 + Math.exp(-score * 0.55)), 5, 99));
+    scored.push({
+      ...c,
+      recScore: score,
+      sources,
+      reasons: reasons.slice(0, 3).map((r) => r.label),
+      match,
+    });
   }
 
   scored.sort((a, b) => b.recScore - a.recScore);
-
-  // Diversity pass: in top 10, penalize 4th+ occurrence of the same cuisine
-  const cuisineCounts: Record<string, number> = {};
-  const top = Math.min(10, scored.length);
-  for (let i = 0; i < top; i++) {
-    const cu = inferCuisine(scored[i].types);
-    cuisineCounts[cu] = (cuisineCounts[cu] || 0) + 1;
-    if (cuisineCounts[cu] >= 4) {
-      scored[i].recScore -= 1.5;
-    }
-  }
-  scored.sort((a, b) => b.recScore - a.recScore);
-
-  return scored.slice(0, limit);
+  return diversifyByCuisine(scored, inferCuisine).slice(0, limit);
 }
 
-function shuffleInPlace<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
+/**
+ * Full recommendation pipeline: candidate pool (Google text queries + cached
+ * pool + community rows) → social signals → scoreCandidates. Unlike the old
+ * version this ALWAYS ranks — a cache hit skips the Google spend, never the
+ * scoring — so results always carry recScore / reasons / match, and the
+ * social lifts stay current even when the pool comes from cache.
+ */
 export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[]> {
+  const limit = opts.limit ?? 12;
+  const maxQueries = opts.maxQueries ?? 5;
   const prefsHash =
     preferencesHash(opts.profile.topCuisines, opts.profile.topPrices) +
     '|r=' +
@@ -451,26 +677,24 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
   const locKey = locationKey(opts.target.lat, opts.target.lng);
 
   let mergeCached: PlaceResult[] = [];
+  let skipGoogle = false;
   if (opts.userId) {
     const cached = await getHomeRecsCache(opts.userId, locKey);
-    if (cached) {
-      const ageMs = Date.now() - cached.updatedAt;
-      const fresh = ageMs < 2 * 24 * 60 * 60 * 1000;
-      if (fresh && cached.preferencesHash === prefsHash) {
-        const shuffled = shuffleInPlace([...cached.places]);
-        return shuffled.slice(0, 12).map((p) => ({
-          ...p,
-          recScore: 0,
-          sources: ['google'] as ScoredPlace['sources'],
-        }));
+    if (cached && Date.now() - cached.updatedAt < 2 * 24 * 60 * 60 * 1000) {
+      mergeCached = cached.places;
+      // A fresh same-prefs pool that's deep enough to rank is a full hit;
+      // a thin or drifted one still merges in but gets fresh queries too.
+      if (cached.preferencesHash === prefsHash && cached.places.length >= 25) {
+        skipGoogle = true;
       }
-      if (fresh) mergeCached = cached.places;
     }
   }
 
   if (opts.signal?.aborted) return [];
 
-  const queries = buildCandidateQueries(opts.profile, opts.target).slice(0, 5);
+  const queries = skipGoogle
+    ? []
+    : buildCandidateQueries(opts.profile, opts.target).slice(0, maxQueries);
 
   const [
     googleBatches,
@@ -536,8 +760,16 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
   for (const p of mergeCached) {
     if (!byId.has(p.id)) byId.set(p.id, p);
   }
+  // Community pseudo-places carry their rating's cuisine as a Google type so
+  // the scorer's cuisine/pair affinities apply to them too (they used to land
+  // with types: [] and score purely on the social term).
+  const labelToType: Record<string, string> = {};
+  for (const entry of CUISINE_TYPES) {
+    if (entry.type) labelToType[entry.label.toLowerCase()] = entry.type;
+  }
   for (const row of allCommunityRows) {
     if (byId.has(row.restaurant_id)) continue;
+    const cuisineType = row.cuisine ? labelToType[row.cuisine.toLowerCase()] : undefined;
     byId.set(row.restaurant_id, {
       id: row.restaurant_id,
       name: row.restaurant_name,
@@ -548,7 +780,7 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
       address: row.address,
       fullAddress: row.address,
       photoUrl: null,
-      types: [],
+      types: cuisineType ? [cuisineType] : [],
       userRatingCount: 0,
     });
   }
@@ -595,10 +827,14 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     signals,
     opts.target,
     opts.radiusMeters,
+    { limit, skipUserHistory: true, keepWishlisted: opts.keepWishlisted },
   );
-  const top12 = scored.slice(0, 12);
 
-  if (opts.userId) {
+  // Persist the ranked pool (not just a page of it) whenever we actually hit
+  // Google, so the next open of the same city ranks instantly with zero
+  // Places spend. Extra ScoredPlace fields serialize harmlessly and are
+  // simply re-scored on the way back out of the cache.
+  if (opts.userId && !skipGoogle && scored.length > 0) {
     void saveHomeRecsCache(
       opts.userId,
       locKey,
@@ -606,9 +842,9 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
       opts.target.lat,
       opts.target.lng,
       prefsHash,
-      top12,
+      scored.slice(0, 60),
     );
   }
 
-  return top12;
+  return scored;
 }
