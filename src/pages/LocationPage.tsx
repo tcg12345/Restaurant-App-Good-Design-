@@ -2656,7 +2656,10 @@ export const LocationPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Guides ──────────────────────────────────────────────────── */}
+        {/* ── Guides — hidden entirely when this location has none (also
+            covers the still-loading phase, so the header never flashes
+            in front of an empty row). ─────────────────────────────────── */}
+        {locationGuides.length > 0 && (
         <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
           {isMobile ? (
             <button
@@ -2712,15 +2715,7 @@ export const LocationPage: React.FC = () => {
           </div>
           )}
           <div className="collapsible-body">
-            {guidesLoaded && locationGuides.length === 0 ? (
-              <div
-                className="lp-empty-row"
-                style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
-              >
-                No guides for {shortCityName} yet. Be the first to create one.
-              </div>
-            ) : (
-              <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
+            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
                 {locationGuides.map((g) => {
                   const initial = (g.author || '?').charAt(0).toUpperCase();
                   return (
@@ -2744,29 +2739,28 @@ export const LocationPage: React.FC = () => {
                 })}
                 {/* End-of-rail "Browse all" tile — same affordance the header
                     link provides on desktop, and the only entry point on
-                    mobile where the header is a collapse toggle. Only shown
-                    once there's at least one real guide to browse. */}
-                {locationGuides.length > 0 && (
-                  <button
-                    type="button"
-                    className="gd-card gd-browse-all"
-                    onClick={() => setGuidesBrowserOpen(true)}
-                  >
-                    <span className="gd-browse-all-icon"><BookOpen /></span>
-                    <span className="gd-browse-all-title">Browse all guides</span>
-                    <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
-                  </button>
-                )}
-              </div>
-            )}
+                    mobile where the header is a collapse toggle. */}
+                <button
+                  type="button"
+                  className="gd-card gd-browse-all"
+                  onClick={() => setGuidesBrowserOpen(true)}
+                >
+                  <span className="gd-browse-all-icon"><BookOpen /></span>
+                  <span className="gd-browse-all-title">Browse all guides</span>
+                  <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
+                </button>
+            </div>
           </div>
         </section>
+        )}
 
         {/* ── Local experts ───────────────────────────────────────────── */}
         {(() => {
           // Real experts only — people whose declared home base sits in this
-          // city's area. No filler: when there are none, we say so.
+          // city's area. No filler: when there are none, the whole section
+          // is hidden (this also covers the still-loading phase).
           const experts = areaExperts;
+          if (experts.length === 0) return null;
           return (
             <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
               {isMobile ? (
@@ -2821,14 +2815,6 @@ export const LocationPage: React.FC = () => {
               </div>
               )}
               <div className="collapsible-body">
-                {areaLoaded && experts.length === 0 ? (
-                  <div
-                    className="lp-empty-row"
-                    style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
-                  >
-                    No local experts in {shortCityName} yet.
-                  </div>
-                ) : (
                 <div className={cn('exp-row', isMobile && 'is-mobile')} ref={expertsRowRef}>
                   {experts.map((e) => {
                     const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
@@ -2872,7 +2858,6 @@ export const LocationPage: React.FC = () => {
                     );
                   })}
                 </div>
-                )}
               </div>
             </section>
           );
