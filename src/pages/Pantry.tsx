@@ -2675,8 +2675,8 @@ const ListDetailView: React.FC<{
               {filteredRecipes.map((recipe) => {
                 const cardData = recipeToCardData(recipe);
                 // On the built-in Cooked list, the card's cover prefers the
-                // user's private cook photo, and tapping opens the recipe
-                // detail page (not the edit modal).
+                // user's private cook photo. Tapping any recipe card opens the
+                // recipe detail page; editing lives behind swipe/long-press.
                 const isCookedList = list.id === DEFAULT_COOKED_ID;
                 const cookPhotos = isCookedList
                   ? (((restaurantMeta as Record<string, unknown>).__cook_photos__ as Record<string, PhotoItem[]> | undefined)?.[recipe.id])
@@ -2698,7 +2698,7 @@ const ListDetailView: React.FC<{
                       }
                       updateRecipe(list.id, recipe.id, { isPrivate: !recipe.isPrivate });
                     }}
-                    onClick={isCookedList ? openDetails : () => openAddRecipeModal(list.id, recipe)}
+                    onClick={openDetails}
                     onEdit={() => openAddRecipeModal(list.id, recipe)}
                     onDelete={isCookedList ? () => removeRecipeFromCookedList(recipe.id) : () => removeRecipe(list.id, recipe.id)}
                   />
