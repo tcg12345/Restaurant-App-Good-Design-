@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -482,7 +482,7 @@ const AddFromRatedSheet: React.FC<{
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[70vh] rounded-none sm:rounded-3xl")}
           >
-            <div className="flex items-center justify-between px-5 pt-4 sm:pt-5 pb-3 flex-shrink-0">
+            <div className="flex items-center justify-between px-5 pt-safe-4 sm:pt-5 pb-3 flex-shrink-0">
               <h2 className="font-serif font-bold text-lg">Add Rated Restaurants</h2>
               <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
             </div>
@@ -787,6 +787,11 @@ const RestaurantRow: React.FC<{
     dragRef.current = null;
     if (!d || !d.horizontal) { setDragging(false); return; }
     justSwipedRef.current = d.moved;
+    // iOS never synthesizes a click after a real drag, so the flag would
+    // otherwise stay set and swallow the NEXT genuine tap (dead tap /
+    // two-taps-to-close). Auto-expire it just after any synthesized click
+    // could have fired.
+    if (d.moved) setTimeout(() => { justSwipedRef.current = false; }, 350);
     setDragging(false);
     const shouldOpen = txRef.current < -revealWidth / 2;
     const snapped = shouldOpen ? -revealWidth : 0;
@@ -1482,7 +1487,7 @@ const AddHotelBreakfastModal: React.FC<{
   // Rating state
   const [score, setScore] = useState(7.0);
   const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(localISODate());
   const [wouldReturn, setWouldReturn] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -1496,7 +1501,7 @@ const AddHotelBreakfastModal: React.FC<{
       setSelectedHotel(null);
       setScore(7.0);
       setNotes('');
-      setVisitDate(new Date().toISOString().slice(0, 10));
+      setVisitDate(localISODate());
       setWouldReturn(true);
       setSelectedTags([]);
       setPhotos([]);
@@ -1508,7 +1513,11 @@ const AddHotelBreakfastModal: React.FC<{
     if (!query.trim()) return;
     setSearching(true);
     try {
-      const lat = 40.735; const lng = -73.99;
+      // Bias the hotel search around the user's saved anchor location;
+      // fall back to NYC only when none is set.
+      const home = loadLastSelectedLocation();
+      const lat = home && Number.isFinite(home.lat) ? home.lat : 40.735;
+      const lng = home && Number.isFinite(home.lng) ? home.lng : -73.99;
       const res = await searchHotels(query, lat, lng);
       setResults(res);
     } catch (e) {
@@ -1633,7 +1642,7 @@ const AddHotelBreakfastModal: React.FC<{
             {page === 'search' && (
               <motion.div key="search" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                 className="flex flex-col flex-1 min-h-0">
-                <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
+                <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                   <div className="min-w-0">
                     <h2 className="font-serif font-bold text-lg">Find a Hotel</h2>
                     <p className="text-xs text-on-surface/40">Search for the hotel you stayed at</p>
@@ -1700,7 +1709,7 @@ const AddHotelBreakfastModal: React.FC<{
             {page === 'main' && (
               <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                 className="flex flex-col flex-1 min-h-0">
-                <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
+                <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                   <div className="min-w-0">
                     <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Breakfast'}</h2>
                     <p className="text-xs text-on-surface/40 truncate">{selectedHotel?.name}</p>
@@ -3654,7 +3663,7 @@ const TripsTab: React.FC<{
 
   // Sort: active first, then upcoming by start date, then completed most-recent-first
   const sortedTrips = useMemo(() => {
-    const now = new Date().toISOString().slice(0, 10);
+    const now = localISODate();
     return [...trips].sort((a, b) => {
       const aActive = a.status === 'active' ? 0 : a.startDate > now ? 1 : 2;
       const bActive = b.status === 'active' ? 0 : b.startDate > now ? 1 : 2;
@@ -4203,7 +4212,7 @@ const CreateTripSheet: React.FC<{
             phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
         >
           {/* Header */}
-          <div className="px-5 pt-5 pb-3 flex items-center justify-between flex-shrink-0">
+          <div className="px-5 pt-safe-5 pb-3 flex items-center justify-between flex-shrink-0">
             <h2 className="font-serif font-bold text-lg">{trip ? 'Edit Trip' : 'New Trip'}</h2>
             <button onClick={onClose} className="p-2 rounded-full hover:bg-on-surface/5">
               <X size={20} className="text-on-surface/50" />
@@ -4665,7 +4674,9 @@ const HomeCookingTab: React.FC<{
     const titleBlock = (
       <header>
         <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-1">
-          {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          {/* date-only strings parse as UTC midnight — anchor to local time
+              so US timezones don't render the previous day */}
+          {new Date(selectedMeal.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
         </p>
         <h1 className="font-serif font-bold text-[26px] leading-[1.15] sm:text-4xl text-on-surface mb-3">
           {selectedMeal.name}
@@ -5641,6 +5652,9 @@ const RecipeRow: React.FC<RecipeCardData & {
     dragRef.current = null;
     if (!d || !d.horizontal) { setDragging(false); return; }
     justSwipedRef.current = d.moved;
+    // iOS never synthesizes a click after a real drag — auto-expire the
+    // flag so it can't swallow the next genuine tap (see RestaurantRow).
+    if (d.moved) setTimeout(() => { justSwipedRef.current = false; }, 350);
     setDragging(false);
     const shouldOpen = txRef.current < -revealWidth / 2;
     const snapped = shouldOpen ? -revealWidth : 0;
@@ -6558,8 +6572,12 @@ export const Pantry: React.FC = () => {
   const [cuisineDropdownOpen, setCuisineDropdownOpen] = useState(false);
   const [priceDropdownOpen, setPriceDropdownOpen] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  // Controlled search text for the phone city/cuisine picker sheets — DOM
+  // reads during render don't re-render, so the lists never filtered.
+  const [cityPickerSearch, setCityPickerSearch] = useState('');
+  const [cuisinePickerSearch, setCuisinePickerSearch] = useState('');
 
-  const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); setSortDropdownOpen(false); };
+  const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); setSortDropdownOpen(false); setCityPickerSearch(''); setCuisinePickerSearch(''); };
 
   const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added', custom: 'Custom' };
 
@@ -7775,7 +7793,7 @@ export const Pantry: React.FC = () => {
         {cityDropdownOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => setCityDropdownOpen(false)} />
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => { setCityDropdownOpen(false); setCityPickerSearch(''); }} />
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
@@ -7785,7 +7803,7 @@ export const Pantry: React.FC = () => {
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="font-serif font-bold text-lg">Select City</h3>
-                <button onClick={() => setCityDropdownOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <button onClick={() => { setCityDropdownOpen(false); setCityPickerSearch(''); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
                   <X size={16} className="text-on-surface/60" />
                 </button>
               </div>
@@ -7794,17 +7812,14 @@ export const Pantry: React.FC = () => {
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
                   <input type="text" placeholder="Search cities..."
                     className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    onChange={(e) => setCityDropdownOpen(true) /* keep open; filter inline */}
-                    ref={(el) => { if (el) el.value = ''; }}
-                    onInput={(e) => { (e.target as HTMLInputElement).dataset.q = (e.target as HTMLInputElement).value; setCityDropdownOpen(true); }}
-                    id="city-picker-search"
+                    value={cityPickerSearch}
+                    onChange={(e) => setCityPickerSearch(e.target.value)}
                   />
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCities.filter((c) => {
-                  const input = document.getElementById('city-picker-search') as HTMLInputElement | null;
-                  const q = input?.value?.toLowerCase() || '';
+                  const q = cityPickerSearch.trim().toLowerCase();
                   return !q || c.toLowerCase().includes(q);
                 }).map((city) => (
                   <button key={city} onClick={() => toggleCityFilter(city)}
@@ -7825,7 +7840,7 @@ export const Pantry: React.FC = () => {
         {cuisineDropdownOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => setCuisineDropdownOpen(false)} />
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => { setCuisineDropdownOpen(false); setCuisinePickerSearch(''); }} />
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
@@ -7835,7 +7850,7 @@ export const Pantry: React.FC = () => {
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="font-serif font-bold text-lg">Select Cuisine</h3>
-                <button onClick={() => setCuisineDropdownOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <button onClick={() => { setCuisineDropdownOpen(false); setCuisinePickerSearch(''); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
                   <X size={16} className="text-on-surface/60" />
                 </button>
               </div>
@@ -7844,15 +7859,14 @@ export const Pantry: React.FC = () => {
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
                   <input type="text" placeholder="Search cuisines..."
                     className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    id="cuisine-picker-search"
-                    onInput={() => setCuisineDropdownOpen(true)}
+                    value={cuisinePickerSearch}
+                    onChange={(e) => setCuisinePickerSearch(e.target.value)}
                   />
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCuisines.filter((c) => {
-                  const input = document.getElementById('cuisine-picker-search') as HTMLInputElement | null;
-                  const q = input?.value?.toLowerCase() || '';
+                  const q = cuisinePickerSearch.trim().toLowerCase();
                   return !q || c.toLowerCase().includes(q);
                 }).map((cuisine) => (
                   <button key={cuisine} onClick={() => toggleCuisineFilter(cuisine)}

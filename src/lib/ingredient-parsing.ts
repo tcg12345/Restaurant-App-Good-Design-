@@ -109,7 +109,13 @@ export const levenshtein = (a: string, b: string): number => {
  *  `strict` disables fuzzy matching — the line parser uses strict mode to
  *  avoid turning ingredient words into bogus units. */
 export const normalizeUnit = (input: string, strict = false): string => {
-  const cleaned = input.trim().toLowerCase().replace(/[.,;:]+$/, '');
+  // 'T' vs 't' is the one case-SENSITIVE pair in cooking shorthand:
+  // uppercase T = tablespoon, lowercase t = teaspoon. Resolve before the
+  // case-insensitive alias pass, which would map both to tbsp.
+  const rawCleaned = input.trim().replace(/[.,;:]+$/, '');
+  if (rawCleaned === 'T') return 'tbsp';
+  if (rawCleaned === 't') return 'tsp';
+  const cleaned = rawCleaned.toLowerCase();
   if (!cleaned) return '';
   for (const u of UNITS) {
     if (u.aliases.some((a) => a.toLowerCase() === cleaned)) return u.label;

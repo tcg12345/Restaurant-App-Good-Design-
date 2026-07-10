@@ -68,7 +68,7 @@ export const AddToListModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="px-5 py-4 space-y-2">
+            <div className="px-5 pt-4 pb-safe-4 space-y-2">
               {lists.map((list) => {
                 const isIn = list.restaurantIds.includes(addToListRestaurantId);
                 return (

@@ -37,3 +37,13 @@ export function firstFrameSrc(url?: string | null): string | undefined {
   if (!url) return undefined;
   return url.includes('#') ? url : `${url}#t=0.1`;
 }
+
+/**
+ * Today's (or the given date's) calendar day as `YYYY-MM-DD` in the user's
+ * LOCAL timezone. `new Date().toISOString().slice(0, 10)` is UTC — for any
+ * user west of UTC rating in the evening, it silently returns TOMORROW's
+ * date (and a timestamp converted with it lands on the wrong day).
+ */
+export function localISODate(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}

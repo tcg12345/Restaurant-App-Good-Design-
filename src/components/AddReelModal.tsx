@@ -550,7 +550,7 @@ export const AddReelModal: React.FC = () => {
       // touched — applyAllEdits returns an empty record in that case.
       let fileToUpload: File = videoFile;
       let durationToUpload: number = videoDuration ?? 0;
-      if (videoUrl && isEdited(videoEdits)) {
+      if (videoUrl && isEdited(videoEdits, videoDuration)) {
         setFinalizingEdits(true);
         try {
           const edited = await applyAllEdits([{

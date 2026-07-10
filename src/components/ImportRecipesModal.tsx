@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { useLists, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -337,7 +337,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
     setIsRunning(true);
     abortRef.current = false;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
 
     // Build every meal payload up-front so the bulk insert can run in one
     // shot. Calling createHomeMeal per row would issue one cloud PATCH per

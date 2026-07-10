@@ -790,11 +790,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return () => setHideBottomNav(false);
   }, [open, phoneMode, setHideBottomNav]);
 
-  // Autoscroll to the bottom as messages grow / stream.
+  // Autoscroll to the bottom as messages grow / stream — but only when the
+  // user is already near the bottom. This effect fires on every streamed
+  // token; unconditionally pinning made it impossible to scroll up and
+  // re-read earlier messages during a long streaming answer.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages, streaming]);
 
   // Focus the input when the chat opens — desktop only. On phones we

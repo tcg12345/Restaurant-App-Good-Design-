@@ -9,6 +9,7 @@
 // JSON snapshot; the reducer is rebuildable from any saved snapshot.
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { localISODate } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -272,7 +273,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     id: base?.id || `ai-edit-${Date.now()}`,
     createdAt: base?.createdAt ?? Date.now(),
     name: state.name.trim(),
-    date: base?.date || new Date().toISOString().slice(0, 10),
+    date: base?.date || localISODate(),
     score: state.score,
     wouldMakeAgain: base?.wouldMakeAgain ?? true,
     description: summary,
@@ -743,7 +744,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [currentStep]);
 
   const handleJumpTo = useCallback((step: number) => {
-    if (step >= 0 && step <= 5) setCurrentStep(step);
+    // <= LAST_STEP, not a hardcoded 5 — the wizard grew a 7th (Review) step
+    // and the old bound made it unreachable from the rail / progress strip.
+    if (step >= 0 && step <= LAST_STEP) setCurrentStep(step);
   }, []);
 
   const handleSaveDraft = useCallback(() => {
@@ -835,7 +838,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     }));
     const cleanNotes = state.notes.filter((n) => n.text.trim());
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISODate();
     const payload: Omit<HomeMeal, 'id' | 'createdAt'> = {
       name: state.name.trim(),
       date: existing?.date || today,

@@ -108,10 +108,14 @@ export const AddRecipeModal: React.FC = () => {
   }, [addRecipeModalOpen, existing]);
 
   const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      // Settle on failure too — an undecodable file (corrupt image, raw
+      // HEIC from the Files app) otherwise leaves callers awaiting forever.
+      reader.onerror = () => reject(new Error('read failed'));
       reader.onload = () => {
         const img = document.createElement('img');
+        img.onerror = () => reject(new Error('decode failed'));
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const maxSize = 800;
@@ -135,8 +139,10 @@ export const AddRecipeModal: React.FC = () => {
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
-    const compressed = await compressImage(file);
-    setCoverPhoto(compressed);
+    try {
+      const compressed = await compressImage(file);
+      setCoverPhoto(compressed);
+    } catch { /* undecodable file — leave the cover unchanged */ }
     e.target.value = '';
   };
 

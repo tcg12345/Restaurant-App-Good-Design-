@@ -1616,7 +1616,10 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full rounded-t-3xl flex flex-col"
-            style={{ height: '75%' }}
+            // --kb-height lifts the bottom-pinned composer above the iOS
+            // keyboard (Capacitor Keyboard resize:"none" — the WebView never
+            // resizes itself, so without this the user types blind).
+            style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
           >
             <div className="pt-2 pb-1 flex justify-center">
               <span className="w-10 h-1 rounded-full bg-on-surface/20" />

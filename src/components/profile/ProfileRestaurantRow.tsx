@@ -16,7 +16,7 @@ interface Props {
 export const ProfileRestaurantRow: React.FC<Props> = ({ rating, photos, expanded, onToggle }) => {
   const hasReview = !!(rating.notes && rating.notes.trim());
   const visit = rating.visit_date
-    ? new Date(rating.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    ? new Date(rating.visit_date.length === 10 ? `${rating.visit_date}T12:00:00` : rating.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '';
   const addressParts = (rating.address || '').split(',').map((s) => s.trim()).filter(Boolean);
   const neighborhood = addressParts.length >= 2 ? addressParts[addressParts.length - 2] : '';

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
@@ -478,7 +478,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = mealLikedByMe.has(mealId);
     setMealLikedByMe((prev) => { const n = new Set(prev); if (wasLiked) n.delete(mealId); else n.add(mealId); return n; });
     setMealLikeCounts((prev) => ({ ...prev, [mealId]: Math.max(0, (prev[mealId] || 0) + (wasLiked ? -1 : 1)) }));
-    void toggleRecipeLike(userId, mealId);
+    void toggleRecipeLike(userId, mealId).then((ok) => {
+      if (ok) return;
+      setMealLikedByMe((prev) => { const n = new Set(prev); if (wasLiked) n.add(mealId); else n.delete(mealId); return n; });
+      setMealLikeCounts((prev) => ({ ...prev, [mealId]: Math.max(0, (prev[mealId] || 0) + (wasLiked ? 1 : -1)) }));
+    });
   }, [userId, mealLikedByMe, requireSignIn]);
 
   const toggleMealSave = useCallback((meal: FriendHomeMeal) => {
@@ -681,7 +685,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = userLiked.has(ratingId);
     setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
     setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
-    await toggleLike(userId, ratingId);
+    const ok = await toggleLike(userId, ratingId);
+    if (!ok) {
+      // Offline / failed write: roll the heart and count back so the UI
+      // doesn't drift from the server.
+      setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.add(ratingId) : next.delete(ratingId); return next; });
+      setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? 1 : -1)) }));
+    }
   };
 
   // Toggle a post like. Mirrors handleLike's optimistic pattern so the
@@ -694,7 +704,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         ? { ...p, liked: !currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? -1 : 1)) }
         : p
     )));
-    await setPostLike(postId, userId, !currentlyLiked);
+    const ok = await setPostLike(postId, userId, !currentlyLiked);
+    if (!ok) {
+      setPosts((prev) => prev.map((p) => (
+        p.id === postId
+          ? { ...p, liked: currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? 1 : -1)) }
+          : p
+      )));
+    }
   };
 
   const handleSavePost = async (postId: string, currentlySaved: boolean) => {
@@ -704,7 +721,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         ? { ...p, saved: !currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? -1 : 1)) }
         : p
     )));
-    await setPostSave(postId, userId, !currentlySaved);
+    const ok = await setPostSave(postId, userId, !currentlySaved);
+    if (!ok) {
+      setPosts((prev) => prev.map((p) => (
+        p.id === postId
+          ? { ...p, saved: currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? 1 : -1)) }
+          : p
+      )));
+    }
   };
 
   // Open the share dialog with a SharedPost payload mirrored from the
@@ -762,8 +786,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return ok;
   }, [deletePostComment]);
 
+  // Monotonic token so a slow fetch for a previously opened thread can't
+  // overwrite the comments of the one currently open (shared state).
+  const commentsReqRef = useRef(0);
   const handleOpenComments = async (ratingId: string) => {
-    if (openComments === ratingId) { setOpenComments(null); return; }
+    if (openComments === ratingId) { commentsReqRef.current++; setOpenComments(null); return; }
+    const req = ++commentsReqRef.current;
     setOpenComments(ratingId);
     setCommentsLoading(true);
     setNewComment('');
@@ -771,10 +799,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setReplyText('');
     setExpandedThreads(new Set());
     const cmts = await getComments(ratingId, userId);
+    if (commentsReqRef.current !== req) return;
     setComments(cmts);
     if (cmts.length > 0) {
       const ids = [...new Set(cmts.map((c) => c.user_id))];
       const profs = await getProfilesByIds(ids);
+      if (commentsReqRef.current !== req) return;
       setCommentProfiles(profs);
     }
     setCommentsLoading(false);
@@ -782,10 +812,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   // Single shared "refresh comments after a write" routine so handlers stay tiny.
   const refreshComments = async (ratingId: string) => {
+    const req = ++commentsReqRef.current;
     const cmts = await getComments(ratingId, userId);
+    if (commentsReqRef.current !== req) return;
     setComments(cmts);
     const ids = [...new Set(cmts.map((c) => c.user_id))];
-    setCommentProfiles(await getProfilesByIds(ids));
+    const profs = await getProfilesByIds(ids);
+    if (commentsReqRef.current !== req) return;
+    setCommentProfiles(profs);
   };
 
   const handleAddComment = async (ratingId: string) => {
@@ -858,7 +892,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
     const months = Math.floor(days / 30);
     if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
-    const years = Math.floor(days / 365);
+    // days 360-364: months hits 12 but floor(days/365) is still 0
+    const years = Math.max(1, Math.floor(days / 365));
     return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
@@ -1241,7 +1276,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                           {m.name}
                         </h3>
                         <p className="mt-0.5 text-[12.5px] font-medium text-on-surface/55">
-                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(m.date.length === 10 ? `${m.date}T12:00:00` : m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           {m.dishes.length > 0 && <>  ·  {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
                         </p>
                       </div>
@@ -1660,7 +1695,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               {...recipeCommentsDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-paper w-full rounded-t-3xl flex flex-col"
-              style={{ height: '75%' }}
+              style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
             >
               <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
                 <span className="w-10 h-1 rounded-full bg-on-surface/20" />
@@ -1734,7 +1769,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-white w-full rounded-t-3xl flex flex-col"
-                style={{ height: '75%' }}
+                style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
               >
                 <div className="pt-2 pb-1 flex justify-center">
                   <span className="w-10 h-1 rounded-full bg-on-surface/20" />

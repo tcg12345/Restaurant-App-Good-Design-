@@ -209,9 +209,19 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
   const stream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
   if (!stream) throw new Error('Canvas capture not supported in this browser.');
 
-  // Pick the best WebM codec the browser actually supports.
-  const preferredMimes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-  const mimeType = preferredMimes.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) || 'video/webm';
+  // Prefer MP4/H.264 — it's the ONLY thing iOS WKWebView's MediaRecorder
+  // supports (the old WebM-only list threw NotSupportedError there, and the
+  // caller's catch silently uploaded the unedited original). Mirrors
+  // pickVideoMime in lib/media-compress.
+  const preferredMimes = [
+    'video/mp4;codecs=h264',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  const mimeType = preferredMimes.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m));
+  if (!mimeType) throw new Error('Video re-encoding not supported in this browser.');
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
   const chunks: BlobPart[] = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -260,7 +270,8 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
   stream.getTracks().forEach((t) => t.stop());
   const blob = new Blob(chunks, { type: mimeType });
   const baseName = (item.file?.name ?? 'video').replace(/\.[a-z0-9]+$/i, '') || 'video';
-  return new File([blob], `${baseName}-edited.webm`, { type: mimeType });
+  const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+  return new File([blob], `${baseName}-edited.${ext}`, { type: mimeType });
 }
 
 /* ── Apply-all entry point used by parents ───────────────────────────── */
@@ -276,7 +287,7 @@ export async function applyAllEdits(
   onProgress?: (fraction: number) => void,
 ): Promise<Record<string, File>> {
   const out: Record<string, File> = {};
-  const work = items.filter((it) => isEdited(it.edits) && !!it.file && it.previewUrl.startsWith('blob:'));
+  const work = items.filter((it) => isEdited(it.edits, it.durationSeconds) && !!it.file && it.previewUrl.startsWith('blob:'));
   if (work.length === 0) {
     onProgress?.(1);
     return out;
@@ -298,14 +309,23 @@ export async function applyAllEdits(
   return out;
 }
 
-export function isEdited(edits: EditState): boolean {
+export function isEdited(edits: EditState, durationSeconds?: number | null): boolean {
+  // A trim only counts as an edit when it actually narrows the window —
+  // `end > 0` held for EVERY set trim (merely touching a handle forced the
+  // destructive re-encode even after dragging it back to the full range).
+  const trimActive =
+    edits.trim != null &&
+    (edits.trim.start > 0.05 ||
+      (durationSeconds != null
+        ? edits.trim.end < durationSeconds - 0.05
+        : edits.trim.end > 0));
   return (
     edits.brightness !== 100 ||
     edits.contrast !== 100 ||
     edits.saturation !== 100 ||
     edits.filterPreset !== 'none' ||
     hasCustomCrop(edits) ||
-    (edits.trim != null && (edits.trim.start > 0.05 || (edits.trim.end != null && edits.trim.end > 0)))
+    trimActive
   );
 }
 
@@ -480,7 +500,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
           <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
             Items <span className="text-on-surface/30 font-medium ml-1.5">{activeIdx + 1} / {items.length}</span>
           </p>
-          {isEdited(active.edits) && (
+          {isEdited(active.edits, active.durationSeconds) && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
               <Check size={10} /> Edited
             </span>
@@ -528,7 +548,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
           {items.map((it, idx) => {
             const isActive = it.key === active.key;
             const filter = cssFilterFor(it.edits);
-            const touched = isEdited(it.edits);
+            const touched = isEdited(it.edits, it.durationSeconds);
             return (
               <div
                 key={it.key}

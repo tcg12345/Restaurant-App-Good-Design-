@@ -1859,7 +1859,7 @@ export const Profile: React.FC = () => {
                             <p className="text-[14px] font-serif font-bold truncate leading-tight">{r.name}</p>
                             <p className="text-[11.5px] text-on-surface/45 mt-0.5">
                               {r.visitDate
-                                ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                 : ''}
                               {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
                             </p>

@@ -124,12 +124,16 @@ function useIsDesktop(): boolean {
 // reloading. Heavy/transient screens (map, reels, create, detail pages) are
 // intentionally NOT kept alive — they push/pop normally. KEEP_ALIVE_PATHS is
 // shared with ScrollRestoration (which skips them — they keep their own scroll).
-const keepAliveElement = (path: string): React.ReactNode => {
+// `active` — whether this layer is the CURRENT route. Auth-gated tabs pass
+// it to RequireAuthRoute as `redirect` so a hidden (inactive) layer renders
+// null for guests instead of a <Navigate> that re-fires on every location
+// change and permanently hijacks navigation back to Home.
+const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
   switch (path) {
     case '/': return <Discover mode="home" />;
     case '/search/main': return <SearchMain />;
-    case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>;
-    case '/profile': return <RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>;
+    case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists" redirect={active}><Pantry /></RequireAuthRoute>;
+    case '/profile': return <RequireAuthRoute reason="Sign in to view your profile" redirect={active}><Profile /></RequireAuthRoute>;
     default: return null;
   }
 };
@@ -314,7 +318,7 @@ const AppContent: React.FC = () => {
               }}
               aria-hidden={!active}
             >
-              {keepAliveElement(path)}
+              {keepAliveElement(path, active)}
             </div>
           );
         })}

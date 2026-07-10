@@ -54,7 +54,8 @@ const timeAgo = (date: string) => {
   if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
   const months = Math.floor(days / 30);
   if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
-  const years = Math.floor(days / 365);
+  // days 360-364: months hits 12 but floor(days/365) is still 0
+  const years = Math.max(1, Math.floor(days / 365));
   return `${years} year${years === 1 ? '' : 's'} ago`;
 };
 
@@ -326,7 +327,11 @@ export const FollowingFeed: React.FC = () => {
     setVisibleCount(CHUNK_SIZE);
   }, [query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, roleFilter, personFilter, ratings.length]);
 
-  // Chunked infinite scroll via IntersectionObserver
+  // Chunked infinite scroll via IntersectionObserver. Keyed on visibleCount
+  // too: after a full load the sentinel unmounts, and a filter change that
+  // keeps filtered.length identical resets visibleCount and REMOUNTS a new
+  // sentinel node — without the dep the old observer still watches the
+  // detached node and the list stalls at the first chunk.
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
@@ -343,7 +348,7 @@ export const FollowingFeed: React.FC = () => {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [filtered.length]);
+  }, [filtered.length, visibleCount]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasActiveFilters =

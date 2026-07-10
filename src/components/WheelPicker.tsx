@@ -134,7 +134,7 @@ const PickerSheet: React.FC<{
           transition={{ type: 'spring', damping: 32, stiffness: 320 }}
           {...dragProps}
           onClick={(e) => e.stopPropagation()}
-          className="bg-surface w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl pt-3 pb-6 px-6"
+          className="bg-surface w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl pt-3 pb-safe-6 px-6"
         >
           <div className="flex items-center justify-center mb-3">
             <div className="w-10 h-1 rounded-full bg-on-surface/15" />

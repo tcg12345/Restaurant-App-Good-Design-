@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp, Sparkles, ArrowLeft } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -292,7 +292,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(0);
   const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(localISODate());
   const [wouldMakeAgain, setWouldMakeAgain] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -370,7 +370,7 @@ export const AddHomeMealModal: React.FC = () => {
       setMealName(existing?.name ?? '');
       setScore(existing?.score ?? 0);
       setNotes(existing?.description ?? '');
-      setVisitDate(existing?.date ?? new Date().toISOString().slice(0, 10));
+      setVisitDate(existing?.date ?? localISODate());
       setWouldMakeAgain(existing?.wouldMakeAgain ?? true);
       setSelectedTags(existing?.tags ?? []);
       setPhotos(existing?.photos ?? []);

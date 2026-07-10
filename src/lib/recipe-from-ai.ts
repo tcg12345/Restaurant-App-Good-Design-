@@ -6,6 +6,7 @@
 // into a fully-formed `HomeMeal` that the Advanced recipe builder can
 // hydrate from and that `createHomeMeal` can persist directly.
 
+import { localISODate } from './utils';
 import type {
   HomeMeal,
   RecipeIngredient,
@@ -130,7 +131,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
 
   const summary = (input.summary || '').trim();
   const introParagraph = (input.introParagraph || '').trim();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISODate();
 
   return {
     id: `ai-draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

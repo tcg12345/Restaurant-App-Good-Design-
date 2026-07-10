@@ -211,7 +211,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [conversations, setConversations] = useState<Conversation[]>(() => loadFromStorage(STORAGE_KEY, []));
   // Track last-read timestamps per conversation
   const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => loadFromStorage(READ_KEY, {}));
-  const [cloudLoaded, setCloudLoaded] = useState(false);
+  // True once the initial cloud merge has landed (or been skipped). Gates
+  // syncToCloud: a send/markRead on a fresh device BEFORE the merge would
+  // otherwise overwrite the cloud chat history with the near-empty local
+  // state. A ref (not state) so the callback below always sees it fresh.
+  const cloudLoadedRef = useRef(false);
 
   // Mirrors of state so the async cloud load can merge against the freshest
   // local data without stale closures.
@@ -227,6 +231,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // the dedicated columns were never migrated.
   const syncToCloud = useCallback((chats: Conversation[], read: Record<string, number>) => {
     if (!userIdRef.current || !supabaseConfigured) return;
+    if (!cloudLoadedRef.current) return; // initial merge not done — local mirrors keep the change; the merge backfill pushes it
     saveChats(userIdRef.current, chats, read);
     stashMetaKey(META_CHATS_KEY, { chats, read });
   }, [stashMetaKey]);
@@ -236,11 +241,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (!userId || !supabaseConfigured) return;
     let cancelled = false;
+    cloudLoadedRef.current = false; // new account's merge pending — re-gate writes
 
     (async () => {
       try {
         const cloud = await loadUserData(userId);
-        if (cancelled || !cloud) { setCloudLoaded(true); return; }
+        if (cancelled) return;
+        if (!cloud) { cloudLoadedRef.current = true; return; }
 
         const metaFallback = (cloud.restaurantMeta as Record<string, unknown> | undefined)?.[META_CHATS_KEY] as
           | { chats?: Conversation[]; read?: Record<string, number> }
@@ -261,14 +268,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         readRef.current = mergedRead;
         saveToStorage(STORAGE_KEY, merged);
         saveToStorage(READ_KEY, mergedRead);
-        setCloudLoaded(true);
+        cloudLoadedRef.current = true;
 
         // Backfill: push the union back so local-only chats reach the cloud and
         // the __chats_v1__ fallback gets created on existing accounts.
         syncToCloud(merged, mergedRead);
       } catch (err) {
         console.warn('[Chat] Failed to load from cloud:', err);
-        setCloudLoaded(true);
+        if (!cancelled) cloudLoadedRef.current = true;
       }
     })();
 

@@ -641,11 +641,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [userDataReady, setUserDataReady] = useState<boolean>(() => !!cacheHit || !userId);
 
   // Load data for non-discover tabs (skipped if cache was fresh)
+  const tabDataInflightRef = useRef(false);
   useEffect(() => {
     if (!userId) { setUserDataReady(true); return; }
-    if (tabDataLoaded) return;
-    setTabDataLoaded(true);
+    if (tabDataLoaded || tabDataInflightRef.current) return;
+    tabDataInflightRef.current = true;
     (async () => {
+      try {
       const [myR, friendR, expertR] = await Promise.all([
         getUserRatings(userId),
         getAllFriendRatings(userId),
@@ -674,7 +676,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       tabDataCache.friendProfiles = profs;
       tabDataCache.expertProfiles = expProfs;
       tabDataCache.tabDataLoaded = true;
-      setUserDataReady(true);
+      // Latch only after the load completed — latching before the fetch
+      // meant one thrown error left every ratings tab empty for the session.
+      setTabDataLoaded(true);
+      } finally {
+        tabDataInflightRef.current = false;
+        setUserDataReady(true);
+      }
     })();
   }, [userId, tabDataLoaded]);
   // Focus-only mode: when the user arrives via a `state.focus` deep-link
@@ -1939,10 +1947,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
   }, [createMarkerElement, showPopup]);
 
+  // Monotonic token shared by fetchNearby/handleSearch: with the 500ms
+  // debounce, a slow earlier request can resolve AFTER a newer one and
+  // overwrite the list, pins, and camera with stale results.
+  const placesReqRef = useRef(0);
+
   // Fetch nearby restaurants for the current map center
   const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
+    const req = ++placesReqRef.current;
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
@@ -1972,6 +1986,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
       let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
       sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
+      if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -1981,7 +1996,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
-      setIsSearching(false);
+      if (placesReqRef.current === req) setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, mergeMichelinResults]);
 
@@ -2076,6 +2091,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setIsSearching(true);
     setSelectedMarker(null);
     setShowSearchHere(false);
+    const req = ++placesReqRef.current;
     try {
       // Use location bias if a location was searched, otherwise use map center
       const searchCenter = searchLocationBias || map.getCenter();
@@ -2093,6 +2109,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
       let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
+      if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(filtered);
       syncMarkers(filtered);
 
@@ -2106,7 +2123,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } catch (err) {
       console.error('Text search failed:', err);
     } finally {
-      setIsSearching(false);
+      if (placesReqRef.current === req) setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, searchLocationBias, mergeMichelinResults]);
 
@@ -3060,6 +3077,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
     const ratings = mapMode === 'myratings' ? filteredMyRatings : mapMode === 'friends' ? filteredFriendRatings : mapMode === 'experts' ? filteredExpertRatings : [];
+    if (mapMode === 'discover') {
+      // Returning to the Discover tab: the rating modes overwrote `places`
+      // with their own rows and nothing else repopulates it — without this
+      // restore the pins (un-hidden above) and the results list disagree
+      // until the user manually re-searches the area.
+      setPlaces(tabDataCache.discoverPlaces);
+      return;
+    }
     if (ratings.length === 0) return;
 
     // Convert ratings to PlaceResult[] for the card/swipe system
@@ -4601,7 +4626,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             <div key={place.id} className="flex-shrink-0 w-32 relative group snap-start">
                               <button
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                                className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                aria-label="Remove from recently viewed"
+                                className={cn(
+                                  'absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center transition-opacity',
+                                  // No hover on iOS: opacity-0 kept the button invisible yet
+                                  // tappable — an undiscoverable target that silently deleted
+                                  // the card. Always show it on phone.
+                                  phoneMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                                )}
                               >
                                 <X size={10} className="text-white" />
                               </button>

@@ -45,7 +45,7 @@ import {
   getMyHomeMealReview,
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
@@ -65,9 +65,12 @@ const hashToHue = (s: string): number => {
 
 // Quantity formatter — supports common fractions (¼, ½, ¾, ⅓, ⅔, ⅛)
 // so the ingredient list reads like a cookbook rather than dumping "0.5 cups".
+// Keyed by frac.toFixed(3) — the same normalization used at lookup time.
+// (Keys like '0.5' never matched `(0.5).toFixed(2)` === '0.50', so halves
+// and eighths rendered as decimals.)
 const VULGAR_FRAC: Record<string, string> = {
-  '0.25': '¼', '0.5': '½', '0.75': '¾',
-  '0.33': '⅓', '0.67': '⅔', '0.125': '⅛', '0.375': '⅜', '0.625': '⅝', '0.875': '⅞',
+  '0.250': '¼', '0.500': '½', '0.750': '¾',
+  '0.333': '⅓', '0.667': '⅔', '0.125': '⅛', '0.375': '⅜', '0.625': '⅝', '0.875': '⅞',
 };
 function formatQty(raw: string | number | undefined, scale: number): string {
   if (raw === undefined || raw === null || raw === '') return '';
@@ -96,11 +99,11 @@ function formatQty(raw: string | number | undefined, scale: number): string {
   if (v === 0) return '0';
   const whole = Math.floor(v);
   const frac = +(v - whole).toFixed(3);
-  const fracStr = VULGAR_FRAC[frac.toFixed(2)] || (frac > 0 ? frac.toFixed(2).replace(/\.?0+$/, '') : '');
+  const fracStr = VULGAR_FRAC[frac.toFixed(3)] || (frac > 0 ? frac.toFixed(2).replace(/\.?0+$/, '') : '');
   if (whole === 0) return fracStr || '0';
   if (!fracStr) return String(whole);
   // Use unicode vulgar fraction inline with whole (e.g. "1½")
-  if (VULGAR_FRAC[frac.toFixed(2)]) return `${whole}${fracStr}`;
+  if (VULGAR_FRAC[frac.toFixed(3)]) return `${whole}${fracStr}`;
   return `${whole} ${fracStr}`;
 }
 
@@ -872,7 +875,7 @@ export const RecipePage: React.FC = () => {
     return {
       id: data.id,
       name: data.title,
-      date: data.date || new Date().toISOString().slice(0, 10),
+      date: data.date || localISODate(),
       score: 0,
       wouldMakeAgain: false,
       description: data.description,

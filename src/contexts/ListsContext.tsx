@@ -5,7 +5,7 @@ import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, 
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
-import { safeImage } from '../lib/utils';
+import { safeImage, localISODate } from '../lib/utils';
 import { settleScores, applySettleChanges, type SettleChange } from '../lib/settleScores';
 
 /* ── Types ── */
@@ -756,7 +756,7 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
   return {
     id: r.id,
     name: r.title,
-    date: new Date(r.createdAt || Date.now()).toISOString().slice(0, 10),
+    date: localISODate(new Date(r.createdAt || Date.now())),
     score: r.score ?? 0,
     wouldMakeAgain: (r.score ?? 0) >= 7,
     description: r.description ?? '',
@@ -1342,13 +1342,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // ── Helper to save to Supabase in the background ──
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
-      // Strip large base64 photos before syncing to avoid payload size issues
+      // Strip large base64 photos before syncing to avoid payload size issues.
+      // NEVER truncate: a sliced data-URL is an undecodable image that would
+      // sync back down on the next boot and permanently replace the user's
+      // intact local photo. Drop it instead (same semantics as stripDataUrls).
       const stripped = data.map((r) => ({
         ...r,
         photos: r.photos.map((p) => ({
           ...p,
-          // Truncate URLs over 100KB to prevent Supabase payload errors
-          url: p.url.length > 100000 ? p.url.slice(0, 100000) : p.url,
+          url: p.url.length > 100000 && p.url.startsWith('data:') ? '' : p.url,
         })),
       }));
       saveRatings(userIdRef.current, stripped);
