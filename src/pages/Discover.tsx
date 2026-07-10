@@ -2,14 +2,13 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
+import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
 import { scoreColor } from '../lib/score';
-import { ScoreRing } from '../components/cards';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
@@ -19,6 +18,7 @@ import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
+import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
@@ -39,6 +39,7 @@ import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilt
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -278,33 +279,18 @@ interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
-/** Time-of-day → greeting word. Drives "Good morning, Tyler" etc. */
-function getGreetingPart(now = new Date()): string {
-  const h = now.getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
-}
-
-/** Day-of-week label for the hero eyebrow. */
-const HERO_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-/** Prominent "See all / Browse all" pill — white surface, primary outline,
- *  primary label, and a filled primary circle with a right arrow. Matches the
- *  redesign reference and is reused across every Discover-home rail/section so
- *  the call-to-action reads the same everywhere. Renders a <Link> when `to` is
- *  given, otherwise a <button> with `onClick`. */
-const SeeAllPill: React.FC<{ label: string; to?: string; onClick?: () => void; className?: string }> = ({ label, to, onClick, className }) => {
+/** Quiet "See all / Browse all" text link for section headers — label +
+ *  small arrow, no pill chrome, so sidebar sections defer to their content.
+ *  Renders a <Link> when `to` is given, otherwise a <button> with `onClick`. */
+const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; className?: string }> = ({ label, to, onClick, className }) => {
   const cls = cn(
-    'inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-paper border-[1.5px] border-primary pl-4 pr-2 py-[7px] text-[13px] font-bold text-primary shadow-sm transition-colors hover:bg-primary/[0.06] active:scale-[0.98]',
+    'group inline-flex flex-shrink-0 items-center gap-1 text-[12px] font-bold text-primary transition-opacity hover:opacity-75',
     className,
   );
   const inner = (
     <>
       {label}
-      <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-primary text-white">
-        <ArrowRight size={13} strokeWidth={2.6} />
-      </span>
+      <ArrowRight size={12} strokeWidth={2.6} className="transition-transform group-hover:translate-x-0.5" />
     </>
   );
   return to
@@ -320,6 +306,64 @@ function hashToHue(str: string): number {
   for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
   return ((h % 360) + 360) % 360;
 }
+
+/** The phone home's location control — a real button that unmistakably
+ *  reads as tappable (the old eyebrow-text trigger looked like static copy). */
+const LocationPill: React.FC<{ neighborhood: string | null; onOpen: () => void; className?: string }> = ({ neighborhood, onOpen, className }) => (
+  <button
+    type="button"
+    onClick={onOpen}
+    aria-label="Change location"
+    className={cn(
+      'inline-flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-paper border border-on-surface/[0.12] shadow-sm active:scale-[0.98] transition-transform',
+      className,
+    )}
+  >
+    <MapPin size={15} className="text-primary flex-shrink-0" />
+    <span className="min-w-0 truncate text-[14px] font-semibold text-on-surface">{neighborhood || 'Pick a location'}</span>
+    <ChevronDown size={14} className="text-on-surface/45 flex-shrink-0" />
+  </button>
+);
+
+/** One prominent question instead of three stacked rails: where is the next
+ *  meal coming from? Two tiles route to the full experiences — LocationPage
+ *  recommendations and the Recipe Box. */
+const DualPromptCard: React.FC<{
+  onFindRestaurant: () => void;
+  findSubtitle: string;
+  onCook: () => void;
+  cookSubtitle: string;
+}> = ({ onFindRestaurant, findSubtitle, onCook, cookSubtitle }) => (
+  <section className="mt-4">
+    <h1 className="font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.02em]">
+      What sounds good?
+    </h1>
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      <button
+        type="button"
+        onClick={onFindRestaurant}
+        className="rounded-2xl p-4 min-h-[120px] flex flex-col justify-between text-left bg-primary text-white active:scale-[0.98] transition-transform"
+      >
+        <span className="w-10 h-10 rounded-full bg-white/15 grid place-items-center"><UtensilsCrossed size={19} /></span>
+        <span>
+          <span className="block font-serif font-semibold text-[17px] leading-[1.15] tracking-[-0.015em]">Find a restaurant</span>
+          <span className="block text-[12px] opacity-70 mt-0.5">{findSubtitle}</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onCook}
+        className="card-surface rounded-2xl p-4 min-h-[120px] flex flex-col justify-between text-left active:scale-[0.98] transition-transform"
+      >
+        <span className="w-10 h-10 rounded-full bg-primary/10 text-primary grid place-items-center"><ChefHat size={19} /></span>
+        <span>
+          <span className="block font-serif font-semibold text-[17px] leading-[1.15] tracking-[-0.015em] text-on-surface">Cook something</span>
+          <span className="block text-[12px] text-on-surface/60 mt-0.5">{cookSubtitle}</span>
+        </span>
+      </button>
+    </div>
+  </section>
+);
 
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
@@ -360,7 +404,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // smooth under the home feed's constant re-renders.
   const homeHeaderRef = useRef<HTMLDivElement>(null);
   const homeScrollRef = useRef<HTMLDivElement>(null);
-  const dayLocRef = useRef<HTMLParagraphElement>(null);
+  const dayLocRef = useRef<HTMLDivElement>(null);
   const lastHomeScrollY = useRef(0);
   const miniShownRef = useRef(false);
   const fadeDistRef = useRef(120);
@@ -577,9 +621,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, [userId]);
 
   // Mobile filter-chips row (All / Recommendations / Recipes / Guides).
-  // Filters which of the three top rails render; the Friend Activity
-  // feed below the rails is always visible regardless of selection.
-  const [discoverChip, setDiscoverChip] = useState<'all' | 'recommendations' | 'recipes' | 'guides'>('all');
   // Drives the headless HomeLocationBar picker from the greeting's
   // neighborhood label — restores the location-switch popup the old
   // mobile header used to expose via the chevron control.
@@ -763,20 +804,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const toggleMichelin = useCallback((d: string) => {
     setSelectedMichelin((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
   }, []);
-
-  // Hero chip filter — narrows the Recommended rail to a single cuisine.
-  // `null` = "All". When set, an effect below keeps pulling more recs from
-  // the engine until at least RECS_FILTER_MIN match (or the engine is
-  // exhausted), so a niche cuisine doesn't render an empty rail.
-  const [heroChipCuisine, setHeroChipCuisine] = useState<string | null>(null);
-
-  // Refs for horizontal-scroll arrows on the Discover rails.
-  const recRailRef = useRef<HTMLDivElement | null>(null);
-  const recipeRailRef = useRef<HTMLDivElement | null>(null);
-  const scrollRail = (ref: React.RefObject<HTMLDivElement | null>, dir: 1 | -1) => {
-    if (!ref.current) return;
-    ref.current.scrollBy({ left: dir * 560, behavior: 'smooth' });
-  };
 
   // Filter state — ratings modes (myratings / friends / experts)
   const [ratingSortBy, setRatingSortBy] = useState<'recent' | 'highest' | 'lowest' | 'visited'>('recent');
@@ -1200,7 +1227,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const buildRecQueries = useCallback((cityOverride?: string | null) => {
     const label = cityOverride ?? userPreferences.topCity ?? '';
     // buildCandidateQueries only reads target.label; lat/lng are unused here.
-    return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 });
+    // The rail's batch fetcher speaks plain text queries — the v3 price
+    // restrictions only apply on the recs-browser path.
+    return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 }).map((q) => q.text);
   }, [userPreferences]);
 
   // Fetch a batch of recommendations. Home mode anchors to the selected home
@@ -1420,6 +1449,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   useEffect(() => {
     if (recsFetchedRef.current) return;
+    // Desktop home renders no Recommended rail anymore (the hero band routes
+    // to the location page instead) and its feed doesn't consume suggestions,
+    // so skip the whole rec pipeline there — a desktop visit spends zero
+    // Places calls on data nothing renders. The guard ref stays false, so
+    // shrinking the window to phone width re-runs this effect and fetches.
+    if (mode === 'home' && usingDesktopHeader) return;
     if (mode === 'home' && !homeLocation) return;
     recsFetchedRef.current = true;
     recsSeenIdsRef.current = new Set();
@@ -1650,7 +1685,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       console.warn('[Recs] live fetch failed:', err);
       setRecsLoading(false);
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce, usingDesktopHeader]);
 
   // Load more recommendations — called when the horizontal scroll nears the
   // end. Fetches one query at a time so the infinite scroll paces itself
@@ -1697,22 +1732,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setRecsLoadingMore(false);
   }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
 
-  // Try to keep the chip-filtered Recommended rail full enough to show
-  // at least RECS_FILTER_MIN matching restaurants. When the user picks
-  // a cuisine chip and we have fewer than 10 matches, we pull the next
-  // batch from the recommendation engine — and repeat until we either
-  // hit the target or the engine reports it's out of queries.
-  useEffect(() => {
-    if (mode !== 'home' || !heroChipCuisine) return;
-    if (recsLoadingMore || recsExhaustedRef.current) return;
-    const matches = recommendations.filter(
-      (p) => getCuisineLabel((p as any).types || []) === heroChipCuisine,
-    ).length;
-    const RECS_FILTER_MIN = 10;
-    if (matches >= RECS_FILTER_MIN) return;
-    loadMoreRecommendations();
-  }, [heroChipCuisine, recommendations, recsLoadingMore, mode, loadMoreRecommendations]);
-
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
   const syncMarkersRef = useRef<((places: PlaceResult[]) => void) | null>(null);
@@ -1734,11 +1753,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         passesMichelinFilter(mich, p.name, p.lat, p.lng, p.fullAddress || p.address));
     }
 
-    // Filter by opening hours (breakfast/lunch/dinner + open now). Hours come
-    // from restaurantMeta, read via a ref so this stays a stable callback.
+    // Filter by opening hours (breakfast/lunch/dinner + open now). Search
+    // results carry their own hours; cached meta is the fallback (read via
+    // a ref so this stays a stable callback).
     const hf = filtersRef.current.hoursFilter;
     if (isHoursFilterActive(hf)) {
-      filtered = filtered.filter((p) => passesHoursFilter(restaurantMetaRef.current[p.id]?.hours, hf));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf));
     }
 
     // Sort
@@ -2743,6 +2763,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const filteredExpertRatings = useMemo(() => filterRatings(expertRatings), [expertRatings, filterRatings]);
 
+  // Ratings-based map modes filter hours from cached meta, which is only
+  // warmed when a card/detail page renders — proactively backfill hours for
+  // the active mode's pool while an hours filter is on, so the filter works
+  // on data instead of falling through the unknown-hours keep-everything rule.
+  const hoursWarmActive = isHoursFilterActive(hoursFilter);
+  const hoursWarmIds = useMemo(() => {
+    if (!hoursWarmActive) return [] as string[];
+    const base = mapMode === 'myratings' ? [...myRatings, ...wishlistRatings]
+      : mapMode === 'friends' ? friendRatings
+        : mapMode === 'experts' ? expertRatings
+          : [];
+    return base.map((r) => r.restaurant_id);
+  }, [hoursWarmActive, mapMode, myRatings, wishlistRatings, friendRatings, expertRatings]);
+  useWarmHoursForFilter(hoursWarmIds, hoursWarmActive);
+
   const filteredHotelPlaces = useMemo(() => {
     let filtered = hotelPlaces;
     if (hotelStarFilter > 0) {
@@ -2751,7 +2786,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter));
     }
     const sorted = [...filtered];
     switch (hotelSortBy) {
@@ -3244,7 +3279,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const dist = distanceFromAnchor(lat, lng);
     const metaText = [cuisine, price].filter(Boolean).join('  ·  ');
     const infoText = [dist, city].filter(Boolean).join('  ·  ');
-    const onHeart = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
+    const onSave = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
     const onAdd = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(restData); };
     return (
       <div
@@ -3265,9 +3300,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           <div className="relative h-[84px] w-[84px] flex-shrink-0 overflow-hidden rounded-2xl bg-on-surface/[0.05]">
             <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
             <div className="absolute left-1.5 top-1.5 flex gap-1">
-              <button type="button" onClick={onHeart} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+              <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
                 className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Heart size={13} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
+                <Bookmark size={13} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
               </button>
               <button type="button" onClick={onAdd} aria-label="Add to list"
                 className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
@@ -3294,9 +3329,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </div>
         {!hasImage && (
           <div className="flex flex-shrink-0 items-center gap-1.5">
-            <button type="button" onClick={onHeart} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+            <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
               className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
-              <Heart size={15} className={fav ? 'fill-primary text-primary' : 'text-on-surface/70'} />
+              <Bookmark size={15} className={fav ? 'fill-primary text-primary' : 'text-on-surface/70'} />
             </button>
             <button type="button" onClick={onAdd} aria-label="Add to list"
               className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
@@ -3509,9 +3544,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const topChrome = (
       <div className="px-5 pt-4 pb-4">
-        {/* Back arrow + wishlist heart. Heart is a soft circle that stays
-            visible whether or not the place is saved (the fill carries
-            the state). */}
+        {/* Back arrow + wishlist bookmark. The save control is a soft circle
+            that stays visible whether or not the place is saved (the fill
+            carries the state). */}
         <div className="flex items-center justify-between gap-3">
           {isDesktopMapMode ? (
             <button
@@ -3539,11 +3574,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             aria-pressed={fav}
             className={cn(
               "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-              fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+              fav ? "border-primary/25 bg-primary/[0.08] text-primary" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
             )}
             title={fav ? 'Saved' : 'Save'}
           >
-            <Heart size={15} className={fav ? "fill-current" : ""} />
+            <Bookmark size={15} className={fav ? "fill-current" : ""} />
           </button>
         </div>
 
@@ -3880,18 +3915,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </button>
         ) : undefined}
       />
-      <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
         <button
           type="button"
           onClick={() => navigate('/search/main')}
-          className="flex-1 relative"
+          className="flex-1 min-w-0 relative"
           aria-label="Open search"
         >
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left truncate">
             Search restaurants, cuisines...
           </div>
         </button>
+        {mode === 'home' && (
+          <LocationPill
+            neighborhood={homeLocation?.label?.split(',')[0]?.trim() || null}
+            onOpen={() => setMobileLocationPickerOpen(true)}
+            className="max-w-[46%] flex-shrink-0"
+          />
+        )}
       </div>
     </>
   );
@@ -3912,7 +3954,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           <MessageCircle size={20} />
         </button>
         <button type="button" onClick={() => navigate('/circle')} aria-label="Your Circle" className={miniIconBtn}>
-          <Heart size={20} />
+          <Users size={20} />
         </button>
       </div>
     </div>
@@ -4614,7 +4656,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
-                              onHeart={() => toggleWishlist({
+                              onSave={() => toggleWishlist({
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
@@ -4628,108 +4670,54 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching.
-                  Desktop renders a personalized greeting hero with a
-                  featured restaurant card alongside; phone shows the
-                  compact stacked "DINING IN" block. */}
+                  Desktop top: a compact typography-led masthead — no hero
+                  card, no oversized CTA. One baseline row: title block left,
+                  location chip + a normal-height recommendations button
+                  right, closed by a hairline that the whole lower zone hangs
+                  from. Recommendation browsing lives on the location page. */}
               {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (() => {
-                const greetingPart = getGreetingPart();
-                const dayName = HERO_DAY_NAMES[new Date().getDay()];
-                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
-                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
-                  .split(' ')[0]
-                  .split('@')[0];
-                // Spare editorial greeting — eyebrow (day · neighborhood) + serif
-                // greeting. The page leads straight into Recommended below; the
-                // stats and Editor's Pick were intentionally removed to declutter.
+                const city = homeLocation?.label?.split(',')[0]?.trim() || '';
+                const goToRecommendations = () => {
+                  if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
+                  navigate(`/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`);
+                };
                 return (
-                  <section className="pt-8 pb-1">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
-                      {dayName}{neighborhood && (
-                        <>
-                          <span className="text-on-surface/25 font-bold"> · </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate(
-                                `/location?label=${encodeURIComponent(homeLocation!.label)}&lat=${homeLocation!.lat}&lng=${homeLocation!.lng}`,
-                              )
-                            }
-                            className="hover:underline underline-offset-4"
-                          >
-                            {neighborhood}
-                          </button>
-                        </>
-                      )}
-                    </p>
-                    <h1 className="mt-3 font-serif font-semibold text-on-surface text-[44px] xl:text-[52px] leading-[1.0] tracking-[-0.03em]">
-                      Good {greetingPart},{' '}
-                      <span className="font-serif italic font-medium text-primary">{firstName}</span>
-                    </h1>
-                  </section>
-                );
-              })()}
-              {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
-                const greetingPart = getGreetingPart();
-                const dayName = HERO_DAY_NAMES[new Date().getDay()];
-                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
-                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
-                  .split(' ')[0]
-                  .split('@')[0];
-                // Spare greeting on mobile too — eyebrow + serif greeting, then
-                // the section chips. The Open Now / Friends Out / Tonight cards
-                // were intentionally removed to declutter the header.
-                return (
-                  <>
-                    <section className="mt-3">
-                      <p ref={dayLocRef} className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary flex items-center gap-1">
-                        <span>{dayName}</span>
-                        <span className="text-on-surface/30 font-bold">·</span>
+                  <section className="pt-8">
+                    <div className="flex items-end justify-between gap-8 border-b border-on-surface/[0.07] pb-6">
+                      <div className="min-w-0">
+                        <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary">Curated for you</p>
+                        <h1 className="mt-1.5 font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.02em] text-on-surface">
+                          Find your next table
+                        </h1>
+                        <p className="mt-1.5 truncate text-[13.5px] text-on-surface/55">
+                          {city ? (
+                            <>Tuned to your taste near <span className="font-semibold text-on-surface/75">{city}</span> — refreshed as you rate.</>
+                          ) : (
+                            'Set a location and we’ll line up restaurants tuned to your taste.'
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-2.5 pb-0.5">
+                        <HomeLocationBar
+                          location={homeLocation}
+                          onChange={handleHomeLocationChange}
+                          onUseCurrent={handleHomeUseCurrent}
+                          variant="chip"
+                        />
                         <button
                           type="button"
-                          onClick={() => setMobileLocationPickerOpen(true)}
-                          className="inline-flex items-center gap-1 hover:underline underline-offset-4"
+                          onClick={goToRecommendations}
+                          className="group inline-flex h-10 flex-shrink-0 items-center gap-2 rounded-full bg-primary pl-4.5 pr-4 text-[13px] font-bold text-white transition-colors hover:bg-primary/90 active:scale-[0.98]"
                         >
-                          {neighborhood || 'Pick a location'}
-                          <ChevronDown size={11} strokeWidth={2.5} className="text-primary/70" />
+                          See recommendations
+                          <ArrowRight size={15} strokeWidth={2.4} className="transition-transform group-hover:translate-x-0.5" />
                         </button>
-                      </p>
-                      <h1 className="mt-2 font-serif font-semibold text-on-surface text-[32px] leading-[1.05] tracking-[-0.02em]">
-                        Good {greetingPart},{' '}
-                        <span className="font-serif italic font-medium text-primary">{firstName}</span>
-                      </h1>
-                    </section>
-
-                    {/* Filter chips row — picking a chip narrows the feed
-                        below to that single section. */}
-                    <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
-                      {[
-                        { key: 'all' as const, label: 'All', icon: null },
-                        { key: 'recommendations' as const, label: 'Recommendations', icon: <MapPin size={14} /> },
-                        { key: 'recipes' as const, label: 'Recipes', icon: <ChefHat size={14} /> },
-                        { key: 'guides' as const, label: 'Guides', icon: <BookOpen size={14} /> },
-                      ].map((c) => {
-                        const active = discoverChip === c.key;
-                        return (
-                          <button
-                            key={c.key}
-                            type="button"
-                            onClick={() => setDiscoverChip(c.key)}
-                            className={cn(
-                              'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border transition-colors',
-                              active
-                                ? 'bg-on-surface text-surface border-on-surface'
-                                : 'bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
-                            )}
-                          >
-                            {c.icon}
-                            {c.label}
-                          </button>
-                        );
-                      })}
+                      </div>
                     </div>
 
-                    {/* Headless picker — the trigger lives on the
-                        greeting's "{neighborhood} ▾" button above. */}
+                    {/* No-location CTA fallback — the same controlled picker
+                        the phone header drives; the desktop and phone blocks
+                        never render together so sharing the state is safe. */}
                     <HomeLocationBar
                       variant="headless"
                       location={homeLocation}
@@ -4738,7 +4726,37 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       open={mobileLocationPickerOpen}
                       onOpenChange={setMobileLocationPickerOpen}
                     />
-                  </>
+                  </section>
+                );
+              })()}
+              {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
+                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
+                // Minimal top: the location pill lives in the header's search
+                // row; content opens straight with the dual-action prompt in
+                // place of the old greeting + chips + three stacked rails.
+                // The wrapper ref anchors the scroll-header fade distance.
+                return (
+                  <div ref={dayLocRef}>
+                    <DualPromptCard
+                      onFindRestaurant={() => {
+                        if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
+                        navigate(`/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`);
+                      }}
+                      findSubtitle={neighborhood ? `near ${neighborhood}` : 'set your location'}
+                      onCook={() => navigate('/recipes-for-you')}
+                      cookSubtitle={recommendedRecipes.length > 0 ? `${recommendedRecipes.length} picked for you` : 'from your circle'}
+                    />
+
+                    {/* Headless picker — triggered by the header's location pill. */}
+                    <HomeLocationBar
+                      variant="headless"
+                      location={homeLocation}
+                      onChange={handleHomeLocationChange}
+                      onUseCurrent={handleHomeUseCurrent}
+                      open={mobileLocationPickerOpen}
+                      onOpenChange={setMobileLocationPickerOpen}
+                    />
+                  </div>
                 );
               })()}
               {!discoverSearchActive && (
@@ -4748,351 +4766,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
                 )}
               >
-              {/* Recommendations */}
-              {(discoverChip === 'all' || discoverChip === 'recommendations') && (
-              recsLoading ? (
-                <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
-                  <div className="flex items-end justify-between gap-4 mb-3">
-                    <div className="min-w-0">
-                      <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
-                        usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                      )}>
-                        Recommended
-                      </h2>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center py-10">
-                    <Loader2 size={18} className="text-primary/40 animate-spin" />
-                    <span className="ml-2 text-xs text-on-surface/40">Finding picks near you…</span>
-                  </div>
-                </section>
-              ) : recommendations.length > 0 ? (
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5')}>
-                  <div className="flex items-end justify-between gap-4 mb-3">
-                    <div className="min-w-0">
-                      {(() => {
-                        const filteredCount = heroChipCuisine
-                          ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length
-                          : recommendations.length;
-                        return (
-                          <>
-                            <h2 className={cn(
-                              'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
-                              usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                            )}>
-                              Recommended
-                              {filteredCount > 0 && (
-                                <span className="text-[14px] font-medium text-on-surface/45 tracking-normal">
-                                  {filteredCount}
-                                </span>
-                              )}
-                            </h2>
-                            <p className="mt-1 text-[13px] text-on-surface/55">
-                              {heroChipCuisine
-                                ? `${heroChipCuisine} spots${homeLocation ? ` near ${homeLocation.label.split(',')[0].trim()}` : ' near you'}`
-                                : `Based on your saves${usingDesktopHeader && homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
-                            </p>
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {usingDesktopHeader && (
-                        <div className="hidden md:flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => scrollRail(recRailRef, -1)}
-                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
-                            aria-label="Scroll left"
-                          >
-                            <ChevronLeft size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => scrollRail(recRailRef, 1)}
-                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
-                            aria-label="Scroll right"
-                          >
-                            <ChevronRight size={14} />
-                          </button>
-                        </div>
-                      )}
-                      {homeLocation && (
-                        <SeeAllPill
-                          label="See all"
-                          onClick={() =>
-                            navigate(
-                              `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                            )
-                          }
-                        />
-                      )}
-                    </div>
-                  </div>
-                  <div
-                    ref={recRailRef}
-                    className={cn(
-                      "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                      phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
-                    )}
-                    onScroll={(e) => {
-                      if (recommendations.length >= 30) return;
-                      const el = e.currentTarget;
-                      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
-                    }}
-                  >
-                    {(heroChipCuisine
-                      ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine)
-                      : recommendations
-                    ).slice(0, 30).map((place) => {
-                      const cuisine = getCuisineLabel((place as any).types || []);
-                      const wishlisted = isWishlisted(place.id);
-                      const photoUrl = (place as any).photoUrl as string | undefined;
-                      const rating = (place as any).rating as number | undefined;
-                      // Google price first; if it's unknown, fall back to
-                      // the mode of community-supplied prices for this
-                      // place id, then blank.
-                      const price = priceLevelToString((place as any).priceLevel ?? -1)
-                        || communityPrices[place.id]
-                        || '';
-                      const fullAddress = (place as any).address as string || '';
-                      const street = fullAddress.split(',')[0]?.trim() || '';
-                      const recMeta = {
-                        id: place.id,
-                        name: place.name,
-                        image: photoUrl || '',
-                        cuisine,
-                        price,
-                        address: fullAddress,
-                      };
-                      // Convert Google /5 to a /10 score so the circle matches
-                      // the rest of the app (which scores out of 10). One score
-                      // language across the page — the green ScoreRing.
-                      const score10 = rating && rating > 0 ? rating * 2 : undefined;
-                      return (
-                        <div
-                          key={place.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => navigate(`/restaurant/${place.id}`)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/restaurant/${place.id}`); } }}
-                          className={cn(
-                            // self-start so a short (photoless) card keeps its
-                            // natural height instead of stretching to match a
-                            // taller photo card in the same rail.
-                            'flex-shrink-0 self-start snap-start text-left group cursor-pointer',
-                            'w-[240px]',
-                          )}
-                        >
-                          {/* Unified card: photo (or editorial monogram tile)
-                              with the hero score overlaid bottom-right and a
-                              heart top-right (the "+ add to list" surfaces on
-                              hover, desktop only). Below: serif name + one calm
-                              cuisine · $ · distance line. The outer element is a
-                              role="button" div so the inner heart/add buttons
-                              nest validly. */}
-                          {(() => {
-                            const distanceLabel = distanceFromAnchor(
-                              (place as any).lat,
-                              (place as any).lng,
-                            );
-                            const metaLine = [cuisine, price, distanceLabel].filter(Boolean).join('  ·  ');
-                            return (
-                              photoUrl ? (
-                              <article className="card-surface card-surface-hover">
-                                {/* Cover photo */}
-                                <div className="relative aspect-[4/3] overflow-hidden bg-on-surface/[0.04]">
-                                  <img
-                                    src={photoUrl}
-                                    alt=""
-                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  {/* Depth — subtle radial highlight + shadow so the
-                                      cover reads as finished, not flat. */}
-                                  <div
-                                    className="absolute inset-0 pointer-events-none"
-                                    style={{
-                                      backgroundImage:
-                                        'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
-                                    }}
-                                  />
-                                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                      className={cn(
-                                        'w-8 h-8 rounded-full grid place-items-center bg-white/90 backdrop-blur-sm shadow-sm text-on-surface transition-transform hover:scale-[1.06]',
-                                        wishlisted && 'text-primary',
-                                      )}
-                                      aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                                    >
-                                      <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
-                                    </button>
-                                    {usingDesktopHeader && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                        className="w-8 h-8 rounded-full grid place-items-center bg-white/90 backdrop-blur-sm shadow-sm text-on-surface transition-transform hover:scale-[1.06]"
-                                        aria-label="Add to list"
-                                      >
-                                        <Plus size={14} />
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                                {/* Body: serif name + one muted meta line, with
-                                    the score ring to the right (below the photo). */}
-                                <div className="flex items-start justify-between gap-2.5 px-3.5 pt-3 pb-3.5">
-                                  <div className="min-w-0 flex-1">
-                                    <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.15] tracking-[-0.018em] line-clamp-1">
-                                      {place.name}
-                                    </h3>
-                                    {metaLine && (
-                                      <p className="mt-1 text-[12.5px] font-medium text-on-surface/55 truncate">
-                                        {metaLine}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <ScoreRing score={score10} size={44} className="mt-0.5 flex-shrink-0" />
-                                </div>
-                              </article>
-                              ) : (
-                              /* No photo — a compact, image-free info card. No
-                                 gradient placeholder: everything sits on two tight
-                                 rows. Top: a cuisine · price eyebrow with the
-                                 wishlist heart + rate (＋). Bottom: the serif name
-                                 beside the score ring. Sits at its short natural
-                                 height in the rail. */
-                              <article className="card-surface card-surface-hover p-3.5">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.13em] text-on-surface/40">
-                                    {[cuisine, price].filter(Boolean).join(' · ') || 'Restaurant'}
-                                  </p>
-                                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                      className={cn(
-                                        'w-7 h-7 rounded-full grid place-items-center bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70 transition-colors',
-                                        wishlisted && 'text-primary',
-                                      )}
-                                      aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                                    >
-                                      <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                      className="w-7 h-7 rounded-full grid place-items-center bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-on-surface/70 transition-colors"
-                                      aria-label="Rate"
-                                    >
-                                      <Plus size={14} />
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="mt-2.5 flex items-end justify-between gap-3">
-                                  <h3 className="min-w-0 font-serif font-semibold text-on-surface text-[15.5px] leading-[1.22] tracking-[-0.01em] line-clamp-2">
-                                    {place.name}
-                                  </h3>
-                                  <ScoreRing score={score10} size={40} className="flex-shrink-0" />
-                                </div>
-                              </article>
-                              )
-                            );
-                          })()}
-                        </div>
-                      );
-                    })}
-                    {/* When the chip filter narrows the rail to zero
-                        matches AND we've already pulled everything we
-                        can from the engine, show a quiet placeholder
-                        so the rail isn't blank. */}
-                    {heroChipCuisine &&
-                      recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length === 0 &&
-                      !recsLoadingMore && (
-                        <div className={cn(
-                          'flex-shrink-0 snap-start',
-                          'w-[240px]',
-                        )}>
-                          <div className="aspect-[4/3] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
-                            <p className="text-[12px] text-on-surface/55">
-                              No {heroChipCuisine} spots found near you yet.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    {recsLoadingMore && (
-                      <div className={cn(
-                        'flex-shrink-0 flex items-center justify-center',
-                        'w-[240px]',
-                      )}>
-                        <Loader2 size={18} className="text-primary/40 animate-spin" />
-                      </div>
-                    )}
-                    {/* View-all end card — takes the user to the full
-                        location page so they can browse beyond the
-                        first 30 recommendations. */}
-                    {homeLocation && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                          )
-                        }
-                        className={cn(
-                          'flex-shrink-0 snap-start text-left group',
-                          'w-[240px]',
-                        )}
-                      >
-                        <div className="h-full rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] group-hover:bg-on-surface/[0.06] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4 py-2">
-                          <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
-                            <ArrowRight size={20} strokeWidth={2} />
-                          </span>
-                          <span className="mt-2 font-serif font-semibold text-[15px] text-on-surface leading-[1.15]">
-                            View all
-                          </span>
-                          <span className="mt-0.5 text-[11px] text-on-surface/55 line-clamp-1 leading-tight">
-                            in {homeLocation.label.split(',')[0]}
-                          </span>
-                        </div>
-                      </button>
-                    )}
-                  </div>
-                </section>
-              ) : mode === 'home' && homeLocation ? (
-                // Empty state. Most common cause: the user switched to a
-                // city for the first time and the personalised queries
-                // came back narrower than the radius allows. We keep the
-                // header visible so the radius picker stays reachable —
-                // bumping the chip is usually the fix.
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
-                  <div className="flex items-end justify-between gap-4 mb-3">
-                    <div className="min-w-0">
-                      <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
-                        usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                      )}>
-                        Recommended
-                      </h2>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-10 px-6 text-center">
-                    <p className="text-sm text-on-surface/55 font-semibold">No recommendations in this area yet</p>
-                    <p className="text-xs text-on-surface/40 mt-1">Try a wider radius or a different location.</p>
-                  </div>
-                </section>
-              ) : null
-              )}
 
               {/* ── Desktop lower zone — friend activity (left) + Recipes &
                   Featured guides as compact lists (right). Replaces the flat
                   stack of rails on wide screens. Mobile keeps the stacked
                   rails below. ── */}
               {usingDesktopHeader && (
-                <section className="mt-9 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
+                <section className="mt-7 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
                   {/* Left — friend activity feed */}
                   <div className="min-w-0">
                     <SocialFeed
@@ -5104,16 +4784,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
 
                   {/* Right — Recipes for you + Featured guides. Always beside
-                      the feed in desktop mode (≥1024px), never stacked below. */}
-                  <div className="space-y-9">
+                      the feed in desktop mode (≥1024px), never stacked below.
+                      Editorial-sidebar styling: small-caps labels + quiet
+                      text links, so the columns read as one composition with
+                      the masthead instead of competing section heroes. */}
+                  <div className="space-y-8">
                     {/* Recipes for you */}
                     <div>
-                      <div className="flex items-end justify-between gap-3 mb-1.5">
-                        <h2 className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">Recipes for you</h2>
-                        <SeeAllPill label="See all" to="/recipes-for-you" />
+                      <div className="flex items-baseline justify-between gap-3 border-b border-on-surface/[0.07] pb-2">
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recipes for you</h2>
+                        <SectionLink label="See all" to="/recipes-for-you" />
                       </div>
                       {recommendedRecipes.length === 0 ? (
-                        <p className="text-[13px] text-on-surface/45 py-3">No recipes yet.</p>
+                        <p className="py-3 text-[12.5px] text-on-surface/45">No recipes yet.</p>
                       ) : (
                         <div className="divide-y divide-on-surface/[0.06]">
                           {recommendedRecipes.slice(0, 5).map((r) => {
@@ -5159,9 +4842,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
                     {/* Featured guides */}
                     <div>
-                      <div className="flex items-end justify-between gap-3 mb-1.5">
-                        <h2 className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">Featured guides</h2>
-                        <SeeAllPill label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
+                      <div className="flex items-baseline justify-between gap-3 border-b border-on-surface/[0.07] pb-2">
+                        <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h2>
+                        <SectionLink label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
                       </div>
                       <div className="divide-y divide-on-surface/[0.06]">
                         {feedGuides.slice(0, 4).map((g) => {
@@ -5200,312 +4883,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </section>
               )}
 
-              {/* Recipes For You — friend / expert / public recipes ranked by
-                  source + cuisine/tag overlap with the user's logged Home
-                  Cooking meals. Mobile-only rail; on desktop these live in the
-                  two-column lower zone's right column. */}
-              {!usingDesktopHeader && (discoverChip === 'all' || discoverChip === 'recipes') && (
-              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
-                <div className="flex items-end justify-between gap-4 mb-3">
-                  <div className="min-w-0">
-                    <h2 className={cn(
-                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
-                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                    )}>
-                      Recipes for you
-                      {recommendedRecipes.length > 0 && (
-                        <span className="text-[14px] font-medium text-on-surface/45 tracking-normal">
-                          {recommendedRecipes.length}
-                        </span>
-                      )}
-                    </h2>
-                    <p className="mt-1 text-[13px] text-on-surface/55">
-                      {(() => {
-                        const r = recommendedRecipes[0];
-                        if (!r) return 'From friends and chefs you follow';
-                        const profile =
-                          r._source === 'friend'
-                            ? (friendProfiles[r.userId] || recipeAuthorProfiles[r.userId])
-                            : r._source === 'expert'
-                              ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
-                              : undefined;
-                        const fullName = profile?.display_name || profile?.username || '';
-                        const firstName = fullName.replace('@', '').trim().split(' ')[0];
-                        return firstName
-                          ? `From ${firstName} and saved chefs`
-                          : 'From friends and chefs you follow';
-                      })()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {usingDesktopHeader && recommendedRecipes.length > 0 && (
-                      <div className="hidden md:flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => scrollRail(recipeRailRef, -1)}
-                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
-                          aria-label="Scroll left"
-                        >
-                          <ChevronLeft size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => scrollRail(recipeRailRef, 1)}
-                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
-                          aria-label="Scroll right"
-                        >
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
-                    )}
-                    <SeeAllPill label="See all" to="/recipes-for-you" />
-                  </div>
-                </div>
-                {recommendedRecipes.length === 0 ? (
-                  <div className="flex items-center justify-between gap-3 py-2">
-                    <div className="min-w-0">
-                      <p className="font-serif italic text-[15px] text-on-surface/65">
-                        No recipes from your circle yet.
-                      </p>
-                      <Link
-                        to="/recipes-for-you"
-                        className="mt-1 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:opacity-70 transition-opacity"
-                      >
-                        Explore the community
-                        <ChevronRight size={12} strokeWidth={2.5} />
-                      </Link>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    ref={recipeRailRef}
-                    className={cn(
-                      "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                      phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
-                    )}
-                  >
-                    {recommendedRecipes.map((r) => {
-                      const cover = r.photos?.[0];
-                      const authorProfile =
-                        r._source === 'friend'
-                          ? (friendProfiles[r.userId] || recipeAuthorProfiles[r.userId])
-                          : r._source === 'expert'
-                            ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
-                            : undefined;
-                      const authorName = authorProfile?.display_name
-                        || (authorProfile?.username ? authorProfile.username : '')
-                        || (r._source === 'expert' ? 'Chef' : r._source === 'public' ? 'Community' : 'Friend');
-                      const authorInitial = authorName.replace('@', '').trim().charAt(0).toUpperCase() || 'F';
-                      const totalMin = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
-                      const timeLabel = totalMin > 0
-                        ? totalMin >= 60
-                          ? `${Math.floor(totalMin / 60)}h${totalMin % 60 ? ` ${totalMin % 60}m` : ''}`
-                          : `${totalMin}m`
-                        : '';
-                      const authorHue = hashToHue(r.userId || authorName);
-                      // Pseudo-stable save count, seeded from the id so the
-                      // footer feels lived-in even without a real saves table.
-                      const tagCount = (r.tags?.length ?? 0);
-                      const seed = (r.id || r.title).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-                      const saveCount = 6 + (seed % 40);
-                      return (
-                        <Link
-                          key={r.id}
-                          to={`/recipe/${r.userId}/${r.id}`}
-                          className={cn(
-                            'flex-shrink-0 snap-start group',
-                            usingDesktopHeader ? 'w-[224px]' : 'w-[200px]',
-                          )}
-                        >
-                          {/* Image cover with author pill; serif title + one
-                              calm cuisine · time line. Calm ChefHat tile when
-                              there's no photo (not a flat gradient). */}
-                          <article className="card-surface card-surface-hover">
-                            <div className="relative aspect-[4/3] overflow-hidden bg-on-surface/[0.04]">
-                              {cover ? (
-                                <img
-                                  src={cover}
-                                  alt=""
-                                  loading="lazy"
-                                  decoding="async"
-                                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02]">
-                                  <ChefHat size={34} className="text-on-surface/20" strokeWidth={1.5} />
-                                </div>
-                              )}
-                              <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-[11px] font-semibold text-on-surface max-w-[150px]">
-                                <span
-                                  className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold flex-shrink-0"
-                                  style={{ background: `hsl(${authorHue} 50% 45%)` }}
-                                >
-                                  {authorInitial}
-                                </span>
-                                <span className="truncate">{authorName}</span>
-                              </span>
-                            </div>
-                            <div className="px-3.5 pt-3 pb-3.5">
-                              <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
-                                {r.title}
-                              </h3>
-                              {(r.cuisine || timeLabel) && (
-                                <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
-                                  {[r.cuisine, timeLabel].filter(Boolean).join('  ·  ')}
-                                </p>
-                              )}
-                            </div>
-                          </article>
-                        </Link>
-                      );
-                    })}
-                    {/* Trailing "View all" card — jumps to the full recipe library. */}
-                    <Link
-                      to="/recipes-for-you"
-                      className={cn('flex-shrink-0 snap-start group', usingDesktopHeader ? 'w-[150px]' : 'w-[136px]')}
-                      aria-label="View all recipes"
-                    >
-                      <div className="h-full min-h-[140px] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex flex-col items-center justify-center gap-2.5 text-center px-4 py-7 transition-colors group-hover:border-primary/40 group-hover:bg-on-surface/[0.06]">
-                        <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
-                          <ArrowRight size={20} strokeWidth={2} />
-                        </span>
-                        <span className="font-serif font-semibold text-on-surface text-[15px] leading-[1.15]">View all recipes</span>
-                      </div>
-                    </Link>
-                  </div>
-                )}
-              </section>
-              )}
-
-              {/* Guides — curated lists from friends and tastemakers.
-                  Matches the editorial card vocabulary: square gradient
-                  cover cards (or real cover photos when present) +
-                  serif title + author chip. */}
-              {!usingDesktopHeader && (discoverChip === 'all' || discoverChip === 'guides') && (
-              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
-                <div className="flex items-end justify-between gap-4 mb-3">
-                  <div className="min-w-0">
-                    <h2 className={cn(
-                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em]',
-                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                    )}>
-                      Guides
-                    </h2>
-                    {usingDesktopHeader && (
-                      <p className="mt-1 text-[13px] text-on-surface/55">
-                        Curated lists from friends and tastemakers
-                      </p>
-                    )}
-                  </div>
-                  <SeeAllPill label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
-                </div>
-                <div className={cn(
-                  "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
-                  phoneMode ? "-mx-3 pl-3 pr-0" : "-mx-1 px-1",
-                )}>
-                  {/* Empty state only — when there are no guides yet, lead
-                      with an inviting descriptive tile so the row isn't bare. */}
-                  {feedGuides.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => openGuideCreator()}
-                    className={cn(
-                      'flex-shrink-0 snap-start text-left group',
-                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
-                    )}
-                  >
-                    <div className="aspect-square rounded-2xl border-[1.5px] border-dashed border-primary/30 bg-primary/[0.05] p-4 flex flex-col justify-between transition-colors group-hover:border-primary group-hover:bg-primary/[0.08]">
-                      <div className="w-10 h-10 rounded-2xl bg-white shadow-sm grid place-items-center text-primary">
-                        <Plus size={18} />
-                      </div>
-                      <div>
-                        <h3 className="font-serif font-semibold text-[17px] text-on-surface tracking-[-0.015em] leading-tight">
-                          Create a guide
-                        </h3>
-                        <p className="mt-1 text-[12px] text-on-surface/65 leading-[1.4]">
-                          Bundle restaurants or recipes into a shareable list.
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                  )}
-                  {feedGuides.map((g) => {
-                    const author = feedGuideAuthors[g.userId];
-                    const authorName = author?.display_name || author?.username || 'someone';
-                    const authorInitial = authorName.charAt(0).toUpperCase();
-                    const authorHue = hashToHue(g.userId || authorName);
-                    return (
-                      <Link
-                        key={g.id}
-                        to={`/guides/${g.id}`}
-                        className={cn(
-                          'flex-shrink-0 snap-start group',
-                          usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
-                        )}
-                      >
-                        <article className="card-surface card-surface-hover flex flex-col">
-                          <div className="relative aspect-[1/0.85] overflow-hidden bg-on-surface/[0.04]">
-                            {g.coverPhoto ? (
-                              <img
-                                src={g.coverPhoto}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02]">
-                                <BookOpen size={30} className="text-on-surface/20" strokeWidth={1.5} />
-                              </div>
-                            )}
-                            <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
-                              <BookOpen size={11} className="text-primary" />
-                              Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
-                            </span>
-                          </div>
-                          <div className="px-3.5 pt-3 pb-3.5">
-                            <h3 className="font-serif font-semibold text-on-surface text-[15px] tracking-[-0.01em] leading-[1.25] line-clamp-2">
-                              {g.title}
-                            </h3>
-                            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55">
-                              <span
-                                className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold"
-                                style={{ background: `hsl(${authorHue} 50% 45%)` }}
-                              >
-                                {authorInitial}
-                              </span>
-                              <span>by {authorName}</span>
-                            </div>
-                          </div>
-                        </article>
-                      </Link>
-                    );
-                  })}
-                  {/* Minimalist create-a-guide tile — sits at the end of the
-                      row and stretches to match the guide cards' height. */}
-                  {feedGuides.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => openGuideCreator()}
-                    className={cn(
-                      'flex-shrink-0 snap-start group',
-                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
-                    )}
-                  >
-                    <div className="h-full min-h-[140px] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex flex-col items-center justify-center gap-2.5 px-4 py-7 text-center transition-colors group-hover:border-primary/40 group-hover:bg-on-surface/[0.06]">
-                      <span className="w-11 h-11 rounded-full bg-primary/10 text-primary grid place-items-center transition-colors group-hover:bg-primary/15">
-                        <Plus size={20} strokeWidth={2} />
-                      </span>
-                      <span className="font-serif font-semibold text-[15px] text-on-surface leading-[1.15]">
-                        Create a guide
-                      </span>
-                    </div>
-                  </button>
-                  )}
-                </div>
-              </section>
-              )}
-
               {/* Social Feed — mobile only; on desktop the friend feed is the
                   left column of the two-column lower zone above. */}
               {!usingDesktopHeader && (
@@ -5522,6 +4899,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       price: priceLevelToString((p as any).priceLevel ?? -1) || communityPrices[p.id] || '',
                       photoUrl: (p as any).photoUrl,
                     })) : []}
+                    inlineSlot={mode === 'home' ? {
+                      afterIndex: 2,
+                      node: (
+                        <GuidesRail
+                          guides={feedGuides}
+                          authors={feedGuideAuthors}
+                          onBrowseAll={() => setGuidesBrowserOpen(true)}
+                          onCreate={() => openGuideCreator()}
+                        />
+                      ),
+                    } : undefined}
                   />
                 </div>
               )}
@@ -5679,7 +5067,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                   >
                     {selectedListId === WISHLIST_LIST_ID
-                      ? <Heart size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
+                      ? <Bookmark size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
                       : <Star size={16} className={mapMode === 'myratings' ? "text-white" : "text-on-surface/50"} />}
                     <span className="text-xs font-bold uppercase tracking-wider max-w-[150px] truncate">
                       {mapMode !== 'myratings' || !selectedListId ? 'My Ratings'
@@ -5700,7 +5088,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           {([
                             { id: null as string | null, label: 'My Ratings', icon: 'star' as const, emoji: null as string | null },
                             ...myLists.filter((l: any) => l.type !== 'home-cooking' && ((l.restaurantIds?.length || 0) + (l.wishlistIds?.length || 0)) > 0).map((l: any) => ({ id: l.id as string | null, label: l.name as string, icon: 'emoji' as const, emoji: l.emoji as string | null })),
-                            { id: WISHLIST_LIST_ID as string | null, label: 'Wishlist', icon: 'heart' as const, emoji: null as string | null },
+                            { id: WISHLIST_LIST_ID as string | null, label: 'Wishlist', icon: 'wishlist' as const, emoji: null as string | null },
                           ]).map((opt) => {
                             const active = (selectedListId || null) === opt.id;
                             return (
@@ -5712,7 +5100,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               >
                                 <span className="w-[16px] flex-shrink-0 flex items-center justify-center">
                                   {opt.icon === 'star' && <Star size={15} className={active ? 'text-primary' : 'text-on-surface/45'} />}
-                                  {opt.icon === 'heart' && <Heart size={15} className={active ? 'text-primary fill-primary' : 'text-on-surface/45'} />}
+                                  {opt.icon === 'wishlist' && <Bookmark size={15} className={active ? 'text-primary fill-primary' : 'text-on-surface/45'} />}
                                   {opt.icon === 'emoji' && <span className="text-[14px] leading-none">{opt.emoji}</span>}
                                 </span>
                                 <span className={cn('text-[13.5px] font-semibold truncate flex-1', active ? 'text-primary' : 'text-on-surface')}>{opt.label}</span>

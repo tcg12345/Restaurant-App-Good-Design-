@@ -107,6 +107,14 @@ a tuned constant:
    even past the distance threshold, settle duration scales with remaining
    distance/velocity, and a cancel bounce can be re-grabbed mid-settle like
    iOS.
+4. **Bottom nav on gesture commits.** The nav is mounted per-route with a
+   spring entrance; a back-swipe from a nav-hidden page used to remount it
+   mid-route-swap, springing up over a busy main thread — visible stutter.
+   Now snapshots also capture the leaving page's nav (`data-bottom-nav`),
+   so the destination preview carries its tab bar during the drag like iOS,
+   and gesture-driven swaps mount the real nav with `duration: 0` — it's
+   simply there, pixel-identical, when the preview is dropped. Tapped
+   navigation keeps the spring.
 
 ## Tunable constants (in SwipeBackContainer.tsx)
 

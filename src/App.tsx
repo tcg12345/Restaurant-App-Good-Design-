@@ -24,8 +24,7 @@ import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
-import { DesktopHeader } from './components/DesktopHeader';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
@@ -57,7 +56,6 @@ import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
-import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
@@ -135,6 +133,15 @@ const keepAliveElement = (path: string): React.ReactNode => {
     default: return null;
   }
 };
+
+// Every destination reachable directly from the bottom nav or the desktop
+// sidebar. Landing on one via a tap/click is a tab SWITCH and must swap with
+// no motion — the iOS push/pop slide is only for detail-page navigation.
+// (Keep-alive tabs never animate anyway; listing them still matters for the
+// EXIT side: leaving a Stack page for a kept tab must also be instant.)
+const TAB_SWITCH_PATHS = new Set<string>([
+  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels', '/messages',
+]);
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -239,12 +246,40 @@ const AppContent: React.FC = () => {
   // also covers the tab during its first repaint, so there's no flash.
   const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
   const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { x: 0 };
-  const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
-  const motionTransition = instantNav
-    ? { duration: 0 }
-    : isCreateRoute
-      ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
-      : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
+  // Non-create pages live in normal flow (so the document is as tall as the
+  // page and sticky chrome works) and only become absolute for the exit
+  // slide, where they must overlay what's revealed underneath. Motion applies
+  // the non-animatable position/inset values instantly at exit start — the
+  // geometry is identical to the in-flow box, so there's no jump.
+  const motionExit = isCreateRoute
+    ? { x: '-100%', opacity: 1 }
+    : { x: '100%', position: 'absolute' as const, top: 0, left: 0, right: 0 };
+  const motionTransition = isCreateRoute
+    ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
+    : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
+  // Tapping a bottom-nav / sidebar destination is a tab SWITCH, not a push —
+  // it must swap with no motion. The iOS slide stays reserved for pushes
+  // into detail pages and their pops (navType POP keeps the slide so an
+  // in-app back button still plays the exit reveal; the swipe gesture sets
+  // `instantNav` itself and drives the motion with its own drag).
+  const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
+  const stackInstant = instantNav || isTabSwitchNav;
+  // The instant flag travels via AnimatePresence `custom`, not props: an
+  // exiting page keeps its STALE variants (that's what preserves /create's
+  // leftward exit direction after leaving it), but framer refreshes `custom`
+  // on exiting clones — so the new navigation's instant-ness reaches the old
+  // page's exit transition while its direction stays source-correct.
+  const stackVariants: Variants = {
+    enter: (instant: boolean) => (instant ? { x: 0 } : motionInitial),
+    center: (instant: boolean) => ({
+      ...motionAnimate,
+      transition: instant ? { duration: 0 } : motionTransition,
+    }),
+    exit: (instant: boolean) => ({
+      ...motionExit,
+      transition: instant ? { duration: 0 } : motionTransition,
+    }),
+  };
 
   const isKeepAlivePath = KEEP_ALIVE_PATHS.includes(location.pathname);
   const routesBlock = (
@@ -258,15 +293,22 @@ const AppContent: React.FC = () => {
           return (
             <div
               key={path}
-              // Inactive tabs are hidden with `visibility` (not display:none)
-              // and positioned absolutely — display:none would reset inner
-              // scroll positions, defeating the point of keep-alive. No
-              // z-index: it would create a stacking context that traps in-page
-              // bottom sheets below the nav. The stack (rendered after this in
-              // DOM) overlays it by tree order.
+              // The ACTIVE tab sits in normal flow so the document grows with
+              // its content — position:sticky chrome (the desktop sidebar and
+              // header) only sticks within its parent's real height. Inactive
+              // tabs are absolutely positioned and hidden with `visibility`
+              // (not display:none — that would reset inner scroll positions,
+              // defeating keep-alive). No z-index: it would create a stacking
+              // context that traps in-page bottom sheets below the nav. The
+              // stack (rendered after this in DOM) overlays it by tree order.
+              // Inactive tabs also clip overflow so an oversized hidden page
+              // (e.g. a 100vh root taller than the current viewport-minus-
+              // header content box) can't extend the document's scroll height
+              // and let you scroll into empty space below the active page.
               style={{
-                position: 'absolute',
-                inset: 0,
+                ...(active
+                  ? { position: 'relative' as const }
+                  : { position: 'absolute' as const, inset: 0, overflow: 'hidden' as const }),
                 visibility: active ? 'visible' : 'hidden',
                 pointerEvents: active ? undefined : 'none',
               }}
@@ -281,7 +323,7 @@ const AppContent: React.FC = () => {
       {/* Stack — every non-keep-alive route (details, map, reels, create…).
           Absolutely positioned so it overlays the tab layer; on exit it
           animates away to reveal the kept-alive tab underneath. */}
-      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
+      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false} custom={stackInstant}>
         {!isKeepAlivePath && (
         <motion.div
           key={location.pathname}
@@ -289,11 +331,12 @@ const AppContent: React.FC = () => {
           // pathname) is mounted and at rest before it drops the covering
           // snapshot — the exiting page's wrapper must not pass for it.
           data-route-stack={location.pathname}
-          initial={motionInitial}
-          animate={motionAnimate}
-          exit={motionExit}
-          transition={motionTransition}
-          className={isCreateRoute ? 'absolute inset-0 z-30' : 'absolute inset-0 bg-surface'}
+          variants={stackVariants}
+          custom={stackInstant}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          className={isCreateRoute ? 'absolute inset-0 z-30' : 'relative bg-surface'}
         >
         <React.Fragment key={refreshNonce}>
         <Routes location={location}>
@@ -365,18 +408,16 @@ const AppContent: React.FC = () => {
   );
 
   // ── Desktop sidebar layout ───────────────────────────────────────────
-  // Wide viewports (>= lg) render a sticky left sidebar + a sticky page
-  // header instead of the floating BottomNav. The header is hidden on
-  // the map page (and on /messages, which has its own chrome) so its
-  // chrome doesn't fight the rendered content.
+  // Wide viewports (>= lg) render a sticky left sidebar instead of the
+  // floating BottomNav. There is no global top bar: search is a sidebar
+  // tab, the quick-add action lives in the sidebar's Create menu, and
+  // Discover hosts the home-location chip itself.
   if (useSidebar) {
-    const hideHeader = isMapPage || isReelsPage || isFocusedReel || location.pathname.startsWith('/messages');
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <ScrollRestoration />
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
-          {!hideHeader && <DesktopHeader />}
           <div className="flex-1 min-w-0 relative">
             {routesBlock}
           </div>
@@ -428,10 +469,18 @@ const AppContent: React.FC = () => {
       <AnimatePresence>
         {showBottomNav && (
           <motion.div
+            // Identifies the nav for the swipe-back snapshot: the destination
+            // preview includes a copy of it when the source page hides the
+            // real one, so the tab bar rides in with the page during a
+            // back-swipe like on iOS.
+            data-bottom-nav=""
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 100 }}
+            // A gesture-driven swap must not replay the spring entrance — the
+            // nav is already in the destination preview and simply becomes
+            // real underneath it. The spring stays for tapped navigation.
+            transition={instantNav ? { duration: 0 } : { type: 'spring', damping: 20, stiffness: 100 }}
           >
             <BottomNav collapsible={isMapPage} />
           </motion.div>
@@ -459,21 +508,19 @@ export default function App() {
                 <ChatProvider>
                   <ReelsProvider>
                     <PostsProvider>
-                      <PageSearchProvider>
-                        <PageAddActionProvider>
-                          <CirclePanelProvider>
-                            <GuideCreatorProvider>
-                              <HomeLocationProvider>
-                                <AssistantProvider>
-                                  <AiChatHistoryProvider>
-                                    <AppContent />
-                                  </AiChatHistoryProvider>
-                                </AssistantProvider>
-                              </HomeLocationProvider>
-                            </GuideCreatorProvider>
-                          </CirclePanelProvider>
-                        </PageAddActionProvider>
-                      </PageSearchProvider>
+                      <PageAddActionProvider>
+                        <CirclePanelProvider>
+                          <GuideCreatorProvider>
+                            <HomeLocationProvider>
+                              <AssistantProvider>
+                                <AiChatHistoryProvider>
+                                  <AppContent />
+                                </AiChatHistoryProvider>
+                              </AssistantProvider>
+                            </HomeLocationProvider>
+                          </GuideCreatorProvider>
+                        </CirclePanelProvider>
+                      </PageAddActionProvider>
                     </PostsProvider>
                   </ReelsProvider>
                 </ChatProvider>

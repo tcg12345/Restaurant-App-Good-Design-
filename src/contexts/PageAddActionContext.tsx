@@ -1,11 +1,11 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
 
 /**
- * Lets a page override the desktop header's Add CTA. Pages register what
- * the button should say + do based on their current view; DesktopHeader
- * reads the override and renders the right label/handler. When the
- * override is null, the button reverts to its default behavior (opening
- * the Add Rating modal directly with no preset restaurant).
+ * Lets a page override the desktop quick-add action. Pages register what
+ * the action should say + do based on their current view; the Sidebar's
+ * Create menu reads the override and renders the right label/handler.
+ * When the override is null, the action reverts to its default behavior
+ * (routing to /search/main to pick and rate a new restaurant).
  *
  * Used by Pantry to swap the button between:
  *   - "Add Rating" → opens a SearchPopup to pick + rate a place

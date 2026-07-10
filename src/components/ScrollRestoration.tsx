@@ -18,6 +18,11 @@ import { isKeepAlivePath } from '../lib/keep-alive';
  */
 
 const positions = new Map<number, number>();
+// Window scroll only, tracked separately: keep-alive pages preserve their
+// inner scrollers while hidden, but the WINDOW is shared with every other
+// page (a pushed detail page scrolls it to the top), so returning to a
+// window-scrolled keep-alive page needs this component restored explicitly.
+const windowPositions = new Map<number, number>();
 const histIdx = () => (typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0);
 
 /** Saved offset for an entry — also read by the swipe-back gesture. */
@@ -43,7 +48,10 @@ export const ScrollRestoration: React.FC = () => {
     const onScroll = (e: Event) => {
       const t = e.target as Document | HTMLElement;
       let y: number | null = null;
-      if (t === document || t === document.documentElement || t === document.body) y = window.scrollY;
+      if (t === document || t === document.documentElement || t === document.body) {
+        y = window.scrollY;
+        windowPositions.set(histIdx(), y);
+      }
       else if (t instanceof HTMLElement && t.scrollHeight > t.clientHeight + 8) {
         // Replaying scroll onto the swipe-back reveal's page clone fires real
         // scroll events — those are the destination's offset, not this page's.
@@ -58,9 +66,14 @@ export const ScrollRestoration: React.FC = () => {
   }, []);
 
   useLayoutEffect(() => {
-    // Keep-alive tabs keep their own scroll (they're not remounted) — never
-    // touch them, or we'd reset a preserved position to 0.
-    if (isKeepAlivePath(location.pathname)) return;
+    // Keep-alive tabs keep their INNER scrollers (they're not remounted) —
+    // never touch those. But window-scrolled keep-alive pages (e.g. a pantry
+    // list) had their position destroyed by the pushed page's scroll-to-top,
+    // since the window is shared — restore that component on the way back.
+    if (isKeepAlivePath(location.pathname)) {
+      if (navType === 'POP') window.scrollTo(0, windowPositions.get(histIdx()) ?? 0);
+      return;
+    }
     // New page (push) → window stays put only matters for window-scroll pages;
     // inner scrollers mount at the top on their own.
     if (navType !== 'POP') { window.scrollTo(0, 0); return; }

@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
-import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
+import { settleScores } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { type H2HState, initH2HTieBreak } from '../lib/headToHeadRating';
+import { type H2HState, initH2HTieBreak, placementOrder } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'favorite-dishes';
@@ -76,6 +77,10 @@ export const AddRestaurantModal: React.FC = () => {
   // head-to-head" pill and surface a revert button when the slider drifts
   // off the computed value.
   const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // Exact descending placement from the completed head-to-head — captured at
+  // completion (the state itself is cleared) and passed to the settle so a
+  // score collision can't invert the order the comparisons decided.
+  const [h2hOrder, setH2hOrder] = useState<string[] | null>(null);
   // When true, the running H2H is a tie-break triggered by Save on the
   // slider — completing it auto-saves with the refined score instead of
   // returning the user to the slider.
@@ -133,6 +138,7 @@ export const AddRestaurantModal: React.FC = () => {
       setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
       setH2hState(null);
       setH2hScore(null);
+      setH2hOrder(null);
       setTieBreakActive(false);
       setConfirmDelete(false);
       setCreatingList(false);
@@ -161,6 +167,7 @@ export const AddRestaurantModal: React.FC = () => {
     setRatingMethod(others.length > 0 ? null : 'slider');
     setH2hState(null);
     setH2hScore(null);
+    setH2hOrder(null);
     setTieBreakActive(false);
   }, [isNewVisit]);
 
@@ -250,8 +257,36 @@ export const AddRestaurantModal: React.FC = () => {
   // save button briefly shakes.
   const [dateError, setDateError] = useState(false);
 
-  const persistRating = (finalScore: number) => {
+  // Pure preview of what a raw H2H score becomes once the tier settles
+  // around it — mirrors the settle rateRestaurant runs on save, so the
+  // result dial shows the value that will actually land in the list.
+  const previewSettledScore = (rawScore: number): number => {
+    if (!restaurant) return rawScore;
+    const self: RestaurantRating = {
+      restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+      score: rawScore, notes: '', visitDate: '', wouldReturn: true, tags: [], photos: [],
+      listIds: [], friendIds: [], createdAt: 0,
+    };
+    const change = settleScores(
+      [self, ...ratings.filter((r) => r.restaurantId !== self.restaurantId)],
+      {
+        justRatedId: self.restaurantId,
+        previousScore: existing ? existing.score : undefined,
+        explicitOrder: h2hState ? placementOrder(h2hState, self.restaurantId, rawScore) : undefined,
+      },
+    ).find((c) => c.restaurantId === self.restaurantId);
+    return change ? change.score : rawScore;
+  };
+
+  const persistRating = (finalScore: number, orderOverride?: string[]) => {
     if (!restaurant) return;
+    // The H2H placement order only binds while the score being saved is the
+    // one the search produced — dragging the slider afterwards is a manual
+    // override and the comparison order no longer applies.
+    const settleOrder =
+      orderOverride ??
+      (h2hOrder && h2hScore !== null && finalScore === h2hScore ? h2hOrder : undefined);
     rateRestaurant(
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
@@ -264,7 +299,7 @@ export const AddRestaurantModal: React.FC = () => {
       // user is on the "Log New Visit" tab. The "Update Current" tab
       // edits the existing record in place and shouldn't manufacture
       // a phantom visit.
-      { isNewVisit },
+      { isNewVisit, settleOrder },
     );
     closeAddRestaurantModal();
   };
@@ -594,6 +629,7 @@ export const AddRestaurantModal: React.FC = () => {
                             excludeId={restaurant.id}
                             newRestaurant={{ ...restaurant, tags: selectedTags }}
                             resolveMeta={getRestaurantInfo}
+                            settlePreview={previewSettledScore}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}
@@ -604,16 +640,23 @@ export const AddRestaurantModal: React.FC = () => {
                               setRatingMethod('slider');
                             } : undefined}
                             onComplete={(finalScore) => {
+                              // Capture the search's exact placement BEFORE
+                              // the state is cleared — the settle needs it to
+                              // keep the decided order through score ties.
+                              const order = h2hState && restaurant
+                                ? placementOrder(h2hState, restaurant.id, finalScore)
+                                : null;
                               if (tieBreakActive) {
                                 // Tie-break completion auto-saves with the
                                 // refined score; no return trip to the slider.
                                 setTieBreakActive(false);
                                 setH2hState(null);
-                                persistRating(finalScore);
+                                persistRating(finalScore, order ?? undefined);
                                 return;
                               }
                               setScore(finalScore);
                               setH2hScore(finalScore);
+                              setH2hOrder(order);
                               setH2hState(null);
                               setRatingMethod('slider');
                             }}

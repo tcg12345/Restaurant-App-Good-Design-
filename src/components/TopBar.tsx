@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Heart, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Users, MessageCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
@@ -73,7 +73,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
           onClick={() => navigate('/circle')}
           aria-label="Your Circle"
         >
-          <Heart size={21} />
+          <Users size={21} />
           {pendingRequestCount > 0 && (
             <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[12px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
               {pendingRequestCount}

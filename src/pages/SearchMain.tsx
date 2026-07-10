@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Heart, UserPlus, Check, Loader2, ChefHat, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -11,6 +11,8 @@ import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
+import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { getCuisineLabel } from './useRestaurantDetail';
 import {
   searchUsersByUsername, getFriends, getSentRequestIds, getPendingRequests,
   getFollowerIds, sendFriendRequest, acceptFriendRequest, followPublicAccount,
@@ -157,6 +159,39 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 
 // Small section header — uppercase label + result count, matching this page's
 // existing "Recent Searches" vocabulary.
+/** Wide-viewport gate, matching the sidebar's own breakpoint (App.tsx). The
+ *  desktop search layout renders only when the sidebar chrome does. */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDesktop;
+}
+
+/** Desktop zero-state quick searches — clicking one runs a real located
+ *  search for that craving (and scopes the tabs to Restaurants). Rendered
+ *  as an Uber-Eats-style horizontally scrollable rail. */
+const BROWSE_CUISINES: Array<{ label: string; emoji: string }> = [
+  { label: 'Pizza', emoji: '🍕' }, { label: 'Sushi', emoji: '🍣' },
+  { label: 'Italian', emoji: '🍝' }, { label: 'Japanese', emoji: '🍱' },
+  { label: 'Chinese', emoji: '🥡' }, { label: 'Mexican', emoji: '🌮' },
+  { label: 'Thai', emoji: '🍜' }, { label: 'Vietnamese', emoji: '🥢' },
+  { label: 'Indian', emoji: '🍛' }, { label: 'Korean', emoji: '🍲' },
+  { label: 'French', emoji: '🥐' }, { label: 'Greek', emoji: '🥙' },
+  { label: 'Mediterranean', emoji: '🫒' }, { label: 'Spanish', emoji: '🥘' },
+  { label: 'Middle Eastern', emoji: '🧆' }, { label: 'Ramen', emoji: '🍥' },
+  { label: 'BBQ', emoji: '🍖' }, { label: 'Burgers', emoji: '🍔' },
+  { label: 'Steakhouse', emoji: '🥩' }, { label: 'Seafood', emoji: '🦞' },
+  { label: 'Caribbean', emoji: '🍹' }, { label: 'Vegan', emoji: '🥗' },
+  { label: 'Brunch', emoji: '🥞' }, { label: 'Bakery', emoji: '🥖' },
+  { label: 'Coffee', emoji: '☕' }, { label: 'Dessert', emoji: '🍰' },
+];
+
 const SectionHeading: React.FC<{ label: string; count: number; phoneMode: boolean }> = ({ label, count, phoneMode }) => (
   <div className={cn('flex items-center gap-2 mb-1', phoneMode && 'px-4')}>
     <h2 className="text-xs font-bold text-on-surface/45 uppercase tracking-[0.15em]">{label}</h2>
@@ -200,6 +235,11 @@ export const SearchMain: React.FC = () => {
   // Which sections are expanded (showing all, not just the first PREVIEW_COUNT).
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({ restaurants: false, recipes: false, friends: false });
 
+  // Desktop-only: which result scope the tabs have focused. 'all' shows the
+  // stacked sections; a specific scope shows that section alone, uncapped.
+  const [scope, setScope] = useState<'all' | SectionKey>('all');
+  const isDesktop = useIsDesktop() && !phoneMode;
+
   // Follow state for the friends section.
   const [relationships, setRelationships] = useState<Record<string, Relationship>>({});
   const [pendingFollow, setPendingFollow] = useState<Set<string>>(new Set());
@@ -209,12 +249,32 @@ export const SearchMain: React.FC = () => {
   const [userLng, setUserLng] = useState(DEFAULT_LNG);
   const [locationKnown, setLocationKnown] = useState(false);
 
+  // Desktop anchors search + distances to the CHOSEN home location when one
+  // is saved — matching the "Near {city}" label the layout shows — and only
+  // falls back to browser geolocation when none is set. Phone keeps the
+  // original pure-geolocation behavior.
+  const homeAnchor = useMemo(() => {
+    const loc = loadLastSelectedLocation();
+    return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) ? loc : null;
+  }, []);
+  const preferHome = isDesktop && homeAnchor !== null;
+  useEffect(() => {
+    if (!preferHome || !homeAnchor) return;
+    setUserLat(homeAnchor.lat);
+    setUserLng(homeAnchor.lng);
+    setLocationKnown(true);
+  }, [preferHome, homeAnchor]);
+  const anchorLabel = preferHome && homeAnchor
+    ? homeAnchor.label.split(',').slice(0, 2).join(',').trim()
+    : locationKnown ? 'your location' : '';
+
   const inputRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const recipesSectionRef = useRef<HTMLElement>(null);
   const friendsSectionRef = useRef<HTMLElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastQueryRef = useRef<string>('');
+  const railRef = useRef<HTMLDivElement>(null);
 
   // Michelin overlay for restaurant rows.
   const michelinReady = useMichelinIndexReady();
@@ -234,6 +294,7 @@ export const SearchMain: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (preferHome) return; // the saved home location is the anchor
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -244,7 +305,7 @@ export const SearchMain: React.FC = () => {
       () => { /* keep defaults; locationKnown stays false so distance is hidden */ },
       { timeout: 5000 },
     );
-  }, []);
+  }, [preferHome]);
 
   // Build the recipe search pool once: public home meals (where most recipes
   // live) + the public recipes table, deduped by id. Filtered client-side as
@@ -474,7 +535,7 @@ export const SearchMain: React.FC = () => {
               )}
               aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
             >
-              <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+              <Bookmark size={16} className={cn(wishlisted && 'fill-primary')} />
             </button>
             <button
               type="button"
@@ -592,6 +653,376 @@ export const SearchMain: React.FC = () => {
 
   const anyResults = results.length > 0 || recipeResults.length > 0 || friendResults.length > 0;
   const anyLoading = loading || friendsLoading || poolLoading;
+
+  // ── Desktop layout ──────────────────────────────────────────────────────
+  // A distinct wide-viewport surface: hero search + scope tabs in a sticky
+  // band, boxed result-card grids with inline wishlist/add actions, a sticky
+  // recent-searches rail, and a browse-by-cuisine zero state. All data
+  // pipelines are shared with the phone layout above — only the render forks.
+  if (isDesktop) {
+    const desktopRestaurantCard = (place: PlaceResult) => {
+      const location = formatLocationLabel(place.addressComponents, place.fullAddress || place.address || '');
+      const price = priceLevelToString(place.priceLevel);
+      const distance = locationKnown
+        ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
+        : '';
+      const wishlisted = isWishlisted(place.id);
+      const mich = michelinByPlaceId[place.id];
+      // Real cuisine from the place's Google types (Michelin's when matched)
+      // — the card reads "Sushi · Manhattan · $$", not just the location.
+      const label = mich ? mich.cuisine : getCuisineLabel(place.types);
+      const priceText = mich ? michelinPriceDisplay(mich) : price;
+      const meta = {
+        id: place.id, name: place.name, image: place.photoUrl || '',
+        cuisine: label, price,
+        address: place.fullAddress || place.address || '',
+      };
+      return (
+        <div
+          key={place.id}
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSelectResult(place)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectResult(place); }
+          }}
+          className="group flex gap-3 p-4 rounded-2xl border border-on-surface/[0.07] bg-surface hover:border-on-surface/[0.16] hover:shadow-sm transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[16px] leading-snug line-clamp-2 group-hover:text-primary transition-colors">{place.name}</h3>
+            <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
+              {label}
+              {location && <><span className="text-on-surface/25 mx-1.5">·</span>{location}</>}
+              {priceText && <><span className="text-on-surface/25 mx-1.5">·</span>{priceText}</>}
+            </p>
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-on-surface/50">
+              {place.rating > 0 && (
+                <span className="flex items-center gap-1 text-primary font-bold">
+                  <Star size={12} className="fill-primary" />
+                  {place.rating.toFixed(1)}
+                </span>
+              )}
+              {place.rating > 0 && distance && <span className="text-on-surface/25">·</span>}
+              {distance && <span>{distance}</span>}
+            </div>
+          </div>
+          <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleWishlist(meta); }}
+              className={cn(
+                'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+              )}
+              aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+            >
+              <Bookmark size={16} className={cn(wishlisted && 'fill-primary')} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+              aria-label="Add to list"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    const desktopRecipeCard = (r: Recipe) => (
+      <button
+        key={r.id}
+        type="button"
+        onClick={() => navigate(`/recipe/${r.userId}/${r.id}`)}
+        className="group flex items-center gap-3 p-4 rounded-2xl border border-on-surface/[0.07] bg-surface hover:border-on-surface/[0.16] hover:shadow-sm transition-all text-left"
+      >
+        {r.photos[0] ? (
+          <img
+            src={r.photos[0]}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-on-surface/[0.05]"
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-xl flex-shrink-0 bg-on-surface/[0.05] flex items-center justify-center text-on-surface/30">
+            <ChefHat size={22} />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <h3 className="font-serif font-bold text-[15px] leading-tight truncate group-hover:text-primary transition-colors">{r.title}</h3>
+          <p className="text-[12.5px] text-on-surface/55 truncate mt-1">{recipeMeta(r)}</p>
+        </div>
+      </button>
+    );
+
+    const desktopPersonRow = (p: UserProfile) => {
+      const color = avatarColor(p.user_id);
+      const initial = initialOf(p.display_name || p.username);
+      return (
+        <div key={p.user_id} className="flex items-center gap-3 p-4 rounded-2xl border border-on-surface/[0.07] bg-surface hover:border-on-surface/[0.16] hover:shadow-sm transition-all">
+          <button
+            type="button"
+            onClick={() => p.username && navigate(`/user/${p.username}`)}
+            className="flex items-center gap-3 flex-1 min-w-0 text-left group"
+          >
+            <div className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+              <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
+                {p.display_name || p.username || 'User'}
+              </p>
+              <p className="text-[12px] text-on-surface/55 truncate mt-0.5">@{p.username}</p>
+            </div>
+          </button>
+          {renderFollowControl(p)}
+        </div>
+      );
+    };
+
+    const sectionHeader = (label: string, count: number, key: SectionKey | null) => (
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="font-serif font-bold text-[20px] text-on-surface">
+          {label} <span className="font-sans font-semibold text-[13px] text-on-surface/35">({count})</span>
+        </h2>
+        {key && scope === 'all' && count > 6 && (
+          <button
+            type="button"
+            onClick={() => toggleSection(key)}
+            className="text-[13px] font-bold text-primary hover:underline underline-offset-4"
+          >
+            {expanded[key] ? 'Show less' : `Show all ${count}`}
+          </button>
+        )}
+      </div>
+    );
+
+    const scopeTabs: Array<{ key: 'all' | SectionKey; label: string; count: number | null }> = [
+      { key: 'all', label: 'All', count: null },
+      { key: 'restaurants', label: 'Restaurants', count: hasQuery ? results.length : null },
+      { key: 'recipes', label: 'Recipes', count: hasQuery ? recipeResults.length : null },
+      { key: 'friends', label: 'People', count: hasQuery ? friendResults.length : null },
+    ];
+    const showRestaurants = (scope === 'all' || scope === 'restaurants') && results.length > 0;
+    const showRecipes = (scope === 'all' || scope === 'recipes') && recipeResults.length > 0;
+    const showFriends = (scope === 'all' || scope === 'friends') && friendResults.length > 0;
+    const scopedAnyResults = scope === 'all'
+      ? anyResults
+      : scope === 'restaurants' ? results.length > 0
+        : scope === 'recipes' ? recipeResults.length > 0
+          : friendResults.length > 0;
+    const restaurantsShown = (scope === 'restaurants' || expanded.restaurants) ? results : results.slice(0, 6);
+    const recipesShown = (scope === 'recipes' || expanded.recipes) ? recipeResults : recipeResults.slice(0, 6);
+    const friendsShown = (scope === 'friends' || expanded.friends) ? friendResults : friendResults.slice(0, 6);
+
+    return (
+      <div className="min-h-screen bg-surface pb-24">
+        {/* Sticky search band: hero input + scope tabs */}
+        <header ref={headerRef} className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
+          <div className="px-8 pt-6">
+            <form
+              className="relative max-w-2xl"
+              onSubmit={(e) => { e.preventDefault(); void runRestaurantSearch(searchQuery.trim()); }}
+            >
+              <SearchIcon size={19} className="absolute left-5 top-1/2 -translate-y-1/2 text-on-surface/40" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search restaurants, recipes, people…"
+                className="w-full h-12 bg-on-surface/[0.04] rounded-2xl pl-12 pr-11 text-[15px] font-medium focus:outline-none focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-primary/25 transition-all"
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(''); inputRef.current?.focus(); }}
+                  className="absolute inset-y-0 right-4 flex items-center text-on-surface/30 hover:text-on-surface/60"
+                  aria-label="Clear search"
+                >
+                  <X size={17} />
+                </button>
+              )}
+            </form>
+            <div className="flex items-center gap-6 mt-4">
+              {scopeTabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setScope(t.key)}
+                  className={cn(
+                    'relative pb-2.5 text-[13.5px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-md',
+                    scope === t.key ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/75',
+                  )}
+                >
+                  {t.label}
+                  {t.count !== null && (
+                    <span className="ml-1.5 text-[11.5px] font-bold text-on-surface/35 tabular-nums">{t.count}</span>
+                  )}
+                  {scope === t.key && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-primary rounded-full" />}
+                </button>
+              ))}
+              {anchorLabel && (
+                <span className="ml-auto mb-1 inline-flex items-center gap-1.5 pb-1.5 text-[12px] font-semibold text-on-surface/45">
+                  <MapPin size={12} className="flex-shrink-0 text-on-surface/35" />
+                  Near {anchorLabel}
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="px-8 pt-6 grid grid-cols-[minmax(0,1fr)_300px] gap-10 items-start max-w-[1400px]">
+          {/* ── Main column ── */}
+          <div className="min-w-0">
+            {hasQuery ? (
+              !scopedAnyResults && anyLoading ? (
+                <LoadingSkeletonList count={6} variant="list-item" className="divide-y divide-on-surface/[0.06] max-w-2xl" />
+              ) : !scopedAnyResults ? (
+                <EmptyState icon={<SearchIcon size={48} />} heading="No results" description="Try a different search or scope." />
+              ) : (
+                <div className="space-y-10">
+                  {showRestaurants && (
+                    <section>
+                      {sectionHeader('Restaurants', results.length, 'restaurants')}
+                      <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
+                        {restaurantsShown.map(desktopRestaurantCard)}
+                      </div>
+                    </section>
+                  )}
+                  {showRecipes && (
+                    <section>
+                      {sectionHeader('Recipes', recipeResults.length, 'recipes')}
+                      <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
+                        {recipesShown.map(desktopRecipeCard)}
+                      </div>
+                    </section>
+                  )}
+                  {showFriends && (
+                    <section>
+                      {sectionHeader('People', friendResults.length, 'friends')}
+                      <div className="grid grid-cols-2 gap-3">
+                        {friendsShown.map(desktopPersonRow)}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )
+            ) : (
+              <section>
+                <div className="mb-1 flex items-center justify-between gap-4">
+                  <h2 className="font-serif font-bold text-[20px] text-on-surface">Browse by cuisine</h2>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-label="Scroll cuisines left"
+                      onClick={() => railRef.current?.scrollBy({ left: -560, behavior: 'smooth' })}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-on-surface/[0.09] text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-on-surface"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Scroll cuisines right"
+                      onClick={() => railRef.current?.scrollBy({ left: 560, behavior: 'smooth' })}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-on-surface/[0.09] text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-on-surface"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[13px] text-on-surface/50 mb-3">
+                  Tap a craving to search
+                  {anchorLabel ? <> near <span className="font-semibold text-on-surface/70">{anchorLabel}</span></> : ' near you'}.
+                </p>
+                <div
+                  ref={railRef}
+                  className="scrollbar-hide -mx-2 flex gap-1 overflow-x-auto px-2 pb-1"
+                  style={{ scrollbarWidth: 'none' }}
+                >
+                  {BROWSE_CUISINES.map((c) => (
+                    <button
+                      key={c.label}
+                      type="button"
+                      onClick={() => { setScope('restaurants'); setSearchQuery(c.label); }}
+                      className="group flex w-[92px] flex-shrink-0 flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors hover:bg-on-surface/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-on-surface/[0.045] text-[26px] leading-none transition-transform duration-150 group-hover:scale-105">
+                        {c.emoji}
+                      </span>
+                      <span className="max-w-full truncate text-[12.5px] font-semibold text-on-surface/75 transition-colors group-hover:text-primary">
+                        {c.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {/* ── Recents rail ── */}
+          <aside className="sticky top-[132px]">
+            <div className="rounded-2xl border border-on-surface/[0.07] p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <Clock size={13} className="text-on-surface/40" />
+                  <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Recent searches</h2>
+                </div>
+                {recentSearches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAll}
+                    className="text-[11px] font-bold text-primary uppercase tracking-wider hover:underline underline-offset-4"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {recentSearches.length === 0 ? (
+                <p className="text-[13px] text-on-surface/45 py-2">Restaurants you open from search will show up here.</p>
+              ) : (
+                <ul className="divide-y divide-on-surface/[0.06]">
+                  {recentSearches.map((r) => (
+                    <li key={r.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleRecentClick(r)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRecentClick(r); }
+                        }}
+                        className="flex items-center gap-2.5 py-2.5 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
+                      >
+                        <Clock size={14} className="text-on-surface/30 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13.5px] font-semibold text-on-surface truncate group-hover:text-primary transition-colors">{r.name}</p>
+                          {r.cuisine && <p className="text-[11px] text-on-surface/45 truncate mt-0.5">{r.cuisine}</p>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleRemove(r.id); }}
+                          className="opacity-0 group-hover:opacity-100 text-on-surface/30 hover:text-on-surface/60 transition-opacity flex-shrink-0"
+                          aria-label={`Remove ${r.name}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
@@ -740,7 +1171,7 @@ export const SearchMain: React.FC = () => {
                           )}
                           aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
                         >
-                          <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          <Bookmark size={16} className={cn(wishlisted && 'fill-primary')} />
                         </button>
                         <button
                           type="button"

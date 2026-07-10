@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
+import { Bookmark, ChefHat, ChevronRight, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
@@ -38,6 +38,9 @@ interface Props {
   onOpenWishlist: () => void;
   onOpenRated: () => void;
   onCreateRestaurantList: () => void;
+  /** Opens the ranked recommendations browser. Renders the "Recommended for
+   *  you" banner on the Restaurants tab when provided. */
+  onOpenRecommendations?: () => void;
   // Recipe tab handlers
   onOpenAllRecipes: () => void;
   onCreateRecipeList: () => void;
@@ -77,6 +80,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   onOpenWishlist,
   onOpenRated,
   onCreateRestaurantList,
+  onOpenRecommendations,
   onOpenAllRecipes,
   onCreateRecipeList,
 }) => {
@@ -120,16 +124,30 @@ export const PhonePantryHome: React.FC<Props> = ({
       </div>
 
       {tab === 'restaurants' ? (
-        <RestaurantsTab
-          lists={restaurantLists}
-          ratedCount={ratedCount}
-          ratedTopScores={ratedTopScores}
-          wishlistCount={wishlistCount}
-          onOpenList={onOpenList}
-          onOpenWishlist={onOpenWishlist}
-          onOpenRated={onOpenRated}
-          onCreateRestaurantList={onCreateRestaurantList}
-        />
+        <>
+          {/* Recommendations entry — a quiet hairline row, deliberately
+              subordinate to the card grid below it. */}
+          {onOpenRecommendations && (
+            <button
+              type="button"
+              onClick={onOpenRecommendations}
+              className="mt-5 flex w-full items-center justify-between rounded-2xl border border-on-surface/[0.08] px-4 py-2.5 text-left transition-colors active:bg-on-surface/[0.04]"
+            >
+              <span className="text-[13px] font-semibold text-on-surface/65">Recommended for you</span>
+              <ChevronRight size={15} className="flex-shrink-0 text-on-surface/35" />
+            </button>
+          )}
+          <RestaurantsTab
+            lists={restaurantLists}
+            ratedCount={ratedCount}
+            ratedTopScores={ratedTopScores}
+            wishlistCount={wishlistCount}
+            onOpenList={onOpenList}
+            onOpenWishlist={onOpenWishlist}
+            onOpenRated={onOpenRated}
+            onCreateRestaurantList={onCreateRestaurantList}
+          />
+        </>
       ) : (
         <RecipesTab
           lists={recipeLists}

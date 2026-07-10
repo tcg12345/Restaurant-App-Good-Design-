@@ -90,6 +90,7 @@ export interface H2HStep {
   prevLowerFromComparison: boolean;
   prevExcluded: number[];
   prevTiedScores: number[];
+  prevTerminalTie: { comparisonId: string; score: number } | null;
 }
 
 export interface H2HState {
@@ -110,6 +111,11 @@ export interface H2HState {
   /** Scores of the tied candidates, in tie order — used to average a final
    *  score when no real comparison ever tightened the bounds. */
   tiedScores: number[];
+  /** Set when the user says "too close to call": a decisive, terminal
+   *  signal — the new restaurant is treated as equal to this pivot and the
+   *  session ends. The settle pass then separates the pair by one display
+   *  step, landing the new item directly below the pivot. */
+  terminalTie: { comparisonId: string; score: number } | null;
   history: H2HStep[];
   /** Total candidates considered when the search started — used for progress. */
   initialPoolSize: number;
@@ -138,12 +144,6 @@ export const TIER_EMOJI: Record<Tier, string> = {
   loved: '🤩',
   fine: '🙂',
   disliked: '😕',
-};
-
-export const TIER_BLURB: Record<Tier, string> = {
-  loved: '8s–10s',
-  fine: '5s–6s',
-  disliked: '1s–3s',
 };
 
 export function tierRange(tier: Tier): { min: number; max: number } {
@@ -263,6 +263,7 @@ export function initH2H(
     lowerBoundFromComparison: false,
     excluded: [],
     tiedScores: [],
+    terminalTie: null,
     history: [],
     initialPoolSize: candidates.length,
     target: target ?? null,
@@ -322,6 +323,7 @@ export function initH2HTieBreak(
     lowerBoundFromComparison: false,
     excluded: [],
     tiedScores: [],
+    terminalTie: null,
     history: [],
     initialPoolSize: candidates.length,
     // No similarity target: every candidate scores neutral, so selection is
@@ -484,6 +486,7 @@ export function applyChoice(state: H2HState, pickedNew: boolean): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
+    prevTerminalTie: state.terminalTie,
   };
   if (pickedNew) {
     // New restaurant beat the comparison → new is strictly above comp.score
@@ -524,11 +527,17 @@ export function applyTie(state: H2HState): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
+    prevTerminalTie: state.terminalTie,
   };
+  // "Too close to call" is decisive: the new restaurant is (as far as the
+  // user can tell) equal to this pivot, so asking more questions adds
+  // nothing. End the session anchored to the pivot's score — the settle
+  // pass separates the pair by one display step, new item just below.
   return {
     ...state,
     excluded: [...state.excluded, mid],
     tiedScores: [...state.tiedScores, comp.score],
+    terminalTie: { comparisonId: comp.restaurantId, score: comp.score },
     history: [...state.history, step],
   };
 }
@@ -554,6 +563,7 @@ export function applySkip(state: H2HState): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
+    prevTerminalTie: state.terminalTie,
   };
   return {
     ...state,
@@ -575,6 +585,7 @@ export function undoLastChoice(state: H2HState): H2HState {
     lowerBoundFromComparison: last.prevLowerFromComparison,
     excluded: last.prevExcluded,
     tiedScores: last.prevTiedScores,
+    terminalTie: last.prevTerminalTie,
     history: state.history.slice(0, -1),
   };
 }
@@ -588,7 +599,11 @@ export function comparisonsMade(state: H2HState): number {
 }
 
 export function isComplete(state: H2HState): boolean {
-  return pickComparisonIndex(state) === null || comparisonsMade(state) >= state.budget;
+  return (
+    state.terminalTie !== null ||
+    pickComparisonIndex(state) === null ||
+    comparisonsMade(state) >= state.budget
+  );
 }
 
 /** Peer indices to anchor a budget-capped final score. Prefers peers still
@@ -637,6 +652,12 @@ function round1(v: number): number {
 }
 
 export function computeFinalScore(state: H2HState): number {
+  // Decisive tie: the user said the new restaurant is equal to this pivot —
+  // anchor to its score. (The settle pass separates the pair afterwards.)
+  if (state.terminalTie) {
+    return clamp(round1(state.terminalTie.score), 0, 10);
+  }
+
   // All-ties fallback: no real comparison ever tightened a bound, so use the
   // average of the tied scores — that's the best signal the user gave us.
   if (
@@ -670,6 +691,49 @@ export function computeFinalScore(state: H2HState): number {
   }
 
   return clamp(rounded, 0, 10);
+}
+
+/**
+ * The exact descending order a completed search implies: every candidate id
+ * with the new restaurant inserted at its resolved slot.
+ *
+ * This is the search's REAL result — the final 0-10 number is derived from it
+ * and can collide with a neighbor's score when the bracketing gap is only one
+ * display step (beat the 9.7, lost to the 9.8 → lands ON 9.7). Feeding this
+ * order into the settle pass as `explicitOrder` keeps the ranking faithful
+ * through such collisions: the beaten neighbor (and the block below it)
+ * shifts DOWN to make room instead of the new arrival being sorted under
+ * the very restaurant it just beat.
+ *
+ *  - Terminal tie → directly below the pivot (matches the settle tie rule).
+ *  - Closed window (lo > hi) → exact: everything above `lo` beat the new
+ *    item, everything from `lo` down lost to it.
+ *  - Budget-capped open window → indices inside [lo..hi] were never compared;
+ *    they order against the interpolated final score.
+ */
+export function placementOrder(
+  state: H2HState,
+  newId: string,
+  finalScore: number,
+): string[] {
+  const ids = state.candidates.map((c) => c.restaurantId);
+  if (state.terminalTie) {
+    const pivot = state.terminalTie.comparisonId;
+    const out: string[] = [];
+    for (const id of ids) {
+      out.push(id);
+      if (id === pivot) out.push(newId);
+    }
+    if (!out.includes(newId)) out.push(newId);
+    return out;
+  }
+  let insertAt = state.lo;
+  if (state.lo <= state.hi) {
+    // Open window: place among the un-compared block by score.
+    while (insertAt <= state.hi && state.candidates[insertAt].score > finalScore) insertAt++;
+  }
+  insertAt = Math.max(0, Math.min(ids.length, insertAt));
+  return [...ids.slice(0, insertAt), newId, ...ids.slice(insertAt)];
 }
 
 /**

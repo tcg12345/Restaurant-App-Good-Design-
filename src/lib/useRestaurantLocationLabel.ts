@@ -32,19 +32,24 @@ export function formatTodayHours(hours: string[] | undefined): string {
  * so it never goes stale (unlike a cached `openNow`). Returns `open: null` when
  * there's no hours data or the line can't be parsed, so callers can hide the
  * status chip entirely rather than guess.
+ *
+ * `detail` is ALWAYS the concise next boundary ("closes 2:30 PM" /
+ * "opens 5:30 PM") — even on split lunch/dinner days — so status lines never
+ * wrap. The full day schedule is returned separately as `schedule` for
+ * tooltips/expanded views.
  */
-export function getOpenStatus(hours?: string[]): { open: boolean | null; label: string; detail: string } {
-  if (!hours || hours.length === 0) return { open: null, label: '', detail: '' };
+export function getOpenStatus(hours?: string[]): { open: boolean | null; label: string; detail: string; schedule: string } {
+  if (!hours || hours.length === 0) return { open: null, label: '', detail: '', schedule: '' };
   const now = new Date();
   const todayName = now.toLocaleDateString('en-US', { weekday: 'long' });
   const line = hours.find((h) => h.startsWith(`${todayName}:`));
-  if (!line) return { open: null, label: '', detail: '' };
+  if (!line) return { open: null, label: '', detail: '', schedule: '' };
   // Today's schedule string ("11:30 AM – 3:00 PM, 5:00 PM – 10:00 PM"), with
   // any thin/no-break spaces normalised to regular ones.
   const schedule = line.slice(line.indexOf(':') + 1).trim().replace(/[   ]/g, ' ');
 
-  if (/closed/i.test(schedule)) return { open: false, label: 'Closed', detail: '' };
-  if (/(open\s*)?24\s*hours/i.test(schedule)) return { open: true, label: 'Open', detail: '24 hours' };
+  if (/closed/i.test(schedule)) return { open: false, label: 'Closed', detail: '', schedule: '' };
+  if (/(open\s*)?24\s*hours/i.test(schedule)) return { open: true, label: 'Open', detail: '24 hours', schedule: '24 hours' };
 
   // "10:30 PM" → minutes since midnight (12 AM → 0, 12 PM → 720).
   const parseTime = (s: string): number | null => {
@@ -79,7 +84,7 @@ export function getOpenStatus(hours?: string[]): { open: boolean | null; label: 
   // If anything failed to parse, we can't compute Open/Closed reliably — just
   // surface the raw schedule for the day so the card still shows the hours.
   if (ranges.length === 0 || ranges.some((r) => r == null)) {
-    return { open: null, label: '', detail: schedule };
+    return { open: null, label: '', detail: schedule, schedule };
   }
   const parsed = ranges as { open: number; close: number; openRaw: string; closeRaw: string }[];
 
@@ -90,19 +95,14 @@ export function getOpenStatus(hours?: string[]): { open: boolean | null; label: 
     const isOpen = overnight ? nowMin >= r.open || nowMin < r.close : nowMin >= r.open && nowMin < r.close;
     if (isOpen) { current = r; break; }
   }
-  const open = current != null;
-  const label = open ? 'Open' : 'Closed';
 
-  // Split lunch/dinner days (two+ separate windows) show the full schedule —
-  // a single boundary can't capture both windows. Every single-window day,
-  // including dinner-only (PM → PM), uses the concise next boundary like the
-  // rest of the cards: "Closed · opens 5:00 PM" / "Open · closes 10:00 PM".
-  if (parsed.length >= 2) return { open, label, detail: schedule };
-
-  if (current) return { open: true, label: 'Open', detail: `closes ${current.closeRaw}` };
+  // The next boundary is always concise — on a split lunch/dinner day the
+  // current window's close ("closes 2:30 PM") or the next window's open
+  // ("opens 5:30 PM"); the full schedule rides along for tooltips.
+  if (current) return { open: true, label: 'Open', detail: `closes ${current.closeRaw}`, schedule };
   const upcoming = parsed.filter((r) => r.open > nowMin).sort((a, b) => a.open - b.open)[0];
-  if (upcoming) return { open: false, label: 'Closed', detail: `opens ${upcoming.openRaw}` };
-  return { open: false, label: 'Closed', detail: '' };
+  if (upcoming) return { open: false, label: 'Closed', detail: `opens ${upcoming.openRaw}`, schedule };
+  return { open: false, label: 'Closed', detail: '', schedule };
 }
 
 /**

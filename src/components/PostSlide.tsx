@@ -23,6 +23,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
 import { getCachedImage, loadCachedImage } from '../lib/image-cache';
 import { MuxReelMedia } from './MuxReelMedia';
+import { addScrollSettleListener } from '../lib/scroll-settle';
 
 /**
  * Render a feed photo through the in-memory blob cache: instant + whole-image
@@ -451,22 +452,28 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
 
   // Track which item is most-visible in the horizontal carousel via scroll
   // position. Cheap math instead of an IntersectionObserver per item.
+  // Committed at scroll REST (scrollend / idle fallback) — flipping the
+  // index mid-swipe swapped caption/attachment content and shifted the
+  // media-mount window while the snap glide was still animating, which
+  // made the landing visibly re-correct (same disease as the vertical
+  // feed; see src/lib/scroll-settle.ts).
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const w = el.clientWidth;
-        if (w <= 0) return;
-        const idx = Math.round(el.scrollLeft / w);
-        const clamped = Math.max(0, Math.min(post.items.length - 1, idx));
-        setActiveIdx((prev) => (prev === clamped ? prev : clamped));
-      });
+    const commit = () => {
+      const w = el.clientWidth;
+      if (w <= 0) return;
+      const idx = Math.round(el.scrollLeft / w);
+      const clamped = Math.max(0, Math.min(post.items.length - 1, idx));
+      setActiveIdx((prev) => (prev === clamped ? prev : clamped));
     };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+    return addScrollSettleListener(el, commit, {
+      idleMs: 140,
+      isAligned: (s) => {
+        const w = s.clientWidth;
+        return w > 0 && Math.abs(s.scrollLeft - Math.round(s.scrollLeft / w) * w) <= 2;
+      },
+    });
   }, [post.items.length]);
 
   useEffect(() => { onActiveItemChange?.(activeIdx); }, [activeIdx, onActiveItemChange]);
@@ -484,7 +491,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
 
   return (
     <div className={cn(
-      'relative h-full w-full snap-start snap-always overflow-hidden',
+      'relative h-full w-full overflow-hidden',
       // Phone: letterbox blank space picks up the app's surface color
       // so it reads as part of the page in either light or dark mode,
       // rather than a hard black backdrop. Desktop keeps black since
@@ -500,7 +507,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
           when swiping on a post's media. */}
       <div
         ref={stripRef}
-        className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+        className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain scrollbar-hide"
         style={{ scrollbarWidth: 'none' }}
       >
         {post.items.map((it, idx) => {

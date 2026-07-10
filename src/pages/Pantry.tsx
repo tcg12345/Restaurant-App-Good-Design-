@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -17,7 +17,6 @@ import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, 
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
-import { usePageSearch } from '../contexts/PageSearchContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
@@ -29,13 +28,52 @@ import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
+
+/** Pill-shaped inline search input for the desktop toolbars. Replaces the
+ *  old "Search this list" pill that hijacked the (since removed) global
+ *  desktop header input — the filter field now lives right in the toolbar. */
+const ToolbarSearchInput: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}> = ({ value, onChange, placeholder = 'Search this list…' }) => (
+  <label
+    className={cn(
+      'inline-flex items-center gap-2 h-8 pl-3.5 pr-2 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0 cursor-text',
+      value
+        ? 'bg-primary/[0.10] text-primary'
+        : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] focus-within:bg-on-surface/[0.08]',
+    )}
+  >
+    <Search size={13} className="flex-shrink-0" />
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="bg-transparent outline-none border-none w-[130px] focus:w-[190px] transition-[width] duration-200 text-[13px] font-medium text-on-surface placeholder:text-on-surface/45"
+    />
+    {value && (
+      <button
+        type="button"
+        onClick={() => onChange('')}
+        aria-label="Clear search"
+        className="text-on-surface/40 hover:text-on-surface flex-shrink-0"
+      >
+        <X size={12} />
+      </button>
+    )}
+  </label>
+);
 
 /** A recipe saved into a list from another user carries source-author
  *  attribution. Those copies are read-only — the original author owns the
@@ -609,24 +647,29 @@ const ConfirmDeleteDialog: React.FC<{ name: string; onCancel: () => void; onConf
   );
 
 /* ── Open/Closed + today's-hours status line (Restaurant Cards Redesign).
-   Dot + Open/Closed + the next boundary ("opens 5:00 PM" / "closes 10:00 PM"),
-   the split-day schedule, and an optional trailing value (distance). ── */
+   Dot + Open/Closed + the concise next boundary ("opens 5:00 PM" /
+   "closes 10:00 PM") and an optional trailing value (distance). Always ONE
+   line — the boundary truncates before anything wraps, and the full day
+   schedule lives in the hover tooltip. ── */
 const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: string }> = ({ hours, trailing, className }) => {
   const s = getOpenStatus(hours);
   if (!s.label && !s.detail && !trailing) return null;
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] font-semibold', className)}>
+    <div
+      className={cn('flex min-w-0 items-center gap-x-1.5 text-[12.5px] font-semibold', className)}
+      title={s.schedule ? `Today: ${s.schedule}` : undefined}
+    >
       {s.label && (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? '#10b981' : '#ef4444' }} />
           <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
         </span>
       )}
-      {s.detail && <span className="font-medium text-on-surface/40">{s.detail}</span>}
+      {s.detail && <span className="truncate font-medium text-on-surface/40">{s.detail}</span>}
       {trailing && (
         <>
-          <span className="text-on-surface/20">·</span>
-          <span className="font-medium tabular-nums text-on-surface/55">{trailing}</span>
+          {(s.label || s.detail) && <span className="flex-shrink-0 text-on-surface/20">·</span>}
+          <span className="flex-shrink-0 font-medium tabular-nums text-on-surface/55">{trailing}</span>
         </>
       )}
     </div>
@@ -1031,13 +1074,13 @@ const WishlistGridCard: React.FC<{
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
               aria-label="Remove from wishlist"
               title="Remove from wishlist"
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center hover:bg-red-100 active:scale-95 transition-all"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
             >
-              <Heart size={15} className="fill-red-400" />
+              <Bookmark size={15} className="fill-primary" />
             </button>
           ) : (
-            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
-              <Heart size={15} className="fill-red-400" />
+            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center">
+              <Bookmark size={15} className="fill-primary" />
             </span>
           )}
         </div>
@@ -1151,28 +1194,30 @@ const RestaurantGridCard: React.FC<{
     return () => document.removeEventListener('mousedown', onDoc);
   }, [moreOpen]);
 
-  // Text-only boxed card per the Restaurant Cards Redesign — no photo. Score
-  // ring top-right, name, cuisine · price, Add Notes affordance, location, and
-  // the Open/Closed + hours · distance status line. Edit / more fade in on hover.
+  // Text-only boxed card per the Restaurant Cards Redesign — no photo. Fixed
+  // row structure so every card in a grid row is the same height: identity
+  // (name + score ring, cuisine · price), then a facts block (location +
+  // single-line Open/Closed · distance status), then a bottom-pinned footer
+  // (notes affordance left, hover edit/more right).
   return (
-    <div className="group relative">
+    <div className="group relative h-full">
       <Link
         to={`/restaurant/${restaurantId}`}
-        className="relative flex flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-[22px] pb-5 pt-[22px] shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
+        className="relative flex h-full flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-5 pb-3.5 pt-5 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
       >
         {/* Score — inset ring, top-right */}
         {hasScore && (
-          <div className="absolute right-[22px] top-[22px]"><ScoreRing score={score} size={44} /></div>
+          <div className="absolute right-5 top-5"><ScoreRing score={score} size={44} /></div>
         )}
 
-        <h3 className="line-clamp-2 pr-14 font-serif text-[21px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
+        <h3 className="line-clamp-2 pr-14 font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
           {name}
         </h3>
 
         {(cuisineLabel || showPrice || (showMichelin && mich.michelin)) && (
-          <p className="mt-1.5 text-[13px] font-semibold text-on-surface/70">
+          <p className="mt-1 pr-14 truncate text-[13px] font-semibold text-on-surface/60">
             {cuisineLabel}
-            {cuisineLabel && showPrice ? '  ·  ' : ''}
+            {cuisineLabel && showPrice ? ' · ' : ''}
             {showPrice && mich.price}
             {showMichelin && mich.michelin && (
               <span className="ml-1.5 inline-flex items-center align-middle">
@@ -1182,106 +1227,114 @@ const RestaurantGridCard: React.FC<{
           </p>
         )}
 
-        {/* Notes affordance — Notes dropdown when present, else "Add Notes". */}
-        {hasNotes ? (
-          <div className="mt-3.5">
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotesOpen((v) => !v); }}
-              aria-expanded={notesOpen}
-              className="inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 hover:text-on-surface transition-colors"
-            >
-              <StickyNote size={12} className="text-on-surface/45" />
-              <span>Notes</span>
-              <ChevronDown size={12} className={cn('transition-transform', notesOpen && 'rotate-180')} />
-            </button>
-            <AnimatePresence initial={false}>
-              {notesOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
-                >
-                  <p className="mt-1.5 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
-                    &ldquo;{trimmedNotes}&rdquo;
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ) : onEditNotes ? (
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEditNotes(); }}
-            className="mt-3.5 inline-flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 hover:text-primary transition-colors"
-          >
-            <Plus size={14} />
-            <span>Add Notes</span>
-          </button>
-        ) : null}
-
-        {/* Location */}
-        {locationLabel && (
-          <div className="mt-3.5 flex items-center gap-1.5 text-[12.5px] font-medium text-on-surface/55">
-            <MapPin size={14} className="flex-shrink-0 text-on-surface/40" />
-            <span className="truncate">{locationLabel}</span>
-          </div>
-        )}
-
-        {/* Open/Closed + hours · distance, with hover edit/more on the right */}
-        <div className="mt-2 flex min-h-[28px] items-center justify-between gap-2">
-          <StatusLine hours={meta?.hours} trailing={distanceLabel} />
-          {(onEdit || onRemove) && (
-            <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              {onEdit && (
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                  aria-label="Edit"
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary"
-                >
-                  <Edit3 size={13} />
-                </button>
-              )}
-              {onRemove && (
-                <div className="relative" ref={moreRef}>
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
-                    aria-label="More options"
-                    aria-haspopup="menu"
-                    aria-expanded={moreOpen}
-                    className={cn(
-                      'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
-                      moreOpen ? 'bg-on-surface/[0.06] text-on-surface' : 'text-on-surface/35 hover:bg-on-surface/[0.05] hover:text-on-surface',
-                    )}
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                  <AnimatePresence>
-                    {moreOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                        transition={{ duration: 0.12, ease: 'easeOut' }}
-                        role="menu"
-                        className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
-                      >
-                        <button
-                          role="menuitem"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50"
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
+        {/* Facts — location + status share one tight block */}
+        <div className="mt-3.5 space-y-1.5">
+          {locationLabel && (
+            <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-medium text-on-surface/55">
+              <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
+              <span className="truncate">{locationLabel}</span>
             </div>
           )}
+          <StatusLine hours={meta?.hours} trailing={distanceLabel} />
+        </div>
+
+        {/* Footer — pinned to the card bottom: notes left, actions right */}
+        <div className="mt-auto pt-3">
+          <div className="flex min-h-[30px] items-center justify-between gap-2 border-t border-on-surface/[0.06] pt-2.5">
+            {hasNotes ? (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotesOpen((v) => !v); }}
+                aria-expanded={notesOpen}
+                className={cn(
+                  'inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold transition-colors',
+                  notesOpen
+                    ? 'bg-on-surface/[0.07] text-on-surface'
+                    : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.07] hover:text-on-surface',
+                )}
+              >
+                <StickyNote size={12} />
+                <span>Notes</span>
+                <ChevronDown size={12} className={cn('transition-transform', notesOpen && 'rotate-180')} />
+              </button>
+            ) : onEditNotes ? (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEditNotes(); }}
+                className="inline-flex h-7 items-center gap-1 rounded-full px-1.5 -ml-1.5 text-[11px] font-bold text-on-surface/40 transition-colors hover:text-primary"
+              >
+                <Plus size={13} />
+                <span>Add notes</span>
+              </button>
+            ) : (
+              <span aria-hidden className="h-7" />
+            )}
+            {(onEdit || onRemove) && (
+              <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                {onEdit && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                    aria-label="Edit"
+                    className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-primary/[0.06] hover:text-primary"
+                  >
+                    <Edit3 size={13} />
+                  </button>
+                )}
+                {onRemove && (
+                  <div className="relative" ref={moreRef}>
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                      aria-label="More options"
+                      aria-haspopup="menu"
+                      aria-expanded={moreOpen}
+                      className={cn(
+                        'flex h-7 w-7 items-center justify-center rounded-full transition-colors',
+                        moreOpen ? 'bg-on-surface/[0.06] text-on-surface' : 'text-on-surface/35 hover:bg-on-surface/[0.05] hover:text-on-surface',
+                      )}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    <AnimatePresence>
+                      {moreOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                          transition={{ duration: 0.12, ease: 'easeOut' }}
+                          role="menu"
+                          className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
+                        >
+                          <button
+                            role="menuitem"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Notes body — expands below the footer row */}
+          <AnimatePresence initial={false}>
+            {hasNotes && notesOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <p className="pt-2 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
+                  &ldquo;{trimmedNotes}&rdquo;
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </Link>
 
@@ -1815,12 +1868,11 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
@@ -1846,38 +1898,8 @@ const ListDetailView: React.FC<{
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
-  // ── Scoped header search (desktop only) ──
-  // Click "Search this list" → hijack the desktop header input as a
-  // filter for this list. Mirrors the rated-view pattern in <Pantry>.
-  // We tag the scope with the list id so the keep-in-sync effect below
-  // doesn't fight with sibling scopes from other components.
+  // Display name used by the desktop toolbar's inline search placeholder.
   const scopeName = isWishlistView ? 'Wishlist' : list.name;
-  const scopeKey = `list:${list.id}`;
-  const activateListScope = useCallback(() => {
-    setScopedSearch({
-      scopeName,
-      placeholder: `Search ${scopeName.toLowerCase()}…`,
-      query: searchQuery,
-      setQuery: setSearchQuery,
-      onDismiss: () => setSearchQuery(''),
-    });
-    bumpFocus();
-  }, [scopeName, searchQuery, setScopedSearch, bumpFocus]);
-
-  // Keep header chip + input value in lockstep with searchQuery without
-  // looping. Only pages that own the active scope re-set it.
-  useEffect(() => {
-    if (scopedSearch && scopedSearch.scopeName === scopeName && scopedSearch.query !== searchQuery) {
-      setScopedSearch({ ...scopedSearch, query: searchQuery });
-    }
-  }, [searchQuery, scopedSearch, scopeName, setScopedSearch]);
-
-  // Drop the scope when the list unmounts (user backed out / picked
-  // another list) so a stale chip doesn't carry over.
-  useEffect(() => {
-    return () => { setScopedSearch(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey]);
 
   // ── Wishlist-only filter state ─────────────────────────────────────
   // Lives on ListView (not the global page) so the sheet's selections
@@ -2051,6 +2073,19 @@ const ListDetailView: React.FC<{
           return { id, info, wishItem };
         }).filter(({ info }) => info);
 
+  // Backfill hours for every candidate in this list while the hours filter
+  // is active — the filter reads cached meta, and unknown hours never hide
+  // a place, so without warming the filter is a no-op for unvisited spots.
+  const listHoursWarmActive = isHoursFilterActive(wishlistHoursFilter);
+  const listHoursWarmIds = useMemo(
+    () => (listHoursWarmActive
+      ? [...ratedRestaurantsRaw.map(({ id }) => id), ...wishlistedRestaurantsRaw.map(({ id }) => id)]
+      : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listHoursWarmActive, ratedRestaurantsRaw, wishlistedRestaurantsRaw],
+  );
+  useWarmHoursForFilter(listHoursWarmIds, listHoursWarmActive);
+
   // Filter + sort options pulled from the list's actual contents, so
   // the dropdowns only ever offer cuisines / cities the user has on
   // this list. Recipe lists skip this — they have their own filters.
@@ -2132,7 +2167,11 @@ const ListDetailView: React.FC<{
       : list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
   const handlePlusClick = () => {
-    if (isHomeCooking) openAddRecipeModal(list.id);
+    // New recipes always go through the full three-tab builder
+    // (Basic / Advanced / AI); targetListId lands the result in this
+    // list as well as the cookbook. The basic AddRecipeModal remains
+    // only for EDITING this list's existing legacy entries.
+    if (isHomeCooking) openHomeMealModal(undefined, { targetListId: list.id });
     else if (isHotelBreakfast) setHotelModalOpen(true);
     else setAddSheetOpen(true);
   };
@@ -2150,7 +2189,7 @@ const ListDetailView: React.FC<{
     : isHotelBreakfast
       ? { eyebrow: 'Hotel mornings', icon: <Building2 size={26} className="text-amber-600" strokeWidth={1.7} />, accent: 'text-amber-600', chipBg: 'bg-amber-50' }
       : isWishlistView
-        ? { eyebrow: 'Your saved places', icon: <Heart size={24} className="text-red-400 fill-red-400" />, accent: 'text-red-400', chipBg: 'bg-red-50' }
+        ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
         : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
 
   // Distinct city count for the stats row.
@@ -2337,36 +2376,12 @@ const ListDetailView: React.FC<{
       {!phoneMode && (
         <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-            {/* Search this list */}
-            <button
-              type="button"
-              onClick={activateListScope}
-              aria-label={`Search ${list.name}`}
-              className={cn(
-                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
-                searchQuery
-                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
-              )}
-            >
-              <Search size={13} />
-              <span>Search this list</span>
-              {searchQuery && (
-                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
-                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
-                    aria-label="Clear list search"
-                    className="text-primary/70 hover:text-primary"
-                  >
-                    <X size={11} />
-                  </span>
-                </span>
-              )}
-            </button>
+            {/* Search this list — inline filter input */}
+            <ToolbarSearchInput
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder={`Search ${scopeName.toLowerCase()}…`}
+            />
 
             {!isHomeCooking && (
               <button
@@ -2649,7 +2664,7 @@ const ListDetailView: React.FC<{
             <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
             <p className="text-sm font-medium text-on-surface/40">No recipes yet</p>
             <p className="text-xs text-on-surface/30 mt-1">Add your first home cooking recipe</p>
-            <button onClick={() => openAddRecipeModal(list.id)}
+            <button onClick={() => openHomeMealModal(undefined, { targetListId: list.id })}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
               <Plus size={14} />Add Recipe
             </button>
@@ -2693,7 +2708,7 @@ const ListDetailView: React.FC<{
             {/* Add more button — phone only. On desktop the header's
                 "Add Recipe" CTA replaces this footer. */}
             {phoneMode && (
-              <button onClick={() => openAddRecipeModal(list.id)}
+              <button onClick={() => openHomeMealModal(undefined, { targetListId: list.id })}
                 className="mt-3 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
                 <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
               </button>
@@ -2719,7 +2734,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                 {ratedRestaurants.map(({ id, info, rating }, idx) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -2765,11 +2780,11 @@ const ListDetailView: React.FC<{
               knows the page isn't broken. */}
           {isWishlistView && wishlistedRestaurantsRaw.length === 0 && (
             <div className="text-center py-20">
-              <div className="w-14 h-14 rounded-full bg-red-50 text-red-400 flex items-center justify-center mx-auto mb-4">
-                <Heart size={20} />
+              <div className="w-14 h-14 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center mx-auto mb-4">
+                <Bookmark size={20} />
               </div>
               <p className="text-base font-serif font-bold text-on-surface mb-1">Your wishlist is empty</p>
-              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the heart on any restaurant card to save it here for later.</p>
+              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the bookmark on any restaurant card to save it here for later.</p>
             </div>
           )}
           {isWishlistView && wishlistedRestaurantsRaw.length > 0 && wishlistedRestaurantsFinal.length === 0 && (
@@ -2792,11 +2807,11 @@ const ListDetailView: React.FC<{
           {wishlistedRestaurantsFinal.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <Heart size={14} className="text-red-400" />
+                <Bookmark size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
                     <RestaurantGridCard
                       key={id}
@@ -4427,7 +4442,6 @@ const HomeCookingTab: React.FC<{
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
   // Recipe filters — these are recipe-specific and mirror the
@@ -4462,32 +4476,6 @@ const HomeCookingTab: React.FC<{
   };
   const timeLabel = (t: typeof timeFilter) => t === 'fast' ? '<30 min' : t === 'medium' ? '30–60 min' : t === 'slow' ? '>60 min' : 'Time';
 
-  // Desktop: clicking "Search this list" hijacks the desktop header
-  // search input as a recipe filter, just like the rated view does.
-  const activateRecipesScope = useCallback(() => {
-    setScopedSearch({
-      scopeName: 'All Recipes',
-      placeholder: 'Search this list…',
-      query: searchQuery,
-      setQuery: setSearchQuery,
-      onDismiss: () => setSearchQuery(''),
-    });
-    bumpFocus();
-  }, [searchQuery, setScopedSearch, bumpFocus]);
-
-  useEffect(() => {
-    if (scopedSearch && scopedSearch.scopeName === 'All Recipes' && scopedSearch.query !== searchQuery) {
-      setScopedSearch({ ...scopedSearch, query: searchQuery });
-    }
-  }, [searchQuery, scopedSearch, setScopedSearch]);
-
-  // Drop the scope when the cookbook unmounts so it doesn't bleed into
-  // the next page. Other components manage their own scope on mount, so
-  // an unconditional clear here is safe.
-  useEffect(() => {
-    return () => { setScopedSearch(null); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
   // Transient recipe-page UI state (not persisted — pure display aids).
@@ -5176,35 +5164,7 @@ const HomeCookingTab: React.FC<{
         // then count + avg + view toggle on the right.
         <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-            <button
-              type="button"
-              onClick={activateRecipesScope}
-              aria-label="Search this list"
-              className={cn(
-                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
-                searchQuery
-                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
-              )}
-            >
-              <Search size={13} />
-              <span>Search this list</span>
-              {searchQuery && (
-                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
-                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
-                    aria-label="Clear list search"
-                    className="text-primary/70 hover:text-primary"
-                  >
-                    <X size={11} />
-                  </span>
-                </span>
-              )}
-            </button>
+            <ToolbarSearchInput value={searchQuery} onChange={setSearchQuery} />
 
             <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
 
@@ -6536,7 +6496,7 @@ export const Pantry: React.FC = () => {
     if (!id) return null;
     if (id === '__wishlist__') {
       return {
-        id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+        id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
         restaurantIds: [], wishlistIds: [], createdAt: 0,
       } as CustomList;
     }
@@ -6561,7 +6521,6 @@ export const Pantry: React.FC = () => {
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const { phoneMode, setHideBottomNav } = useSettings();
-  const { setScopedSearch, bumpFocus, scopedSearch } = usePageSearch();
   const { setOverride: setPageAddAction } = usePageAddAction();
 
   // Spotlight-style search popup — opened by the desktop header's
@@ -6609,39 +6568,8 @@ export const Pantry: React.FC = () => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // ── Scoped header search ──
-  // Clicking "Search this list" hijacks the desktop header input so the
-  // page can be filtered without an in-page search bar. The page owns
-  // the query state (mainSearchQuery for the rated view); we mirror it
-  // back into the context so the header shows the live value, and the
-  // header calls setMainSearchQuery on every keystroke.
-  const activateRatedScope = useCallback(() => {
-    setScopedSearch({
-      scopeName: 'All Rated',
-      placeholder: 'Search this list…',
-      query: mainSearchQuery,
-      setQuery: setMainSearchQuery,
-      onDismiss: () => setMainSearchQuery(''),
-    });
-    bumpFocus();
-  }, [mainSearchQuery, setScopedSearch, bumpFocus]);
-
-  // Keep the scope's query field in lockstep with mainSearchQuery so the
-  // header input always shows the current filter text. Guard against an
-  // update loop by only re-setting when the values actually differ.
-  useEffect(() => {
-    if (scopedSearch && scopedSearch.scopeName === 'All Rated' && scopedSearch.query !== mainSearchQuery) {
-      setScopedSearch({ ...scopedSearch, query: mainSearchQuery });
-    }
-  }, [mainSearchQuery, scopedSearch, setScopedSearch]);
-
-  // The rated-view scope only makes sense on the rated landing — drop
-  // it the moment the user picks a sub-view or specific list.
-  useEffect(() => {
-    if (scopedSearch?.scopeName === 'All Rated' && (selectedList || showHomeCooking || showTrips)) {
-      setScopedSearch(null);
-    }
-  }, [selectedList, showHomeCooking, showTrips, scopedSearch, setScopedSearch]);
+  // Ranked recommendations popup ("For you").
+  const [recsOpen, setRecsOpen] = useState(false);
 
   // Desktop list switcher — replaces the sidebar's old Pantry tray. The
   // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
@@ -6730,8 +6658,17 @@ export const Pantry: React.FC = () => {
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
-    openAddRecipeModal,
   } = useLists();
+
+  // Backfill hours for every rated restaurant while the hours filter is
+  // active — the filter reads cached meta, and unknown hours never hide a
+  // place, so without warming the filter is a no-op for unvisited spots.
+  const ratedHoursWarmActive = isHoursFilterActive(hoursFilter);
+  const ratedHoursWarmIds = useMemo(
+    () => (ratedHoursWarmActive ? ratings.map((r) => r.restaurantId) : []),
+    [ratedHoursWarmActive, ratings],
+  );
+  useWarmHoursForFilter(ratedHoursWarmIds, ratedHoursWarmActive);
 
   /**
    * URL-driven view selection. The desktop sidebar navigates between
@@ -6788,7 +6725,7 @@ export const Pantry: React.FC = () => {
         // wishlist below, so any object with this id flows through the
         // same code path the pill row used.
         setSelectedList({
-          id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+          id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
           restaurantIds: [], wishlistIds: [], createdAt: 0,
         } as CustomList);
       } else {
@@ -6940,8 +6877,8 @@ export const Pantry: React.FC = () => {
   // Phone keeps the default behavior. On desktop, the button label and
   // click handler swap based on which list is open:
   //   • Recipe view (All Recipes or a custom recipe list) → "Add Recipe",
-  //     opens the right recipe modal directly (HomeMeal modal for All
-  //     Recipes; AddRecipeModal scoped to the list otherwise).
+  //     opens the three-tab recipe builder (targeted at the current
+  //     list when one is selected).
   //   • Custom restaurant list / Wishlist → "Add Rating", opens the
   //     SearchPopup in 'add-to-list' mode (rated section + search).
   //   • Rated list → "Add Rating", opens the SearchPopup in 'rate-new'
@@ -6967,7 +6904,10 @@ export const Pantry: React.FC = () => {
     if (selectedList && selectedList.type === 'home-cooking') {
       setPageAddAction({
         label: 'Add Recipe',
-        onClick: () => openAddRecipeModal(selectedList.id),
+        // Same three-tab builder as the cookbook — targetListId lands the
+        // new recipe in this list too. (The basic AddRecipeModal is only
+        // for editing a list's existing legacy entries.)
+        onClick: () => openHomeMealModal(undefined, { targetListId: selectedList.id }),
       });
       return;
     }
@@ -6986,7 +6926,7 @@ export const Pantry: React.FC = () => {
       label: 'Add Rating',
       onClick: () => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); },
     });
-  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, openAddRecipeModal, setPageAddAction]);
+  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, setPageAddAction]);
 
   // Reset the override when Pantry unmounts so other pages start clean.
   useEffect(() => {
@@ -7027,7 +6967,7 @@ export const Pantry: React.FC = () => {
   const currentViewLabel = (() => {
     if (selectedList) {
       if (selectedList.id === '__wishlist__') {
-        return { emoji: '❤️', name: 'Wishlist', count: regularWishlist.length };
+        return { emoji: '🔖', name: 'Wishlist', count: regularWishlist.length };
       }
       const isRecipeList = selectedList.type === 'home-cooking';
       const count = isRecipeList
@@ -7073,7 +7013,7 @@ export const Pantry: React.FC = () => {
     setShowHomeCooking(false); setShowTrips(false);
     setShowAllRated(false);
     setSelectedList({
-      id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+      id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
       restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
       createdAt: 0,
     } as CustomList);
@@ -7174,7 +7114,7 @@ export const Pantry: React.FC = () => {
                           onClick={switchToRated}
                         />
                         <SwitcherRow
-                          icon={<Heart size={14} className="text-red-400 fill-red-400" />}
+                          icon={<Bookmark size={14} className="text-primary fill-primary" />}
                           label="Wishlist"
                           count={regularWishlist.length}
                           active={selectedList?.id === '__wishlist__'}
@@ -7340,7 +7280,7 @@ export const Pantry: React.FC = () => {
               setSelectedList({
                 id: '__wishlist__',
                 name: 'Wishlist',
-                emoji: '❤️',
+                emoji: '🔖',
                 restaurantIds: [],
                 wishlistIds: regularWishlist.map((w) => w.restaurantId),
                 createdAt: 0,
@@ -7349,6 +7289,7 @@ export const Pantry: React.FC = () => {
             }}
             onOpenRated={() => setShowAllRated(true)}
             onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+            onOpenRecommendations={() => setRecsOpen(true)}
             onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
             onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
@@ -7382,8 +7323,15 @@ export const Pantry: React.FC = () => {
                   )}
                   <button
                     type="button"
+                    onClick={() => setRecsOpen(true)}
+                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex-shrink-0"
+                  >
+                    <span>For you</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     <span>Add Rating</span>
@@ -7466,36 +7414,8 @@ export const Pantry: React.FC = () => {
             ) : (
               <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                  {/* Primary action: search this list */}
-                  <button
-                    type="button"
-                    onClick={activateRatedScope}
-                    className={cn(
-                      'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
-                      mainSearchQuery
-                        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                        : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
-                    )}
-                    aria-label="Search this list"
-                  >
-                    <Search size={13} />
-                    <span>Search this list</span>
-                    {mainSearchQuery && (
-                      <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
-                        <span className="truncate max-w-[100px]">"{mainSearchQuery}"</span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); } }}
-                          aria-label="Clear list search"
-                          className="text-primary/70 hover:text-primary"
-                        >
-                          <X size={11} />
-                        </span>
-                      </span>
-                    )}
-                  </button>
+                  {/* Primary action: search this list — inline filter input */}
+                  <ToolbarSearchInput value={mainSearchQuery} onChange={setMainSearchQuery} />
 
                   {/* Visual divider between primary action and filter cluster */}
                   <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
@@ -7603,8 +7523,16 @@ export const Pantry: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Right side: live result count + avg score + view toggle */}
+                  {/* Right side: recommendations + live result count + avg
+                      score + view toggle */}
                   <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setRecsOpen(true)}
+                      className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
+                    >
+                      <span>Recommendations</span>
+                    </button>
                     {regularRatingsCount > 0 && (
                       <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
                         <span className="font-bold text-on-surface">{filteredRatings.length}</span>
@@ -7640,7 +7568,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
@@ -7755,6 +7683,12 @@ export const Pantry: React.FC = () => {
           with checkboxes so you can batch-add several at once via the
           Done button; search results stay single-pick (each one drops
           into the rating modal). */}
+      <RecommendationsBrowser
+        open={recsOpen}
+        onClose={() => setRecsOpen(false)}
+        isMobile={phoneMode}
+      />
+
       <SearchPopup
         open={searchPopupOpen}
         onClose={() => setSearchPopupOpen(false)}

@@ -22,6 +22,7 @@ import {
 import { getMyGuides, isPublicGuide, type Guide } from '../lib/supabase-guides';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
@@ -328,6 +329,15 @@ export const UserProfile: React.FC = () => {
     setFilterPrice(null); setFilterCity(null); setFilterMichelin([]);
     setScoreRange([0, 10]); setHoursFilter(emptyHoursFilter()); setSortBy('recent');
   };
+
+  // Backfill hours for this profile's restaurants while the hours filter is
+  // active — the filter reads cached meta, which is empty for places the
+  // viewer never opened, and unknown hours are never hidden.
+  const hoursWarmIds = useMemo(
+    () => (isHoursFilterActive(hoursFilter) ? userRatings.map((r) => r.restaurant_id) : []),
+    [hoursFilter, userRatings],
+  );
+  useWarmHoursForFilter(hoursWarmIds, isHoursFilterActive(hoursFilter));
 
   const filteredRatings = useMemo(() => {
     let result = userRatings;

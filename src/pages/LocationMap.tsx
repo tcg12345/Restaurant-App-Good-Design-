@@ -5,7 +5,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Heart, Loader2, MapPin, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowLeft, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
@@ -233,7 +233,7 @@ export const LocationMap: React.FC = () => {
         })
       : places;
     const out = hoursActive
-      ? result.filter((p) => passesHoursFilter(restaurantMeta[p.id]?.hours, hoursFilter))
+      ? result.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter))
       : result;
     return out;
   }, [places, filtersActive, selectedCuisines, selectedPrice, minScore, hoursFilter, restaurantMeta]);
@@ -711,11 +711,11 @@ export const LocationMap: React.FC = () => {
             aria-pressed={fav}
             className={cn(
               'w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0',
-              fav ? 'border-red-200 bg-red-50/70 text-red-500' : 'border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70',
+              fav ? 'border-primary/25 bg-primary/[0.08] text-primary' : 'border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70',
             )}
             title={fav ? 'Saved' : 'Save'}
           >
-            <Heart size={15} className={fav ? 'fill-current' : ''} />
+            <Bookmark size={15} className={fav ? 'fill-current' : ''} />
           </button>
         </div>
 

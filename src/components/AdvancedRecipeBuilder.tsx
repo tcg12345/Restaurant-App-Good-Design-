@@ -885,6 +885,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       if (userId) setTimeout(() => navigate(`/recipe/${userId}/${existing.id}`), 80);
     } else {
       const created = lists.createHomeMeal(payload);
+      // Opened from a specific recipe list ("Add recipe" on a list page):
+      // the new recipe also lands in that list, not just the cookbook.
+      if (created && lists.homeMealModalTargetListId) lists.addRecipeToList(lists.homeMealModalTargetListId, created);
       cleanup();
       onClose();
       if (userId && created?.id) setTimeout(() => navigate(`/recipe/${userId}/${created.id}`), 80);

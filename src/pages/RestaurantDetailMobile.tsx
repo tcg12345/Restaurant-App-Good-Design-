@@ -16,7 +16,8 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
+import { useSignInModal } from '../contexts/SignInModalContext';
+import { getProfilesByIds, getCommunityStats, getLikesForRatings, toggleLike, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
@@ -174,6 +175,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
+  const { requireSignIn } = useSignInModal();
   // Hours expanded by default — it's the most frequently checked info,
   // so show it open without a tap. Local state so we don't mutate the
   // shared hook default.
@@ -204,6 +206,31 @@ export const RestaurantDetailMobile: React.FC = () => {
     if (ids.length === 0) return;
     getProfilesByIds(ids).then(setFriendReviewProfiles);
   }, [friendsStats.ratings]);
+
+  // Like state for the featured circle review (the visible Like button).
+  const [reviewLikes, setReviewLikes] = useState<{ counts: Record<string, number>; mine: Set<string> }>({ counts: {}, mine: new Set() });
+  useEffect(() => {
+    const ratingIds = friendsStats.ratings.slice(0, 1).map((r) => r.id).filter(Boolean);
+    if (!user?.id || ratingIds.length === 0) return;
+    let cancelled = false;
+    getLikesForRatings(user.id, ratingIds)
+      .then(({ likes, userLiked }) => { if (!cancelled) setReviewLikes({ counts: likes, mine: userLiked }); })
+      .catch(() => { /* likes are decorative here — ignore load failures */ });
+    return () => { cancelled = true; };
+  }, [user?.id, friendsStats.ratings]);
+
+  const handleReviewLike = (ratingId: string) => {
+    if (!user?.id) { requireSignIn('Sign in to like reviews'); return; }
+    setReviewLikes((prev) => {
+      const mine = new Set(prev.mine);
+      const counts = { ...prev.counts };
+      const wasLiked = mine.has(ratingId);
+      if (wasLiked) mine.delete(ratingId); else mine.add(ratingId);
+      counts[ratingId] = Math.max(0, (counts[ratingId] || 0) + (wasLiked ? -1 : 1));
+      return { counts, mine };
+    });
+    void toggleLike(user.id, ratingId);
+  };
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -523,10 +550,10 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => toggleWishlist(wishMeta)}
-                        aria-label={isWishlisted(place.id) ? 'Remove from favorites' : 'Add to favorites'}
+                        aria-label={isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
                         className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
                       >
-                        <Heart size={17} className={isWishlisted(place.id) ? 'fill-primary text-primary' : 'text-ink-2'} />
+                        <Bookmark size={17} className={isWishlisted(place.id) ? 'fill-primary text-primary' : 'text-ink-2'} />
                       </button>
                     </>
                   )}
@@ -809,8 +836,18 @@ export const RestaurantDetailMobile: React.FC = () => {
                           </button>
                           <div className="flex items-center justify-between mt-3.5">
                             <div className="flex items-center gap-5">
-                              <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="inline-flex items-center gap-1.5 text-on-surface/45 active:opacity-60 transition-opacity" style={{ fontSize: '13px', fontWeight: 500 }}>
-                                <Heart size={16} /> Like
+                              <button
+                                type="button"
+                                onClick={() => handleReviewLike(featured.id)}
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 active:opacity-60 transition-opacity',
+                                  reviewLikes.mine.has(featured.id) ? 'text-red-500' : 'text-on-surface/45',
+                                )}
+                                style={{ fontSize: '13px', fontWeight: 500 }}
+                                aria-label={reviewLikes.mine.has(featured.id) ? 'Unlike review' : 'Like review'}
+                              >
+                                <Heart size={16} className={reviewLikes.mine.has(featured.id) ? 'fill-red-500' : ''} />
+                                {(reviewLikes.counts[featured.id] || 0) > 0 ? reviewLikes.counts[featured.id] : 'Like'}
                               </button>
                               <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="inline-flex items-center gap-1.5 text-on-surface/45 active:opacity-60 transition-opacity" style={{ fontSize: '13px', fontWeight: 500 }}>
                                 <MessageCircle size={16} /> Reply

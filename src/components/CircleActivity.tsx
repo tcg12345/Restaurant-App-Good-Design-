@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Star, Bookmark, Users, UserCircle, MapPin, SlidersHorizontal, X, Check, ArrowUpDown, Heart } from 'lucide-react';
+import { Search, Star, Bookmark, Users, UserCircle, MapPin, SlidersHorizontal, X, Check, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
@@ -248,7 +248,7 @@ export const CircleActivity: React.FC = () => {
                         <span className="text-base font-serif font-bold leading-none">{restaurant.rating}</span>
                       </div>
                     ) : (
-                      <Heart size={16} className="text-red-400 fill-red-400 flex-shrink-0" />
+                      <Bookmark size={16} className="text-primary fill-primary flex-shrink-0" />
                     )}
                   </div>
 

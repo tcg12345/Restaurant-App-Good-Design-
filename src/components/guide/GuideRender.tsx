@@ -15,7 +15,7 @@
  * live here as exported constants so the Inspector can iterate them.
  */
 import React, { type CSSProperties, type ReactNode } from 'react';
-import { Bookmark, Share2, MapIcon, ChefHat, BookOpen, Heart, Plus, Clock, MapPin, Check, ArrowUpRight } from 'lucide-react';
+import { Bookmark, Share2, MapIcon, ChefHat, BookOpen, Plus, Clock, MapPin, Check, ArrowUpRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import {
@@ -532,9 +532,10 @@ const scoreCls = (s: number) => s >= 8.5 ? 'high' : s >= 7 ? 'mid' : 'low';
 
 export interface EntryActionAdapter {
   onView?: (entry: GuideEntry) => void;
-  onLike?: (entry: GuideEntry) => void;
+  /** Save-to-wishlist toggle for restaurant entries (bookmark). */
+  onSave?: (entry: GuideEntry) => void;
   onAdd?: (entry: GuideEntry) => void;
-  isLiked?: (entry: GuideEntry) => boolean;
+  isSaved?: (entry: GuideEntry) => boolean;
 }
 
 interface EntryCardProps {
@@ -680,11 +681,11 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
             <div className="gle-entry-actions">
               <button
                 type="button"
-                onClick={() => actions.onLike?.(entry)}
-                aria-label="Like"
-                className={cn('gle-entry-act', actions.isLiked?.(entry) && 'is-on')}
+                onClick={() => actions.onSave?.(entry)}
+                aria-label={actions.isSaved?.(entry) ? 'Remove from wishlist' : 'Save to wishlist'}
+                className={cn('gle-entry-act', actions.isSaved?.(entry) && 'is-on')}
               >
-                <Heart size={16} fill={actions.isLiked?.(entry) ? 'currentColor' : 'none'} />
+                <Bookmark size={16} fill={actions.isSaved?.(entry) ? 'currentColor' : 'none'} />
               </button>
               <button
                 type="button"

@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Edit3, Flame, Heart, ImagePlus, Loader2, Lock, MessageCircle, Pause, Play,
+  Bookmark, Edit3, Flame, ImagePlus, Loader2, Lock, Pause, Play,
   Plus, Printer, Share2, Sparkles, Star, Trash2, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1215,7 +1215,7 @@ export const RecipePage: React.FC = () => {
           <div className="rd-nav-actions">
             <button type="button" className="icon-btn" title="Print" onClick={handlePrint} aria-label="Print"><Printer /></button>
             <button type="button" className={cn('icon-btn', saved && 'saved')} title={saved ? 'Saved' : 'Save'} onClick={handleSave} aria-label="Save">
-              <Heart fill={saved ? 'currentColor' : 'none'} />
+              <Bookmark fill={saved ? 'currentColor' : 'none'} />
             </button>
             <button type="button" className="icon-btn" title="Share" onClick={handleShare} aria-label="Share"><Share2 /></button>
             {isOwner && (
@@ -1364,7 +1364,7 @@ export const RecipePage: React.FC = () => {
           <Play fill="currentColor" /> Start cooking
         </button>
         <button type="button" className={cn('rd-action-btn', saved && 'saved')} onClick={handleSave}>
-          <Heart fill={saved ? 'currentColor' : 'none'} />
+          <Bookmark fill={saved ? 'currentColor' : 'none'} />
           {saved ? 'Saved' : 'Save'}
         </button>
         <button type="button" className={cn('rd-action-btn', cooked && 'cooked-state')} onClick={handleCooked}>
@@ -2314,12 +2314,6 @@ const ReviewCard: React.FC<{
         </div>
       )}
       {reviewBody && <p className="rd-review-body">"{reviewBody}"</p>}
-      {!isMine && (
-        <div className="rd-review-actions">
-          <button type="button"><Heart /> Helpful</button>
-          <button type="button"><MessageCircle /> Reply</button>
-        </div>
-      )}
     </article>
   );
 };
@@ -2410,7 +2404,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           onClick={handleSave}
           aria-label={saved ? 'Saved' : 'Save'}
         >
-          <Heart fill={saved ? 'currentColor' : 'none'} />
+          <Bookmark fill={saved ? 'currentColor' : 'none'} />
         </button>
         <button type="button" className="rdm-nav-icon" onClick={handleShare} aria-label="Share">
           <Share2 />
@@ -2534,7 +2528,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
 
         <div className="rdm-actions">
           <button type="button" className={cn('rdm-act', saved && 'saved')} onClick={handleSave}>
-            <Heart fill={saved ? 'currentColor' : 'none'} />
+            <Bookmark fill={saved ? 'currentColor' : 'none'} />
             {saved ? 'Saved' : 'Save'}
           </button>
           <button type="button" className={cn('rdm-act', cooked && 'cooked-state')} onClick={handleCooked}>

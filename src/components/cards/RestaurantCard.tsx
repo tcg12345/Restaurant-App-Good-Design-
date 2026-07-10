@@ -6,7 +6,7 @@ import { safeImage, cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import { CardShell, type CardSurface } from './CardShell';
 import { CardMedia, NoPhotoPlaceholder } from './CardMedia';
-import { HeartButton, AddButton } from './HeartButton';
+import { SaveButton, AddButton } from './SaveButton';
 import { CuisineLine } from './CuisineLine';
 import { MetaRow } from './MetaRow';
 import { ScoreOverlay } from './ScoreOverlay';
@@ -47,7 +47,8 @@ export interface RestaurantCardProps {
   isWishlisted?: boolean;
   isHotel?: boolean;
   onAdd?: () => void;
-  onHeart?: () => void;
+  /** Save-to-wishlist toggle (bookmark). */
+  onSave?: () => void;
   /** Legacy props accepted for back-compat with old call sites (currently
    *  display-only metadata that the card doesn't render). */
   friendReviews?: number;
@@ -87,7 +88,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   isWishlisted = false,
   isHotel = false,
   onAdd,
-  onHeart,
+  onSave,
   variant = 'photo-tile',
   surface,
   rawCuisine = false,
@@ -118,7 +119,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
 
   const href = to ?? `/restaurant/${id}`;
   const linkAs: 'a' | 'button' | 'div' = as ?? (onClick && !to ? 'div' : 'a');
-  const hasHeart = !!onHeart;
+  const hasSave = !!onSave;
   const hasAdd = !!onAdd;
 
   const hotelPill = isHotel ? (
@@ -156,7 +157,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         <div className="absolute inset-x-0 top-3 z-10 flex items-start justify-between gap-2 px-3">
           <div>{hotelPill}</div>
           <div className="flex items-center gap-2">
-            {hasHeart && <HeartButton filled={isWishlisted} onClick={onHeart} />}
+            {hasSave && <SaveButton filled={isWishlisted} onClick={onSave} />}
             {hasAdd && <AddButton onClick={onAdd} />}
           </div>
         </div>
@@ -209,7 +210,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
             {rating ? <ScoreBadge rating={rating} size={phoneMode ? 'sm' : 'md'} /> : null}
-            {hasHeart && <HeartButton filled={isWishlisted} onClick={onHeart} />}
+            {hasSave && <SaveButton filled={isWishlisted} onClick={onSave} />}
             {hasAdd && <AddButton onClick={onAdd} />}
             {trailing}
           </div>
@@ -227,9 +228,9 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   const tileOverlay = (
     <>
       {hotelPill && <div className="absolute left-2.5 top-2.5 z-10">{hotelPill}</div>}
-      {(hasHeart || hasAdd) && (
+      {(hasSave || hasAdd) && (
         <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1.5">
-          {hasHeart && <HeartButton filled={isWishlisted} onClick={onHeart} />}
+          {hasSave && <SaveButton filled={isWishlisted} onClick={onSave} />}
           {hasAdd && <AddButton onClick={onAdd} />}
         </div>
       )}
