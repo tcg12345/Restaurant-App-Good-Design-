@@ -47,7 +47,11 @@ const ActivityPhoto: React.FC<{
   const [failed, setFailed] = useState(false);
   if (!src || failed) return null;
   return (
-    <div className={cn('relative mt-3 mb-3', flush && '-mx-3')}>
+    // Desktop: cap to the same narrower centered column as post photos
+    // (PostMediaCarousel) so recipe/restaurant images don't dominate the
+    // card now that the feed list is wider than an instagram column.
+    // Phone (flush): full-bleed to the card edges.
+    <div className={cn('relative mt-3 mb-3', flush ? '-mx-3' : 'lg:mx-auto lg:max-w-[420px]')}>
       <button
         type="button"
         onClick={onClick}
