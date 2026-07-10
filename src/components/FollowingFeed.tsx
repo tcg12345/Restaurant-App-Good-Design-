@@ -17,7 +17,7 @@ import { LoadingSkeletonList } from './LoadingSkeleton';
 import { extractCityState } from '../lib/places';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { HoursFilterSection } from './filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 
 const CHUNK_SIZE = 15;
@@ -301,7 +301,9 @@ export const FollowingFeed: React.FC = () => {
     if (cityFilter.length > 0)
       result = result.filter((r) => cityFilter.includes(extractCity(r.address)));
     if (isHoursFilterActive(hoursFilter))
-      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+      // Evaluate "open now" at the restaurant's approximate local time,
+      // not the device clock — remote-city hours were off by the tz delta.
+      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurant_id]?.lng)));
 
     if (sortBy === 'highest') {
       result = [...result].sort((a, b) => (b.score || 0) - (a.score || 0));

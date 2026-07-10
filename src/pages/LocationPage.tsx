@@ -103,7 +103,7 @@ import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { getGuidesForLocation, type Guide as GuideRow } from '../lib/supabase-guides';
 import { HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 
 /* ── Guide card view-model ────────────────────────────────────────────────────
    The Guides rail renders real, published guides for the selected city
@@ -1379,7 +1379,7 @@ export const LocationPage: React.FC = () => {
       // FieldMask); the cached meta is the fallback for merged rows. Keeps
       // unknown-hours places and is a no-op when the filter is inactive.
       if (isHoursFilterActive(hoursFilter)
-        && !passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter)) continue;
+        && !passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng))) continue;
       out.push(p);
     }
 
@@ -1399,7 +1399,7 @@ export const LocationPage: React.FC = () => {
         if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
         const mPlace: ScoredPlace = { ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] };
         if (isHoursFilterActive(hoursFilter)
-          && !passesHoursFilter(mPlace.hours ?? restaurantMeta[mPlace.id]?.hours, hoursFilter)) continue;
+          && !passesHoursFilter(mPlace.hours ?? restaurantMeta[mPlace.id]?.hours, hoursFilter, restaurantLocalNow(mPlace.lng || restaurantMeta[mPlace.id]?.lng))) continue;
         out.push(mPlace);
       }
     }

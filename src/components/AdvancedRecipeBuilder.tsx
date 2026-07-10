@@ -660,8 +660,26 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   useEffect(() => {
     if (initialHydratedRef.current) return;
     initialHydratedRef.current = true;
-    if (existing || seed) return;
+    if (seed) return;
+    // Consume the pending id even in edit mode — leaving it dangling would
+    // hijack the next plain open of the builder.
     const pendingId = consumePendingResumeDraftId();
+    if (existing) {
+      // Resuming a draft OF THIS EDIT (Activity passes the meal so publish
+      // routes through updateHomeMeal instead of creating a duplicate):
+      // hydrate the draft state over the prefill — the draft session is
+      // newer than the stored meal.
+      if (pendingId) {
+        const draft = getDraft(userId, pendingId);
+        if (draft && draft.editingMealId === existing.id) {
+          dispatch({ type: 'HYDRATE', state: draft.state });
+          setCurrentStep(Math.max(0, Math.min(LAST_STEP, draft.currentStep)));
+          setCurrentDraftId(draft.id);
+          setDraftSavedAt(draft.savedAt);
+        }
+      }
+      return;
+    }
     if (pendingId) {
       const draft = getDraft(userId, pendingId);
       if (draft) {

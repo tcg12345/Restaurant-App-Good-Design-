@@ -27,7 +27,7 @@ import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilt
 import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -2051,7 +2051,7 @@ const ListDetailView: React.FC<{
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
     if (isHoursFilterActive(wishlistHoursFilter)) {
-      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter));
+      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter, restaurantLocalNow(restaurantMeta[id]?.lng)));
     }
     if (wishlistMichelinFilter.length > 0) {
       out = out.filter(({ info }) => info && passesMichelinFilter(
@@ -2138,7 +2138,7 @@ const ListDetailView: React.FC<{
       out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
     }
     if (isHoursFilterActive(wishlistHoursFilter)) {
-      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter));
+      out = out.filter(({ id }) => passesHoursFilter(restaurantMeta[id]?.hours, wishlistHoursFilter, restaurantLocalNow(restaurantMeta[id]?.lng)));
     }
     if (wishlistMichelinFilter.length > 0) {
       out = out.filter(({ info }) => info && passesMichelinFilter(
@@ -6826,7 +6826,7 @@ export const Pantry: React.FC = () => {
       });
     }
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
-    if (isHoursFilterActive(hoursFilter)) result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurantId]?.hours, hoursFilter));
+    if (isHoursFilterActive(hoursFilter)) result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurantId]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurantId]?.lng)));
 
     if (sortBy === 'custom') {
       const orderMap = new Map(customOrder.map((id, i) => [id, i]));

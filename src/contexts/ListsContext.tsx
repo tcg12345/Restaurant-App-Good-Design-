@@ -1073,8 +1073,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ? (cloud as any).trips
           : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
-        // Restore custom order from meta
-        let cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
+        // Restore custom order from meta; fall back to this device's saved
+        // order when the cloud has none (a wholesale [] here also wiped the
+        // local copy at the cache-write below).
+        let cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__)
+          ? (cloudMeta as any).__custom_order__ as string[]
+          : loadFromStorage<string[]>(STORAGE_KEY_CUSTOM_ORDER, []);
 
         // ── Merge + apply unified deletion tombstones ──
         // Pull the cloud's tombstone stash, union it into this device's set, and
@@ -1107,6 +1111,34 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         cloudTrips = cloudTrips.filter((t) => !tomb.trips.has(t.id));
         cloudCustomOrder = cloudCustomOrder.filter((id) => !tomb.restaurants.has(id));
         let tombstonesRemovedData = cloudRatings.length !== ratingsBeforeTomb;
+
+        // ── Union in local-only ratings + wishlist hearts ──
+        // The top-level pick above takes the cloud copy wholesale whenever
+        // it's non-empty, which silently dropped anything local-only: a
+        // rating saved while this load was in flight, or one saved offline
+        // that never reached the cloud. Merge them in by restaurantId —
+        // cloud wins on id conflicts (an edit on another device beats a
+        // stale local copy) and tombstoned ids stay dead. Mirrors the
+        // lists/home-meals merges above.
+        const cloudRatingIds = new Set(cloudRatings.map((r) => r.restaurantId));
+        const localOnlyRatings = migrateRatings(localRatings)
+          .filter((r) => r && r.restaurantId && !cloudRatingIds.has(r.restaurantId) && !tomb.restaurants.has(r.restaurantId))
+          .map((r) => {
+            const keptListIds = r.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, r.restaurantId));
+            return keptListIds.length === r.listIds.length ? r : { ...r, listIds: keptListIds };
+          });
+        const ratingsMergedFromLocal = localOnlyRatings.length > 0;
+        if (ratingsMergedFromLocal) cloudRatings = [...localOnlyRatings, ...cloudRatings];
+
+        const cloudWishlistRids = new Set(cloudWishlist.map((w) => w.restaurantId));
+        const localOnlyWishlist = migrateWishlist(localWishlist)
+          .filter((w) => w && w.restaurantId && !cloudWishlistRids.has(w.restaurantId) && !tomb.wishlist.has(w.restaurantId))
+          .map((w) => {
+            const keptListIds = w.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, w.restaurantId));
+            return keptListIds.length === w.listIds.length ? w : { ...w, listIds: keptListIds };
+          });
+        const wishlistMergedFromLocal = localOnlyWishlist.length > 0;
+        if (wishlistMergedFromLocal) cloudWishlist = [...cloudWishlist, ...localOnlyWishlist];
 
         // ── Restore visit history from the durable stash ──
         // The dedicated `visit_history` table isn't present on every deployment
@@ -1222,7 +1254,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // Carry the home-meals union + every tombstone stash inside the durable
         // restaurant_meta blob so they persist on schemas without dedicated
         // columns and converge across devices.
+        // Local-only meta keys survive the swap: cached hours/coords and the
+        // durable __stash__ keys written while this load was in flight (or
+        // never synced) would otherwise be discarded wholesale. Cloud wins
+        // on every key it has — this only rescues keys the cloud lacks.
+        const localMetaSnapshot = migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {}));
+        const localOnlyMeta: Record<string, RestaurantMeta> = {};
+        let metaMergedFromLocal = false;
+        for (const [mk, mv] of Object.entries(localMetaSnapshot)) {
+          if (!(mk in cloudMeta)) { localOnlyMeta[mk] = mv; metaMergedFromLocal = true; }
+        }
         const cloudMetaWithMeals = {
+          ...localOnlyMeta,
           ...migrateMeta(cloudMeta),
           __home_meals__: cloudHomeMeals as unknown as RestaurantMeta,
           __deleted_meals__: Array.from(mergedDeletedIds) as unknown as RestaurantMeta,
@@ -1258,7 +1301,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // with the resolved union, so recipes are backed up into a column that
         // is always present (covers schemas missing the home_meals column).
         const metaStashStale = metaHomeMeals.length !== cloudHomeMeals.length;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale || tombstonesRemovedSomething || cloudTombstonesStale || tombGrew || tombstonesRemovedData || cloudTombHadFewer || visitHistoryStale) {
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || ratingsMergedFromLocal || wishlistMergedFromLocal || metaMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale || tombstonesRemovedSomething || cloudTombstonesStale || tombGrew || tombstonesRemovedData || cloudTombHadFewer || visitHistoryStale) {
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 

@@ -124,6 +124,29 @@ export function isOpenNow(hours: string[] | undefined | null, now: Date = new Da
   return openAtTime(parseWeekdayHours(hours), now);
 }
 
+/**
+ * Best-effort clock at the restaurant, for "Open now" checks.
+ *
+ * Published hours are in the restaurant's local time, but `openAtTime` reads
+ * its Date in the DEVICE timezone — correct only when the viewer is (roughly)
+ * in the same zone. When browsing a remote city (trip planning), a NYC user
+ * at 7 pm sees Tokyo dinner spots "closed" because it's 8 am there.
+ *
+ * Without a timezone database the restaurant's zone is approximated from its
+ * longitude (solar time, 15° per hour). Within a ±3 h band of the device's
+ * offset we keep the device clock — exact (including DST) for local browsing,
+ * where political zones can skew civil time well away from solar time (e.g.
+ * Spain). Beyond the band the solar approximation is within about an hour,
+ * versus being wrong by up to 14.
+ */
+export function restaurantLocalNow(lng: number | undefined | null, now: Date = new Date()): Date {
+  if (typeof lng !== 'number' || !Number.isFinite(lng) || lng === 0) return now;
+  const solarOffsetHours = Math.round(lng / 15);
+  const deviceOffsetHours = -now.getTimezoneOffset() / 60;
+  if (Math.abs(solarOffsetHours - deviceOffsetHours) < 3) return now;
+  return new Date(now.getTime() + (solarOffsetHours - deviceOffsetHours) * 3_600_000);
+}
+
 export interface HoursFilter {
   meals: MealKey[];
   openNow: boolean;

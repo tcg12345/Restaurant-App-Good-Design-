@@ -21,7 +21,7 @@ import {
 } from '../lib/supabase-community';
 import { getMyGuides, isPublicGuide, type Guide } from '../lib/supabase-guides';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -350,7 +350,7 @@ export const UserProfile: React.FC = () => {
     }
     result = result.filter((r) => Number(r.score) >= scoreRange[0] && Number(r.score) <= scoreRange[1]);
     if (isHoursFilterActive(hoursFilter)) {
-      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurant_id]?.lng)));
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

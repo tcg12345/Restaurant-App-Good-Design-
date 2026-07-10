@@ -38,7 +38,7 @@ import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
@@ -1766,7 +1766,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // a ref so this stays a stable callback).
     const hf = filtersRef.current.hoursFilter;
     if (isHoursFilterActive(hf)) {
-      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf, restaurantLocalNow(p.lng || restaurantMetaRef.current[p.id]?.lng)));
     }
 
     // Sort
@@ -2675,7 +2675,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     // Opening hours (breakfast/lunch/dinner + open now)
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+      filtered = filtered.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter, restaurantLocalNow(r.lng ?? restaurantMeta[r.restaurant_id]?.lng)));
     }
     // Sort
     const sorted = [...filtered];
@@ -2803,7 +2803,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng)));
     }
     const sorted = [...filtered];
     switch (hotelSortBy) {
