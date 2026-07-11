@@ -40,12 +40,25 @@ interface AuthContextType {
    *  requires the emailed 6-digit code before a session exists (project
    *  has "Confirm email" enabled). The caller shows the code screen. */
   signUp: (email: string, password: string) => Promise<{ error: string | null; needsVerification?: boolean }>;
-  /** Confirm a signup with the 6-digit code from the verification email.
-   *  On success Supabase creates the session and onAuthStateChange takes
-   *  over. */
-  verifyEmailCode: (email: string, code: string) => Promise<{ error: string | null }>;
+  /** Start the verify-first email signup: sends a 6-digit code to the
+   *  address (creating the account if needed) WITHOUT a password —
+   *  supabase.auth.signInWithOtp. Always sends, independent of the
+   *  project's "Confirm email" setting. */
+  startEmailSignup: (email: string) => Promise<{ error: string | null }>;
+  /** Confirm the emailed 6-digit code. On success Supabase creates the
+   *  session and onAuthStateChange takes over. Pass `expectPasswordSetup`
+   *  on the verify-first signup path so the app keeps showing the
+   *  choose-password screen (needsPasswordSetup) instead of jumping
+   *  straight into profile setup. */
+  verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
+  /** True while a verified-by-code signup still needs its password chosen.
+   *  App.tsx keeps rendering the Auth screen (setpassword step) until
+   *  completePasswordSetup clears it. Survives an app relaunch. */
+  needsPasswordSetup: boolean;
+  /** Set the password for a code-verified signup (auth.updateUser). */
+  completePasswordSetup: (password: string) => Promise<{ error: string | null }>;
   /** Start an OAuth sign-in (e.g. Google). Redirects the browser to the
    *  provider and back to the app, where the session is picked up by
    *  `onAuthStateChange`. Returns an error only when the redirect itself
@@ -73,6 +86,11 @@ const ACTIVE_USER_KEY = 'gourmad-active-user';
  *  navigation and reloads (App.tsx would otherwise re-show Auth on every
  *  paint because there's no Supabase session). */
 const GUEST_MODE_KEY = 'gourmad-guest-mode';
+
+/** Set between OTP verification and password creation on the verify-first
+ *  signup path, so a relaunch mid-flow still lands on the choose-password
+ *  screen instead of leaving a passwordless account behind. */
+const NEEDS_PASSWORD_KEY = 'gourmad-needs-password';
 
 /**
  * Cross-account leak guard. Several stores cache personal data in
@@ -112,8 +130,11 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
+  startEmailSignup: async () => ({ error: null }),
   verifyEmailCode: async () => ({ error: null }),
   resendVerificationCode: async () => ({ error: null }),
+  needsPasswordSetup: false,
+  completePasswordSetup: async () => ({ error: null }),
   signInWithOAuth: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -131,6 +152,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [needsPasswordSetup, setNeedsPasswordSetup] = useState<boolean>(() => {
+    try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === '1'; } catch { return false; }
+  });
+  const markNeedsPassword = useCallback((on: boolean) => {
+    setNeedsPasswordSetup(on);
+    try {
+      if (on) localStorage.setItem(NEEDS_PASSWORD_KEY, '1');
+      else localStorage.removeItem(NEEDS_PASSWORD_KEY);
+    } catch { /* storage unavailable */ }
+  }, []);
   const [isGuest, setIsGuest] = useState<boolean>(() => {
     try { return localStorage.getItem(GUEST_MODE_KEY) === '1'; } catch { return false; }
   });
@@ -218,11 +249,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         12000,
         'auth.signInWithPassword',
       );
+      if (!error) markNeedsPassword(false); // password exists — flag is stale
       return { error: error?.message ?? null };
     } catch {
       return { error: 'Sign in took too long. Check your connection and try again.' };
     }
-  }, []);
+  }, [markNeedsPassword]);
 
   const signUp = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -243,19 +275,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const verifyEmailCode = useCallback(async (email: string, code: string) => {
+  const startEmailSignup = useCallback(async (email: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     try {
       const { error } = await withTimeout(
-        supabase.auth.verifyOtp({ email, token: code.trim(), type: 'signup' }),
+        supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),
+        12000,
+        'auth.signInWithOtp',
+      );
+      if (error) {
+        return {
+          error: /rate|seconds/i.test(error.message)
+            ? 'A code was sent recently — wait a minute before requesting another.'
+            : error.message,
+        };
+      }
+      return { error: null };
+    } catch {
+      return { error: 'Could not send the code. Check your connection and try again.' };
+    }
+  }, []);
+
+  const verifyEmailCode = useCallback(async (email: string, code: string, expectPasswordSetup = false) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    // Raise the flag BEFORE the session lands: onAuthStateChange fires inside
+    // verifyOtp, and App must already know to hold the Auth screen for the
+    // choose-password step (otherwise ProfileSetup flashes in).
+    if (expectPasswordSetup) markNeedsPassword(true);
+    const attempt = (type: 'email' | 'signup') =>
+      withTimeout(
+        supabase.auth.verifyOtp({ email, token: code.trim(), type }),
         12000,
         'auth.verifyOtp',
       );
+    try {
+      // 'email' covers OTP signups/sign-ins on supabase-js v2; fall back to
+      // 'signup' for accounts created via the legacy password-first path.
+      let { error } = await attempt('email');
+      if (error) ({ error } = await attempt('signup'));
+      if (error && expectPasswordSetup) markNeedsPassword(false);
       return { error: error?.message ?? null };
     } catch {
+      if (expectPasswordSetup) markNeedsPassword(false);
       return { error: 'Verification took too long. Check your connection and try again.' };
     }
-  }, []);
+  }, [markNeedsPassword]);
+
+  const completePasswordSetup = useCallback(async (password: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.updateUser({ password }),
+        12000,
+        'auth.updateUser',
+      );
+      if (error) return { error: error.message };
+      markNeedsPassword(false);
+      return { error: null };
+    } catch {
+      return { error: 'Saving your password took too long. Try again.' };
+    }
+  }, [markNeedsPassword]);
 
   const resendVerificationCode = useCallback(async (email: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -304,8 +384,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
     setPendingRequestCount(0);
     setIsAdmin(false);
+    markNeedsPassword(false);
     clearGuest();
-  }, [clearGuest]);
+  }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
     if (user?.id) await loadProfile(user.id);
@@ -351,7 +432,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
       {children}
     </AuthContext.Provider>
   );

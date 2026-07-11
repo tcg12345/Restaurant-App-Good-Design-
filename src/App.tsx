@@ -177,7 +177,7 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete } = useAuth();
+  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, needsPasswordSetup } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a
@@ -223,7 +223,11 @@ const AppContent: React.FC = () => {
   // registering). Once the user is signed in OR has chosen guest mode, the
   // full app renders; account-only routes/actions then prompt sign-in
   // on demand via the SignInModal overlay.
-  if (!isSignedIn && !isGuest) {
+  // Signed-out (non-guest) users get the Auth screen — and so does a
+  // freshly code-verified signup that hasn't chosen a password yet
+  // (needsPasswordSetup): the session already exists, but Auth stays up
+  // on its choose-password step until it's set.
+  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup)) {
     return (
       <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
         <Routes location={location}>

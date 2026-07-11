@@ -8,7 +8,7 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // original split-screen AuthShell design below.
 import * as OB from '../components/onboarding/OnboardingKit';
 
-type Step = 'email' | 'password' | 'signup' | 'verify';
+type Step = 'email' | 'password' | 'verify' | 'setpassword';
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
 
 // Lightweight password strength heuristic: length + character-class diversity.
@@ -170,7 +170,7 @@ type SharedProps = {
   error: string;
   onEmailContinue: () => void;
   onSignIn: () => void;
-  onSignUp: () => void;
+  onSetPassword: () => void;
   onBack: () => void;
   onOAuth: (provider: 'google' | 'apple') => void;
   oauthPending: 'google' | 'apple' | null;
@@ -330,9 +330,9 @@ const StepPassword: React.FC<SharedProps> = ({
   </div>
 );
 
-const StepSignup: React.FC<SharedProps> = ({
+const StepSetPassword: React.FC<SharedProps> = ({
   email, password, setPassword, showPassword, setShowPassword,
-  submitting, error, onSignUp, onBack,
+  submitting, error, onSetPassword,
 }) => {
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
@@ -340,18 +340,19 @@ const StepSignup: React.FC<SharedProps> = ({
     <div className="space-y-4">
       <header>
         <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-          Create your account
+          Choose a password
         </h1>
         <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
-          <span>Setting up for</span>
-          <EmailPill email={email} onClear={onBack} />
+          <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
+            <Check size={14} /> {email} verified
+          </span>
         </p>
       </header>
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSignUp();
+          onSetPassword();
         }}
         className="space-y-4"
       >
@@ -408,10 +409,10 @@ const StepSignup: React.FC<SharedProps> = ({
           </motion.p>
         )}
 
-        <PrimaryButton loading={submitting}>Create account</PrimaryButton>
+        <PrimaryButton loading={submitting} disabled={password.length < 8}>Continue</PrimaryButton>
 
         <p className="text-xs text-on-surface/45 text-center leading-relaxed">
-          By continuing you agree to our{' '}
+          At least 8 characters. By continuing you agree to our{' '}
           <a href="#" className="text-on-surface/70 underline">Terms</a> and{' '}
           <a href="#" className="text-on-surface/70 underline">Privacy Policy</a>.
         </p>
@@ -502,11 +503,19 @@ const StepVerify: React.FC<SharedProps> = ({
 
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGuest }) => {
-  const { signIn, signUp, signInWithOAuth, checkEmailExists, verifyEmailCode, resendVerificationCode } = useAuth();
+  const {
+    signIn, signInWithOAuth, checkEmailExists,
+    startEmailSignup, verifyEmailCode, resendVerificationCode,
+    completePasswordSetup, needsPasswordSetup, isSignedIn, user,
+  } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
 
-  const [step, setStep] = useState<Step>('email');
-  const [email, setEmail] = useState('');
+  // A relaunch mid-signup (code verified, password not yet chosen) reopens
+  // straight on the choose-password step.
+  const [step, setStep] = useState<Step>(() => (isSignedIn && needsPasswordSetup ? 'setpassword' : 'email'));
+  // On a mid-signup relaunch the email input was never typed this session —
+  // seed it from the verified session so the header can show the address.
+  const [email, setEmail] = useState(() => (isSignedIn && needsPasswordSetup ? user?.email ?? '' : ''));
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -517,6 +526,9 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const [code, setCode] = useState('');
   const [resendIn, setResendIn] = useState(0);
   const [verifyNotice, setVerifyNotice] = useState('');
+  // Which flow the code screen is confirming: a verify-first signup (then
+  // choose a password) or a legacy account whose email was never confirmed.
+  const [verifyFor, setVerifyFor] = useState<'signup' | 'unconfirmed'>('signup');
 
   // Resend cooldown ticker
   React.useEffect(() => {
@@ -539,9 +551,23 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setEmail(trimmed);
     setSubmitting(true);
     const exists = await checkEmailExists(trimmed);
+    if (exists) {
+      setSubmitting(false);
+      setStep('password');
+      return;
+    }
+    // New account: verify the email FIRST (6-digit code), then choose a
+    // password. signInWithOtp always sends the code — no dependency on the
+    // project's "Confirm email" setting.
+    const { error: sendErr } = await startEmailSignup(trimmed);
     setSubmitting(false);
-    setStep(exists ? 'password' : 'signup');
-  }, [email, checkEmailExists]);
+    if (sendErr) { setError(sendErr); return; }
+    setCode('');
+    setVerifyFor('signup');
+    setVerifyNotice('We sent a 6-digit code to');
+    setResendIn(60);
+    setStep('verify');
+  }, [email, checkEmailExists, startEmailSignup]);
 
   const handleSignIn = useCallback(async () => {
     setError('');
@@ -557,7 +583,8 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
       if (/confirm/i.test(err)) {
         void resendVerificationCode(email);
         setCode('');
-        setResendIn(30);
+        setVerifyFor('unconfirmed');
+        setResendIn(60);
         setVerifyNotice('Your email still needs verifying — we sent a new code to');
         setError('');
         setStep('verify');
@@ -568,45 +595,18 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setSubmitting(false);
   }, [email, password, signIn, resendVerificationCode]);
 
-  const handleSignUp = useCallback(async () => {
+  const handleSetPassword = useCallback(async () => {
     setError('');
-    if (!password) {
-      setError('Please choose a password');
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     setSubmitting(true);
-    const { error: err, needsVerification } = await signUp(email, password);
-    if (!err && needsVerification) {
-      setCode('');
-      setResendIn(30);
-      setVerifyNotice('We sent a 6-digit code to');
-      setStep('verify');
-      setSubmitting(false);
-      return;
-    }
-    if (err) {
-      // The email may already be registered — e.g. the existence check was
-      // wrong (rate-limited) and routed a returning user here. Recover instead
-      // of dead-ending: try signing them in with what they typed; if that's the
-      // wrong password, drop them on the sign-in screen to enter the right one.
-      if (/already|registered|exists/i.test(err)) {
-        const { error: signInErr } = await signIn(email, password);
-        if (signInErr) {
-          setPassword('');
-          setStep('password');
-          setError('You already have an account — enter your password to sign in.');
-        }
-        // success → onAuthStateChange swaps to the app.
-      } else {
-        setError(err);
-      }
-    }
+    const { error: err } = await completePasswordSetup(password);
+    if (err) setError(err);
+    // Success clears needsPasswordSetup — App swaps to profile setup.
     setSubmitting(false);
-  }, [email, password, signUp, signIn]);
+  }, [password, completePasswordSetup]);
 
   const handleBack = useCallback(() => {
     setStep('email');
@@ -619,22 +619,27 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setError('');
     if (code.length !== 6) { setError('Enter the 6-digit code from your email'); return; }
     setSubmitting(true);
-    const { error: err } = await verifyEmailCode(email, code);
+    const { error: err } = await verifyEmailCode(email, code, verifyFor === 'signup');
     if (err) {
-      setError(/expired|invalid/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
+      setError(/expired|invalid|token/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
+    } else if (verifyFor === 'signup') {
+      // Verified — the session exists; now choose the password.
+      setPassword('');
+      setStep('setpassword');
     }
-    // Success → Supabase creates the session and onAuthStateChange swaps
-    // to profile setup; nothing else to do here.
+    // 'unconfirmed': the session lands and onAuthStateChange swaps to the app.
     setSubmitting(false);
-  }, [email, code, verifyEmailCode]);
+  }, [email, code, verifyFor, verifyEmailCode]);
 
   const handleResend = useCallback(async () => {
     if (resendIn > 0) return;
     setError('');
-    setResendIn(30);
-    const { error: err } = await resendVerificationCode(email);
+    setResendIn(60);
+    const { error: err } = verifyFor === 'signup'
+      ? await startEmailSignup(email)
+      : await resendVerificationCode(email);
     if (err) setError(err);
-  }, [email, resendIn, resendVerificationCode]);
+  }, [email, resendIn, verifyFor, startEmailSignup, resendVerificationCode]);
 
   const handleOAuth = useCallback(async (provider: 'google' | 'apple') => {
     setError('');
@@ -652,7 +657,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     submitting, error,
     onEmailContinue: handleEmailContinue,
     onSignIn: handleSignIn,
-    onSignUp: handleSignUp,
+    onSetPassword: handleSetPassword,
     onBack: handleBack,
     onOAuth: handleOAuth,
     oauthPending,
@@ -675,8 +680,8 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
       >
         {step === 'email' && <StepEmail {...sharedProps} />}
         {step === 'password' && <StepPassword {...sharedProps} />}
-        {step === 'signup' && <StepSignup {...sharedProps} />}
         {step === 'verify' && <StepVerify {...sharedProps} />}
+        {step === 'setpassword' && <StepSetPassword {...sharedProps} />}
       </motion.div>
     </AnimatePresence>
   );
@@ -686,6 +691,9 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     const headerRight =
       step === 'email' ? (
         <span className="text-on-surface/45">New to Gourmet Canvas?</span>
+      ) : step === 'setpassword' ? (
+        // Email is verified and the session exists — no going back from here.
+        <span className="text-on-surface/45">One last step</span>
       ) : (
         <button
           type="button"
@@ -697,7 +705,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
         </button>
       );
     return (
-      <AuthShell headerRight={headerRight} panel={step === 'verify' ? 'signup' : step}>
+      <AuthShell headerRight={headerRight} panel={step === 'verify' || step === 'setpassword' ? 'signup' : step}>
         {stepContent}
       </AuthShell>
     );
@@ -833,22 +841,24 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     );
   }
 
-  // Create account (Step 1 of 6)
+  // Choose a password (email already verified by code; session exists)
   return (
     <OB.OnboardingScreen>
-      <FadeStep stepKey="signup">
-        <OB.ProgressHeader step={1} total={6} onBack={handleBack} />
+      <FadeStep stepKey="setpassword">
         <div style={{ marginTop: 26 }}><OB.BrandMark size={50} /></div>
-        <OB.Title size={30}>Create your account</OB.Title>
-        <div style={{ marginTop: 14 }}><OB.EmailPill email={emailDisplay} onClick={handleBack} /></div>
-        <form onSubmit={(e) => { e.preventDefault(); handleSignUp(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
+        <OB.Title size={30}>Choose a password</OB.Title>
+        <div className="flex items-center gap-2" style={{ marginTop: 14 }}>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{emailDisplay} verified</span>
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
           <OB.FieldLabel>Password</OB.FieldLabel>
           <OB.Field
             type={showPassword ? 'text' : 'password'} name="password" value={password}
             onChange={(v) => { setPassword(v); setError(''); }} placeholder="Choose a password"
             icon={<Lock size={16} strokeWidth={1.7} />} autoFocus autoComplete="new-password"
             rightSlot={<EyeToggle shown={showPassword} onClick={() => setShowPassword(!showPassword)} />}
-            onSubmit={handleSignUp}
+            onSubmit={handleSetPassword}
           />
           <div className="flex items-center gap-2" style={{ marginTop: 11 }}>
             {pwOk ? (
@@ -865,7 +875,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
           </div>
           {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
           <div style={{ marginTop: 'auto', paddingTop: 28 }}>
-            <OB.PrimaryButton type="submit" loading={submitting}>Create account</OB.PrimaryButton>
+            <OB.PrimaryButton type="submit" loading={submitting} disabled={!pwOk} trailing="check">Continue</OB.PrimaryButton>
             <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ob-label)', margin: '16px 0 0', lineHeight: 1.5 }}>
               By continuing you agree to our <span style={{ color: OB.TERRA, fontWeight: 600 }}>Terms</span> &amp; <span style={{ color: OB.TERRA, fontWeight: 600 }}>Privacy</span>.
             </p>
