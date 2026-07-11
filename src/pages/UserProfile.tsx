@@ -746,6 +746,12 @@ export const UserProfile: React.FC = () => {
                 )}
               </div>
 
+              {profile.is_verified && profile.verified_status && (
+                <p className="mt-2 text-[13.5px] font-semibold text-primary/90">
+                  {profile.verified_status}
+                </p>
+              )}
+
               {profile.bio && canView && (
                 <p className="mt-3.5 text-[15px] leading-relaxed text-[var(--color-ink-2)] max-w-[300px] text-pretty">
                   {profile.bio}
@@ -1140,6 +1146,11 @@ export const UserProfile: React.FC = () => {
         {profile.bio && canView && (
           <p className="mt-3 text-[14px] leading-relaxed text-[var(--color-ink-2)] max-w-[300px] text-pretty">
             {profile.bio}
+          </p>
+        )}
+        {profile.is_verified && profile.verified_status && (
+          <p className="mt-2 text-[12.5px] font-semibold text-primary/90">
+            {profile.verified_status}
           </p>
         )}
         {profile.home_city && (

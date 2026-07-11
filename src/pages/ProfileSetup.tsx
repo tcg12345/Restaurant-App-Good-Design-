@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { saveProfile } from '../lib/supabase-community';
 import { geocodePlace, searchLocations, type HomeLocation } from '../components/HomeLocationBar';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
@@ -9,7 +11,7 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // original single-form AuthShell design.
 import * as OB from '../components/onboarding/OnboardingKit';
 
-type StepKey = 'name' | 'handle' | 'city' | 'type' | 'visibility';
+type StepKey = 'name' | 'handle' | 'city' | 'visibility';
 
 /* ── City autocomplete (mobile wizard) — Mapbox suggestions ─────────────── */
 const CityAutocomplete: React.FC<{
@@ -108,9 +110,9 @@ export const ProfileSetup: React.FC = () => {
   const [homeCity, setHomeCity] = useState('');
   const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(null);
   const [isPublic, setIsPublic] = useState(true);
-  const [isExpert, setIsExpert] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
   // Mobile wizard state (unused by desktop, but hooks must be unconditional).
   const [pStep, setPStep] = useState(0);
   const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
@@ -128,7 +130,7 @@ export const ProfileSetup: React.FC = () => {
       : undefined;
     const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), '', isPublic, homeBase);
     return { ok: result.success, error: result.error };
-  }, [user, homeCity, homeGeo, displayName, username, isPublic, isExpert]);
+  }, [user, homeCity, homeGeo, displayName, username, isPublic]);
 
   /* ── Desktop split layout (original single form) ─────────────────────── */
   if (useDesktopLayout) {
@@ -138,14 +140,23 @@ export const ProfileSetup: React.FC = () => {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
       if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
-      if (isExpert && !homeCity.trim()) {
-        setError('Please add the city you cover — it helps people find your recommendations');
-        return;
-      }
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) await refreshProfile();
       else setError(res.error || 'Something went wrong');
+      setSubmitting(false);
+    };
+    const handleSubmitThenVerify = async () => {
+      setError('');
+      if (!username.trim()) { setError('Please choose a username'); return; }
+      if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
+      setSubmitting(true);
+      const res = await persistProfile();
+      if (res.ok) {
+        navigate('/verify/apply');
+        await refreshProfile();
+      } else setError(res.error || 'Something went wrong');
       setSubmitting(false);
     };
     const handleBack = () => { void signOut(); };
@@ -185,7 +196,7 @@ export const ProfileSetup: React.FC = () => {
             )}
             <div className="relative">
               <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
+              <input type="text" placeholder="Home city (optional)"
                 value={homeCity}
                 onChange={(e) => setHomeCity(e.target.value)}
                 autoCapitalize="words" autoCorrect="off"
@@ -202,17 +213,6 @@ export const ProfileSetup: React.FC = () => {
                 <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
               </button>
             </div>
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
-                <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
-              </div>
-              <button type="button" onClick={() => setIsExpert(!isExpert)}
-                aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
-                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
-            </div>
             {error && (
               <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                 className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
@@ -224,6 +224,18 @@ export const ProfileSetup: React.FC = () => {
                 <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
               )}
             </motion.button>
+            {/* Subtle, out-of-the-way verification entry — completes setup
+                first (the application row needs the profile to exist), then
+                opens the request form. */}
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void handleSubmitThenVerify()}
+              className="mt-1 inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-on-surface/45 hover:text-primary transition-colors disabled:opacity-50"
+            >
+              <VerifiedBadge size={13} />
+              Are you a chef, critic, or creator? Request verification
+            </button>
           </form>
         </div>
       </AuthShell>
@@ -232,8 +244,8 @@ export const ProfileSetup: React.FC = () => {
 
   /* ── Mobile cream/terracotta wizard ──────────────────────────────────── */
   const steps: StepKey[] = seed.nameFromProvider
-    ? ['handle', 'city', 'type', 'visibility']
-    : ['name', 'handle', 'city', 'type', 'visibility'];
+    ? ['handle', 'city', 'visibility']
+    : ['name', 'handle', 'city', 'visibility'];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
   const total = offset + steps.length;
@@ -247,6 +259,17 @@ export const ProfileSetup: React.FC = () => {
     setSubmitting(false);
     if (res.ok) setScreen('done');
     else setError(res.error || 'Something went wrong');
+  };
+
+  const finishThenVerify = async () => {
+    setSubmitting(true);
+    setError('');
+    const res = await persistProfile();
+    setSubmitting(false);
+    if (res.ok) {
+      navigate('/verify/apply');
+      void refreshProfile();
+    } else setError(res.error || 'Something went wrong');
   };
 
   const next = () => {
@@ -350,24 +373,6 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {stepKey === 'type' && (
-              <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Account</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>How do you want to show up?</OB.Title></div>
-                  <OB.Subtitle>You can switch this whenever you like.</OB.Subtitle>
-                </div>
-                <div className="flex flex-col gap-3" style={{ marginTop: 28 }}>
-                  <OB.RadioCard selected={!isExpert} onClick={() => setIsExpert(false)} title="Food lover" description="Save spots, rate where you eat, and follow friends." />
-                  <OB.RadioCard
-                    selected={isExpert} onClick={() => setIsExpert(true)}
-                    title={<span className="inline-flex items-center gap-2">Expert reviewer<span style={{ fontSize: 9.5, letterSpacing: '0.6px', fontWeight: 700, color: OB.TERRA, background: 'var(--ob-badge-bg)', padding: '2px 7px', borderRadius: 5 }}>VERIFIED</span></span>}
-                    description="Apply to publish expert picks — we'll verify you first."
-                  />
-                </div>
-              </div>
-            )}
-
             {stepKey === 'visibility' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
@@ -392,6 +397,15 @@ export const ProfileSetup: React.FC = () => {
           {stepKey === 'city' && (
             <div style={{ marginTop: 4 }}>
               <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
+            </div>
+          )}
+          {isLast && (
+            <div style={{ marginTop: 4 }}>
+              {/* Subtle verification entry — finishes setup, then opens the
+                  request form instead of the done screen. */}
+              <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
+                Are you a chef, critic, or creator? Request verification
+              </OB.GhostButton>
             </div>
           )}
         </div>

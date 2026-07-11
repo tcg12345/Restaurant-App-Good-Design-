@@ -7,6 +7,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
+import { VerificationApply } from './pages/VerificationApply';
+import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
 import { Circle } from './pages/Circle';
@@ -32,6 +34,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
 import { RatingModal } from './components/RatingModal';
+import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { AddRecipeModal } from './components/AddRecipeModal';
@@ -363,6 +366,8 @@ const AppContent: React.FC = () => {
           <Route path="/activity/comments" element={<RequireAuthRoute reason="Sign in to see your comments"><Activity /></RequireAuthRoute>} />
           <Route path="/activity/drafts" element={<RequireAuthRoute reason="Sign in to see your drafts"><Activity /></RequireAuthRoute>} />
           <Route path="/experts" element={<Experts />} />
+          <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
+          <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
@@ -395,6 +400,7 @@ const AppContent: React.FC = () => {
   const modals = (
     <>
       <RatingModal />
+      <VerificationOutcomeModal />
       <AddToListModal />
       <AddRestaurantModal />
       <AddRecipeModal />
