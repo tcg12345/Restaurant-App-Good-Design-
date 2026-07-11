@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Check, Crown } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
 
 interface ExpertCardProps {
   name: string;
@@ -36,7 +37,7 @@ export const ExpertCard: React.FC<ExpertCardProps> = ({
       <div className="absolute inset-x-5 bottom-5 text-white flex items-end justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <Crown size={11} className="text-amber-400" />
+            <VerifiedBadge size={12} />
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/70">{role}</p>
           </div>
           <h3 className="font-serif text-xl font-bold leading-tight mb-1 truncate">{name}</h3>

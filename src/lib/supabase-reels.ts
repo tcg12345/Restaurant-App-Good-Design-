@@ -160,16 +160,16 @@ async function hydrateAuthors(userIds: string[]): Promise<Record<string, ReelAut
   try {
     const unique = Array.from(new Set(userIds));
     const { data } = await supabase.from('user_profiles')
-      .select('user_id, username, display_name, is_expert')
+      .select('user_id, username, display_name, is_verified')
       .in('user_id', unique);
     for (const row of data || []) {
-      const r = row as { user_id: string; username?: string; display_name?: string; is_expert?: boolean };
+      const r = row as { user_id: string; username?: string; display_name?: string; is_verified?: boolean };
       out[r.user_id] = {
         username: r.username || (r.display_name?.replace(/\s+/g, '').toLowerCase() || r.user_id.slice(0, 8)),
         displayName: r.display_name || r.username,
         avatarColor: pickAvatarColor(r.user_id),
         initials: initialsFor(r.display_name || r.username || ''),
-        isExpert: !!r.is_expert,
+        isExpert: !!r.is_verified, // legacy field name; sourced from is_verified
       };
     }
   } catch { /* best-effort */ }

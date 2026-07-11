@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, X, ChevronDown, Loader2, Star, Users, UserPlus, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -13,6 +13,7 @@ import {
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
 import { CardShell, CardMedia, MetaRow, SaveButton, AddButton, ScoreBadge } from './cards';
+import { VerifiedBadge } from './VerifiedBadge';
 import { LoadingSkeletonList } from './LoadingSkeleton';
 import { extractCityState } from '../lib/places';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -168,7 +169,7 @@ export const FollowingFeed: React.FC = () => {
   const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
-  // Role filter: all followed users / friends only / experts only
+  // Role filter: all followed users / friends only / verified only
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   // Optional per-person picker (user_ids). Empty array = no per-person
   // narrowing applied.
@@ -239,8 +240,8 @@ export const FollowingFeed: React.FC = () => {
     const seen = new Map<string, CommunityRating>();
     for (const r of ratings) {
       const prof = profiles[r.user_id];
-      if (roleFilter === 'friends' && prof?.is_expert) continue;
-      if (roleFilter === 'experts' && !prof?.is_expert) continue;
+      if (roleFilter === 'friends' && prof?.is_verified) continue;
+      if (roleFilter === 'experts' && !prof?.is_verified) continue;
       if (personSet.size > 0 && !personSet.has(r.user_id)) continue;
       if (!seen.has(r.restaurant_id)) seen.set(r.restaurant_id, r);
     }
@@ -391,7 +392,7 @@ export const FollowingFeed: React.FC = () => {
       ? (profiles[personFilter[0]]?.display_name || profiles[personFilter[0]]?.username || '1 person')
       : personFilter.length > 1 ? `People (${personFilter.length})`
       : roleFilter === 'friends' ? 'Friends'
-      : roleFilter === 'experts' ? 'Experts'
+      : roleFilter === 'experts' ? 'Verified'
       : 'Who';
   // Distinct reviewers behind the current result set — feeds the count line
   // so the page says whose picks it's showing.
@@ -576,8 +577,8 @@ export const FollowingFeed: React.FC = () => {
                             </span>
                             <p className="truncate text-[11.5px] font-medium text-on-surface/45">
                               <span className="font-semibold text-on-surface/70">{reviewer}</span>
-                              {profile.is_expert && (
-                                <Star size={9} className="ml-1 inline-block fill-amber-500 text-amber-500 align-[-0.5px]" />
+                              {profile.is_verified && (
+                                <VerifiedBadge size={12} inline className="ml-1" />
                               )}
                               <span className="mx-1 text-on-surface/25">·</span>
                               {timeAgo(r.created_at)}
@@ -700,8 +701,8 @@ const FollowingFilterSheet: React.FC<{
   // into \"experts only\" and only see the experts you follow.
   const visiblePeople = followedPeople
     .filter((p) => {
-      if (roleFilter === 'friends' && p.profile?.is_expert) return false;
-      if (roleFilter === 'experts' && !p.profile?.is_expert) return false;
+      if (roleFilter === 'friends' && p.profile?.is_verified) return false;
+      if (roleFilter === 'experts' && !p.profile?.is_verified) return false;
       return true;
     })
     .filter((p) => {
@@ -807,7 +808,7 @@ const FollowingFilterSheet: React.FC<{
                     [
                       ['all', 'Everyone'],
                       ['friends', 'Friends'],
-                      ['experts', 'Experts'],
+                      ['experts', 'Verified'],
                     ] as const
                   ).map(([key, label]) => (
                     <button
@@ -890,7 +891,7 @@ const FollowingFilterSheet: React.FC<{
                           const name = p.profile?.display_name || p.profile?.username || 'User';
                           const initial = name.charAt(0).toUpperCase();
                           const selected = personFilter.includes(p.id);
-                          const isExpert = !!p.profile?.is_expert;
+                          const isExpert = !!p.profile?.is_verified;
                           return (
                             <button
                               key={p.id}
@@ -918,7 +919,7 @@ const FollowingFilterSheet: React.FC<{
                                 </p>
                                 <p className="text-[10px] font-medium uppercase tracking-wider text-on-surface/40 truncate">
                                   {isExpert
-                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert</span>
+                                    ? <span className="inline-flex items-center gap-0.5 text-primary font-bold"><VerifiedBadge size={11} />Verified</span>
                                     : 'Friend'}
                                 </p>
                               </div>

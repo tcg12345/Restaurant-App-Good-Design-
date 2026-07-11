@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -582,7 +583,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
         )}
       >
         <div className="flex items-center gap-3 mb-2">
-          {/* Avatar + @handle + EXPERT chip — only this region opens the
+          {/* Avatar + @handle + VERIFIED chip — only this region opens the
               author's profile. Audio label is rendered outside the
               Link so it falls through to the toggle handler. Stop
               propagation so the toggle doesn't also fire. */}
@@ -597,9 +598,9 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
               {reel.isExpert && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
-                  <Star size={9} className="fill-stone-900" />
-                  EXPERT
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+                  <VerifiedBadge size={11} />
+                  VERIFIED
                 </span>
               )}
             </div>
@@ -704,9 +705,9 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-bold text-[15px] truncate text-on-surface group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
           {reel.isExpert && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
-              <Star size={9} className="fill-stone-900" />
-              EXPERT
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+              <VerifiedBadge size={11} />
+              VERIFIED
             </span>
           )}
         </div>
@@ -769,9 +770,9 @@ const DesktopPostSideDetails: React.FC<{
             @{post.author?.username || post.userId.slice(0, 8)}
           </span>
           {post.author?.isExpert && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
-              <Star size={9} className="fill-stone-900" />
-              EXPERT
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+              <VerifiedBadge size={11} />
+              VERIFIED
             </span>
           )}
         </div>
@@ -1433,7 +1434,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className={cn('text-[13px] font-bold truncate', usernameCls)}>@{c.author?.username || c.userId.slice(0, 8)}</span>
             {c.author?.isExpert && (
-              <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
+              <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-primary/10 text-primary text-[9px] font-bold"><VerifiedBadge size={10} />VERIFIED</span>
             )}
             <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
           </div>

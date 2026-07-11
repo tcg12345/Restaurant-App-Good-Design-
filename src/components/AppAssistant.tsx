@@ -781,7 +781,7 @@ export const AppAssistant: React.FC = () => {
         username: p.username,
         displayName: p.display_name || p.username,
         bio: p.bio || undefined,
-        isExpert: !!p.is_expert,
+        isExpert: !!p.is_verified,
         homeCity: p.home_city || undefined,
       }));
     } catch {

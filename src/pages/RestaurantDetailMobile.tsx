@@ -8,6 +8,7 @@ import {
   Car, Footprints, Award, Images, Plus, Heart,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -1261,7 +1262,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <>
             {sep}
             <section>
-              <p className="section-eyebrow mb-4">Expert Picks</p>
+              <p className="section-eyebrow mb-4">Verified Picks</p>
               <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
@@ -1274,7 +1275,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                               <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate">
                                 {rec.expert_name}
                               </Link>
-                              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={11} inline />Verified</span>
                             </div>
                             <p className={cn('text-[13px] mt-1 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
                           </div>

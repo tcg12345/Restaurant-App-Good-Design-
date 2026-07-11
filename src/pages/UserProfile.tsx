@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
@@ -245,7 +246,7 @@ export const UserProfile: React.FC = () => {
         }));
       }
 
-      if (p.is_expert) {
+      if (p.is_verified) {
         getExpertRecommendationCount(p.user_id).then((c) => { if (!cancelled) setExpertRecCount(c); });
       }
 
@@ -458,7 +459,7 @@ export const UserProfile: React.FC = () => {
   const handleFollow = async () => {
     if (!userId) { requireSignIn('Sign in to follow'); return; }
     if (!profile) return;
-    const immediate = !!(profile.is_public || profile.is_expert);
+    const immediate = !!(profile.is_public || profile.is_verified);
     if (immediate) {
       const ok = await followPublicAccount(userId, profile.user_id);
       if (ok) {
@@ -733,12 +734,12 @@ export const UserProfile: React.FC = () => {
 
               <div className="flex items-center gap-2 mt-2 text-[14px] font-semibold text-[var(--color-ink-3)] flex-wrap">
                 <span>@{profile.username}</span>
-                {profile.is_expert && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60 text-[10.5px] font-bold uppercase tracking-wider text-amber-700">
-                    <Star size={10} className="fill-amber-500 text-amber-500" /> Expert
+                {profile.is_verified && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10.5px] font-bold uppercase tracking-wider text-primary">
+                    <VerifiedBadge size={12} /> Verified
                   </span>
                 )}
-                {!profile.is_public && !profile.is_expert && (
+                {!profile.is_public && !profile.is_verified && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--color-ink-4)]">
                     <Lock size={11} /> Private
                   </span>
@@ -758,10 +759,10 @@ export const UserProfile: React.FC = () => {
                 </div>
               )}
 
-              {profile.is_expert && expertRecCount > 0 && (
-                <div className="flex items-center gap-1.5 mt-2.5 text-[12.5px] font-semibold text-amber-700">
-                  <Star size={12} className="fill-amber-500 text-amber-500" />
-                  {expertRecCount} expert pick{expertRecCount === 1 ? '' : 's'}
+              {profile.is_verified && expertRecCount > 0 && (
+                <div className="flex items-center gap-1.5 mt-2.5 text-[12.5px] font-semibold text-primary">
+                  <VerifiedBadge size={13} />
+                  {expertRecCount} pick{expertRecCount === 1 ? '' : 's'} from this verified user
                 </div>
               )}
             </div>
@@ -1125,12 +1126,12 @@ export const UserProfile: React.FC = () => {
         </h1>
         <div className="flex items-center justify-center gap-2 mt-1.5 text-[13px] font-semibold text-[var(--color-ink-4)] flex-wrap">
           <span>@{profile.username}</span>
-          {profile.is_expert && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/60 text-[10px] font-bold uppercase tracking-wider text-amber-700">
-              <Star size={9} className="fill-amber-500 text-amber-500" /> Expert
+          {profile.is_verified && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10px] font-bold uppercase tracking-wider text-primary">
+              <VerifiedBadge size={11} /> Verified
             </span>
           )}
-          {!profile.is_public && !profile.is_expert && (
+          {!profile.is_public && !profile.is_verified && (
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--color-ink-4)]">
               <Lock size={10} /> Private
             </span>
@@ -1146,9 +1147,9 @@ export const UserProfile: React.FC = () => {
             <MapPin size={14} strokeWidth={2.2} className="text-primary" /> {profile.home_city}
           </div>
         )}
-        {profile.is_expert && expertRecCount > 0 && (
-          <div className="flex items-center gap-1.5 mt-2 text-[12px] font-semibold text-amber-700">
-            <Star size={12} className="fill-amber-500 text-amber-500" /> {expertRecCount} expert pick{expertRecCount === 1 ? '' : 's'}
+        {profile.is_verified && expertRecCount > 0 && (
+          <div className="flex items-center gap-1.5 mt-2 text-[12px] font-semibold text-primary">
+            <VerifiedBadge size={13} /> {expertRecCount} pick{expertRecCount === 1 ? '' : 's'} from this verified user
           </div>
         )}
       </div>

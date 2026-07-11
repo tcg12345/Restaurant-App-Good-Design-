@@ -1727,7 +1727,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       h.cuisine,
                       totalMin > 0 ? `${totalMin} min` : null,
                       h.difficulty,
-                      h.authorIsFriend ? '[friend]' : h.authorIsExpert ? '[expert]' : null,
+                      h.authorIsFriend ? '[friend]' : h.authorIsExpert ? '[verified]' : null,
                     ].filter(Boolean).join(' · ');
                     const byline = h.authorUsername
                       ? ` — by ${h.authorDisplayName || h.authorUsername} (@${h.authorUsername})`

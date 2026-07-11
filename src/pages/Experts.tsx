@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2, MapPin } from 'lucide-react';
+import { Star, Check, ArrowUpDown, ChevronDown, Loader2, MapPin, BadgeCheck } from 'lucide-react';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreDotBg } from '../lib/score';
@@ -171,9 +172,9 @@ export const Experts: React.FC = () => {
     return (
       <div className="pb-32">
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <Crown size={32} className="text-on-surface/15 mb-3" />
-          <p className="text-sm font-medium text-on-surface/40">No experts yet</p>
-          <p className="text-xs text-on-surface/30 mt-1">Expert reviewers will appear here once they join</p>
+          <BadgeCheck size={32} className="text-on-surface/15 mb-3" />
+          <p className="text-sm font-medium text-on-surface/40">No verified users yet</p>
+          <p className="text-xs text-on-surface/30 mt-1">Verified critics, chefs, and creators will appear here once they join</p>
         </div>
       </div>
     );
@@ -184,14 +185,14 @@ export const Experts: React.FC = () => {
 
       <main className="px-3 pt-safe-5">
         <section className="mb-10">
-          <h2 className="text-2xl font-serif font-bold mb-5">Meet the Experts</h2>
+          <h2 className="text-2xl font-serif font-bold mb-5">Verified Users</h2>
 
           {/* ── Sort + cuisine specialty filters ── */}
           <div className="mb-5">
             {/* Sort dropdown + result count */}
             <div className="flex items-center justify-between mb-3">
               <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-                {displayExperts.length} {displayExperts.length === 1 ? 'expert' : 'experts'}
+                {displayExperts.length} verified {displayExperts.length === 1 ? 'user' : 'users'}
               </p>
               <div className="relative" ref={sortMenuRef}>
                 <button
@@ -264,8 +265,8 @@ export const Experts: React.FC = () => {
 
           {displayExperts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Crown size={28} className="text-on-surface/15 mb-3" />
-              <p className="text-sm font-medium text-on-surface/40">No experts match that cuisine</p>
+              <BadgeCheck size={28} className="text-on-surface/15 mb-3" />
+              <p className="text-sm font-medium text-on-surface/40">No verified users match that cuisine</p>
               {cuisineFilter && (
                 <button onClick={() => setCuisineFilter(null)} className="mt-2 text-xs font-semibold text-primary">
                   Clear filter
@@ -291,8 +292,8 @@ export const Experts: React.FC = () => {
                       <div className="absolute inset-x-5 bottom-5 text-white flex items-end justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 mb-1.5">
-                            <Crown size={11} className="text-amber-400" />
-                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/70">Expert</p>
+                            <VerifiedBadge size={12} />
+                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/70">Verified</p>
                           </div>
                           <h3 className="font-serif text-xl font-bold leading-tight mb-1 truncate">{e.profile.display_name}</h3>
                           {e.profile.home_city && (
@@ -341,7 +342,7 @@ export const Experts: React.FC = () => {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <h3 className="text-sm font-bold">{e.profile.display_name}</h3>
-                    <Crown size={12} className="text-amber-500" />
+                    <VerifiedBadge size={13} />
                   </div>
                   <p className="text-[11px] text-on-surface/40">@{e.profile.username}</p>
                 </div>
@@ -388,7 +389,7 @@ export const Experts: React.FC = () => {
 
         {recentReviews.length > 0 && (
           <section className="mb-12">
-            <h2 className="text-2xl font-serif font-bold mb-8">Latest Expert Reviews</h2>
+            <h2 className="text-2xl font-serif font-bold mb-8">Latest Verified Reviews</h2>
             <ul className="divide-y divide-on-surface/[0.08]">
               {recentReviews.map((review) => (
                 <li key={review.id}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Image as ImageIcon, Smile, Mic, Store } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel, type SharedPost } from '../contexts/ChatContext';
@@ -53,7 +54,7 @@ function lastMessageIsShare(conv: Conversation): boolean {
   return !!last && !!(last.sharedRestaurant || last.sharedRecipe || last.sharedReel || last.sharedPost || last.sharedGuide);
 }
 
-/** Small round avatar — solid color + initials, with an optional expert star. */
+/** Small round avatar — solid color + initials, with an optional verified badge. */
 const PersonAvatar: React.FC<{ name: string; userId: string; size?: number; expert?: boolean }> = ({ name, userId, size = 48, expert }) => (
   <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
     <div
@@ -63,8 +64,8 @@ const PersonAvatar: React.FC<{ name: string; userId: string; size?: number; expe
       {initialsFor(name)}
     </div>
     {expert && (
-      <span className="absolute -top-0.5 -right-0.5 w-[18px] h-[18px] rounded-full bg-amber-500 grid place-items-center ring-2 ring-surface" title="Expert">
-        <Star size={9} className="fill-white text-white" />
+      <span className="absolute -top-0.5 -right-0.5 w-[18px] h-[18px] rounded-full bg-surface grid place-items-center ring-1 ring-surface" title="Verified">
+        <VerifiedBadge size={15} />
       </span>
     )}
   </div>
@@ -718,7 +719,7 @@ const ChatView: React.FC<{
     ? conversationTitle(conversation, profiles, user?.id)
     : (otherProfile?.display_name || otherProfile?.username || 'New message');
   const handle = otherProfile?.username ? `@${otherProfile.username}` : '';
-  const expert = !!otherProfile?.is_expert;
+  const expert = !!otherProfile?.is_verified;
   const selfName = (user?.id && profiles[user.id]?.display_name) || user?.email?.split('@')[0] || 'You';
 
   // Group-chat rename banner state
@@ -819,8 +820,8 @@ const ChatView: React.FC<{
           <div className="flex items-center gap-2 min-w-0">
             <h2 className={cn('font-serif font-bold truncate', phoneMode ? 'text-[17px]' : 'text-[19px]')}>{title}</h2>
             {expert && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider flex-shrink-0">
-                <Star size={9} className="fill-white" /> Expert
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.08] text-primary text-[10px] font-bold uppercase tracking-wider flex-shrink-0">
+                <VerifiedBadge size={11} /> Verified
               </span>
             )}
           </div>
@@ -1154,7 +1155,7 @@ const ConvRow: React.FC<{
   const otherId = otherParticipantId(conv, selfId);
   const fullTitle = conversationTitle(conv, profiles, selfId);
   const display = conv.isGroup ? fullTitle : (fullTitle.split(' ')[0] || fullTitle);
-  const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_expert : false;
+  const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_verified : false;
   return (
     <button
       onClick={onClick}
@@ -1190,7 +1191,7 @@ const ConvRow: React.FC<{
 
 const FriendRow: React.FC<{ friend: FriendLite; profiles: Record<string, UserProfile>; onClick: () => void }> = ({ friend, profiles, onClick }) => {
   const p = profiles[friend.id];
-  const expert = !!p?.is_expert;
+  const expert = !!p?.is_verified;
   return (
     <button onClick={onClick} className="group w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-left hover:bg-on-surface/[0.04] transition-colors">
       <PersonAvatar name={friend.name} userId={friend.id} size={44} expert={expert} />
@@ -1348,7 +1349,7 @@ const MobileConvRow: React.FC<{
   const otherId = otherParticipantId(conv, selfId);
   const fullTitle = conversationTitle(conv, profiles, selfId);
   const display = conv.isGroup ? fullTitle : (fullTitle.split(' ')[0] || fullTitle);
-  const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_expert : false;
+  const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_verified : false;
   const share = lastMessageIsShare(conv);
   return (
     <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors">
@@ -1461,7 +1462,7 @@ const MobileMessageList: React.FC<{
             </button>
             {rail.map((f) => (
               <button key={f.id} onClick={() => onOpenFriend(f.id)} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">
-                <PersonAvatar name={f.name} userId={f.id} size={58} expert={!!profiles[f.id]?.is_expert} />
+                <PersonAvatar name={f.name} userId={f.id} size={58} expert={!!profiles[f.id]?.is_verified} />
                 <span className="text-[11.5px] text-on-surface/70 w-16 text-center truncate">{f.name.split(' ')[0]}</span>
               </button>
             ))}
@@ -1481,7 +1482,7 @@ const MobileMessageList: React.FC<{
           <>
             <MobileSection label="All friends" count={friendsWithoutThread.length} />
             {friendsWithoutThread.map((f) => (
-              <MobileFriendRow key={f.id} friend={f} expert={!!profiles[f.id]?.is_expert} onClick={() => onOpenFriend(f.id)} />
+              <MobileFriendRow key={f.id} friend={f} expert={!!profiles[f.id]?.is_verified} onClick={() => onOpenFriend(f.id)} />
             ))}
           </>
         )}

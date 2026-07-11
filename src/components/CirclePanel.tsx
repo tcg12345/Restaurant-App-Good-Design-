@@ -11,8 +11,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Crown, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
+import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getFriends, getProfilesByIds, getFriendActivity, getExpertProfiles,
@@ -262,7 +263,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const handleFollowBackRequest = useCallback(async (req: FriendRequest) => {
     if (!userId || requestBusy.has(req.id)) return;
     const prof = requestProfiles[req.user_id];
-    const immediate = !!(prof?.is_public || prof?.is_expert);
+    const immediate = !!(prof?.is_public || prof?.is_verified);
     setRequestBusy((prev) => new Set(prev).add(req.id));
     const ok = immediate
       ? await followPublicAccount(userId, req.user_id)
@@ -328,7 +329,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     if (!userId || peopleBusy.has(p.user_id)) return;
     if (followedIds.has(p.user_id) || sentRequestIds.has(p.user_id)) return;
     setPeopleBusy((prev) => new Set(prev).add(p.user_id));
-    const immediate = !!(p.is_public || p.is_expert);
+    const immediate = !!(p.is_public || p.is_verified);
     const ok = immediate
       ? await followPublicAccount(userId, p.user_id)
       : await sendFriendRequest(userId, p.user_id);
@@ -470,9 +471,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                   <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
                     <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
                   </div>
-                  {p.is_expert && (
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center ring-2 ring-surface">
-                      <Crown size={9} className="text-white" strokeWidth={2.4} />
+                  {p.is_verified && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface flex items-center justify-center ring-1 ring-surface">
+                      <VerifiedBadge size={14} />
                     </span>
                   )}
                 </Link>
@@ -694,7 +695,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           ))}
         </ul>
       ) : expertsFiltered.length === 0 ? (
-        <p className="text-[12.5px] text-on-surface/40">No experts match this search.</p>
+        <p className="text-[12.5px] text-on-surface/40">No verified users match this search.</p>
       ) : (
         <ul className="space-y-3.5">
           {(limited ? expertsFiltered.slice(0, 3) : expertsFiltered).map((p) => {
@@ -709,13 +710,13 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                   <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
                     <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center ring-2 ring-surface">
-                    <Crown size={9} className="text-white" strokeWidth={2.4} />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface flex items-center justify-center ring-1 ring-surface">
+                    <VerifiedBadge size={14} />
                   </span>
                 </Link>
                 <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 group">
                   <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
-                    {p.display_name || p.username || 'Expert'}
+                    {p.display_name || p.username || 'Verified user'}
                   </p>
                   {p.bio && (
                     <p className="text-[12px] text-on-surface/55 truncate mt-0.5">

@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Crown,
   Footprints,
   LayoutGrid,
   Loader2,
@@ -36,6 +35,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
@@ -167,6 +167,7 @@ function buildFillerExperts(shortCity: string): UserProfile[] {
     bio: t.bio.replace(/\{city\}/g, city),
     is_public: true,
     is_expert: true,
+    is_verified: true,
     home_city: city,
   }));
 }
@@ -180,6 +181,7 @@ function buildFillerFriends(shortCity: string): UserProfile[] {
     bio: '',
     is_public: true,
     is_expert: false,
+    is_verified: false,
     home_city: city,
   }));
 }
@@ -767,7 +769,7 @@ export const LocationPage: React.FC = () => {
       setAreaExperts(experts);
       // Drop experts from the friend-candidate list so a single profile
       // doesn't render twice in the same row.
-      setAreaFriendCandidates(candidates.filter((p) => !p.is_expert));
+      setAreaFriendCandidates(candidates.filter((p) => !p.is_verified));
       setAreaLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -2024,7 +2026,7 @@ export const LocationPage: React.FC = () => {
         username: p.username,
         displayName: p.display_name || p.username,
         bio: p.bio || undefined,
-        isExpert: !!p.is_expert,
+        isExpert: !!p.is_verified,
         homeCity: p.home_city || undefined,
       }));
     } catch (err) {
@@ -2771,7 +2773,7 @@ export const LocationPage: React.FC = () => {
                   style={{ paddingLeft: '20px', paddingRight: '20px' }}
                 >
                   <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
-                    <span>Local experts</span>
+                    <span>Verified locals</span>
                     <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
                   </h2>
                   <span
@@ -2793,10 +2795,10 @@ export const LocationPage: React.FC = () => {
                   </span>
                   <div className="loc-section-head-text">
                     <div className="left">
-                      <h2>Local experts</h2>
+                      <h2>Verified locals</h2>
                       <span className="count">{experts.length}</span>
                     </div>
-                    <div className="sub">People who actually know what they're talking about</div>
+                    <div className="sub">Verified users based in this city</div>
                   </div>
                 </button>
                 {expertsOpen && (
@@ -2834,7 +2836,7 @@ export const LocationPage: React.FC = () => {
                           </div>
                         </div>
                         <p className="exp-tag">
-                          {e.bio || `Expert in ${shortCityName} dining.`}
+                          {e.bio || `Verified voice on ${shortCityName} dining.`}
                         </p>
                         <div className="exp-stats">
                           {/* TODO: backfill with real counts when we have them. */}
@@ -3474,8 +3476,8 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
         <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider">
           {isExpert ? (
             <>
-              <Crown size={9} className="text-amber-500" />
-              <span className="text-primary">Expert</span>
+              <VerifiedBadge size={10} />
+              <span className="text-primary">Verified</span>
             </>
           ) : (
             <>

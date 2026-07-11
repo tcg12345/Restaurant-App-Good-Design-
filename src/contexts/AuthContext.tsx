@@ -3,6 +3,7 @@ import { supabase, supabaseConfigured } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
+import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
 import type { User, Session } from '@supabase/supabase-js';
 
@@ -45,6 +46,10 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>;
   pendingRequestCount: number;
   refreshPendingRequests: () => Promise<void>;
+  /** True when this account is on the app_admins allowlist (verification
+   *  reviewer). Drives the admin-only settings entry + /admin/verification;
+   *  real enforcement is server-side (RLS + RPC checks). */
+  isAdmin: boolean;
   /** Probe whether an email is already registered. Returns `true` when
    *  Supabase reports the address exists, `false` when it doesn't (or
    *  the check can't be performed). Used by the desktop sign-in to
@@ -103,6 +108,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
   pendingRequestCount: 0,
   refreshPendingRequests: async () => {},
+  isAdmin: false,
   checkEmailExists: async () => false,
 });
 
@@ -113,6 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [isGuest, setIsGuest] = useState<boolean>(() => {
     try { return localStorage.getItem(GUEST_MODE_KEY) === '1'; } catch { return false; }
   });
@@ -141,6 +148,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPendingRequestCount(reqs.length);
     } catch {
       setPendingRequestCount(0);
+    }
+    try {
+      setIsAdmin(await withTimeout(isAppAdmin(), 8000, 'isAppAdmin'));
+    } catch {
+      setIsAdmin(false);
     }
   }, []);
 
@@ -180,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setPendingRequestCount(0); }
+        else { setProfile(null); setPendingRequestCount(0); setIsAdmin(false); }
       }
     );
 
@@ -247,6 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setProfile(null);
     setPendingRequestCount(0);
+    setIsAdmin(false);
     clearGuest();
   }, [clearGuest]);
 
@@ -294,7 +307,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );

@@ -2,12 +2,13 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
+import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
@@ -2036,8 +2037,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const el = document.createElement('div');
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#d4a017;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
-      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#9f3012;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
       el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
@@ -3093,7 +3094,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
-    const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#d4a017' : '#333';
+    const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#9f3012' : '#333';
 
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
@@ -3114,8 +3115,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         fillColor = strokeColor;
         iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:#fff;line-height:1;">${initial}</span>`;
       } else if (mapMode === 'experts') {
-        fillColor = '#d4a017';
-        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        fillColor = '#9f3012';
+        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       } else {
         // myratings: check if wishlisted (no rating) vs rated
         const wishlisted = isWishlisted(r.restaurant_id);
@@ -3179,7 +3180,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     { id: 'discover', label: 'Discover', icon: Sparkles },
     { id: 'myratings', label: 'My Ratings', icon: Star },
     { id: 'friends', label: 'Friends', icon: Users },
-    { id: 'experts', label: 'Experts', icon: Star },
+    { id: 'experts', label: 'Verified', icon: BadgeCheck },
   ];
   const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
   // Panel/header title — in My-Ratings mode it reflects the chosen list or
@@ -3413,8 +3414,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </span>
         )}
         {expertR && (
-          <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
-            <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
+          <span className="inline-flex items-center gap-1 font-semibold text-primary">
+            <VerifiedBadge size={11} /> Verified pick
           </span>
         )}
         {friendCount > 0 && (
@@ -3875,12 +3876,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })}
                   {mapMode === 'experts' && panelExpertRatings.map((r) => {
                     const expProf = expertProfiles[r.user_id];
-                    const expName = expProf?.display_name || 'Expert';
+                    const expName = expProf?.display_name || 'Verified user';
                     return renderRatingCard(r, {
                       extra: (
                         <div className="flex items-center gap-1.5 mt-1.5">
-                          <Star size={10} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                          <span className="text-[11.5px] font-semibold text-amber-700 truncate">{expName}</span>
+                          <VerifiedBadge size={12} />
+                          <span className="text-[11.5px] font-semibold text-primary truncate">{expName}</span>
                         </div>
                       ),
                     });
@@ -5162,8 +5163,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     mapMode === 'experts' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
-                  <Star size={16} className={mapMode === 'experts' ? "text-white fill-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
+                  <BadgeCheck size={16} className={mapMode === 'experts' ? "text-white" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">Verified</span>
                 </button>
               </motion.div>
             )}
@@ -5211,12 +5212,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
               ) : filteredExpertRatings.map((r) => {
                 const expProf = expertProfiles[r.user_id];
-                const expName = expProf?.display_name || 'Expert';
+                const expName = expProf?.display_name || 'Verified user';
                 return renderRatingCard(r, {
                   extra: (
                     <span className="inline-flex items-center gap-1 min-w-0">
-                      <Star size={11} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                      <span className="font-semibold text-amber-700 truncate">{expName}</span>
+                      <VerifiedBadge size={12} />
+                      <span className="font-semibold text-primary truncate">{expName}</span>
                     </span>
                   ),
                 });

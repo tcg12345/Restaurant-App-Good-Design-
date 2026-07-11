@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -287,14 +288,11 @@ const SuggestionsRail: React.FC<{
                     className="block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className={cn(
-                        'inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em]',
-                        p.is_expert ? 'text-amber-600' : 'text-primary',
-                      )}>
-                        {p.is_expert ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-primary">
+                        {p.is_verified ? (
                           <>
-                            <Star size={10} className="fill-amber-500 text-amber-500" />
-                            Expert
+                            <VerifiedBadge size={11} />
+                            Verified
                           </>
                         ) : 'Friend pick'}
                       </span>
@@ -957,7 +955,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
       {feedTab === 'activity' && (
         <div className="mt-2.5 flex gap-2">
-          {([['friends', 'Friends'], ['experts', 'Experts']] as const).map(([key, label]) => {
+          {([['friends', 'Friends'], ['experts', 'Verified']] as const).map(([key, label]) => {
             const active = activityFilter === key;
             return (
               <button
@@ -970,7 +968,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   active ? 'bg-on-surface text-surface border-on-surface' : 'text-on-surface/60 border-on-surface/15',
                 )}
               >
-                {key === 'experts' && <Star size={12} className="fill-amber-500 text-amber-500" />}
+                {key === 'experts' && <VerifiedBadge size={13} />}
                 {label}
               </button>
             );
@@ -1062,9 +1060,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </div>
           ) : activityFilter === 'experts' ? (
             <EmptyState
-              icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
-              heading="No expert picks yet"
-              description="Follow critics, chefs, and writers to see their ratings show up here."
+              icon={<VerifiedBadge size={48} />}
+              heading="No picks from verified users yet"
+              description="Follow verified critics, chefs, and writers to see their ratings show up here."
             />
           ) : (
             <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
@@ -1383,8 +1381,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     <Link to={`/user/${getUsername(r.user_id)}`} className="truncate text-[14px] font-bold text-on-surface hover:text-primary">
                       {getName(r.user_id)}
                     </Link>
-                    {profiles[r.user_id]?.is_expert && (
-                      <Star size={11} className="flex-shrink-0 fill-amber-500 text-amber-500" />
+                    {profiles[r.user_id]?.is_verified && (
+                      <VerifiedBadge size={13} />
                     )}
                   </div>
                   <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(r.created_at)}</p>

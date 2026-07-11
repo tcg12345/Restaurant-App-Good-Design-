@@ -126,7 +126,7 @@ export const ProfileSetup: React.FC = () => {
     const homeBase = cityTrim
       ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
       : undefined;
-    const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), '', isPublic, isExpert, homeBase);
+    const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), '', isPublic, homeBase);
     return { ok: result.success, error: result.error };
   }, [user, homeCity, homeGeo, displayName, username, isPublic, isExpert]);
 

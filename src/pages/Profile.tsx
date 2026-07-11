@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
   Shield, LifeBuoy,
 } from 'lucide-react';
@@ -21,6 +21,7 @@ import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -951,7 +952,7 @@ export const Profile: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !profile?.is_expert) {
+    if (!user?.id || !profile?.is_verified) {
       setExpertPickCount(0);
       return;
     }
@@ -960,7 +961,7 @@ export const Profile: React.FC = () => {
       if (!cancelled) setExpertPickCount(c);
     });
     return () => { cancelled = true; };
-  }, [user?.id, profile?.is_expert]);
+  }, [user?.id, profile?.is_verified]);
 
   const resetEditFields = () => {
     setEditName(profile?.display_name || '');
@@ -1028,7 +1029,6 @@ export const Profile: React.FC = () => {
       editName.trim(),
       editUsername.trim(),
       editBio.trim(),
-      undefined,
       undefined,
       homeBase,
     );
@@ -1319,9 +1319,9 @@ export const Profile: React.FC = () => {
             <div className="w-[92px] h-[92px] rounded-full bg-gradient-to-br from-primary/30 to-primary/15 flex items-center justify-center">
               <span className="text-[42px] font-serif font-bold text-primary leading-none">{displayName.charAt(0).toUpperCase()}</span>
             </div>
-            {profile?.is_expert && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-amber-400 ring-[3px] ring-surface flex items-center justify-center">
-                <Crown size={13} className="text-white" />
+            {profile?.is_verified && (
+              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
+                <VerifiedBadge size={24} />
               </div>
             )}
           </div>
@@ -1359,12 +1359,12 @@ export const Profile: React.FC = () => {
             {profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}
             {profile?.is_public ? 'Public' : 'Private'}
           </span>
-          {profile?.is_expert && (
+          {profile?.is_verified && (
             <>
               <span className="text-on-surface/25 text-xs">·</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[11px] font-semibold text-amber-800">
-                <Star size={10} className="fill-amber-500 text-amber-500" />
-                Expert{expertPickCount > 0 && ` · ${expertPickCount}`}
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[11px] font-semibold text-primary">
+                <VerifiedBadge size={12} />
+                Verified{expertPickCount > 0 && ` · ${expertPickCount}`}
               </span>
             </>
           )}
@@ -2186,8 +2186,8 @@ export const Profile: React.FC = () => {
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">
                           Home city
-                          {profile?.is_expert && (
-                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for experts</span>
+                          {profile?.is_verified && (
+                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for verified users</span>
                           )}
                         </p>
                         <div className="relative">
@@ -2519,8 +2519,8 @@ export const Profile: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <p className="text-[14px] font-semibold text-on-surface truncate leading-tight inline-flex items-center gap-1.5">
                               {p.display_name || p.username || 'User'}
-                              {p.is_expert && (
-                                <Crown size={11} className="text-amber-500 flex-shrink-0" />
+                              {p.is_verified && (
+                                <VerifiedBadge size={13} />
                               )}
                             </p>
                             <p className="text-[11px] text-on-surface/45 truncate mt-0.5">@{p.username || 'user'}</p>

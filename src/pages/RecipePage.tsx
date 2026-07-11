@@ -1105,7 +1105,7 @@ export const RecipePage: React.FC = () => {
     || data.sourceAuthorName
     || data.sourceAuthorUsername
     || 'Anonymous';
-  const authorRole = authorProfile?.is_expert
+  const authorRole = authorProfile?.is_verified
     ? `Chef${authorProfile.home_city ? ` · ${authorProfile.home_city}` : ''}`
     : 'Home cook';
   const authorInitial = (authorName[0] || '?').toUpperCase();
@@ -1621,7 +1621,7 @@ export const RecipePage: React.FC = () => {
           <div className="rd-author-bio-inner">
             <div className="rd-author-bio-av" style={{ background: authorBg }}>{authorInitials}</div>
             <div className="rd-author-bio-info">
-              <div className="rd-author-bio-label">About the {authorProfile.is_expert ? 'chef' : 'cook'}</div>
+              <div className="rd-author-bio-label">About the {authorProfile.is_verified ? 'chef' : 'cook'}</div>
               <h3 className="rd-author-bio-name">{authorName}</h3>
               <div className="rd-author-bio-role">{authorRole}</div>
               {authorProfile.bio && <p className="rd-author-bio-text">{authorProfile.bio}</p>}
@@ -2734,7 +2734,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
       {/* Author bio */}
       {authorProfile && (
         <section className="rdm-section">
-          <h2 className="rdm-section-title">About the {authorProfile.is_expert ? 'chef' : 'cook'}</h2>
+          <h2 className="rdm-section-title">About the {authorProfile.is_verified ? 'chef' : 'cook'}</h2>
           <div className="rdm-author-bio">
             <div className="rdm-author-bio-row">
               <div className="rdm-author-bio-av" style={{ background: authorBg }}>{authorInitials}</div>
