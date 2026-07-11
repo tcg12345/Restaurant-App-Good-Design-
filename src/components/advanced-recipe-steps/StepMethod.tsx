@@ -1,12 +1,12 @@
 // Step 4 — the method. Steps can be grouped into named sections (e.g.
-// "For the duxelles", "For the crêpes", "Assembly") for multi-component
-// dishes; a recipe with a single unnamed section just reads as a plain
-// flat list. Each step card has title, body, reorder arrows, delete, and
-// the two add-chip buttons (time + tip). Steps are numbered continuously
-// across sections.
+// "For the duxelles", "Assembly") for multi-component dishes; a recipe
+// with a single unnamed section reads as a plain flat list. Each step
+// card: ink number badge, title, description, and dashed Time / Tip
+// chips that morph into an inline accent pill / callout. Steps are
+// numbered continuously across sections.
 
 import React from 'react';
-import { ArrowUp, ArrowDown, Trash2, Clock, Lightbulb, Plus, X } from 'lucide-react';
+import { ChevronUp, ChevronDown, Trash2, Clock, Lightbulb, Plus, X, ListPlus } from 'lucide-react';
 import type { RecipeStepDetail } from '../../contexts/ListsContext';
 import { LinkedRecipesEditor } from './LinkedRecipesEditor';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
@@ -37,110 +37,111 @@ const StepCard: React.FC<StepCardProps> = ({
     dispatch({ type: 'UPDATE_STEP', groupIndex, index, step: next });
 
   return (
-    <div className="arb-step-card">
-      <div className="arb-step-card-head">
-        <span className="arb-step-card-num">{number}</span>
+    <div className="rcx-step-card">
+      <div className="rcx-step-head">
+        <span className="rcx-step-num">{number}</span>
         <input
           type="text"
-          className="arb-step-card-title"
+          className="rcx-step-name"
           value={step.title || ''}
           onChange={(e) => update({ ...step, title: e.target.value })}
-          placeholder={`Step ${number} title (e.g. "Render the guanciale")`}
+          placeholder="Step title (e.g. Render the guanciale)"
         />
-        <div className="arb-step-card-actions">
+        <span className="rcx-step-actions">
           <button
             type="button"
-            className="arb-step-card-action"
+            className="rcx-ghost-move"
             onClick={() => dispatch({ type: 'MOVE_STEP', groupIndex, index, direction: -1 })}
             disabled={!canMoveUp}
             aria-label="Move up"
           >
-            <ArrowUp size={15} />
+            <ChevronUp size={13} strokeWidth={2.4} />
           </button>
           <button
             type="button"
-            className="arb-step-card-action"
+            className="rcx-ghost-move"
             onClick={() => dispatch({ type: 'MOVE_STEP', groupIndex, index, direction: 1 })}
             disabled={!canMoveDown}
             aria-label="Move down"
           >
-            <ArrowDown size={15} />
+            <ChevronDown size={13} strokeWidth={2.4} />
           </button>
           <button
             type="button"
-            className="arb-step-card-action"
+            className="rcx-ghost-delete"
             onClick={() => dispatch({ type: 'REMOVE_STEP', groupIndex, index })}
             disabled={!canDelete}
             aria-label="Delete step"
           >
-            <Trash2 size={15} />
+            <Trash2 size={13} />
           </button>
-        </div>
+        </span>
       </div>
 
       <textarea
-        className="arb-step-card-body"
+        className="rcx-step-body"
         value={step.body}
         onChange={(e) => update({ ...step, body: e.target.value })}
-        placeholder="Describe what to do, in detail. Tell readers what to look for — sights, sounds, smells. Specifics are gold."
-        rows={3}
+        placeholder="Describe what to do. Tell readers what to look for — sights, sounds, smells."
+        rows={2}
       />
 
-      <div className="arb-step-card-chips">
+      <div className="rcx-step-chips">
         {step.durationMin !== undefined ? (
-          <span className="arb-step-time-chip">
-            <Clock size={12} />
+          <span className="rcx-time-chip">
+            <Clock size={11} strokeWidth={2.2} />
             <input
               type="number"
               min={0}
               value={step.durationMin}
               onChange={(e) => update({ ...step, durationMin: Math.max(0, parseInt(e.target.value || '0', 10)) })}
+              aria-label="Step time in minutes"
             />
             <span>min</span>
-            <X
-              size={12}
-              className="x"
+            <button
+              type="button"
               onClick={() => update({ ...step, durationMin: undefined })}
-            />
+              aria-label="Remove time"
+            >
+              <X size={10} strokeWidth={2.6} />
+            </button>
           </span>
         ) : (
           <button
             type="button"
-            className="arb-step-add-chip"
+            className="rcx-chip-dash"
             onClick={() => update({ ...step, durationMin: 5 })}
           >
-            <Clock size={12} /> Add time
+            <Clock size={11} strokeWidth={2.2} /> Time
           </button>
         )}
         {step.tip === undefined && (
           <button
             type="button"
-            className="arb-step-add-chip"
+            className="rcx-chip-dash"
             onClick={() => update({ ...step, tip: '' })}
           >
-            <Lightbulb size={12} /> Add tip
+            <Lightbulb size={11} strokeWidth={2.2} /> Tip
           </button>
         )}
       </div>
 
       {step.tip !== undefined && (
-        <div className="arb-step-tip">
-          <span className="arb-step-tip-label">Tip</span>
+        <div className="rcx-tip-callout">
+          <span className="rcx-tip-label">TIP</span>
           <input
             type="text"
-            className="arb-step-tip-input"
             value={step.tip}
             onChange={(e) => update({ ...step, tip: e.target.value })}
-            placeholder="A pro tip readers will thank you for"
+            placeholder="Keep the pan moving here."
             autoFocus={!step.tip}
           />
           <button
             type="button"
-            className="arb-step-tip-remove"
             onClick={() => update({ ...step, tip: undefined })}
             aria-label="Remove tip"
           >
-            <X size={14} />
+            <X size={11} strokeWidth={2.4} />
           </button>
         </div>
       )}
@@ -156,83 +157,98 @@ export const StepMethod: React.FC<Props> = ({ state, dispatch, existingId }) => 
   let stepNumber = 0;
 
   return (
-    <>
+    <div className="rcx-stack is-tight">
       {state.stepGroups.map((group, gi) => (
-        <div key={gi} className={grouped ? 'arb-method-section' : undefined}>
+        <div key={gi} className="rcx-step-group">
           {grouped && (
-            <div className="arb-method-section-head">
+            <div className="rcx-section-head">
               <input
                 type="text"
-                className="arb-section-card-title"
+                className="rcx-section-name"
                 value={group.name}
                 onChange={(e) => dispatch({ type: 'RENAME_STEP_GROUP', index: gi, name: e.target.value })}
-                placeholder="Section name (e.g. For the duxelles)"
+                placeholder="Section name (e.g. Make the sauce)"
               />
-              <div className="arb-method-section-actions">
+              <span className="rcx-step-actions">
                 <button
                   type="button"
-                  className="arb-step-card-action"
+                  className="rcx-ghost-move"
                   onClick={() => dispatch({ type: 'MOVE_STEP_GROUP', index: gi, direction: -1 })}
                   disabled={gi === 0}
                   aria-label="Move section up"
                 >
-                  <ArrowUp size={15} />
+                  <ChevronUp size={13} strokeWidth={2.4} />
                 </button>
                 <button
                   type="button"
-                  className="arb-step-card-action"
+                  className="rcx-ghost-move"
                   onClick={() => dispatch({ type: 'MOVE_STEP_GROUP', index: gi, direction: 1 })}
                   disabled={gi === state.stepGroups.length - 1}
                   aria-label="Move section down"
                 >
-                  <ArrowDown size={15} />
+                  <ChevronDown size={13} strokeWidth={2.4} />
                 </button>
                 <button
                   type="button"
-                  className="arb-section-card-delete"
+                  className="rcx-ghost-delete"
                   onClick={() => dispatch({ type: 'REMOVE_STEP_GROUP', index: gi })}
                   aria-label="Delete section"
                 >
-                  <Trash2 size={16} />
+                  <Trash2 size={13} />
                 </button>
-              </div>
+              </span>
             </div>
           )}
 
-          {group.steps.map((step, i) => {
-            stepNumber += 1;
-            return (
-              <StepCard
-                key={i}
-                step={step}
-                number={stepNumber}
-                groupIndex={gi}
-                index={i}
-                canMoveUp={i > 0}
-                canMoveDown={i < group.steps.length - 1}
-                canDelete={!(state.stepGroups.length === 1 && group.steps.length === 1)}
-                dispatch={dispatch}
-              />
-            );
-          })}
+          <div className="rcx-step-cards">
+            {group.steps.map((step, i) => {
+              stepNumber += 1;
+              return (
+                <StepCard
+                  key={i}
+                  step={step}
+                  number={stepNumber}
+                  groupIndex={gi}
+                  index={i}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < group.steps.length - 1}
+                  canDelete={!(state.stepGroups.length === 1 && group.steps.length === 1)}
+                  dispatch={dispatch}
+                />
+              );
+            })}
+          </div>
 
-          <button
-            type="button"
-            className="arb-add-step"
-            onClick={() => dispatch({ type: 'ADD_STEP', groupIndex: gi })}
-          >
-            <Plus size={16} /> Add step
-          </button>
+          {grouped && (
+            <button
+              type="button"
+              className="rcx-add-dash is-inline"
+              onClick={() => dispatch({ type: 'ADD_STEP', groupIndex: gi })}
+            >
+              <Plus size={13} strokeWidth={2.2} /> Step
+            </button>
+          )}
         </div>
       ))}
 
-      <button
-        type="button"
-        className="arb-add-section"
-        onClick={() => dispatch({ type: 'ADD_STEP_GROUP' })}
-      >
-        <Plus size={16} /> Add a section
-      </button>
+      <div className="rcx-add-pair">
+        {!grouped && (
+          <button
+            type="button"
+            className="rcx-add-dash"
+            onClick={() => dispatch({ type: 'ADD_STEP', groupIndex: state.stepGroups.length - 1 })}
+          >
+            <Plus size={13} strokeWidth={2.2} /> Step
+          </button>
+        )}
+        <button
+          type="button"
+          className="rcx-add-dash"
+          onClick={() => dispatch({ type: 'ADD_STEP_GROUP' })}
+        >
+          <ListPlus size={13} strokeWidth={2} /> Section
+        </button>
+      </div>
 
       <LinkedRecipesEditor
         state={state}
@@ -240,6 +256,6 @@ export const StepMethod: React.FC<Props> = ({ state, dispatch, existingId }) => 
         defaultPlacement="method"
         excludeId={existingId}
       />
-    </>
+    </div>
   );
 };

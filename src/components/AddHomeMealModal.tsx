@@ -756,12 +756,14 @@ export const AddHomeMealModal: React.FC = () => {
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
-                // The editorial rail layout needs a wide canvas. Advanced,
-                // AI, and the Basic main page all use it on desktop; the
-                // Basic sub-pages (dishes, ingredients, …) stay narrow.
-                : (mode === 'advanced' || mode === 'ai' || (mode === 'basic' && page === 'main'))
-                  ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
-                  : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                // Advanced + AI use the single-column editorial wizard —
+                // a focused, narrower canvas. The Basic main page keeps
+                // the wide rail layout; Basic sub-pages stay narrow.
+                : (mode === 'advanced' || mode === 'ai')
+                  ? "h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                  : (mode === 'basic' && page === 'main')
+                    ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                    : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
             {mode === 'advanced' ? (
@@ -769,7 +771,7 @@ export const AddHomeMealModal: React.FC = () => {
                 key={aiSeed ? aiSeed.id : 'fresh'}
                 existing={existing}
                 seed={aiSeed}
-                initialStep={aiSeed ? 6 : undefined}
+                initialStep={aiSeed ? 4 : undefined}
                 onClose={closeHomeMealModal}
                 onBackToDraft={backToDraft}
                 tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}

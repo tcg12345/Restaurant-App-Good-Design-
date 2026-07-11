@@ -1,7 +1,6 @@
 // Step 3 — grouped ingredient sections with smart per-row inputs.
 //
-// Each row gets the same intelligence as the Basic modal's ingredient
-// form:
+// Each row keeps the same intelligence as before:
 //   - Amount input live-parses on blur ("0.5" → "1/2", "1 1/2" stays,
 //     "1.5" → "1 1/2"). Invalid amounts get an error tint without
 //     overwriting what the user typed so they can fix it.
@@ -12,11 +11,12 @@
 //   - Name input auto-parses a full pasted line ("1 1/2 cups flour")
 //     into the three columns when amount + unit are still empty.
 //
-// Bulk paste mode (the "Paste from a list" button) reuses the shared
-// parseIngredientLine helper so both paths produce identical output.
+// A lone default section renders as a flat list (no header); adding a
+// section turns on the serif section-name rows. "Paste a list instead"
+// parses free text through the shared parseIngredientLine helper.
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, ClipboardPaste, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, ClipboardPaste, ChevronDown, ListPlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { RecipeIngredient } from '../../contexts/ListsContext';
 import {
@@ -130,22 +130,22 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
   };
 
   return (
-    <div className="arb-ingr-row">
+    <div className="rcx-ing-row">
       <input
         type="text"
         inputMode="decimal"
-        className={cn('arb-ingr-input', amountError && 'is-error')}
+        className={cn('rcx-ing-input rcx-ing-qty', amountError && 'is-error')}
         value={ingredient.amount}
         onChange={(e) => handleAmountChange(e.target.value)}
         onBlur={handleAmountBlur}
         placeholder="1½"
         title={amountError ? 'Not a valid number' : undefined}
       />
-      <div className={cn('arb-ingr-unit-wrap', unitOpen && 'is-open')}>
+      <div className={cn('rcx-ing-unit-wrap', unitOpen && 'is-open')}>
         <input
           ref={unitInputRef}
           type="text"
-          className="arb-ingr-input arb-ingr-unit"
+          className="rcx-ing-input rcx-ing-unit"
           value={unitOpen ? unitSearch : ingredient.unit}
           onFocus={handleUnitFocus}
           onChange={(e) => handleUnitTyping(e.target.value)}
@@ -160,13 +160,13 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
           }}
           placeholder="cups"
         />
-        <ChevronDown size={13} className="arb-ingr-unit-caret" />
+        <ChevronDown size={12} className="rcx-ing-unit-caret" />
         {unitOpen && (
           <>
-            <div className="arb-ingr-unit-backdrop" onClick={closeUnitDropdown} />
-            <div className="arb-ingr-unit-pop">
+            <div className="rcx-ing-unit-backdrop" onClick={closeUnitDropdown} />
+            <div className="rcx-ing-unit-pop">
               {filteredUnits.length === 0 ? (
-                <p className="arb-ingr-unit-empty">No matches</p>
+                <p className="rcx-ing-unit-empty">No matches</p>
               ) : (
                 filteredUnits.map((label) => (
                   <button
@@ -174,9 +174,9 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickUnit(label)}
-                    className={cn('arb-ingr-unit-item', ingredient.unit === label && 'is-active')}
+                    className={cn('rcx-ing-unit-item', ingredient.unit === label && 'is-active')}
                   >
-                    {label || <span className="arb-ingr-unit-none">(no unit)</span>}
+                    {label || <span className="rcx-ing-unit-none">(no unit)</span>}
                   </button>
                 ))
               )}
@@ -186,13 +186,13 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
       </div>
       <input
         type="text"
-        className="arb-ingr-input"
+        className="rcx-ing-input rcx-ing-name"
         value={ingredient.name}
         onChange={(e) => handleNameChange(e.target.value)}
-        placeholder="ingredient (try adding a note after a comma)"
+        placeholder="ingredient, note after a comma"
       />
-      <button type="button" className="arb-ingr-delete" onClick={onRemove} aria-label="Delete">
-        <Trash2 size={15} />
+      <button type="button" className="rcx-ghost-delete" onClick={onRemove} aria-label="Delete">
+        <Trash2 size={13} />
       </button>
     </div>
   );
@@ -201,6 +201,11 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
 export const StepIngredients: React.FC<Props> = ({ state, dispatch, existingId }) => {
   const [bulkOpen, setBulkOpen] = useState<number | null>(null); // group index for bulk paste
   const [bulkText, setBulkText] = useState('');
+
+  // A single default group reads as a flat list; section chrome appears
+  // once there's more than one group (or the lone group was renamed).
+  const showSections = state.ingredientGroups.length > 1
+    || (state.ingredientGroups.length === 1 && state.ingredientGroups[0].name.trim() !== 'Ingredients' && state.ingredientGroups[0].name.trim() !== '');
 
   const handleBulk = (groupIndex: number) => {
     const lines = bulkText.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -221,96 +226,115 @@ export const StepIngredients: React.FC<Props> = ({ state, dispatch, existingId }
     setBulkOpen(null);
   };
 
+  const lastGroup = state.ingredientGroups.length - 1;
+
   return (
-    <>
+    <div className="rcx-stack is-tight">
       {state.ingredientGroups.map((group, gi) => (
-        <div className="arb-section-card" key={gi}>
-          <div className="arb-section-card-head">
-            <input
-              type="text"
-              className="arb-section-card-title"
-              value={group.name}
-              onChange={(e) => dispatch({ type: 'RENAME_GROUP', index: gi, name: e.target.value })}
-              placeholder="Section name"
-            />
-            {state.ingredientGroups.length > 1 && (
+        <div key={gi} className="rcx-ing-group">
+          {showSections && (
+            <div className="rcx-section-head">
+              <input
+                type="text"
+                className="rcx-section-name"
+                value={group.name}
+                onChange={(e) => dispatch({ type: 'RENAME_GROUP', index: gi, name: e.target.value })}
+                placeholder="Section name (e.g. For the sauce)"
+              />
+              {state.ingredientGroups.length > 1 && (
+                <button
+                  type="button"
+                  className="rcx-ghost-delete"
+                  onClick={() => dispatch({ type: 'REMOVE_GROUP', index: gi })}
+                  aria-label="Delete section"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="rcx-ing-rows">
+            {group.ingredients.map((ing, ii) => (
+              <Row
+                key={ii}
+                ingredient={ing}
+                onChange={(next) => dispatch({ type: 'UPDATE_INGREDIENT', groupIndex: gi, index: ii, ingredient: next })}
+                onRemove={() => dispatch({ type: 'REMOVE_INGREDIENT', groupIndex: gi, index: ii })}
+              />
+            ))}
+            {group.ingredients.length === 0 && (
               <button
                 type="button"
-                className="arb-section-card-delete"
-                onClick={() => dispatch({ type: 'REMOVE_GROUP', index: gi })}
-                aria-label="Delete section"
+                className="rcx-ing-empty"
+                onClick={() => dispatch({ type: 'ADD_INGREDIENT', groupIndex: gi })}
               >
-                <Trash2 size={16} />
+                <Plus size={13} strokeWidth={2.2} /> Add the first ingredient
               </button>
             )}
           </div>
 
-          {bulkOpen === gi ? (
-            <div style={{ marginBottom: 12 }}>
+          {showSections && group.ingredients.length > 0 && (
+            <button
+              type="button"
+              className="rcx-add-dash is-inline"
+              onClick={() => dispatch({ type: 'ADD_INGREDIENT', groupIndex: gi })}
+            >
+              <Plus size={13} strokeWidth={2.2} /> Ingredient
+            </button>
+          )}
+
+          {bulkOpen === gi && (
+            <div className="rcx-paste">
               <textarea
-                className="arb-textarea"
+                className="rcx-area"
                 value={bulkText}
                 onChange={(e) => setBulkText(e.target.value)}
-                placeholder={`Paste one ingredient per line:\n\n2 cups flour\n1/2 tsp salt\n3 eggs, room temperature`}
-                rows={5}
+                placeholder={`One ingredient per line:\n2 cups flour\n1/2 tsp salt\n3 eggs, room temperature`}
+                rows={4}
                 autoFocus
               />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button type="button" className="arb-add-row" onClick={() => handleBulk(gi)}>
-                  <Plus size={14} /> Parse & add
+              <div className="rcx-paste-actions">
+                <button type="button" className="rcx-mini-primary" onClick={() => handleBulk(gi)}>
+                  Parse &amp; add
                 </button>
-                <button type="button" className="arb-add-row" onClick={() => { setBulkOpen(null); setBulkText(''); }}>
+                <button type="button" className="rcx-mini-ghost" onClick={() => { setBulkOpen(null); setBulkText(''); }}>
                   Cancel
                 </button>
               </div>
             </div>
-          ) : (
-            <>
-              {group.ingredients.length === 0 ? (
-                <div className="arb-ingr-row">
-                  <input className="arb-ingr-input" placeholder="1½" disabled />
-                  <input className="arb-ingr-input" placeholder="cups" disabled />
-                  <input className="arb-ingr-input" placeholder="ingredient (try adding a note after a comma)" disabled />
-                  <span style={{ width: 36 }} />
-                </div>
-              ) : (
-                group.ingredients.map((ing, ii) => (
-                  <Row
-                    key={ii}
-                    ingredient={ing}
-                    onChange={(next) => dispatch({ type: 'UPDATE_INGREDIENT', groupIndex: gi, index: ii, ingredient: next })}
-                    onRemove={() => dispatch({ type: 'REMOVE_INGREDIENT', groupIndex: gi, index: ii })}
-                  />
-                ))
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="arb-add-row"
-                  onClick={() => dispatch({ type: 'ADD_INGREDIENT', groupIndex: gi })}
-                >
-                  <Plus size={14} /> Add ingredient
-                </button>
-                <button
-                  type="button"
-                  className="arb-bulk-toggle"
-                  onClick={() => setBulkOpen(gi)}
-                >
-                  <ClipboardPaste size={13} /> Paste from a list
-                </button>
-              </div>
-            </>
           )}
         </div>
       ))}
 
-      <button
-        type="button"
-        className="arb-add-section"
-        onClick={() => dispatch({ type: 'ADD_GROUP' })}
-      >
-        <Plus size={16} /> Add another section
-      </button>
+      <div className="rcx-add-pair">
+        {!showSections && (
+          <button
+            type="button"
+            className="rcx-add-dash"
+            onClick={() => dispatch({ type: 'ADD_INGREDIENT', groupIndex: lastGroup })}
+          >
+            <Plus size={13} strokeWidth={2.2} /> Ingredient
+          </button>
+        )}
+        <button
+          type="button"
+          className="rcx-add-dash"
+          onClick={() => dispatch({ type: 'ADD_GROUP' })}
+        >
+          <ListPlus size={13} strokeWidth={2} /> Section
+        </button>
+      </div>
+
+      {bulkOpen === null && (
+        <button
+          type="button"
+          className="rcx-paste-link"
+          onClick={() => setBulkOpen(lastGroup)}
+        >
+          <ClipboardPaste size={13} /> Paste a list instead
+        </button>
+      )}
 
       <LinkedRecipesEditor
         state={state}
@@ -318,6 +342,6 @@ export const StepIngredients: React.FC<Props> = ({ state, dispatch, existingId }
         defaultPlacement="ingredients"
         excludeId={existingId}
       />
-    </>
+    </div>
   );
 };

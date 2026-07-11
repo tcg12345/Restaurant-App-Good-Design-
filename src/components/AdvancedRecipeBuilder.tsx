@@ -1,10 +1,14 @@
-// Advanced Recipe Builder — a multi-step wizard mounted by AddHomeMealModal
+// Advanced Recipe Builder — a five-step wizard mounted by AddHomeMealModal
 // when the user picks the "Advanced" tab. Writes to the same home_meals
 // store as the Basic tab via lists.createHomeMeal / updateHomeMeal so the
 // rest of the app sees one unified recipe concept.
 //
-// Layout: desktop = left rail + scrolling step pane + sticky footer;
-// phone = top progress strip + step pane + sticky footer.
+// Layout (phone AND desktop — one warm, serif-forward single column):
+// header with the mode switcher, saved state, serif step title and a
+// segmented progress bar; a scrolling step pane; a floating footer with
+// a back circle and a gate-reason CTA pill; an animated success overlay
+// after publish.
+//
 // State: single useReducer so localStorage draft persistence is just a
 // JSON snapshot; the reducer is rebuildable from any saved snapshot.
 
@@ -36,12 +40,11 @@ import {
 } from '../lib/recipe-drafts';
 import { StepBasics } from './advanced-recipe-steps/StepBasics';
 import { StepDetails } from './advanced-recipe-steps/StepDetails';
-import { StepTiming } from './advanced-recipe-steps/StepTiming';
 import { StepIngredients } from './advanced-recipe-steps/StepIngredients';
 import { StepMethod } from './advanced-recipe-steps/StepMethod';
-import { StepEquipmentNotes } from './advanced-recipe-steps/StepEquipmentNotes';
 import { StepReview } from './advanced-recipe-steps/StepReview';
 import './AdvancedRecipeBuilder.css';
+import './RecipeBuilder.css';
 
 /* ── Form state shape (also the localStorage draft shape) ───────── */
 
@@ -83,22 +86,10 @@ export interface AdvancedRecipeState {
   createdWithAi: boolean;
 }
 
-/** Step rail / mobile-header label. The accent word renders italic +
- *  rust ("The *basics*.") inside the big serif title. */
-const STEP_LABELS: Array<{ lead: string; accent: string }> = [
-  { lead: 'The', accent: 'basics' },
-  { lead: 'The', accent: 'details' },
-  { lead: 'Timing &', accent: 'yield' },
-  { lead: 'The', accent: 'ingredients' },
-  { lead: 'The', accent: 'method' },
-  { lead: 'Equipment &', accent: 'notes' },
-  { lead: 'Review &', accent: 'publish' },
-];
-/** Short, plain title for places that don't render the accent word
- *  (rail step list, mobile header eyebrow, footer "NEXT UP" label). */
-const STEP_TITLES = ['The basics', 'Details', 'Timing & yield', 'Ingredients', 'Method', 'Equipment & notes', 'Review & publish'];
-/** Next-step title, indexed by the CURRENT step (so it's STEP_TITLES shifted by one). */
-const NEXT_LABELS = STEP_TITLES.slice(1);
+/** Serif step titles for the header. Five steps: the old Basics+Timing
+ *  merged into "The basics", and Equipment & notes folded into the
+ *  Extras section on Review. */
+const STEP_TITLES = ['The basics', 'Details', 'Ingredients', 'Method', 'Review & publish'];
 const STEP_COUNT = STEP_TITLES.length;
 const LAST_STEP = STEP_COUNT - 1;
 
@@ -518,31 +509,29 @@ function validate(state: AdvancedRecipeState): ValidationResult {
     (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
     0,
   );
-  if (ingredientCount === 0) errors.push({ step: 3, message: 'Add at least one ingredient.' });
+  if (ingredientCount === 0) errors.push({ step: 2, message: 'Add at least one ingredient.' });
   const stepCount = flattenStepGroups(state.stepGroups).length;
-  if (stepCount === 0) errors.push({ step: 4, message: 'Add at least one method step.' });
+  if (stepCount === 0) errors.push({ step: 3, message: 'Add at least one method step.' });
   return { ok: errors.length === 0, errors };
 }
 
-/** Per-step gate for the "Next" button. Only the Ingredients (step 3) and
- *  Method (step 4) steps hard-block — the user must add at least one real
- *  ingredient / step before moving on. Other steps' missing-required
- *  warnings still surface on Publish via `validate`. */
-function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean; reason?: string } {
-  if (step === 3) {
+/** Per-step gate for the footer CTA. The basics (name + summary),
+ *  Ingredients, and Method hard-block until they have real content;
+ *  everything else stays passable — remaining publish requirements
+ *  surface via `validate` on the Publish click. */
+function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean } {
+  if (step === 0) {
+    return { ok: !!(state.name.trim() && state.summary.trim()) };
+  }
+  if (step === 2) {
     const count = state.ingredientGroups.reduce(
       (sum, g) => sum + g.ingredients.filter((i) => i.name.trim()).length,
       0,
     );
-    if (count === 0) {
-      return { ok: false, reason: 'Add at least one ingredient before moving on.' };
-    }
+    return { ok: count > 0 };
   }
-  if (step === 4) {
-    const count = flattenStepGroups(state.stepGroups).length;
-    if (count === 0) {
-      return { ok: false, reason: 'Add at least one method step before moving on.' };
-    }
+  if (step === 3) {
+    return { ok: flattenStepGroups(state.stepGroups).length > 0 };
   }
   return { ok: true };
 }
@@ -598,13 +587,13 @@ function formatTimeAgo(ts: number): string {
 export interface AdvancedRecipeBuilderProps {
   existing: HomeMeal | null;
   onClose: () => void;
-  tabSlot?: React.ReactNode; // Basic/Advanced toggle injected by parent
+  tabSlot?: React.ReactNode; // Basic/Advanced/AI toggle injected by parent
   /** Pre-fill the builder with this recipe but treat it as a NEW recipe
    *  (saves via createHomeMeal, never updateHomeMeal). Used by the
    *  "Create with AI" flow to hand off a generated draft for review.
    *  Ignored when `existing` is set. */
   seed?: HomeMeal | null;
-  /** Step index (0–5) to open on. Defaults to 0. The AI flow passes 5
+  /** Step index (0–4) to open on. Defaults to 0. The AI flow passes 4
    *  (Review) so the user lands on a skim of the finished recipe. */
   initialStep?: number;
   /** When the builder was opened to fine-tune an AI draft, a callback
@@ -632,6 +621,8 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const [showResume, setShowResume] = useState(false);
   const [resumeSlot, setResumeSlot] = useState<ResumeSlot | null>(null);
   const [showValidation, setShowValidation] = useState(false);
+  /** Post-publish success overlay: the saved meal's identity. */
+  const [published, setPublished] = useState<{ id: string | null; name: string } | null>(null);
   /** Once the user explicitly clicks Save draft (or resumes a draft
    *  from Activity), we remember that draft's id so further saves
    *  update the same row rather than spawning a new one. */
@@ -744,15 +735,15 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [key]);
 
   const validation = useMemo(() => validate(state), [state]);
-  // Per-step gate. When the current step blocks (Ingredients with
-  // nothing in it, Method with nothing in it) the Next button goes
-  // disabled and an inline note explains why.
+  // Per-step gate. When the current step blocks (no name/summary,
+  // Ingredients with nothing in it, Method with nothing in it) the CTA
+  // goes disabled and its label explains why.
   const gate = useMemo(() => canLeaveStep(state, currentStep), [state, currentStep]);
 
   const handleNext = useCallback(() => {
-    // Belt-and-suspenders: the Next button is also disabled by `gate`
-    // in the render, but block here too in case it's clicked via the
-    // keyboard while still focused.
+    // Belt-and-suspenders: the CTA is also disabled by `gate` in the
+    // render, but block here too in case it's clicked via the keyboard
+    // while still focused.
     if (!canLeaveStep(state, currentStep).ok) return;
     if (currentStep < LAST_STEP) setCurrentStep(currentStep + 1);
   }, [currentStep, state]);
@@ -762,8 +753,6 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [currentStep]);
 
   const handleJumpTo = useCallback((step: number) => {
-    // <= LAST_STEP, not a hardcoded 5 — the wizard grew a 7th (Review) step
-    // and the old bound made it unreachable from the rail / progress strip.
     if (step >= 0 && step <= LAST_STEP) setCurrentStep(step);
   }, []);
 
@@ -899,87 +888,216 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       if (currentDraftId) removeExplicitDraft(userId, currentDraftId);
     };
 
+    // Save, then hand off to the success overlay — the user chooses
+    // between viewing the recipe page and just closing the modal.
     if (existing) {
       lists.updateHomeMeal(existing.id, payload);
       cleanup();
-      onClose();
-      if (userId) setTimeout(() => navigate(`/recipe/${userId}/${existing.id}`), 80);
+      setPublished({ id: existing.id, name: state.name.trim() });
     } else {
       const created = lists.createHomeMeal(payload);
       // Opened from a specific recipe list ("Add recipe" on a list page):
       // the new recipe also lands in that list, not just the cookbook.
       if (created && lists.homeMealModalTargetListId) lists.addRecipeToList(lists.homeMealModalTargetListId, created);
       cleanup();
-      onClose();
-      if (userId && created?.id) setTimeout(() => navigate(`/recipe/${userId}/${created.id}`), 80);
+      setPublished({ id: created?.id || null, name: state.name.trim() });
     }
-  }, [state, existing, key, lists, onClose, userId, navigate, currentDraftId]);
+  }, [state, existing, key, lists, userId, currentDraftId]);
 
-  // Progress bar fill: 5/6 when on step 5, etc. Step 6 (index 5) at
-  // full bar (100%) is reached only when the user actually publishes,
-  // so cap at 5/6 = 83% while inside the wizard. Tweak as desired.
-  const progress = Math.round(((currentStep + 1) / STEP_COUNT) * 100);
+  const handleViewPublished = useCallback(() => {
+    const id = published?.id;
+    onClose();
+    if (userId && id) setTimeout(() => navigate(`/recipe/${userId}/${id}`), 80);
+  }, [published, onClose, userId, navigate]);
 
-  const isPhone = phoneMode;
+  /* ── CTA label: the gate reason IS the label ──────────────────── */
+
+  const ctaLabel =
+    currentStep === 0 ? (gate.ok ? 'Details' : 'Name & summarize to continue') :
+    currentStep === 1 ? 'Ingredients' :
+    currentStep === 2 ? (gate.ok ? 'Method' : 'Add at least one ingredient') :
+    currentStep === 3 ? (gate.ok ? 'Review & publish' : 'Write at least one step') :
+    (existing ? 'Save changes' : 'Publish recipe');
 
   const renderStep = () => {
     switch (currentStep) {
       case 0: return <StepBasics state={state} dispatch={dispatch} />;
       case 1: return <StepDetails state={state} dispatch={dispatch} />;
-      case 2: return <StepTiming state={state} dispatch={dispatch} />;
-      case 3: return <StepIngredients state={state} dispatch={dispatch} existingId={existing?.id} />;
-      case 4: return <StepMethod state={state} dispatch={dispatch} existingId={existing?.id} />;
-      case 5: return <StepEquipmentNotes state={state} dispatch={dispatch} />;
-      case 6: return <StepReview state={state} dispatch={dispatch} validation={validation} />;
+      case 2: return <StepIngredients state={state} dispatch={dispatch} existingId={existing?.id} />;
+      case 3: return <StepMethod state={state} dispatch={dispatch} existingId={existing?.id} />;
+      case 4: return <StepReview state={state} dispatch={dispatch} isAiDraft={!!seed && !existing} />;
       default: return null;
     }
   };
 
   return (
-    <div className={`advanced-recipe-builder${isPhone ? ' is-phone' : ''}`}>
-      {/* Resume-draft prompt overlay. */}
+    <div className={`rcx${phoneMode ? ' is-phone' : ''}`}>
+      {/* ── Header ── */}
+      <div className="rcx-head">
+        <div className="rcx-head-row">
+          {tabSlot}
+          <div className="rcx-head-actions">
+            <span className={`rcx-saved${draftSavedAt ? ' is-saved' : ''}`}>
+              <span className="rcx-saved-dot" />
+              <span className="rcx-saved-label">{draftSavedAt ? 'Saved' : 'Unsaved'}</span>
+            </span>
+            <button type="button" className="rcx-head-link" onClick={handleSaveDraft}>
+              Save draft
+            </button>
+            <button type="button" className="rcx-head-close" onClick={onClose} aria-label="Close">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {(onBackToDraft || existing) && (
+          <div className="rcx-subrow">
+            {onBackToDraft && (
+              <button type="button" className="rcx-sub-chip" onClick={onBackToDraft}>
+                <ArrowLeft size={12} strokeWidth={2.4} />
+                <Sparkles size={11} />
+                Back to AI draft
+              </button>
+            )}
+            {existing && (
+              <button
+                type="button"
+                className="rcx-sub-chip"
+                onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
+              >
+                <Sparkles size={11} />
+                Edit with AI
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="rcx-title-row">
+          <h2 className="rcx-step-title">{STEP_TITLES[currentStep]}</h2>
+          <span className="rcx-step-counter">{currentStep + 1} / {STEP_COUNT}</span>
+        </div>
+
+        <div className="rcx-segs">
+          {STEP_TITLES.map((t, i) => (
+            <button
+              key={i}
+              type="button"
+              className={`rcx-seg${i < currentStep ? ' is-done' : ''}${i === currentStep ? ' is-current' : ''}`}
+              onClick={() => handleJumpTo(i)}
+              aria-label={`Step ${i + 1}: ${t}`}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Scrollable step body ── */}
+      <div className="rcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
+        <div key={currentStep} className="rcx-step-anim">
+          {renderStep()}
+          {showValidation && !validation.ok && (
+            <div className="rcx-validation">
+              Fix these before publishing:
+              <ul>
+                {validation.errors.map((e, i) => (
+                  <li key={i}>{e.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div className="rcx-foot">
+        {currentStep > 0 && (
+          <button type="button" className="rcx-foot-back" onClick={handleBack} aria-label="Back">
+            <ArrowLeft size={17} />
+          </button>
+        )}
+        <button
+          type="button"
+          className={`rcx-foot-cta${!gate.ok ? ' is-disabled' : ''}${currentStep === LAST_STEP && gate.ok ? ' is-publish' : ''}`}
+          onClick={currentStep === LAST_STEP ? handlePublish : handleNext}
+        >
+          {ctaLabel}
+          {gate.ok && currentStep < LAST_STEP && <ArrowRight size={15} strokeWidth={2.2} />}
+          {gate.ok && currentStep === LAST_STEP && <Check size={16} strokeWidth={2.4} />}
+        </button>
+      </div>
+
+      {/* ── Published overlay ── */}
+      {published && (
+        <div className="rcx-published">
+          <div className="rcx-published-badge">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4.5 12.5l5 5L19.5 7" className="rcx-published-check" />
+            </svg>
+          </div>
+          <div className="rcx-published-title">
+            {existing ? 'Changes saved' : 'Recipe published'}
+          </div>
+          <div className="rcx-published-sub">
+            {published.name || 'Your recipe'} is in your pantry
+            {state.isPublic ? " and on your friends' feeds." : ', visible only to you.'}
+          </div>
+          <div className="rcx-published-actions">
+            {userId && published.id && (
+              <button type="button" className="rcx-published-view" onClick={handleViewPublished}>
+                View recipe
+              </button>
+            )}
+            <button type="button" className="rcx-published-done" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Resume-draft prompt overlay ── */}
       {showResume && resumeSlot && (
-        <div className="arb-draft-overlay">
-          <div className="arb-draft-card">
-            <h3>Resume your draft?</h3>
-            <p>You have an unsaved recipe from {formatTimeAgo(resumeSlot.savedAt)}. Pick up where you left off, or start fresh.</p>
-            <div className="arb-draft-actions">
-              <button type="button" className="discard" onClick={handleResumeDiscard}>Start over</button>
-              <button type="button" className="resume" onClick={handleResumeAccept}>Resume</button>
+        <div className="rcx-overlay">
+          <div className="rcx-modal">
+            <h3 className="rcx-modal-title">Resume your draft?</h3>
+            <p className="rcx-modal-sub">
+              You have an unsaved recipe from {formatTimeAgo(resumeSlot.savedAt)}. Pick up where you left off, or start fresh.
+            </p>
+            <div className="rcx-modal-actions">
+              <button type="button" className="rcx-mini-ghost" onClick={handleResumeDiscard}>Start over</button>
+              <button type="button" className="rcx-mini-primary" onClick={handleResumeAccept}>Resume</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit-with-AI composer overlay. */}
+      {/* ── Edit-with-AI composer overlay ── */}
       {aiEditOpen && (
         <div
-          className="arb-draft-overlay"
+          className="rcx-overlay"
           onClick={() => { if (!aiEditBusy) setAiEditOpen(false); }}
         >
-          <div className="arb-aiedit-card" onClick={(e) => e.stopPropagation()}>
-            <div className="arb-aiedit-head">
-              <div className="arb-aiedit-eyebrow"><Sparkles size={14} /> Edit with AI</div>
+          <div className="rcx-modal is-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="rcx-modal-head">
+              <span className="rcx-modal-eyebrow"><Sparkles size={13} /> Edit with AI</span>
               <button
                 type="button"
-                className="arb-aiedit-close"
+                className="rcx-head-close"
                 onClick={() => setAiEditOpen(false)}
                 disabled={aiEditBusy}
                 aria-label="Close"
               >
-                <X size={16} />
+                <X size={14} />
               </button>
             </div>
-            <p className="arb-aiedit-sub">
+            <p className="rcx-modal-sub">
               Describe a change and the AI will revise <strong>{state.name.trim() || 'this recipe'}</strong> —
               building on what's here, not starting over.
             </p>
-            <div className="arb-aiedit-chips">
+            <div className="rcx-chips">
               {AI_EDIT_SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
-                  className="arb-aiedit-chip"
+                  className="rcx-chip"
                   disabled={aiEditBusy}
                   onClick={() => handleApplyAiEdit(s)}
                 >
@@ -989,7 +1107,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             </div>
             <textarea
               ref={aiEditInputRef}
-              className="arb-aiedit-input"
+              className="rcx-area"
               value={aiEditText}
               onChange={(e) => { setAiEditText(e.target.value); if (aiEditError) setAiEditError(null); }}
               onKeyDown={(e) => {
@@ -1000,12 +1118,12 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               placeholder="e.g. Make it vegetarian, add a make-ahead tip, scale to 8 servings…"
             />
             {aiEditError && (
-              <p className="arb-aiedit-error"><AlertCircle size={13} /> {aiEditError}</p>
+              <p className="rcx-modal-error"><AlertCircle size={13} /> {aiEditError}</p>
             )}
-            <div className="arb-aiedit-actions">
+            <div className="rcx-modal-actions">
               <button
                 type="button"
-                className="arb-aiedit-cancel"
+                className="rcx-mini-ghost"
                 onClick={() => setAiEditOpen(false)}
                 disabled={aiEditBusy}
               >
@@ -1013,249 +1131,13 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
               </button>
               <button
                 type="button"
-                className="arb-aiedit-apply"
+                className="rcx-mini-primary"
                 onClick={() => handleApplyAiEdit()}
                 disabled={aiEditBusy || !aiEditText.trim()}
               >
-                {aiEditBusy ? (<><Loader2 size={15} className="arb-spin" /> Revising…</>) : (<><Sparkles size={15} /> Apply edit</>)}
+                {aiEditBusy ? (<><Loader2 size={14} className="rcx-spin" /> Revising…</>) : (<><Sparkles size={14} /> Apply edit</>)}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {!isPhone && (
-        <button type="button" className="arb-pane-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
-        </button>
-      )}
-
-      {/* Mobile sticky header — replaces the desktop rail. */}
-      {isPhone && (
-        <header className="arb-m-header">
-          {/* Tab strip — switch builder modes, with the close button. */}
-          <div className="arb-m-tabs">
-            {tabSlot}
-            <button
-              type="button"
-              className="arb-m-header-close"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X size={16} />
-            </button>
-          </div>
-          {onBackToDraft && (
-            <button type="button" className="arb-back-to-draft is-mobile" onClick={onBackToDraft}>
-              <ArrowLeft size={14} />
-              <Sparkles size={12} />
-              Back to AI draft
-            </button>
-          )}
-          <div className="arb-m-titlerow">
-            <div className="arb-m-titleblock-left">
-              <div className="arb-m-header-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
-              <div className="arb-m-header-title">{STEP_TITLES[currentStep]}</div>
-            </div>
-            <div className="arb-m-header-saveblock">
-              <div className="arb-m-saved-pill">
-                <span className="dot" />
-                <span>{draftSavedAt ? 'Saved' : 'Unsaved'}</span>
-              </div>
-              <button
-                type="button"
-                className="arb-m-save-link"
-                onClick={handleSaveDraft}
-              >
-                Save to drafts
-              </button>
-            </div>
-          </div>
-          <div className="arb-m-progress-row">
-            {STEP_TITLES.map((_, i) => {
-              const isDone = i < currentStep;
-              const isCurrent = i === currentStep;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  className={`arb-m-progress-seg${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
-                  onClick={() => handleJumpTo(i)}
-                  aria-label={`Step ${i + 1}: ${STEP_TITLES[i]}`}
-                />
-              );
-            })}
-          </div>
-          {existing && (
-            <button
-              type="button"
-              className="arb-edit-ai-btn is-mobile"
-              onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
-            >
-              <Sparkles size={13} />
-              Edit with AI
-            </button>
-          )}
-        </header>
-      )}
-
-      <div className="arb-shell">
-        {/* Desktop left rail. */}
-        {!isPhone && (
-          <nav className="arb-rail">
-            <div className="arb-rail-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</div>
-            <div className="arb-rail-title">
-              {existing ? <>Let's <em>refine</em> it.</> : <>Let's build a <em>recipe</em>.</>}
-            </div>
-            {onBackToDraft && (
-              <button type="button" className="arb-back-to-draft" onClick={onBackToDraft}>
-                <ArrowLeft size={14} />
-                <Sparkles size={13} />
-                Back to AI draft
-              </button>
-            )}
-            {tabSlot && <div style={{ marginTop: 16 }}>{tabSlot}</div>}
-            {existing && (
-              <button
-                type="button"
-                className="arb-edit-ai-btn"
-                onClick={() => { setAiEditError(null); setAiEditOpen(true); }}
-              >
-                <Sparkles size={14} />
-                Edit with AI
-              </button>
-            )}
-            <ol className="arb-rail-steps">
-              {STEP_TITLES.map((t, i) => {
-                const isDone = i < currentStep;
-                const isCurrent = i === currentStep;
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`arb-rail-step${isDone ? ' is-done' : ''}${isCurrent ? ' is-current' : ''}`}
-                    onClick={() => handleJumpTo(i)}
-                  >
-                    <span className="arb-rail-step-circle">
-                      {isDone ? <Check size={14} strokeWidth={3} /> : i + 1}
-                    </span>
-                    <span className="arb-rail-step-text">
-                      <span className="arb-rail-step-title">{t}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </ol>
-            <div className="arb-rail-foot">
-              <div className="arb-rail-foot-status">
-                <span className="dot" />
-                <span>{draftSavedAt ? 'Draft saved' : 'Not saved yet'}</span>
-                <span style={{ marginLeft: 'auto' }}>Step {currentStep + 1} of {STEP_COUNT}</span>
-              </div>
-              <div className="arb-rail-foot-bar">
-                <div className="arb-rail-foot-bar-fill" style={{ width: `${progress}%` }} />
-              </div>
-            </div>
-          </nav>
-        )}
-
-        {/* Step pane. */}
-        <div className="arb-pane">
-          <div className="arb-pane-head">
-            <div className="arb-pane-eyebrow">
-              Step <span className="strong">{currentStep + 1}</span> of {STEP_COUNT}
-            </div>
-            <h2 className="arb-pane-title">
-              {STEP_LABELS[currentStep].lead}{' '}
-              <span className="arb-pane-title-accent">{STEP_LABELS[currentStep].accent}</span>.
-            </h2>
-          </div>
-          <div className="arb-pane-body">
-            {renderStep()}
-            {!gate.ok && gate.reason && (
-              <div className="arb-step-gate" style={{ marginTop: 14 }}>
-                {gate.reason}
-              </div>
-            )}
-            {showValidation && !validation.ok && (
-              <div className="arb-review-validation" style={{ marginTop: 16 }}>
-                Fix these before publishing:
-                <ul>
-                  {validation.errors.map((e, i) => (
-                    <li key={i}>{e.message}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile floating footer dock — replaces the desktop sticky footer. */}
-          {isPhone && (
-            <div className="arb-m-foot">
-              <button
-                type="button"
-                className="arb-m-foot-back"
-                onClick={handleBack}
-                disabled={currentStep === 0}
-                aria-label="Back"
-              >
-                <ArrowLeft size={18} />
-              </button>
-              {currentStep < LAST_STEP ? (
-                <button
-                  type="button"
-                  className="arb-m-foot-next"
-                  onClick={handleNext}
-                  disabled={!gate.ok}
-                  title={gate.ok ? undefined : gate.reason}
-                >
-                  <span className="arb-m-foot-next-eyebrow">Next up</span>
-                  <span className="arb-m-foot-next-label">
-                    {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
-                  </span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="arb-m-foot-publish"
-                  onClick={handlePublish}
-                >
-                  <span className="arb-m-foot-next-eyebrow">{existing ? 'Save' : 'Publish'}</span>
-                  <span className="arb-m-foot-next-label">
-                    {existing ? 'Publish changes' : 'Publish recipe'} <Check size={16} />
-                  </span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Desktop sticky footer. */}
-      {!isPhone && (
-        <div className="arb-foot">
-          <button type="button" className="arb-foot-back" onClick={handleBack} disabled={currentStep === 0}>
-            <ArrowLeft size={16} /> Back
-          </button>
-          <div className="arb-foot-right">
-            <button type="button" className="arb-foot-save" onClick={handleSaveDraft}>
-              Save draft
-            </button>
-            {currentStep < LAST_STEP ? (
-              <button
-                type="button"
-                className="arb-foot-next"
-                onClick={handleNext}
-                disabled={!gate.ok}
-                title={gate.ok ? undefined : gate.reason}
-              >
-                Next: {NEXT_LABELS[currentStep]} <ArrowRight size={16} />
-              </button>
-            ) : (
-              <button type="button" className="arb-foot-publish" onClick={handlePublish}>
-                {existing ? 'Save changes' : 'Publish recipe'}
-              </button>
-            )}
           </div>
         </div>
       )}
