@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { User, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -177,30 +177,41 @@ export const ProfileSetup: React.FC = () => {
               Choose a display name and username so friends can find you.
             </p>
           </header>
-          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-2.5">
-            <div className="relative">
-              <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
+          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
+                Display name
+              </label>
+              <input type="text" placeholder="e.g. Tyler Gorin" value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+                autoCapitalize="words" autoComplete="name"
+                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+              <p className="text-[11px] text-on-surface/40 mt-1 px-1">The name friends see on your profile.</p>
             </div>
-            <div className="relative">
-              <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
+                Username
+              </label>
+              <input type="text" placeholder="e.g. tyler_eats" value={username}
                 onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                autoCapitalize="off" autoCorrect="off" />
+                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                autoCapitalize="off" autoCorrect="off" autoComplete="username" />
+              <p className="text-[11px] text-on-surface/40 mt-1 px-1">
+                {username
+                  ? <>Your unique handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></>
+                  : 'Your unique @handle — letters, numbers, and underscores.'}
+              </p>
             </div>
-            {username && (
-              <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
-            )}
-            <div className="relative">
-              <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" placeholder="Home city (optional)"
+            <div>
+              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
+                Home city <span className="normal-case font-medium text-on-surface/35">(optional)</span>
+              </label>
+              <input type="text" placeholder="e.g. New York, NY"
                 value={homeCity}
                 onChange={(e) => setHomeCity(e.target.value)}
                 autoCapitalize="words" autoCorrect="off"
-                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+              <p className="text-[11px] text-on-surface/40 mt-1 px-1">Helps us surface restaurants near you.</p>
             </div>
             <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
               <div>

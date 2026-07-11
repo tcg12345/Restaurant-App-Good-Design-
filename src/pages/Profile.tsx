@@ -2074,11 +2074,16 @@ export const Profile: React.FC = () => {
                         <SettingsRow
                           icon={profile?.is_public ? <Globe size={17} /> : <Lock size={17} />}
                           label="Private Account"
-                          hint={profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
+                          hint={profile?.is_verified
+                            ? 'Verified accounts are always public'
+                            : profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
                           toggle
                           toggleValue={!profile?.is_public}
                           onClick={async () => {
                             if (!user?.id || !profile) return;
+                            // The DB trigger enforces this too — the toggle
+                            // just explains instead of silently snapping back.
+                            if (profile.is_verified) return;
                             const newVal = !profile.is_public;
                             await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
                             await refreshProfile();

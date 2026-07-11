@@ -36,7 +36,16 @@ interface AuthContextType {
   profileComplete: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  /** `needsVerification` is true when Supabase created the account but
+   *  requires the emailed 6-digit code before a session exists (project
+   *  has "Confirm email" enabled). The caller shows the code screen. */
+  signUp: (email: string, password: string) => Promise<{ error: string | null; needsVerification?: boolean }>;
+  /** Confirm a signup with the 6-digit code from the verification email.
+   *  On success Supabase creates the session and onAuthStateChange takes
+   *  over. */
+  verifyEmailCode: (email: string, code: string) => Promise<{ error: string | null }>;
+  /** Re-send the signup verification email (code + link). */
+  resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
   /** Start an OAuth sign-in (e.g. Google). Redirects the browser to the
    *  provider and back to the app, where the session is picked up by
    *  `onAuthStateChange`. Returns an error only when the redirect itself
@@ -103,6 +112,8 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signIn: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
+  verifyEmailCode: async () => ({ error: null }),
+  resendVerificationCode: async () => ({ error: null }),
   signInWithOAuth: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -216,14 +227,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     try {
-      const { error } = await withTimeout(
+      const { data, error } = await withTimeout(
         supabase.auth.signUp({ email, password }),
         12000,
         'auth.signUp',
       );
-      return { error: error?.message ?? null };
+      if (error) return { error: error.message };
+      // With "Confirm email" enabled Supabase returns a user but NO session
+      // until the emailed code/link is used — surface that so the UI can
+      // show the enter-code screen. (Confirmation disabled → session exists
+      // and the app proceeds immediately, as before.)
+      return { error: null, needsVerification: !data.session };
     } catch {
       return { error: 'Sign up took too long. Check your connection and try again.' };
+    }
+  }, []);
+
+  const verifyEmailCode = useCallback(async (email: string, code: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.verifyOtp({ email, token: code.trim(), type: 'signup' }),
+        12000,
+        'auth.verifyOtp',
+      );
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Verification took too long. Check your connection and try again.' };
+    }
+  }, []);
+
+  const resendVerificationCode = useCallback(async (email: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.resend({ type: 'signup', email }),
+        12000,
+        'auth.resend',
+      );
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Could not resend the code. Check your connection and try again.' };
     }
   }, []);
 
@@ -307,7 +351,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode }}>
       {children}
     </AuthContext.Provider>
   );

@@ -8,7 +8,7 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // original split-screen AuthShell design below.
 import * as OB from '../components/onboarding/OnboardingKit';
 
-type Step = 'email' | 'password' | 'signup';
+type Step = 'email' | 'password' | 'signup' | 'verify';
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
 
 // Lightweight password strength heuristic: length + character-class diversity.
@@ -180,6 +180,13 @@ type SharedProps = {
    *  button. As the first screen it enters guest mode; inside the on-demand
    *  sign-in overlay it dismisses the overlay. */
   onBrowseAsGuest?: () => void;
+  // ── Email verification (enter the emailed 6-digit code) ──
+  code: string;
+  setCode: (v: string) => void;
+  onVerify: () => void;
+  onResend: () => void;
+  resendIn: number;
+  verifyNotice: string;
 };
 
 const StepEmail: React.FC<SharedProps> = ({
@@ -441,9 +448,61 @@ const FadeStep: React.FC<{ stepKey: string; children: React.ReactNode }> = ({ st
   </AnimatePresence>
 );
 
+const StepVerify: React.FC<SharedProps> = ({
+  email, code, setCode, submitting, error, onVerify, onResend, resendIn, verifyNotice, onBack,
+}) => (
+  <div className="space-y-4">
+    <header>
+      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
+        Check your email
+      </h1>
+      <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
+        <span>{verifyNotice || 'We sent a 6-digit code to'}</span>
+        <EmailPill email={email} onClear={onBack} />
+      </p>
+    </header>
+
+    <form
+      onSubmit={(e) => { e.preventDefault(); onVerify(); }}
+      className="space-y-4"
+    >
+      <div>
+        <FieldLabel>Verification code</FieldLabel>
+        <input
+          type="text"
+          name="one-time-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="123456"
+          autoComplete="one-time-code"
+          inputMode="numeric"
+          autoFocus
+          className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-center text-[22px] font-bold tracking-[0.4em] placeholder:tracking-[0.4em] placeholder:text-on-surface/20 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all"
+        />
+      </div>
+
+      {error && (
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
+      )}
+
+      <PrimaryButton loading={submitting} disabled={code.length !== 6}>Verify email</PrimaryButton>
+
+      <button
+        type="button"
+        onClick={onResend}
+        disabled={resendIn > 0}
+        className="w-full text-center text-[13px] font-semibold text-primary disabled:text-on-surface/35 transition-colors"
+      >
+        {resendIn > 0 ? `Resend code in ${resendIn}s` : "Didn't get it? Resend code"}
+      </button>
+    </form>
+  </div>
+);
+
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGuest }) => {
-  const { signIn, signUp, signInWithOAuth, checkEmailExists } = useAuth();
+  const { signIn, signUp, signInWithOAuth, checkEmailExists, verifyEmailCode, resendVerificationCode } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
 
   const [step, setStep] = useState<Step>('email');
@@ -454,6 +513,17 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const [submitting, setSubmitting] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [oauthPending, setOauthPending] = useState<'google' | 'apple' | null>(null);
+  // Email-verification (6-digit code) state
+  const [code, setCode] = useState('');
+  const [resendIn, setResendIn] = useState(0);
+  const [verifyNotice, setVerifyNotice] = useState('');
+
+  // Resend cooldown ticker
+  React.useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setInterval(() => setResendIn((n) => Math.max(0, n - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendIn]);
 
   const handleEmailContinue = useCallback(async () => {
     setError('');
@@ -481,9 +551,22 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     }
     setSubmitting(true);
     const { error: err } = await signIn(email, password);
-    if (err) setError(err);
+    if (err) {
+      // Account exists but the email was never confirmed — send a fresh
+      // code and route to the verification screen instead of dead-ending.
+      if (/confirm/i.test(err)) {
+        void resendVerificationCode(email);
+        setCode('');
+        setResendIn(30);
+        setVerifyNotice('Your email still needs verifying — we sent a new code to');
+        setError('');
+        setStep('verify');
+      } else {
+        setError(err);
+      }
+    }
     setSubmitting(false);
-  }, [email, password, signIn]);
+  }, [email, password, signIn, resendVerificationCode]);
 
   const handleSignUp = useCallback(async () => {
     setError('');
@@ -496,7 +579,15 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
       return;
     }
     setSubmitting(true);
-    const { error: err } = await signUp(email, password);
+    const { error: err, needsVerification } = await signUp(email, password);
+    if (!err && needsVerification) {
+      setCode('');
+      setResendIn(30);
+      setVerifyNotice('We sent a 6-digit code to');
+      setStep('verify');
+      setSubmitting(false);
+      return;
+    }
     if (err) {
       // The email may already be registered — e.g. the existence check was
       // wrong (rate-limited) and routed a returning user here. Recover instead
@@ -520,8 +611,30 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const handleBack = useCallback(() => {
     setStep('email');
     setPassword('');
+    setCode('');
     setError('');
   }, []);
+
+  const handleVerify = useCallback(async () => {
+    setError('');
+    if (code.length !== 6) { setError('Enter the 6-digit code from your email'); return; }
+    setSubmitting(true);
+    const { error: err } = await verifyEmailCode(email, code);
+    if (err) {
+      setError(/expired|invalid/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
+    }
+    // Success → Supabase creates the session and onAuthStateChange swaps
+    // to profile setup; nothing else to do here.
+    setSubmitting(false);
+  }, [email, code, verifyEmailCode]);
+
+  const handleResend = useCallback(async () => {
+    if (resendIn > 0) return;
+    setError('');
+    setResendIn(30);
+    const { error: err } = await resendVerificationCode(email);
+    if (err) setError(err);
+  }, [email, resendIn, resendVerificationCode]);
 
   const handleOAuth = useCallback(async (provider: 'google' | 'apple') => {
     setError('');
@@ -545,6 +658,10 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     oauthPending,
     keepSignedIn, setKeepSignedIn,
     onBrowseAsGuest,
+    code, setCode,
+    onVerify: handleVerify,
+    onResend: handleResend,
+    resendIn, verifyNotice,
   };
 
   const stepContent = (
@@ -559,6 +676,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
         {step === 'email' && <StepEmail {...sharedProps} />}
         {step === 'password' && <StepPassword {...sharedProps} />}
         {step === 'signup' && <StepSignup {...sharedProps} />}
+        {step === 'verify' && <StepVerify {...sharedProps} />}
       </motion.div>
     </AnimatePresence>
   );
@@ -579,7 +697,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
         </button>
       );
     return (
-      <AuthShell headerRight={headerRight} panel={step}>
+      <AuthShell headerRight={headerRight} panel={step === 'verify' ? 'signup' : step}>
         {stepContent}
       </AuthShell>
     );
@@ -661,6 +779,54 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
             <div style={{ marginTop: 'auto', paddingTop: 28 }} className="flex-1 flex flex-col justify-end">
               <OB.PrimaryButton type="submit" loading={submitting} trailing="none">Sign in</OB.PrimaryButton>
             </div>
+          </form>
+        </FadeStep>
+      </OB.OnboardingScreen>
+    );
+  }
+
+  // Verify email — enter the emailed 6-digit code
+  if (step === 'verify') {
+    return (
+      <OB.OnboardingScreen>
+        <FadeStep stepKey="verify">
+          <OB.RoundBackButton onClick={handleBack} />
+          <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
+          <OB.Title size={30}>Check your email</OB.Title>
+          <OB.Subtitle>{verifyNotice || 'We sent a 6-digit code to'}</OB.Subtitle>
+          <div style={{ marginTop: 10 }}><OB.EmailPill email={emailDisplay} onClick={handleBack} /></div>
+          <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
+            <OB.FieldLabel>Verification code</OB.FieldLabel>
+            <input
+              type="text"
+              name="one-time-code"
+              value={code}
+              onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+              placeholder="123456"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              autoFocus
+              className="w-full rounded-2xl border text-center focus:outline-none"
+              style={{
+                padding: '14px 16px', fontSize: 24, fontWeight: 700, letterSpacing: '0.4em',
+                background: 'var(--ob-field-bg, rgba(255,255,255,0.7))', borderColor: OB.BORDER, color: OB.INK,
+              }}
+            />
+            {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
+            <div style={{ marginTop: 16 }}>
+              <OB.PrimaryButton type="submit" loading={submitting} disabled={code.length !== 6} trailing="check">
+                Verify email
+              </OB.PrimaryButton>
+            </div>
+            <button
+              type="button"
+              onClick={() => { void handleResend(); }}
+              disabled={resendIn > 0}
+              className="bg-transparent border-none cursor-pointer disabled:cursor-default"
+              style={{ marginTop: 16, fontSize: 14, fontWeight: 600, color: resendIn > 0 ? 'var(--ob-label)' : OB.TERRA }}
+            >
+              {resendIn > 0 ? `Resend code in ${resendIn}s` : "Didn't get it? Resend code"}
+            </button>
           </form>
         </FadeStep>
       </OB.OnboardingScreen>
