@@ -352,11 +352,19 @@ export interface UserProfile {
   username: string;
   bio: string;
   is_public: boolean;
+  /** Legacy self-assigned flag — kept in the row for old clients but no
+   *  longer written by this app. Read `is_verified` instead. */
   is_expert: boolean;
+  /** Owner-approved verified badge. Granted only through the
+   *  verification-request flow (see supabase-verification.ts); a DB
+   *  trigger silently ignores client-side writes to it. */
+  is_verified: boolean;
+  /** The verified user's self-chosen one-line public status
+   *  ("Head chef at …"). Only present alongside is_verified. */
+  verified_status?: string | null;
   /** Self-declared home base — surfaced on the Circle search page so
-   *  users can tell where an expert eats, and used by /location to find
-   *  experts based in the city being explored. Optional for non-experts;
-   *  expert profile editing nudges experts to provide it. */
+   *  users can tell where a verified user eats, and used by /location to
+   *  find verified users based in the city being explored. */
   home_city?: string | null;
   home_lat?: number | null;
   home_lng?: number | null;
@@ -397,7 +405,6 @@ export async function saveProfile(
   username: string,
   bio?: string,
   isPublic?: boolean,
-  isExpert?: boolean,
   homeBase?: SaveProfileHomeBase,
 ): Promise<{ success: boolean; error?: string }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
@@ -408,7 +415,9 @@ export async function saveProfile(
     };
     if (bio !== undefined) payload.bio = bio;
     if (isPublic !== undefined) payload.is_public = isPublic;
-    if (isExpert !== undefined) payload.is_expert = isExpert;
+    // is_verified / verified_status are never written here — verification
+    // is granted via the approve RPC, and the status line goes through
+    // saveVerifiedStatusLine (supabase-verification.ts).
     if (homeBase) {
       // Only assign keys that were explicitly provided so partial updates
       // don't clobber existing home-base values with undefined.
@@ -453,7 +462,7 @@ export async function getProfilesInArea(opts: {
       .gte('home_lng', bbox.lngLow)
       .lte('home_lng', bbox.lngHigh)
       .limit(limit ?? 20);
-    if (expertsOnly) q = q.eq('is_expert', true);
+    if (expertsOnly) q = q.eq('is_verified', true);
     if (excludeUserIds && excludeUserIds.length > 0) {
       // Postgrest doesn't accept .not('user_id', 'in', '(...)') with an
       // array directly in the JS client builder, so format manually.
@@ -654,7 +663,7 @@ export async function getExpertRatings(limit = 50): Promise<CommunityRating[]> {
   if (!supabaseConfigured) return [];
   try {
     // Get expert user IDs
-    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_expert', true);
+    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_verified', true);
     if (!experts || experts.length === 0) return [];
     const expertIds = experts.map((e: any) => e.user_id);
     const { data, error } = await supabase.from('community_ratings')
@@ -692,7 +701,7 @@ export async function getAllFriendRatings(userId: string): Promise<CommunityRati
     const friendIds = friends.map((f) => f.friend_id);
 
     // Exclude expert users so their ratings only appear in the experts tab
-    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_expert', true);
+    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_verified', true);
     const expertIds = new Set((experts || []).map((e: any) => e.user_id));
     const nonExpertFriendIds = friendIds.filter((id) => !expertIds.has(id));
     if (nonExpertFriendIds.length === 0) return [];
@@ -1236,7 +1245,7 @@ export async function getFollowedExpertIds(userId: string): Promise<Set<string>>
       .from('user_profiles')
       .select('user_id')
       .in('user_id', ids)
-      .eq('is_expert', true);
+      .eq('is_verified', true);
     return new Set((data || []).map((r: any) => r.user_id));
   } catch { return new Set(); }
 }
@@ -1339,7 +1348,7 @@ export async function getExpertProfiles(): Promise<UserProfile[]> {
   if (!supabaseConfigured) return [];
   try {
     const { data, error } = await supabase.from('user_profiles')
-      .select('*').eq('is_expert', true);
+      .select('*').eq('is_verified', true);
     if (error) return [];
     return (data || []) as UserProfile[];
   } catch { return []; }

@@ -17,7 +17,7 @@ import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components
 import { MichelinBadge } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import {
   HomeLocationBar,
@@ -233,7 +233,7 @@ export const LocationMap: React.FC = () => {
         })
       : places;
     const out = hoursActive
-      ? result.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter))
+      ? result.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng)))
       : result;
     return out;
   }, [places, filtersActive, selectedCuisines, selectedPrice, minScore, hoursFilter, restaurantMeta]);

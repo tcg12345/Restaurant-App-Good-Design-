@@ -36,6 +36,7 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 // is a separate entry point so it has to bring it in too.
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from './VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { useLists } from '../contexts/ListsContext';
 import {
@@ -142,9 +143,9 @@ const ReviewRow: React.FC<{
       <div className="flex items-baseline gap-1.5 flex-wrap">
         <span className="text-[13px] font-bold text-on-surface truncate">{name}</span>
         {isExpert && (
-          <span className="inline-flex items-center gap-0.5 px-1 py-px rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">
-            <Star size={8} className="fill-amber-900" />
-            EXPERT
+          <span className="inline-flex items-center gap-0.5 px-1 py-px rounded-sm bg-primary/10 text-primary text-[9px] font-bold">
+            <VerifiedBadge size={10} />
+            VERIFIED
           </span>
         )}
         {username && (
@@ -965,7 +966,7 @@ export const RestaurantPanelBody: React.FC<{
                         initials={initials}
                         name={name}
                         username={p?.username}
-                        isExpert={p?.is_expert}
+                        isExpert={p?.is_verified}
                         score={Number(r.score)}
                         body={r.notes}
                         date={formatRelativeDate(r.visit_date || r.created_at)}
@@ -978,13 +979,13 @@ export const RestaurantPanelBody: React.FC<{
 
             {experts.length > 0 && (
               <section>
-                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-1.5">Expert picks</h3>
+                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-1.5">Verified picks</h3>
                 <div className="divide-y divide-on-surface/[0.06] -mt-1">
                   {experts.slice(0, 3).map((e) => (
                     <ReviewRow
                       key={e.id}
                       initials={(e.expert_name || e.expert_username || 'EX').slice(0, 2).toUpperCase()}
-                      name={e.expert_name || 'Expert'}
+                      name={e.expert_name || 'Verified user'}
                       username={e.expert_username}
                       isExpert
                       score={Number(e.rating)}

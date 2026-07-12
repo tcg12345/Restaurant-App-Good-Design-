@@ -1,0 +1,75 @@
+<!-- Gourmet Canvas — "Confirm signup" auth email template.
+     Paste into: Supabase Dashboard → Authentication → Emails → Confirm signup.
+     Suggested subject line:  Your Gourmet Canvas verification code
+     Also paste into the "Magic Link" template (same subject) — edge cases in
+     the sign-in flow can send that template for existing accounts, and both
+     must carry {{ .Token }} for the in-app 6-digit code screen.
+     Notes: all styles are inline (email clients strip stylesheets); layout is
+     a single centered table for maximum client compatibility. -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#faf6f0;padding:32px 16px;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px;background-color:#ffffff;border-radius:16px;border:1px solid #eee5da;overflow:hidden;">
+        <!-- Brand header -->
+        <tr>
+          <td align="center" style="padding:32px 32px 0;">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:bold;font-style:italic;color:#9f3012;">
+              Gourmet Canvas
+            </div>
+          </td>
+        </tr>
+        <!-- Heading + copy -->
+        <tr>
+          <td align="center" style="padding:24px 32px 0;">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:bold;color:#231b15;line-height:1.2;">
+              Verify your email
+            </div>
+            <div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#6b5f54;padding-top:12px;">
+              Welcome! Enter this code in the app to finish creating your account.
+            </div>
+          </td>
+        </tr>
+        <!-- The code -->
+        <tr>
+          <td align="center" style="padding:24px 32px 8px;">
+            <div style="display:inline-block;background-color:#faf6f0;border:1px solid #eee5da;border-radius:12px;padding:16px 28px;">
+              <span style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:34px;font-weight:bold;letter-spacing:10px;color:#9f3012;">{{ .Token }}</span>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:4px 32px 28px;">
+            <div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#a3968a;">
+              This code expires in 1 hour.
+            </div>
+          </td>
+        </tr>
+        <!-- Divider + footer -->
+        <tr>
+          <td style="padding:0 32px;">
+            <div style="border-top:1px solid #f0e9e0;"></div>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:20px 32px 28px;">
+            <div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#a3968a;">
+              You're getting this because this address was used to sign up for
+              Gourmet Canvas. If that wasn't you, you can safely ignore this
+              email — no account will be created without the code.
+            </div>
+          </td>
+        </tr>
+      </table>
+      <!-- Sub-footer -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:440px;">
+        <tr>
+          <td align="center" style="padding:16px 8px 0;">
+            <div style="font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:11px;color:#c0b5a8;">
+              Gourmet Canvas · Find something worth the trip
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>

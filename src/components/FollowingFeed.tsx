@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users, Plus, Bookmark } from 'lucide-react';
+import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -12,11 +12,13 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
-import { ScoreBadge } from './RestaurantCard';
+import { CardShell, CardMedia, MetaRow, SaveButton, AddButton, ScoreBadge } from './cards';
+import { VerifiedBadge } from './VerifiedBadge';
+import { LoadingSkeletonList } from './LoadingSkeleton';
 import { extractCityState } from '../lib/places';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { HoursFilterSection } from './filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 
 const CHUNK_SIZE = 15;
@@ -53,9 +55,74 @@ const timeAgo = (date: string) => {
   if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
   const months = Math.floor(days / 30);
   if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
-  const years = Math.floor(days / 365);
+  // days 360-364: months hits 12 but floor(days/365) is still 0
+  const years = Math.max(1, Math.floor(days / 365));
   return `${years} year${years === 1 ? '' : 's'} ago`;
 };
+
+// Community rating rows sometimes carry junk in `cuisine` — a Places type
+// string ("Restaurant", "Food") or a copy of the city/address — which made
+// the old meta line read like "New York, NY · $$$$ · New York". Drop those
+// so the meta line stays clean; legit cuisines never start with the city.
+function cleanCuisine(cuisine: string | undefined | null, city: string): string {
+  const c = (cuisine || '').trim();
+  if (!c) return '';
+  if (/^(restaurant|food|establishment|point of interest)$/i.test(c)) return '';
+  if (city && c.toLowerCase().startsWith(city.toLowerCase())) return '';
+  return c;
+}
+
+const SORT_LABELS: Record<SortOption, string> = {
+  recent: 'Recent',
+  highest: 'Highest Score',
+  lowest: 'Lowest Score',
+};
+
+/* ── Filter pill — mirrors the Pantry / All Recipes chrome so every list
+      surface shares the same "Filters / facet / Sort" pill row. Each pill
+      opens the unified filter sheet; active pills tint primary and expose
+      an inline ✕ to clear just that facet. ── */
+const FilterPill: React.FC<{
+  onClick: () => void;
+  label: string;
+  active?: boolean;
+  icon?: React.ReactNode;
+  badge?: number;
+  onClear?: () => void;
+}> = ({ onClick, label, active = false, icon, badge, onClear }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      active
+        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+        : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
+    )}
+  >
+    {icon}
+    <span className="max-w-[130px] truncate">{label}</span>
+    {badge !== undefined && (
+      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">
+        {badge}
+      </span>
+    )}
+    {onClear ? (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); onClear(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
+        aria-label="Clear"
+        className="ml-0.5 text-current/70 hover:text-current"
+      >
+        <X size={10} />
+      </span>
+    ) : (
+      <ChevronDown size={10} className="opacity-60" />
+    )}
+  </button>
+);
 
 // Module-level cache so re-entering the tab is instant
 const feedCache: {
@@ -79,7 +146,7 @@ type RoleFilter = 'all' | 'friends' | 'experts';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
-  const { setHideBottomNav } = useSettings();
+  const { phoneMode, setHideBottomNav } = useSettings();
   const { openAddRestaurantModal, toggleWishlist, isWishlisted, restaurantMeta } = useLists();
   const navigate = useNavigate();
 
@@ -102,7 +169,7 @@ export const FollowingFeed: React.FC = () => {
   const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
-  // Role filter: all followed users / friends only / experts only
+  // Role filter: all followed users / friends only / verified only
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   // Optional per-person picker (user_ids). Empty array = no per-person
   // narrowing applied.
@@ -173,8 +240,8 @@ export const FollowingFeed: React.FC = () => {
     const seen = new Map<string, CommunityRating>();
     for (const r of ratings) {
       const prof = profiles[r.user_id];
-      if (roleFilter === 'friends' && prof?.is_expert) continue;
-      if (roleFilter === 'experts' && !prof?.is_expert) continue;
+      if (roleFilter === 'friends' && prof?.is_verified) continue;
+      if (roleFilter === 'experts' && !prof?.is_verified) continue;
       if (personSet.size > 0 && !personSet.has(r.user_id)) continue;
       if (!seen.has(r.restaurant_id)) seen.set(r.restaurant_id, r);
     }
@@ -235,7 +302,9 @@ export const FollowingFeed: React.FC = () => {
     if (cityFilter.length > 0)
       result = result.filter((r) => cityFilter.includes(extractCity(r.address)));
     if (isHoursFilterActive(hoursFilter))
-      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+      // Evaluate "open now" at the restaurant's approximate local time,
+      // not the device clock — remote-city hours were off by the tz delta.
+      result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurant_id]?.lng)));
 
     if (sortBy === 'highest') {
       result = [...result].sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -261,7 +330,11 @@ export const FollowingFeed: React.FC = () => {
     setVisibleCount(CHUNK_SIZE);
   }, [query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, roleFilter, personFilter, ratings.length]);
 
-  // Chunked infinite scroll via IntersectionObserver
+  // Chunked infinite scroll via IntersectionObserver. Keyed on visibleCount
+  // too: after a full load the sentinel unmounts, and a filter change that
+  // keeps filtered.length identical resets visibleCount and REMOUNTS a new
+  // sentinel node — without the dep the old observer still watches the
+  // detached node and the list stalls at the first chunk.
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
@@ -278,7 +351,7 @@ export const FollowingFeed: React.FC = () => {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [filtered.length]);
+  }, [filtered.length, visibleCount]);
 
   const visible = filtered.slice(0, visibleCount);
   const hasActiveFilters =
@@ -312,97 +385,149 @@ export const FollowingFeed: React.FC = () => {
     setPersonFilter([]);
   };
 
+  // "Who" pill — reflects the person picker first, then the role toggle.
+  const whoActive = personFilter.length > 0 || roleFilter !== 'all';
+  const whoLabel =
+    personFilter.length === 1
+      ? (profiles[personFilter[0]]?.display_name || profiles[personFilter[0]]?.username || '1 person')
+      : personFilter.length > 1 ? `People (${personFilter.length})`
+      : roleFilter === 'friends' ? 'Friends'
+      : roleFilter === 'experts' ? 'Verified'
+      : 'Who';
+  // Distinct reviewers behind the current result set — feeds the count line
+  // so the page says whose picks it's showing.
+  const reviewerCount = useMemo(
+    () => new Set(filtered.map((r) => r.user_id)).size,
+    [filtered],
+  );
+
   return (
     <div className="space-y-3 max-w-3xl mx-auto">
-      {/* Search + filter row */}
-      <div className="flex items-center gap-2">
-        <div className="flex-1 relative">
-          <SearchIcon
-            size={16}
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40"
-          />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search followed restaurants..."
-            className="w-full bg-on-surface/[0.04] rounded-full py-2.5 pl-10 pr-9 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06]"
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60"
-              aria-label="Clear"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setFiltersOpen(true)}
-          className={cn(
-            'relative w-10 h-10 rounded-full flex items-center justify-center transition-colors flex-shrink-0',
-            hasActiveFilters
-              ? 'bg-primary text-white'
-              : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08]',
-          )}
-          aria-label="Filters"
-        >
-          <Filter size={16} />
-          {activeFilterCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center border-2 border-surface">
-              {activeFilterCount}
-            </span>
-          )}
-        </button>
+      {/* Search — same treatment as the Discover tab's search bar so the
+          two tabs read as one surface. */}
+      <div className="w-full relative">
+        <SearchIcon
+          size={18}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
+        />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search followed restaurants..."
+          className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] rounded-full py-3 pl-11 pr-10 text-base font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:bg-on-surface/[0.06] transition-colors"
+          autoCapitalize="off"
+          autoCorrect="off"
+          aria-label="Search followed restaurants"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60"
+            aria-label="Clear"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Filter pill row — mirrors the Pantry / All Recipes chrome so every
+          filterable list shares the same affordance. Each pill opens the
+          unified filter sheet; active pills show their value + inline clear. */}
+      <div
+        className={cn('flex gap-2 overflow-x-auto scrollbar-hide pb-1', phoneMode && '-mx-4 px-4')}
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          icon={<SlidersHorizontal size={12} />} label="Filters"
+          active={activeFilterCount > 0}
+          badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          icon={<Users size={11} />}
+          label={whoLabel}
+          active={whoActive}
+          onClear={whoActive ? () => { setRoleFilter('all'); setPersonFilter([]); } : undefined} />
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+          active={cuisineFilter.length > 0}
+          onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
+          active={cityFilter.length > 0}
+          onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          label={priceFilter ?? 'Price'}
+          active={!!priceFilter}
+          onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
+        <FilterPill onClick={() => setFiltersOpen(true)}
+          icon={<ArrowUpDown size={11} />}
+          label={sortBy !== 'recent' ? SORT_LABELS[sortBy] : 'Sort'}
+          active={sortBy !== 'recent'}
+          onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
+        {hasActiveFilters && (
+          <button onClick={resetFilters}
+            className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+            <X size={10} /><span>Clear</span>
+          </button>
+        )}
       </div>
 
       {/* Body */}
       {loading && ratings.length === 0 ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={22} className="text-on-surface/30 animate-spin" />
-        </div>
+        <LoadingSkeletonList count={6} variant="list-item" />
       ) : fetched && ratings.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Users size={32} className="text-on-surface/15 mb-3" />
-          <p className="text-sm font-medium text-on-surface/50">No picks from people you follow yet</p>
-          <p className="text-xs text-on-surface/30 mt-1">
-            Follow friends to see the restaurants they love here
+        <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-primary/[0.08] grid place-items-center mb-4">
+            <Users size={26} className="text-primary/70" />
+          </div>
+          <p className="font-serif text-lg font-bold text-on-surface">See where friends eat</p>
+          <p className="mt-1.5 max-w-[280px] text-[13px] leading-relaxed text-on-surface/50">
+            Restaurants rated by the friends and experts you follow show up here, ready to save or try.
           </p>
+          <button
+            type="button"
+            onClick={() => navigate('/search/main')}
+            className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors"
+          >
+            <UserPlus size={14} />Find people to follow
+          </button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <SearchIcon size={28} className="text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/50">No matches</p>
-          <p className="text-xs text-on-surface/30 mt-1">Try clearing search or filters</p>
+          <p className="text-xs text-on-surface/30 mt-1">Try a different search or clear your filters</p>
+          {(hasActiveFilters || !!query) && (
+            <button
+              type="button"
+              onClick={() => { setQuery(''); resetFilters(); }}
+              className="mt-4 px-4 py-2 rounded-full bg-on-surface/[0.05] text-xs font-semibold text-on-surface/70 hover:bg-on-surface/[0.09] transition-colors"
+            >
+              Clear search & filters
+            </button>
+          )}
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between pt-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
-              {filtered.length} {filtered.length === 1 ? 'restaurant' : 'restaurants'}
-            </p>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-[10px] font-bold text-primary uppercase tracking-wider"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-          <ul className="divide-y divide-on-surface/[0.06]">
+          {/* Count line — doubles as the page's purpose statement. */}
+          <p className="pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
+            {filtered.length} {filtered.length === 1 ? 'restaurant' : 'restaurants'}
+            <span className="mx-1.5 text-on-surface/20">·</span>
+            from {reviewerCount} {reviewerCount === 1 ? 'person' : 'people'} you follow
+          </p>
+          {/* Rows — built from the unified card kit (thumbnail / name / meta /
+              score + save + add), hairline-divided on phone, boxed on desktop,
+              with a compact "who rated it" attribution line. */}
+          <ul className={phoneMode ? 'divide-y divide-on-surface/[0.06]' : 'space-y-2.5'}>
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
+              const cuisine = cleanCuisine(r.cuisine, city);
               const score = Number(r.score) || 0;
               const wishlisted = isWishlisted(r.restaurant_id);
               const reviewer = profile?.display_name || profile?.username || '';
+              const color = avatarColor(r.user_id);
               const meta = {
                 id: r.restaurant_id,
                 name: r.restaurant_name || '',
@@ -411,10 +536,11 @@ export const FollowingFeed: React.FC = () => {
                 price: r.price || '',
                 address: r.address || '',
               };
-              const metaLine = [r.cuisine, r.price, city].filter(Boolean).join(' · ');
               return (
                 <li key={r.id}>
-                  <div
+                  <CardShell
+                    as="div"
+                    surface={phoneMode ? 'flat-row' : 'boxed'}
                     role="button"
                     tabIndex={0}
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
@@ -424,76 +550,49 @@ export const FollowingFeed: React.FC = () => {
                         navigate(`/restaurant/${r.restaurant_id}`);
                       }
                     }}
-                    className="flex items-start gap-4 py-5 sm:py-6 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
+                    aria-label={`View ${r.restaurant_name}`}
+                    className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
-                    {/* Text column — reviewer header, name, metadata eyebrow */}
-                    <div className="flex-1 min-w-0">
-                      {/* Reviewer header — avatar + name + rated/expert + time */}
-                      {profile && (() => {
-                        const color = avatarColor(r.user_id);
-                        const initial = initialOf(reviewer);
-                        return (
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0", color.bg)}>
-                              <span className={cn("text-[11px] font-serif font-bold", color.text)}>{initial}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[12px] font-bold leading-tight truncate">
-                                {reviewer}
-                              </p>
-                              <p className="text-[10px] font-medium uppercase tracking-wider leading-tight mt-0.5 text-on-surface/40">
-                                {profile.is_expert
-                                  ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
-                                  : <>Rated · {timeAgo(r.created_at)}</>}
-                              </p>
-                            </div>
+                    <div className={cn('flex items-center', phoneMode ? 'gap-3 py-3.5' : 'gap-4 px-4 py-3.5')}>
+                      <CardMedia
+                        src={r.photo_url}
+                        alt={r.restaurant_name || ''}
+                        aspect="thumb"
+                        rounded="xl"
+                        className="h-16 w-16 flex-shrink-0"
+                        imgClassName="group-hover:scale-[1.04]"
+                        zoomOnHover
+                        placeholderSize="sm"
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col justify-center">
+                        <h3 className="truncate font-serif text-[16px] font-bold leading-tight group-hover:text-primary transition-colors">
+                          {r.restaurant_name}
+                        </h3>
+                        <MetaRow items={[cuisine, r.price, city]} className="mt-0.5" />
+                        {/* Attribution — the point of this feed: who rated it, when. */}
+                        {profile && (
+                          <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                            <span className={cn('grid h-[18px] w-[18px] flex-shrink-0 place-items-center rounded-full', color.bg)}>
+                              <span className={cn('text-[9px] font-serif font-bold leading-none', color.text)}>{initialOf(reviewer)}</span>
+                            </span>
+                            <p className="truncate text-[11.5px] font-medium text-on-surface/45">
+                              <span className="font-semibold text-on-surface/70">{reviewer}</span>
+                              {profile.is_verified && (
+                                <VerifiedBadge size={12} inline className="ml-1" />
+                              )}
+                              <span className="mx-1 text-on-surface/25">·</span>
+                              {timeAgo(r.created_at)}
+                            </p>
                           </div>
-                        );
-                      })()}
-                      <h4 className="font-serif text-[19px] sm:text-xl font-bold text-on-surface leading-tight line-clamp-2 group-hover:text-primary transition-colors">
-                        {r.restaurant_name}
-                      </h4>
-                      {metaLine && (
-                        <p className="mt-1.5 text-[11px] text-on-surface/40 font-semibold uppercase tracking-[0.12em] truncate">
-                          {metaLine}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Right rail — score pill + subtle action icons, aligned to the name */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <ScoreBadge rating={score} size="xs" />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          openAddRestaurantModal(meta);
-                        }}
-                        className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface/35 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                        aria-label="Rate"
-                      >
-                        <Plus size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          toggleWishlist(meta);
-                        }}
-                        className={cn(
-                          'w-8 h-8 flex items-center justify-center rounded-full transition-colors',
-                          wishlisted
-                            ? 'text-secondary hover:bg-secondary/10'
-                            : 'text-on-surface/35 hover:text-secondary hover:bg-on-surface/[0.04]',
                         )}
-                        aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                      >
-                        <Bookmark size={16} className={wishlisted ? 'fill-secondary' : ''} />
-                      </button>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        <ScoreBadge rating={score} size={phoneMode ? 'sm' : 'md'} />
+                        <SaveButton filled={wishlisted} onClick={() => toggleWishlist(meta)} />
+                        <AddButton onClick={() => openAddRestaurantModal(meta)} />
+                      </div>
                     </div>
-                  </div>
+                  </CardShell>
                 </li>
               );
             })}
@@ -602,8 +701,8 @@ const FollowingFilterSheet: React.FC<{
   // into \"experts only\" and only see the experts you follow.
   const visiblePeople = followedPeople
     .filter((p) => {
-      if (roleFilter === 'friends' && p.profile?.is_expert) return false;
-      if (roleFilter === 'experts' && !p.profile?.is_expert) return false;
+      if (roleFilter === 'friends' && p.profile?.is_verified) return false;
+      if (roleFilter === 'experts' && !p.profile?.is_verified) return false;
       return true;
     })
     .filter((p) => {
@@ -709,7 +808,7 @@ const FollowingFilterSheet: React.FC<{
                     [
                       ['all', 'Everyone'],
                       ['friends', 'Friends'],
-                      ['experts', 'Experts'],
+                      ['experts', 'Verified'],
                     ] as const
                   ).map(([key, label]) => (
                     <button
@@ -792,7 +891,7 @@ const FollowingFilterSheet: React.FC<{
                           const name = p.profile?.display_name || p.profile?.username || 'User';
                           const initial = name.charAt(0).toUpperCase();
                           const selected = personFilter.includes(p.id);
-                          const isExpert = !!p.profile?.is_expert;
+                          const isExpert = !!p.profile?.is_verified;
                           return (
                             <button
                               key={p.id}
@@ -820,7 +919,7 @@ const FollowingFilterSheet: React.FC<{
                                 </p>
                                 <p className="text-[10px] font-medium uppercase tracking-wider text-on-surface/40 truncate">
                                   {isExpert
-                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert</span>
+                                    ? <span className="inline-flex items-center gap-0.5 text-primary font-bold"><VerifiedBadge size={11} />Verified</span>
                                     : 'Friend'}
                                 </p>
                               </div>

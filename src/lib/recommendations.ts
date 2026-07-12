@@ -932,7 +932,7 @@ export function scoreCandidates(
       personalFit += eTerm;
       sources.push('expert');
       if (hasExpertRec) sources.push('expertRec');
-      reasons.push({ w: eTerm, label: followedExpert ? 'Pick from experts you follow' : 'Expert pick' });
+      reasons.push({ w: eTerm, label: followedExpert ? 'Pick from verified users you follow' : 'Verified pick' });
     }
 
     // ── Friend signal: enthusiasm × taste similarity, negatives included ──

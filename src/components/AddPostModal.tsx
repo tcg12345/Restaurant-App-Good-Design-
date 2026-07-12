@@ -846,7 +846,7 @@ export const AddPostModal: React.FC = () => {
       // Bake the user's per-item edits (crop / trim / colour grading
       // / filter) into new files before uploading. Items the user
       // didn't touch in step 2 fall through unchanged.
-      const editable = items.filter((it) => isEdited(it.edits) && it.file && it.previewUrl.startsWith('blob:'));
+      const editable = items.filter((it) => isEdited(it.edits, it.durationSeconds) && it.file && it.previewUrl.startsWith('blob:'));
       let editedFiles: Record<string, File> = {};
       if (editable.length > 0) {
         setFinalizingEdits(true);

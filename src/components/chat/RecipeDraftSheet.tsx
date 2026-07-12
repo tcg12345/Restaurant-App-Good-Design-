@@ -855,10 +855,17 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 "Refine with AI" expands a floating composer that lets
                 the user keep tweaking the draft ("make it spicier",
                 "swap walnuts for pecans") without leaving the preview. */}
-            <div className={cn(
-              'relative flex-shrink-0 border-t border-on-surface/[0.06]',
-              phoneMode ? 'px-5 py-4 pb-safe-4' : 'px-7 py-4',
-            )}>
+            <div
+              className={cn(
+                'relative flex-shrink-0 border-t border-on-surface/[0.06]',
+                phoneMode ? 'px-5 py-4 pb-safe-4' : 'px-7 py-4',
+              )}
+              // Lift the footer (and the refine composer anchored to it)
+              // above the iOS keyboard — Keyboard resize:"none" means the
+              // WebView doesn't shrink, so the auto-focused textarea would
+              // otherwise sit behind the keys.
+              style={phoneMode ? { paddingBottom: 'max(1rem, env(safe-area-inset-bottom), var(--kb-height, 0px))' } : undefined}
+            >
               {/* Floating refine composer — animates up out of the
                   "Refine with AI" trigger. */}
               <AnimatePresence>

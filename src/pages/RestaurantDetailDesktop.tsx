@@ -8,6 +8,7 @@ import {
   Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -494,7 +495,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                         score={hasExperts ? expertAvg : null}
                         count={expertCount}
                         countLabel={expertCount === 1 ? 'rating' : 'ratings'}
-                        emptyCopy="No expert picks" />
+                        emptyCopy="No verified picks" />
                     )}
                   </div>
                   {hasGoogle && (
@@ -867,7 +868,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           {/* ── Expert picks ── */}
           {expertRecommendations.length > 0 && (
             <section>
-              <h2 className={cn(H2, 'mb-4')}>Expert picks</h2>
+              <h2 className={cn(H2, 'mb-4')}>Verified picks</h2>
               <ul className={cn(CARD, 'divide-y divide-on-surface/[0.06] overflow-hidden')}>
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
@@ -879,7 +880,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-base font-serif font-bold text-on-surface hover:text-primary truncate">{rec.expert_name}</Link>
-                              <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={12} inline />Verified</span>
                             </div>
                             <p className={cn('text-sm mt-1.5 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
                           </div>

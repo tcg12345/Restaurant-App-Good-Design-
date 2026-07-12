@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Crown,
   Footprints,
   LayoutGrid,
   Loader2,
@@ -36,6 +35,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
@@ -103,7 +103,7 @@ import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { getGuidesForLocation, type Guide as GuideRow } from '../lib/supabase-guides';
 import { HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 
 /* ── Guide card view-model ────────────────────────────────────────────────────
    The Guides rail renders real, published guides for the selected city
@@ -167,6 +167,7 @@ function buildFillerExperts(shortCity: string): UserProfile[] {
     bio: t.bio.replace(/\{city\}/g, city),
     is_public: true,
     is_expert: true,
+    is_verified: true,
     home_city: city,
   }));
 }
@@ -180,6 +181,7 @@ function buildFillerFriends(shortCity: string): UserProfile[] {
     bio: '',
     is_public: true,
     is_expert: false,
+    is_verified: false,
     home_city: city,
   }));
 }
@@ -767,7 +769,7 @@ export const LocationPage: React.FC = () => {
       setAreaExperts(experts);
       // Drop experts from the friend-candidate list so a single profile
       // doesn't render twice in the same row.
-      setAreaFriendCandidates(candidates.filter((p) => !p.is_expert));
+      setAreaFriendCandidates(candidates.filter((p) => !p.is_verified));
       setAreaLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -1379,7 +1381,7 @@ export const LocationPage: React.FC = () => {
       // FieldMask); the cached meta is the fallback for merged rows. Keeps
       // unknown-hours places and is a no-op when the filter is inactive.
       if (isHoursFilterActive(hoursFilter)
-        && !passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter)) continue;
+        && !passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng))) continue;
       out.push(p);
     }
 
@@ -1399,7 +1401,7 @@ export const LocationPage: React.FC = () => {
         if (selectedPrice > 0 && m.priceTier !== selectedPrice) continue;
         const mPlace: ScoredPlace = { ...michelinToPlaceResult(m), recScore: 0, sources: ['google'] };
         if (isHoursFilterActive(hoursFilter)
-          && !passesHoursFilter(mPlace.hours ?? restaurantMeta[mPlace.id]?.hours, hoursFilter)) continue;
+          && !passesHoursFilter(mPlace.hours ?? restaurantMeta[mPlace.id]?.hours, hoursFilter, restaurantLocalNow(mPlace.lng || restaurantMeta[mPlace.id]?.lng))) continue;
         out.push(mPlace);
       }
     }
@@ -2024,7 +2026,7 @@ export const LocationPage: React.FC = () => {
         username: p.username,
         displayName: p.display_name || p.username,
         bio: p.bio || undefined,
-        isExpert: !!p.is_expert,
+        isExpert: !!p.is_verified,
         homeCity: p.home_city || undefined,
       }));
     } catch (err) {
@@ -2656,7 +2658,10 @@ export const LocationPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Guides ──────────────────────────────────────────────────── */}
+        {/* ── Guides — hidden entirely when this location has none (also
+            covers the still-loading phase, so the header never flashes
+            in front of an empty row). ─────────────────────────────────── */}
+        {locationGuides.length > 0 && (
         <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
           {isMobile ? (
             <button
@@ -2712,15 +2717,7 @@ export const LocationPage: React.FC = () => {
           </div>
           )}
           <div className="collapsible-body">
-            {guidesLoaded && locationGuides.length === 0 ? (
-              <div
-                className="lp-empty-row"
-                style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
-              >
-                No guides for {shortCityName} yet. Be the first to create one.
-              </div>
-            ) : (
-              <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
+            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
                 {locationGuides.map((g) => {
                   const initial = (g.author || '?').charAt(0).toUpperCase();
                   return (
@@ -2744,29 +2741,28 @@ export const LocationPage: React.FC = () => {
                 })}
                 {/* End-of-rail "Browse all" tile — same affordance the header
                     link provides on desktop, and the only entry point on
-                    mobile where the header is a collapse toggle. Only shown
-                    once there's at least one real guide to browse. */}
-                {locationGuides.length > 0 && (
-                  <button
-                    type="button"
-                    className="gd-card gd-browse-all"
-                    onClick={() => setGuidesBrowserOpen(true)}
-                  >
-                    <span className="gd-browse-all-icon"><BookOpen /></span>
-                    <span className="gd-browse-all-title">Browse all guides</span>
-                    <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
-                  </button>
-                )}
-              </div>
-            )}
+                    mobile where the header is a collapse toggle. */}
+                <button
+                  type="button"
+                  className="gd-card gd-browse-all"
+                  onClick={() => setGuidesBrowserOpen(true)}
+                >
+                  <span className="gd-browse-all-icon"><BookOpen /></span>
+                  <span className="gd-browse-all-title">Browse all guides</span>
+                  <span className="gd-browse-all-sub">Search &amp; filter every guide <ChevronRight /></span>
+                </button>
+            </div>
           </div>
         </section>
+        )}
 
         {/* ── Local experts ───────────────────────────────────────────── */}
         {(() => {
           // Real experts only — people whose declared home base sits in this
-          // city's area. No filler: when there are none, we say so.
+          // city's area. No filler: when there are none, the whole section
+          // is hidden (this also covers the still-loading phase).
           const experts = areaExperts;
+          if (experts.length === 0) return null;
           return (
             <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
               {isMobile ? (
@@ -2777,7 +2773,7 @@ export const LocationPage: React.FC = () => {
                   style={{ paddingLeft: '20px', paddingRight: '20px' }}
                 >
                   <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
-                    <span>Local experts</span>
+                    <span>Verified locals</span>
                     <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
                   </h2>
                   <span
@@ -2799,10 +2795,10 @@ export const LocationPage: React.FC = () => {
                   </span>
                   <div className="loc-section-head-text">
                     <div className="left">
-                      <h2>Local experts</h2>
+                      <h2>Verified locals</h2>
                       <span className="count">{experts.length}</span>
                     </div>
-                    <div className="sub">People who actually know what they're talking about</div>
+                    <div className="sub">Verified users based in this city</div>
                   </div>
                 </button>
                 {expertsOpen && (
@@ -2821,14 +2817,6 @@ export const LocationPage: React.FC = () => {
               </div>
               )}
               <div className="collapsible-body">
-                {areaLoaded && experts.length === 0 ? (
-                  <div
-                    className="lp-empty-row"
-                    style={{ paddingLeft: isMobile ? 20 : 0, paddingRight: isMobile ? 20 : 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}
-                  >
-                    No local experts in {shortCityName} yet.
-                  </div>
-                ) : (
                 <div className={cn('exp-row', isMobile && 'is-mobile')} ref={expertsRowRef}>
                   {experts.map((e) => {
                     const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
@@ -2848,7 +2836,7 @@ export const LocationPage: React.FC = () => {
                           </div>
                         </div>
                         <p className="exp-tag">
-                          {e.bio || `Expert in ${shortCityName} dining.`}
+                          {e.bio || `Verified voice on ${shortCityName} dining.`}
                         </p>
                         <div className="exp-stats">
                           {/* TODO: backfill with real counts when we have them. */}
@@ -2872,7 +2860,6 @@ export const LocationPage: React.FC = () => {
                     );
                   })}
                 </div>
-                )}
               </div>
             </section>
           );
@@ -3489,8 +3476,8 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
         <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider">
           {isExpert ? (
             <>
-              <Crown size={9} className="text-amber-500" />
-              <span className="text-primary">Expert</span>
+              <VerifiedBadge size={10} />
+              <span className="text-primary">Verified</span>
             </>
           ) : (
             <>

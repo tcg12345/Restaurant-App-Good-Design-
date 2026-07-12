@@ -23,7 +23,7 @@ import { Link } from 'react-router-dom';
 import {
   X, ArrowUpRight, Clock, Flame, ChefHat, Loader2, Bookmark, Star, Send, Plus, Check,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import {
   getPublicHomeMealById,
   getProfilesByIds,
@@ -133,7 +133,7 @@ const ReviewsSection: React.FC<{
   currentUserId: string | null;
 }> = ({ meal, currentUserId }) => {
   const { showToast } = useToast();
-  const { stashMetaKey } = useLists();
+  const { stashMetaKey, restaurantMeta } = useLists();
   const isAuthor = currentUserId === meal.userId;
 
   const [reviews, setReviews] = useState<HomeMealReview[]>([]);
@@ -209,7 +209,11 @@ const ReviewsSection: React.FC<{
       // and back without a re-fetch (mirrors the full-page behavior).
       try {
         const meta = (stashMetaKey as unknown as (k: string, v: unknown) => void);
-        meta('__my_meal_reviews__', { ...({}), [meal.id]: { rating, notes } });
+        // Spread the existing map — stashMetaKey replaces the whole value,
+        // so writing a single-entry object here would erase the user's
+        // cached reviews for every other meal (RecipePage reads this map).
+        const existing = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
+        meta('__my_meal_reviews__', { ...existing, [meal.id]: { rating, notes, updatedAt: new Date().toISOString() } });
       } catch { /* meta sync is best-effort */ }
       setSavedAt(Date.now());
       showToast(myReview ? 'Review updated' : 'Review posted');
@@ -619,7 +623,7 @@ const RecipePanelBody: React.FC<{
       : ORIGIN_TAG;
     const copy: Omit<HomeMeal, 'id' | 'createdAt'> = {
       name: meal.name,
-      date: new Date().toISOString().slice(0, 10),
+      date: localISODate(),
       score: 0,
       wouldMakeAgain: false,
       description,

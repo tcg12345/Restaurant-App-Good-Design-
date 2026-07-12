@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
@@ -47,7 +48,11 @@ const ActivityPhoto: React.FC<{
   const [failed, setFailed] = useState(false);
   if (!src || failed) return null;
   return (
-    <div className={cn('relative mt-3 mb-3', flush && '-mx-3')}>
+    // Desktop: cap to the same narrower centered column as post photos
+    // (PostMediaCarousel) so recipe/restaurant images don't dominate the
+    // card now that the feed list is wider than an instagram column.
+    // Phone (flush): full-bleed to the card edges.
+    <div className={cn('relative mt-3 mb-3', flush ? '-mx-3' : 'lg:mx-auto lg:max-w-[420px]')}>
       <button
         type="button"
         onClick={onClick}
@@ -283,14 +288,11 @@ const SuggestionsRail: React.FC<{
                     className="block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className={cn(
-                        'inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em]',
-                        p.is_expert ? 'text-amber-600' : 'text-primary',
-                      )}>
-                        {p.is_expert ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-primary">
+                        {p.is_verified ? (
                           <>
-                            <Star size={10} className="fill-amber-500 text-amber-500" />
-                            Expert
+                            <VerifiedBadge size={11} />
+                            Verified
                           </>
                         ) : 'Friend pick'}
                       </span>
@@ -474,7 +476,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = mealLikedByMe.has(mealId);
     setMealLikedByMe((prev) => { const n = new Set(prev); if (wasLiked) n.delete(mealId); else n.add(mealId); return n; });
     setMealLikeCounts((prev) => ({ ...prev, [mealId]: Math.max(0, (prev[mealId] || 0) + (wasLiked ? -1 : 1)) }));
-    void toggleRecipeLike(userId, mealId);
+    void toggleRecipeLike(userId, mealId).then((ok) => {
+      if (ok) return;
+      setMealLikedByMe((prev) => { const n = new Set(prev); if (wasLiked) n.add(mealId); else n.delete(mealId); return n; });
+      setMealLikeCounts((prev) => ({ ...prev, [mealId]: Math.max(0, (prev[mealId] || 0) + (wasLiked ? 1 : -1)) }));
+    });
   }, [userId, mealLikedByMe, requireSignIn]);
 
   const toggleMealSave = useCallback((meal: FriendHomeMeal) => {
@@ -677,7 +683,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = userLiked.has(ratingId);
     setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
     setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
-    await toggleLike(userId, ratingId);
+    const ok = await toggleLike(userId, ratingId);
+    if (!ok) {
+      // Offline / failed write: roll the heart and count back so the UI
+      // doesn't drift from the server.
+      setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.add(ratingId) : next.delete(ratingId); return next; });
+      setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? 1 : -1)) }));
+    }
   };
 
   // Toggle a post like. Mirrors handleLike's optimistic pattern so the
@@ -690,7 +702,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         ? { ...p, liked: !currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? -1 : 1)) }
         : p
     )));
-    await setPostLike(postId, userId, !currentlyLiked);
+    const ok = await setPostLike(postId, userId, !currentlyLiked);
+    if (!ok) {
+      setPosts((prev) => prev.map((p) => (
+        p.id === postId
+          ? { ...p, liked: currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? 1 : -1)) }
+          : p
+      )));
+    }
   };
 
   const handleSavePost = async (postId: string, currentlySaved: boolean) => {
@@ -700,7 +719,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         ? { ...p, saved: !currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? -1 : 1)) }
         : p
     )));
-    await setPostSave(postId, userId, !currentlySaved);
+    const ok = await setPostSave(postId, userId, !currentlySaved);
+    if (!ok) {
+      setPosts((prev) => prev.map((p) => (
+        p.id === postId
+          ? { ...p, saved: currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? 1 : -1)) }
+          : p
+      )));
+    }
   };
 
   // Open the share dialog with a SharedPost payload mirrored from the
@@ -758,8 +784,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return ok;
   }, [deletePostComment]);
 
+  // Monotonic token so a slow fetch for a previously opened thread can't
+  // overwrite the comments of the one currently open (shared state).
+  const commentsReqRef = useRef(0);
   const handleOpenComments = async (ratingId: string) => {
-    if (openComments === ratingId) { setOpenComments(null); return; }
+    if (openComments === ratingId) { commentsReqRef.current++; setOpenComments(null); return; }
+    const req = ++commentsReqRef.current;
     setOpenComments(ratingId);
     setCommentsLoading(true);
     setNewComment('');
@@ -767,10 +797,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setReplyText('');
     setExpandedThreads(new Set());
     const cmts = await getComments(ratingId, userId);
+    if (commentsReqRef.current !== req) return;
     setComments(cmts);
     if (cmts.length > 0) {
       const ids = [...new Set(cmts.map((c) => c.user_id))];
       const profs = await getProfilesByIds(ids);
+      if (commentsReqRef.current !== req) return;
       setCommentProfiles(profs);
     }
     setCommentsLoading(false);
@@ -778,10 +810,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   // Single shared "refresh comments after a write" routine so handlers stay tiny.
   const refreshComments = async (ratingId: string) => {
+    const req = ++commentsReqRef.current;
     const cmts = await getComments(ratingId, userId);
+    if (commentsReqRef.current !== req) return;
     setComments(cmts);
     const ids = [...new Set(cmts.map((c) => c.user_id))];
-    setCommentProfiles(await getProfilesByIds(ids));
+    const profs = await getProfilesByIds(ids);
+    if (commentsReqRef.current !== req) return;
+    setCommentProfiles(profs);
   };
 
   const handleAddComment = async (ratingId: string) => {
@@ -854,7 +890,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
     const months = Math.floor(days / 30);
     if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
-    const years = Math.floor(days / 365);
+    // days 360-364: months hits 12 but floor(days/365) is still 0
+    const years = Math.max(1, Math.floor(days / 365));
     return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
@@ -918,7 +955,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
       {feedTab === 'activity' && (
         <div className="mt-2.5 flex gap-2">
-          {([['friends', 'Friends'], ['experts', 'Experts']] as const).map(([key, label]) => {
+          {([['friends', 'Friends'], ['experts', 'Verified']] as const).map(([key, label]) => {
             const active = activityFilter === key;
             return (
               <button
@@ -931,7 +968,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   active ? 'bg-on-surface text-surface border-on-surface' : 'text-on-surface/60 border-on-surface/15',
                 )}
               >
-                {key === 'experts' && <Star size={12} className="fill-amber-500 text-amber-500" />}
+                {key === 'experts' && <VerifiedBadge size={13} />}
                 {label}
               </button>
             );
@@ -1023,9 +1060,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </div>
           ) : activityFilter === 'experts' ? (
             <EmptyState
-              icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
-              heading="No expert picks yet"
-              description="Follow critics, chefs, and writers to see their ratings show up here."
+              icon={<VerifiedBadge size={48} />}
+              heading="No picks from verified users yet"
+              description="Follow verified critics, chefs, and writers to see their ratings show up here."
             />
           ) : (
             <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
@@ -1237,7 +1274,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                           {m.name}
                         </h3>
                         <p className="mt-0.5 text-[12.5px] font-medium text-on-surface/55">
-                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(m.date.length === 10 ? `${m.date}T12:00:00` : m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           {m.dishes.length > 0 && <>  ·  {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
                         </p>
                       </div>
@@ -1344,8 +1381,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     <Link to={`/user/${getUsername(r.user_id)}`} className="truncate text-[14px] font-bold text-on-surface hover:text-primary">
                       {getName(r.user_id)}
                     </Link>
-                    {profiles[r.user_id]?.is_expert && (
-                      <Star size={11} className="flex-shrink-0 fill-amber-500 text-amber-500" />
+                    {profiles[r.user_id]?.is_verified && (
+                      <VerifiedBadge size={13} />
                     )}
                   </div>
                   <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(r.created_at)}</p>
@@ -1656,7 +1693,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               {...recipeCommentsDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-paper w-full rounded-t-3xl flex flex-col"
-              style={{ height: '75%' }}
+              style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
             >
               <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
                 <span className="w-10 h-1 rounded-full bg-on-surface/20" />
@@ -1730,7 +1767,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-white w-full rounded-t-3xl flex flex-col"
-                style={{ height: '75%' }}
+                style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
               >
                 <div className="pt-2 pb-1 flex justify-center">
                   <span className="w-10 h-1 rounded-full bg-on-surface/20" />

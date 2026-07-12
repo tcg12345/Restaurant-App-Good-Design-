@@ -1,10 +1,12 @@
-// Step 2 of the Advanced Recipe Builder.
-// Captures the classification + hero image: cuisine (req), course chips
-// (req), difficulty cards (req), hero image (req). Split out of StepBasics
-// so neither step overflows the pane.
+// Step 2 of the Advanced Recipe Builder — "Details".
+// Cuisine (underline trigger → search sheet on phone, styled select on
+// desktop), course chips, difficulty cards with colored dots, and the
+// optional cover photo (dashed slot → preview). The photo is only
+// *required* when publishing publicly — validation enforces that at
+// publish time, so the label says optional here.
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Image as ImageIcon, Camera, X, ChevronDown } from 'lucide-react';
+import { Camera, X, ChevronDown } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import {
   CUISINE_OPTIONS,
@@ -19,10 +21,10 @@ interface Props {
   dispatch: React.Dispatch<Action>;
 }
 
-const DIFFICULTY_CARDS: Array<{ level: 'Easy' | 'Medium' | 'Hard'; sub: string }> = [
-  { level: 'Easy', sub: 'Few steps, forgiving technique' },
-  { level: 'Medium', sub: 'Some prep and timing required' },
-  { level: 'Hard', sub: 'Multiple techniques, careful timing' },
+const DIFFICULTY_CARDS: Array<{ level: 'Easy' | 'Medium' | 'Hard'; sub: string; dot: string }> = [
+  { level: 'Easy', sub: 'Few steps, forgiving', dot: '#2e9c6e' },
+  { level: 'Medium', sub: 'Some prep & timing', dot: '#e0a030' },
+  { level: 'Hard', sub: 'Careful technique', dot: '#c74b2e' },
 ];
 
 export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
@@ -55,61 +57,116 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
   };
 
   return (
-    <>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: phoneMode ? '1fr' : 'minmax(0, 1fr) minmax(0, 1.4fr)',
-          gap: phoneMode ? 24 : 16,
-        }}
-      >
-        <div className="arb-field" style={{ marginBottom: 0 }}>
-          <label className="arb-label">
-            Cuisine <span className="req">*</span>
-          </label>
-          {phoneMode ? (
-            <button
-              type="button"
-              className={`arb-cuisine-trigger${state.cuisine ? '' : ' is-empty'}`}
-              onClick={() => setCuisinePickerOpen(true)}
-            >
-              <span>{state.cuisine || 'Select a cuisine…'}</span>
-              <ChevronDown size={18} />
-            </button>
-          ) : (
+    <div className="rcx-stack">
+      <div>
+        <div className="rcx-kicker">Cuisine</div>
+        {phoneMode ? (
+          <button
+            type="button"
+            className={`rcx-cuisine-trigger${state.cuisine ? '' : ' is-empty'}`}
+            onClick={() => setCuisinePickerOpen(true)}
+          >
+            <span>{state.cuisine || 'Select a cuisine'}</span>
+            <ChevronDown size={15} strokeWidth={2.2} />
+          </button>
+        ) : (
+          <div className="rcx-select-wrap">
             <select
-              className="arb-select"
+              className={`rcx-select${state.cuisine ? '' : ' is-empty'}`}
               value={state.cuisine}
               onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'cuisine', value: e.target.value })}
             >
-              <option value="">Select a cuisine…</option>
+              <option value="">Select a cuisine</option>
               {CUISINE_OPTIONS.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-          )}
-        </div>
-
-        <div className="arb-field" style={{ marginBottom: 0 }}>
-          <label className="arb-label">
-            Course <span className="req">*</span>
-          </label>
-          <div className="arb-chip-row" style={{ marginTop: 10 }}>
-            {COURSE_OPTIONS.map((c) => {
-              const isActive = state.course.includes(c);
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  className={`arb-chip${isActive ? ' is-active' : ''}`}
-                  onClick={() => dispatch({ type: 'TOGGLE_COURSE', course: c })}
-                >
-                  {c}
-                </button>
-              );
-            })}
+            <ChevronDown size={15} strokeWidth={2.2} />
           </div>
+        )}
+      </div>
+
+      <div>
+        <div className="rcx-kicker">Course</div>
+        <div className="rcx-chips">
+          {COURSE_OPTIONS.map((c) => {
+            const isActive = state.course.includes(c);
+            return (
+              <button
+                key={c}
+                type="button"
+                className={`rcx-chip${isActive ? ' is-on' : ''}`}
+                onClick={() => dispatch({ type: 'TOGGLE_COURSE', course: c })}
+              >
+                {c}
+              </button>
+            );
+          })}
         </div>
+      </div>
+
+      <div>
+        <div className="rcx-kicker">Difficulty</div>
+        <div className="rcx-diff-grid">
+          {DIFFICULTY_CARDS.map((d) => {
+            const isActive = state.difficulty === d.level;
+            return (
+              <button
+                key={d.level}
+                type="button"
+                className={`rcx-diff-card${isActive ? ' is-on' : ''}`}
+                onClick={() => dispatch({ type: 'SET_FIELD', field: 'difficulty', value: d.level })}
+              >
+                <span className="rcx-diff-dot" style={{ background: d.dot }} />
+                <span className="rcx-diff-label">{d.level}</span>
+                <span className="rcx-diff-sub">{d.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <div className="rcx-kicker">
+          Photo<span className="rcx-kicker-opt"> · optional</span>
+        </div>
+        {state.coverPhoto ? (
+          <div className="rcx-photo-preview">
+            <img src={state.coverPhoto} alt="Recipe cover" referrerPolicy="no-referrer" />
+            <button
+              type="button"
+              className="rcx-photo-remove"
+              onClick={() => dispatch({ type: 'SET_FIELD', field: 'coverPhoto', value: '' })}
+              aria-label="Remove photo"
+            >
+              <X size={13} strokeWidth={2.4} />
+            </button>
+          </div>
+        ) : (
+          <div
+            className="rcx-photo-slot"
+            onClick={() => fileRef.current?.click()}
+            onDrop={onDrop}
+            onDragOver={(e) => e.preventDefault()}
+            role="button"
+            tabIndex={0}
+          >
+            <span className="rcx-photo-slot-icon"><Camera size={18} /></span>
+            <span className="rcx-photo-slot-text">
+              <strong>Add a photo</strong> of the final dish
+            </span>
+            <span className="rcx-photo-slot-sub">
+              {phoneMode ? 'Needed to publish publicly.' : 'Drop one here or tap to browse. Needed to publish publicly.'}
+            </span>
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          onChange={onFileChange}
+          style={{ display: 'none' }}
+        />
       </div>
 
       <CuisinePickerSheet
@@ -119,84 +176,6 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
         onClose={() => setCuisinePickerOpen(false)}
         onSelect={(c) => dispatch({ type: 'SET_FIELD', field: 'cuisine', value: c })}
       />
-
-      <div className="arb-field" style={{ marginTop: 22 }}>
-        <label className="arb-label">
-          Difficulty <span className="req">*</span>
-        </label>
-        <div className="arb-difficulty-row">
-          {DIFFICULTY_CARDS.map((d) => {
-            const isActive = state.difficulty === d.level;
-            return (
-              <button
-                key={d.level}
-                type="button"
-                data-level={d.level}
-                className={`arb-difficulty-card${isActive ? ' is-active' : ''}`}
-                onClick={() => dispatch({ type: 'SET_FIELD', field: 'difficulty', value: d.level })}
-              >
-                <div className="arb-difficulty-card-title">
-                  <span className="dot" />
-                  {d.level}
-                </div>
-                <div className="arb-difficulty-card-sub">{d.sub}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="arb-field">
-        <label className="arb-label">
-          Hero image <span className="req">*</span>
-        </label>
-        {state.coverPhoto ? (
-          <div className="arb-dropzone-preview" style={{ backgroundImage: `url("${state.coverPhoto}")` }}>
-            <button
-              type="button"
-              className="arb-dropzone-preview-remove"
-              onClick={() => dispatch({ type: 'SET_FIELD', field: 'coverPhoto', value: '' })}
-              aria-label="Remove image"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        ) : (
-          <div
-            className={`arb-dropzone${phoneMode ? ' is-mobile' : ''}`}
-            onClick={() => fileRef.current?.click()}
-            onDrop={onDrop}
-            onDragOver={(e) => e.preventDefault()}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="arb-dropzone-icon">
-              {phoneMode ? <Camera size={26} /> : <ImageIcon size={22} />}
-            </div>
-            <div>
-              <div className="arb-dropzone-text">
-                {phoneMode ? (
-                  <>Tap to <span className="accent">add a photo</span></>
-                ) : (
-                  <>Drop a photo here or <span className="accent">browse</span></>
-                )}
-              </div>
-              <div className="arb-dropzone-sub">
-                {phoneMode
-                  ? 'A landscape shot of the final dish works best'
-                  : 'A landscape shot of the final dish works best. JPG, PNG, or WebP up to 10MB.'}
-              </div>
-            </div>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              onChange={onFileChange}
-              style={{ display: 'none' }}
-            />
-          </div>
-        )}
-      </div>
-    </>
+    </div>
   );
 };

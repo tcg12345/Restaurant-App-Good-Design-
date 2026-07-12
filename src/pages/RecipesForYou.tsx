@@ -164,7 +164,7 @@ const formatTime = (mins: number): string => {
 };
 
 const sourceOf = (r: Recipe, friendIds: Set<string>, author?: UserProfile): SourceFilter => {
-  if (author?.is_expert || r.sourceType === 'expert') return 'chef';
+  if (author?.is_verified || r.sourceType === 'expert') return 'chef';
   if (friendIds.has(r.userId)) return 'friend';
   return 'home';
 };
@@ -448,7 +448,7 @@ export const RecipesForYou: React.FC = () => {
     const byChef = new Map<string, { profile: UserProfile; recipeCount: number }>();
     displayRecipes.forEach((r) => {
       const p = authors[r.userId];
-      if (!p?.is_expert) return;
+      if (!p?.is_verified) return;
       const cur = byChef.get(p.user_id);
       if (cur) cur.recipeCount++;
       else byChef.set(p.user_id, { profile: p, recipeCount: 1 });

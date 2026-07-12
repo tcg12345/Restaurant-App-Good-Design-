@@ -292,7 +292,7 @@ const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
               {formatDraftTimeAgo(draft.savedAt)}
             </span>
             <span className="text-on-surface/30">·</span>
-            <span>Step {draft.currentStep + 1} of 6</span>
+            <span>Step {draft.currentStep + 1} of 7</span>
             {draft.editingMealId && (
               <>
                 <span className="text-on-surface/30">·</span>
@@ -409,7 +409,7 @@ export const Activity: React.FC = () => {
   /* ── Recipe drafts (Advanced-builder Save Draft entries). Local
         state mirrors localStorage so deletes / opens reflect
         immediately without a page reload. */
-  const { openHomeMealModal } = useLists();
+  const { openHomeMealModal, homeMeals } = useLists();
   const [drafts, setDrafts] = useState<RecipeDraft[]>(() => loadDrafts(user?.id || null));
   // Refresh whenever the user lands on the page or returns to it —
   // a draft could've been added from elsewhere in the app.
@@ -419,9 +419,15 @@ export const Activity: React.FC = () => {
 
   const handleResumeDraft = (draft: RecipeDraft) => {
     setPendingResumeDraftId(draft.id);
+    // A draft saved mid-EDIT reopens as an edit of that meal — resuming
+    // it as a fresh create used to publish a duplicate recipe. If the
+    // meal has since been deleted, fall back to a fresh create.
+    const editingMeal = draft.editingMealId
+      ? homeMeals.find((m) => m.id === draft.editingMealId)
+      : undefined;
     // Re-route to a surface that mounts the modal. The modal lives
     // app-global so we can open it directly from here.
-    openHomeMealModal();
+    openHomeMealModal(editingMeal);
   };
   const handleDeleteDraft = (id: string) => {
     removeDraft(user?.id || null, id);

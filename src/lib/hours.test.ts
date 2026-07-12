@@ -5,6 +5,7 @@ import {
   isOpenNow,
   emptyHoursFilter,
   type HoursFilter,
+  restaurantLocalNow,
 } from './hours';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
@@ -145,5 +146,41 @@ describe('open now', () => {
     const f: HoursFilter = { meals: ['dinner'], openNow: true };
     expect(passesHoursFilter(DINNER_ONLY, f, new Date(2026, 6, 8, 19, 0))).toBe(true);
     expect(passesHoursFilter(DINNER_ONLY, f, wedNoon)).toBe(false); // dinner spot, closed at noon
+  });
+});
+
+describe('restaurantLocalNow', () => {
+  // The device offset is whatever TZ the test runner uses — derive it so the
+  // assertions hold in any environment.
+  const now = new Date(2026, 6, 8, 19, 0); // local 7:00 PM
+  const deviceOffsetHours = -now.getTimezoneOffset() / 60;
+
+  it('keeps the device clock when lng is missing or ~local', () => {
+    expect(restaurantLocalNow(undefined, now)).toBe(now);
+    expect(restaurantLocalNow(null, now)).toBe(now);
+    expect(restaurantLocalNow(0, now)).toBe(now); // 0 doubles as "unknown"
+    // A longitude in the device's own solar zone stays on the device clock
+    // (DST-exact for local browsing).
+    expect(restaurantLocalNow(deviceOffsetHours * 15, now)).toBe(now);
+  });
+
+  it('shifts to the remote solar time beyond the ±3h band', () => {
+    // Tokyo (~lng 139.7) → solar UTC+9.
+    const tokyo = restaurantLocalNow(139.7, now);
+    const expectedShiftHours = 9 - deviceOffsetHours;
+    if (Math.abs(expectedShiftHours) >= 3) {
+      expect(tokyo.getTime() - now.getTime()).toBe(expectedShiftHours * 3_600_000);
+    } else {
+      expect(tokyo).toBe(now); // runner already near UTC+9
+    }
+  });
+
+  it('feeds passesHoursFilter so a remote dinner spot reads open at ITS 7pm', () => {
+    // Pretend the restaurant sits 6 solar hours east of the device.
+    const lng = (deviceOffsetHours + 6) * 15;
+    const localNow = restaurantLocalNow(lng, now); // 7pm device → ~1am there
+    const f: HoursFilter = { meals: [], openNow: true };
+    // Wednesday 7pm device time is ~1am Thursday at the restaurant → closed.
+    expect(passesHoursFilter(DINNER_ONLY, f, localNow)).toBe(false);
   });
 });

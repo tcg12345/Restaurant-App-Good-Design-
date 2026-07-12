@@ -224,7 +224,8 @@ export const PhotoGallery: React.FC<{
             >
               <button
                 onClick={() => setExpandedPhoto(null)}
-                className="absolute top-6 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
+                aria-label="Close photo"
+                className="absolute top-[max(1.5rem,env(safe-area-inset-top))] right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
               >
                 <X size={22} className="text-white" />
               </button>

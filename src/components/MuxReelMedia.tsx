@@ -59,10 +59,12 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
 }) => {
   const fit = objectFit ?? (phoneMode ? 'cover' : 'contain');
   const ref = useRef<MuxPlayerElement | null>(null);
-  // Once mounted, keep it mounted while near so swiping back is instant; the
-  // parent already unmounts the whole slide when it leaves the window.
+  // Mount while near so swiping is instant, and UNMOUNT once the slide
+  // leaves the near-window. (The parent does NOT unmount off-screen slides,
+  // so a one-way latch here accumulated a live <mux-player> for every reel
+  // ever scrolled past — memory / media-decoder exhaustion on iPhone.)
   const [mounted, setMounted] = useState(near);
-  useEffect(() => { if (near) setMounted(true); }, [near]);
+  useEffect(() => { setMounted(near); }, [near]);
 
   // Autoplay when this slide is active; pause (parked on the current frame)
   // otherwise. Mirrors the legacy <video> active effect.

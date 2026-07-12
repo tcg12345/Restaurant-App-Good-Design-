@@ -433,7 +433,7 @@ export const SearchMain: React.FC = () => {
     const rel = relationships[target.user_id];
     if (rel === 'following' || rel === 'requested') return;
     setPendingFollow((p) => new Set(p).add(target.user_id));
-    const immediate = !!(target.is_public || target.is_expert);
+    const immediate = !!(target.is_public || target.is_verified);
     const ok = immediate
       ? await followPublicAccount(userId, target.user_id)
       : await sendFriendRequest(userId, target.user_id);

@@ -55,7 +55,7 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
   const firstName = (ownerName || '').trim().split(/\s+/)[0] || ownerName;
 
   const visit = rating.visit_date
-    ? new Date(rating.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    ? new Date(rating.visit_date.length === 10 ? `${rating.visit_date}T12:00:00` : rating.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '';
   const parts = (rating.address || '').split(',').map((s) => s.trim()).filter(Boolean);
   const neighborhood = parts.length >= 2 ? parts[parts.length - 2] : '';

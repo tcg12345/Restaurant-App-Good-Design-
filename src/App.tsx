@@ -7,6 +7,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
+import { VerificationApply } from './pages/VerificationApply';
+import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
 import { Circle } from './pages/Circle';
@@ -32,6 +34,7 @@ import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
 import { RatingModal } from './components/RatingModal';
+import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { AddRecipeModal } from './components/AddRecipeModal';
@@ -124,12 +127,16 @@ function useIsDesktop(): boolean {
 // reloading. Heavy/transient screens (map, reels, create, detail pages) are
 // intentionally NOT kept alive — they push/pop normally. KEEP_ALIVE_PATHS is
 // shared with ScrollRestoration (which skips them — they keep their own scroll).
-const keepAliveElement = (path: string): React.ReactNode => {
+// `active` — whether this layer is the CURRENT route. Auth-gated tabs pass
+// it to RequireAuthRoute as `redirect` so a hidden (inactive) layer renders
+// null for guests instead of a <Navigate> that re-fires on every location
+// change and permanently hijacks navigation back to Home.
+const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
   switch (path) {
     case '/': return <Discover mode="home" />;
     case '/search/main': return <SearchMain />;
-    case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>;
-    case '/profile': return <RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>;
+    case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists" redirect={active}><Pantry /></RequireAuthRoute>;
+    case '/profile': return <RequireAuthRoute reason="Sign in to view your profile" redirect={active}><Profile /></RequireAuthRoute>;
     default: return null;
   }
 };
@@ -170,7 +177,7 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete } = useAuth();
+  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, needsPasswordSetup } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a
@@ -216,7 +223,11 @@ const AppContent: React.FC = () => {
   // registering). Once the user is signed in OR has chosen guest mode, the
   // full app renders; account-only routes/actions then prompt sign-in
   // on demand via the SignInModal overlay.
-  if (!isSignedIn && !isGuest) {
+  // Signed-out (non-guest) users get the Auth screen — and so does a
+  // freshly code-verified signup that hasn't chosen a password yet
+  // (needsPasswordSetup): the session already exists, but Auth stays up
+  // on its choose-password step until it's set.
+  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup)) {
     return (
       <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
         <Routes location={location}>
@@ -314,7 +325,7 @@ const AppContent: React.FC = () => {
               }}
               aria-hidden={!active}
             >
-              {keepAliveElement(path)}
+              {keepAliveElement(path, active)}
             </div>
           );
         })}
@@ -359,6 +370,8 @@ const AppContent: React.FC = () => {
           <Route path="/activity/comments" element={<RequireAuthRoute reason="Sign in to see your comments"><Activity /></RequireAuthRoute>} />
           <Route path="/activity/drafts" element={<RequireAuthRoute reason="Sign in to see your drafts"><Activity /></RequireAuthRoute>} />
           <Route path="/experts" element={<Experts />} />
+          <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
+          <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
@@ -391,6 +404,7 @@ const AppContent: React.FC = () => {
   const modals = (
     <>
       <RatingModal />
+      <VerificationOutcomeModal />
       <AddToListModal />
       <AddRestaurantModal />
       <AddRecipeModal />

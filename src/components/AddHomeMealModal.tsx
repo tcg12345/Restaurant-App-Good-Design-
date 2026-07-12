@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp, Sparkles, ArrowLeft } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -292,7 +292,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(0);
   const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(localISODate());
   const [wouldMakeAgain, setWouldMakeAgain] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -370,7 +370,7 @@ export const AddHomeMealModal: React.FC = () => {
       setMealName(existing?.name ?? '');
       setScore(existing?.score ?? 0);
       setNotes(existing?.description ?? '');
-      setVisitDate(existing?.date ?? new Date().toISOString().slice(0, 10));
+      setVisitDate(existing?.date ?? localISODate());
       setWouldMakeAgain(existing?.wouldMakeAgain ?? true);
       setSelectedTags(existing?.tags ?? []);
       setPhotos(existing?.photos ?? []);
@@ -756,12 +756,14 @@ export const AddHomeMealModal: React.FC = () => {
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
-                // The editorial rail layout needs a wide canvas. Advanced,
-                // AI, and the Basic main page all use it on desktop; the
-                // Basic sub-pages (dishes, ingredients, …) stay narrow.
-                : (mode === 'advanced' || mode === 'ai' || (mode === 'basic' && page === 'main'))
-                  ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
-                  : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                // Advanced + AI use the single-column editorial wizard —
+                // a focused, narrower canvas. The Basic main page keeps
+                // the wide rail layout; Basic sub-pages stay narrow.
+                : (mode === 'advanced' || mode === 'ai')
+                  ? "h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                  : (mode === 'basic' && page === 'main')
+                    ? "h-full sm:max-w-[1200px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                    : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
             {mode === 'advanced' ? (
@@ -769,7 +771,7 @@ export const AddHomeMealModal: React.FC = () => {
                 key={aiSeed ? aiSeed.id : 'fresh'}
                 existing={existing}
                 seed={aiSeed}
-                initialStep={aiSeed ? 6 : undefined}
+                initialStep={aiSeed ? 4 : undefined}
                 onClose={closeHomeMealModal}
                 onBackToDraft={backToDraft}
                 tabSlot={<TabToggle mode={mode} onChange={handleModeChange} forceAdvanced={forceAdvanced} showAi={!existing} />}

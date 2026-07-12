@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getFriends, getProfilesByIds } from '../lib/supabase-community';
 import { settleScores } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -21,7 +23,7 @@ export const RatingModal: React.FC = () => {
 
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(localISODate());
   const [wouldReturn, setWouldReturn] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
@@ -59,6 +61,22 @@ export const RatingModal: React.FC = () => {
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const { dragProps } = useBottomSheet(ratingModalOpen, closeRatingModal);
+  const { user } = useAuth();
+
+  // Real friends — same source as AddRestaurantModal so "Went With" saves
+  // actual friend user-ids (the old hardcoded MOCK_FRIENDS names were never
+  // persisted at all).
+  const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const fl = await getFriends(user.id);
+      if (fl.length > 0) {
+        const profiles = await getProfilesByIds(fl.map((f) => f.friend_id));
+        setRealFriends(fl.map((f) => ({ id: f.friend_id, name: profiles[f.friend_id]?.display_name || profiles[f.friend_id]?.username || f.friend_id.slice(0, 8) })));
+      }
+    })();
+  }, [user?.id]);
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -72,8 +90,10 @@ export const RatingModal: React.FC = () => {
       setFavoriteDishes(ex?.favoriteDishes ?? []);
       setDishDraft('');
       setSelectedListIds(ex?.listIds ?? []);
-      setSelectedFriends([]);
-      setPriceIndex(-1);
+      setSelectedFriends(ex?.friendIds ?? []);
+      // Restore the user's saved price — resetting to -1 made "Update"
+      // silently revert a hand-picked $$$$ back to the meta default.
+      setPriceIndex(ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
       setPriceAmount('');
       setPage('main');
       // Show the prominent chooser when there are other rated restaurants
@@ -95,7 +115,7 @@ export const RatingModal: React.FC = () => {
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
-  const toggleFriend = (name: string) => setSelectedFriends((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
+  const toggleFriend = (id: string) => setSelectedFriends((prev) => prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]);
 
   const handlePriceSignClick = (idx: number) => { setPriceIndex(idx); setPriceAmount(''); };
   const handlePriceAmountChange = (val: string) => {
@@ -189,7 +209,7 @@ export const RatingModal: React.FC = () => {
       cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
       score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
       favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
-      listIds: selectedListIds, createdAt: Date.now(),
+      listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
     }, { settleOrder });
     closeRatingModal();
   };
@@ -235,12 +255,11 @@ export const RatingModal: React.FC = () => {
     return ALL_TAGS.filter((t) => t.toLowerCase().includes(q));
   }, [tagSearch]);
 
-  const MOCK_FRIENDS = useMemo(() => ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'], []);
   const filteredFriends = useMemo(() => {
-    if (!friendSearch.trim()) return MOCK_FRIENDS;
+    if (!friendSearch.trim()) return realFriends;
     const q = friendSearch.toLowerCase();
-    return MOCK_FRIENDS.filter((f) => f.toLowerCase().includes(q));
-  }, [friendSearch, MOCK_FRIENDS]);
+    return realFriends.filter((f) => f.name.toLowerCase().includes(q));
+  }, [friendSearch, realFriends]);
 
   const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
 
@@ -747,20 +766,24 @@ export const RatingModal: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
-                    {filteredFriends.map((name) => {
-                      const sel = selectedFriends.includes(name);
+                    {filteredFriends.map((f) => {
+                      const sel = selectedFriends.includes(f.id);
                       return (
-                        <button key={name} onClick={() => toggleFriend(name)}
+                        <button key={f.id} onClick={() => toggleFriend(f.id)}
                           className="w-full flex items-center gap-3 py-3 border-b border-on-surface/[0.06] last:border-b-0 text-left transition-colors active:bg-on-surface/[0.02]">
                           <div className="w-8 h-8 rounded-full bg-on-surface/[0.08] flex items-center justify-center text-[11px] font-bold text-on-surface/55 flex-shrink-0">
-                            {name.split(' ').map((n) => n[0]).join('')}
+                            {f.name.split(' ').map((n) => n[0]).join('')}
                           </div>
-                          <span className={cn("flex-1 text-[15px] font-medium", sel ? "text-primary" : "text-on-surface/80")}>{name}</span>
+                          <span className={cn("flex-1 text-[15px] font-medium", sel ? "text-primary" : "text-on-surface/80")}>{f.name}</span>
                           {sel && <Check size={18} className="text-primary flex-shrink-0" strokeWidth={2.5} />}
                         </button>
                       );
                     })}
-                    {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
+                    {filteredFriends.length === 0 && (
+                      <p className="text-center py-8 text-sm text-on-surface/30">
+                        {realFriends.length === 0 ? 'Add friends to tag who you went with' : `No friends match "${friendSearch}"`}
+                      </p>
+                    )}
                   </div>
                   <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => { setPage('main'); setFriendSearch(''); }} />
                 </SubPage>

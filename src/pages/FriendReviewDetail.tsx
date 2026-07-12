@@ -184,7 +184,7 @@ export const FriendReviewDetail: React.FC = () => {
   const hasPhotos = userPhotos.length > 0;
   const heroSrc = hasPhotos ? userPhotos[heroIdx]?.url : rating.photo_url;
   const visitDate = rating.visit_date
-    ? new Date(rating.visit_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    ? new Date(rating.visit_date.length === 10 ? `${rating.visit_date}T12:00:00` : rating.visit_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : null;
 
   return (

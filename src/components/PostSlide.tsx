@@ -15,8 +15,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Star, Trash2, MapPin, PlayCircle } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Trash2, MapPin, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { VerifiedBadge } from './VerifiedBadge';
 import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -639,9 +640,9 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{post.author?.username || post.userId.slice(0, 8)}</span>
                   {post.author?.isExpert && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
-                      <Star size={9} className="fill-stone-900" />
-                      EXPERT
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+                      <VerifiedBadge size={11} />
+                      VERIFIED
                     </span>
                   )}
                 </div>

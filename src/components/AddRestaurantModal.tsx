@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, localISODate } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { settleScores } from '../lib/settleScores';
@@ -43,7 +43,7 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(localISODate());
   const [wouldReturn, setWouldReturn] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
@@ -99,7 +99,7 @@ export const AddRestaurantModal: React.FC = () => {
         // New visit: start fresh but keep restaurant context
         setScore(7);
         setNotes('');
-        setVisitDate(new Date().toISOString().slice(0, 10));
+        setVisitDate(localISODate());
         setWouldReturn(true);
         setSelectedTags([]);
         setPhotos([]);
@@ -119,7 +119,9 @@ export const AddRestaurantModal: React.FC = () => {
       }
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
-      setPriceIndex(-1);
+      // Restore the saved price when editing — resetting to -1 made "Update"
+      // silently revert a hand-picked price back to the meta default.
+      setPriceIndex(!startAsNewVisit && ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
       setPriceAmount('');
       // Caller-requested initial page wins (e.g. opening directly to "notes"
       // from RestaurantPanel); otherwise the modal always opens on main.
@@ -454,7 +456,7 @@ export const AddRestaurantModal: React.FC = () => {
                           onClick={() => {
                             if (!isNewVisit) {
                               setIsNewVisit(true);
-                              setScore(7); setNotes(''); setVisitDate(new Date().toISOString().slice(0, 10));
+                              setScore(7); setNotes(''); setVisitDate(localISODate());
                               setWouldReturn(true); setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
                             }
                           }}

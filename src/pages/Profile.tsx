@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Crown, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
-  Shield, LifeBuoy,
+  Shield, LifeBuoy, BadgeCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,6 +21,9 @@ import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
+import { VerifiedBadge } from '../components/VerifiedBadge';
+import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -730,7 +733,7 @@ const EditTopListsSheet: React.FC<{
 
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
+  const { profile, user, signOut, refreshProfile, pendingRequestCount, isAdmin } = useAuth();
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
@@ -951,7 +954,7 @@ export const Profile: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !profile?.is_expert) {
+    if (!user?.id || !profile?.is_verified) {
       setExpertPickCount(0);
       return;
     }
@@ -960,7 +963,7 @@ export const Profile: React.FC = () => {
       if (!cancelled) setExpertPickCount(c);
     });
     return () => { cancelled = true; };
-  }, [user?.id, profile?.is_expert]);
+  }, [user?.id, profile?.is_verified]);
 
   const resetEditFields = () => {
     setEditName(profile?.display_name || '');
@@ -977,8 +980,14 @@ export const Profile: React.FC = () => {
     setSettingsOpen(true);
   };
 
+  // Latest verification request — drives the settings "Verification" row
+  // (none/denied → apply · pending → under review · verified → edit status).
+  const [verifReq, setVerifReq] = useState<VerificationRequest | null>(null);
   const openSettings = () => {
     setSettingsPage('main');
+    if (user?.id && !profile?.is_verified) {
+      void getMyLatestVerificationRequest(user.id).then(setVerifReq);
+    }
     setAccountMsg('');
     setAccountError('');
     setNewEmail('');
@@ -1028,7 +1037,6 @@ export const Profile: React.FC = () => {
       editName.trim(),
       editUsername.trim(),
       editBio.trim(),
-      undefined,
       undefined,
       homeBase,
     );
@@ -1319,9 +1327,9 @@ export const Profile: React.FC = () => {
             <div className="w-[92px] h-[92px] rounded-full bg-gradient-to-br from-primary/30 to-primary/15 flex items-center justify-center">
               <span className="text-[42px] font-serif font-bold text-primary leading-none">{displayName.charAt(0).toUpperCase()}</span>
             </div>
-            {profile?.is_expert && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-amber-400 ring-[3px] ring-surface flex items-center justify-center">
-                <Crown size={13} className="text-white" />
+            {profile?.is_verified && (
+              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
+                <VerifiedBadge size={24} />
               </div>
             )}
           </div>
@@ -1359,12 +1367,12 @@ export const Profile: React.FC = () => {
             {profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}
             {profile?.is_public ? 'Public' : 'Private'}
           </span>
-          {profile?.is_expert && (
+          {profile?.is_verified && (
             <>
               <span className="text-on-surface/25 text-xs">·</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[11px] font-semibold text-amber-800">
-                <Star size={10} className="fill-amber-500 text-amber-500" />
-                Expert{expertPickCount > 0 && ` · ${expertPickCount}`}
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[11px] font-semibold text-primary">
+                <VerifiedBadge size={12} />
+                Verified{expertPickCount > 0 && ` · ${expertPickCount}`}
               </span>
             </>
           )}
@@ -1375,6 +1383,10 @@ export const Profile: React.FC = () => {
             </>
           )}
         </div>
+
+        {profile?.is_verified && profile?.verified_status && (
+          <p className="text-[13px] font-semibold text-primary/90 mt-2">{profile.verified_status}</p>
+        )}
 
         {bio && <p className="text-[13.5px] text-on-surface/65 mt-3 leading-relaxed">{bio}</p>}
 
@@ -1859,7 +1871,7 @@ export const Profile: React.FC = () => {
                             <p className="text-[14px] font-serif font-bold truncate leading-tight">{r.name}</p>
                             <p className="text-[11.5px] text-on-surface/45 mt-0.5">
                               {r.visitDate
-                                ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                                 : ''}
                               {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
                             </p>
@@ -2062,11 +2074,16 @@ export const Profile: React.FC = () => {
                         <SettingsRow
                           icon={profile?.is_public ? <Globe size={17} /> : <Lock size={17} />}
                           label="Private Account"
-                          hint={profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
+                          hint={profile?.is_verified
+                            ? 'Verified accounts are always public'
+                            : profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
                           toggle
                           toggleValue={!profile?.is_public}
                           onClick={async () => {
                             if (!user?.id || !profile) return;
+                            // The DB trigger enforces this too — the toggle
+                            // just explains instead of silently snapping back.
+                            if (profile.is_verified) return;
                             const newVal = !profile.is_public;
                             await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
                             await refreshProfile();
@@ -2082,6 +2099,18 @@ export const Profile: React.FC = () => {
                           isLast
                         />
                       </SettingsSection>
+
+                      {isAdmin && (
+                        <SettingsSection label="Admin">
+                          <SettingsRow
+                            icon={<BadgeCheck size={17} />}
+                            label="Verification requests"
+                            hint="Review and approve applications"
+                            onClick={() => { setSettingsOpen(false); navigate('/admin/verification'); }}
+                            isLast
+                          />
+                        </SettingsSection>
+                      )}
 
                       <SettingsSection label="About">
                         <SettingsRow
@@ -2186,8 +2215,8 @@ export const Profile: React.FC = () => {
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">
                           Home city
-                          {profile?.is_expert && (
-                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for experts</span>
+                          {profile?.is_verified && (
+                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for verified users</span>
                           )}
                         </p>
                         <div className="relative">
@@ -2315,6 +2344,47 @@ export const Profile: React.FC = () => {
                           <span className="text-xs text-red-600">{accountError}</span>
                         </div>
                       )}
+                      {/* ── Verification ── */}
+                      <div className="border-t border-on-surface/6 pt-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Verification</p>
+                        {profile?.is_verified ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 px-1">
+                              <VerifiedBadge size={15} />
+                              <p className="text-sm font-medium text-on-surface/75">You're verified</p>
+                            </div>
+                            <p className="text-[11px] text-on-surface/45 px-1 -mt-1">Your public status line, shown on your profile:</p>
+                            <VerifiedStatusPicker
+                              userId={user?.id || ''}
+                              initialValue={profile?.verified_status}
+                              saveLabel="Save status"
+                              onSaved={() => { void refreshProfile(); setAccountMsg('Status updated'); }}
+                            />
+                          </div>
+                        ) : verifReq?.status === 'pending' ? (
+                          <div className="bg-on-surface/3 rounded-xl px-3 py-3 flex items-center gap-2.5">
+                            <VerifiedBadge size={16} />
+                            <div>
+                              <p className="text-sm font-medium text-on-surface/75">Application under review</p>
+                              <p className="text-[11px] text-on-surface/45 mt-0.5">We'll let you know as soon as it's decided.</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setSettingsOpen(false); navigate('/verify/apply'); }}
+                            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-on-surface/3 hover:bg-on-surface/[0.06] transition-colors text-left"
+                          >
+                            <VerifiedBadge size={16} />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm font-medium text-on-surface/80">Request a verified badge</span>
+                              <span className="block text-[11px] text-on-surface/45 mt-0.5">For chefs, critics, and creators</span>
+                            </span>
+                            <ChevronRight size={14} className="text-on-surface/30 flex-shrink-0" />
+                          </button>
+                        )}
+                      </div>
+
                       <div className="border-t border-on-surface/6 pt-4">
                         {deleteStep === 0 && (
                           <button
@@ -2519,8 +2589,8 @@ export const Profile: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <p className="text-[14px] font-semibold text-on-surface truncate leading-tight inline-flex items-center gap-1.5">
                               {p.display_name || p.username || 'User'}
-                              {p.is_expert && (
-                                <Crown size={11} className="text-amber-500 flex-shrink-0" />
+                              {p.is_verified && (
+                                <VerifiedBadge size={13} />
                               )}
                             </p>
                             <p className="text-[11px] text-on-surface/45 truncate mt-0.5">@{p.username || 'user'}</p>

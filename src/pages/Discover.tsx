@@ -2,12 +2,13 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle } from 'lucide-react';
+import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
+import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
@@ -38,7 +39,7 @@ import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
-import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter } from '../lib/hours';
+import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
@@ -641,11 +642,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [userDataReady, setUserDataReady] = useState<boolean>(() => !!cacheHit || !userId);
 
   // Load data for non-discover tabs (skipped if cache was fresh)
+  const tabDataInflightRef = useRef(false);
   useEffect(() => {
     if (!userId) { setUserDataReady(true); return; }
-    if (tabDataLoaded) return;
-    setTabDataLoaded(true);
+    if (tabDataLoaded || tabDataInflightRef.current) return;
+    tabDataInflightRef.current = true;
     (async () => {
+      try {
       const [myR, friendR, expertR] = await Promise.all([
         getUserRatings(userId),
         getAllFriendRatings(userId),
@@ -674,7 +677,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       tabDataCache.friendProfiles = profs;
       tabDataCache.expertProfiles = expProfs;
       tabDataCache.tabDataLoaded = true;
-      setUserDataReady(true);
+      // Latch only after the load completed — latching before the fetch
+      // meant one thrown error left every ratings tab empty for the session.
+      setTabDataLoaded(true);
+      } finally {
+        tabDataInflightRef.current = false;
+        setUserDataReady(true);
+      }
     })();
   }, [userId, tabDataLoaded]);
   // Focus-only mode: when the user arrives via a `state.focus` deep-link
@@ -1758,7 +1767,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // a ref so this stays a stable callback).
     const hf = filtersRef.current.hoursFilter;
     if (isHoursFilterActive(hf)) {
-      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMetaRef.current[p.id]?.hours, hf, restaurantLocalNow(p.lng || restaurantMetaRef.current[p.id]?.lng)));
     }
 
     // Sort
@@ -1939,10 +1948,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
   }, [createMarkerElement, showPopup]);
 
+  // Monotonic token shared by fetchNearby/handleSearch: with the 500ms
+  // debounce, a slow earlier request can resolve AFTER a newer one and
+  // overwrite the list, pins, and camera with stale results.
+  const placesReqRef = useRef(0);
+
   // Fetch nearby restaurants for the current map center
   const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
+    const req = ++placesReqRef.current;
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
@@ -1972,6 +1987,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
       let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
       sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
+      if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -1981,7 +1997,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
-      setIsSearching(false);
+      if (placesReqRef.current === req) setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, mergeMichelinResults]);
 
@@ -2021,8 +2037,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const el = document.createElement('div');
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#d4a017;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
-      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#9f3012;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
       el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
@@ -2076,6 +2092,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setIsSearching(true);
     setSelectedMarker(null);
     setShowSearchHere(false);
+    const req = ++placesReqRef.current;
     try {
       // Use location bias if a location was searched, otherwise use map center
       const searchCenter = searchLocationBias || map.getCenter();
@@ -2093,6 +2110,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
       let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
+      if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(filtered);
       syncMarkers(filtered);
 
@@ -2106,7 +2124,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     } catch (err) {
       console.error('Text search failed:', err);
     } finally {
-      setIsSearching(false);
+      if (placesReqRef.current === req) setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, searchLocationBias, mergeMichelinResults]);
 
@@ -2658,7 +2676,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     // Opening hours (breakfast/lunch/dinner + open now)
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter));
+      filtered = filtered.filter((r) => passesHoursFilter(restaurantMeta[r.restaurant_id]?.hours, hoursFilter, restaurantLocalNow(r.lng ?? restaurantMeta[r.restaurant_id]?.lng)));
     }
     // Sort
     const sorted = [...filtered];
@@ -2786,7 +2804,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
     if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter));
+      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng)));
     }
     const sorted = [...filtered];
     switch (hotelSortBy) {
@@ -3060,6 +3078,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
     const ratings = mapMode === 'myratings' ? filteredMyRatings : mapMode === 'friends' ? filteredFriendRatings : mapMode === 'experts' ? filteredExpertRatings : [];
+    if (mapMode === 'discover') {
+      // Returning to the Discover tab: the rating modes overwrote `places`
+      // with their own rows and nothing else repopulates it — without this
+      // restore the pins (un-hidden above) and the results list disagree
+      // until the user manually re-searches the area.
+      setPlaces(tabDataCache.discoverPlaces);
+      return;
+    }
     if (ratings.length === 0) return;
 
     // Convert ratings to PlaceResult[] for the card/swipe system
@@ -3068,7 +3094,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
-    const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#d4a017' : '#333';
+    const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#9f3012' : '#333';
 
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
@@ -3089,8 +3115,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         fillColor = strokeColor;
         iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:#fff;line-height:1;">${initial}</span>`;
       } else if (mapMode === 'experts') {
-        fillColor = '#d4a017';
-        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+        fillColor = '#9f3012';
+        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       } else {
         // myratings: check if wishlisted (no rating) vs rated
         const wishlisted = isWishlisted(r.restaurant_id);
@@ -3154,7 +3180,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     { id: 'discover', label: 'Discover', icon: Sparkles },
     { id: 'myratings', label: 'My Ratings', icon: Star },
     { id: 'friends', label: 'Friends', icon: Users },
-    { id: 'experts', label: 'Experts', icon: Star },
+    { id: 'experts', label: 'Verified', icon: BadgeCheck },
   ];
   const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
   // Panel/header title — in My-Ratings mode it reflects the chosen list or
@@ -3388,8 +3414,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </span>
         )}
         {expertR && (
-          <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
-            <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
+          <span className="inline-flex items-center gap-1 font-semibold text-primary">
+            <VerifiedBadge size={11} /> Verified pick
           </span>
         )}
         {friendCount > 0 && (
@@ -3850,12 +3876,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })}
                   {mapMode === 'experts' && panelExpertRatings.map((r) => {
                     const expProf = expertProfiles[r.user_id];
-                    const expName = expProf?.display_name || 'Expert';
+                    const expName = expProf?.display_name || 'Verified user';
                     return renderRatingCard(r, {
                       extra: (
                         <div className="flex items-center gap-1.5 mt-1.5">
-                          <Star size={10} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                          <span className="text-[11.5px] font-semibold text-amber-700 truncate">{expName}</span>
+                          <VerifiedBadge size={12} />
+                          <span className="text-[11.5px] font-semibold text-primary truncate">{expName}</span>
                         </div>
                       ),
                     });
@@ -4601,7 +4627,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             <div key={place.id} className="flex-shrink-0 w-32 relative group snap-start">
                               <button
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                                className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                aria-label="Remove from recently viewed"
+                                className={cn(
+                                  'absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center transition-opacity',
+                                  // No hover on iOS: opacity-0 kept the button invisible yet
+                                  // tappable — an undiscoverable target that silently deleted
+                                  // the card. Always show it on phone.
+                                  phoneMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                                )}
                               >
                                 <X size={10} className="text-white" />
                               </button>
@@ -5130,8 +5163,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     mapMode === 'experts' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
-                  <Star size={16} className={mapMode === 'experts' ? "text-white fill-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
+                  <BadgeCheck size={16} className={mapMode === 'experts' ? "text-white" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">Verified</span>
                 </button>
               </motion.div>
             )}
@@ -5179,12 +5212,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
               ) : filteredExpertRatings.map((r) => {
                 const expProf = expertProfiles[r.user_id];
-                const expName = expProf?.display_name || 'Expert';
+                const expName = expProf?.display_name || 'Verified user';
                 return renderRatingCard(r, {
                   extra: (
                     <span className="inline-flex items-center gap-1 min-w-0">
-                      <Star size={11} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                      <span className="font-semibold text-amber-700 truncate">{expName}</span>
+                      <VerifiedBadge size={12} />
+                      <span className="font-semibold text-primary truncate">{expName}</span>
                     </span>
                   ),
                 });
