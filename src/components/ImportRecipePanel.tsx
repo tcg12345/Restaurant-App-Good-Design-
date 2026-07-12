@@ -23,11 +23,13 @@ interface ImportRecipePanelProps {
   onImported: (meal: HomeMeal) => void;
   /** Close the whole Add Recipe modal. */
   onClose: () => void;
-  /** The Import / Builder / AI tab strip, injected by the parent. */
+  /** Header-left slot (the "back to methods" chip), injected by the parent. */
   tabSlot?: React.ReactNode;
   phoneMode?: boolean;
   /** Opens the legacy CSV / JSON bulk importer. */
   onOpenBulk?: () => void;
+  /** Which source tab to open on — set by the method chooser. */
+  initialTab?: 'link' | 'photo' | 'text';
 }
 
 const MAX_PHOTOS = 3;
@@ -52,8 +54,9 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
   tabSlot,
   phoneMode,
   onOpenBulk,
+  initialTab,
 }) => {
-  const [tab, setTab] = useState<SourceTab>('link');
+  const [tab, setTab] = useState<SourceTab>(initialTab || 'link');
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);

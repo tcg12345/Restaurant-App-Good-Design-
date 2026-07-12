@@ -1,24 +1,28 @@
-// Add / edit recipe modal — the shell around the three creation modes:
+// Add / edit recipe modal — a two-stage experience:
 //
-//   Import  — bring a recipe in from a link, photos, or pasted text
-//             (AI-transcribed, lands on the builder's Review step).
-//   Builder — the five-step Advanced builder (also used for ALL edits).
-//   AI      — describe a dish, get a complete draft to review.
+//   1. CHOOSE — opening the modal for a NEW recipe first shows a compact
+//      method chooser: a short bottom sheet on phone, a centered card on
+//      desktop. Four ways in: web link, photo, from scratch, or AI.
+//   2. FLOW — picking a method transitions into that flow full-size:
+//      the Import panel (link/photo/text), the five-step Builder, or the
+//      AI generator. A "‹ New recipe" chip in each flow's header returns
+//      to the chooser.
 //
-// The old "Basic" quick form is gone: the builder hydrates legacy basic
-// recipes losslessly (flat ingredients/steps become a single section,
-// and photos / dishes / dates pass through untouched on update), so
-// editing any recipe now opens the builder directly, with no tab strip.
+// Editing an existing recipe (or resuming a draft from Activity) skips
+// the chooser and opens the Builder directly — legacy basic recipes
+// hydrate losslessly (flat ingredients/steps become a single section;
+// photos / dishes / dates pass through untouched on update).
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Link2, Camera, PenLine, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { ImportRecipesModal } from './ImportRecipesModal';
 import { ImportRecipePanel } from './ImportRecipePanel';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
@@ -28,61 +32,64 @@ import { refineRecipe, editRecipeIngredient, type IngredientEdit, type Ingredien
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
+import './RecipeBuilder.css';
 
-/* ── Tab-mode preference (sticky across sessions) ────────────── */
-
-const MODE_KEY = 'gourmad-recipe-builder-mode';
 type BuilderMode = 'import' | 'advanced' | 'ai';
+type Stage = 'choose' | 'flow';
+type Method = 'link' | 'photo' | 'custom' | 'ai';
 
-// Legacy values ('basic' from before the Import tab existed) fall back
-// to the builder.
-const loadMode = (): BuilderMode => {
-  try {
-    const m = localStorage.getItem(MODE_KEY);
-    return m === 'import' ? 'import' : 'advanced';
-  } catch { return 'advanced'; }
-};
-const saveMode = (m: 'import' | 'advanced') => {
-  try { localStorage.setItem(MODE_KEY, m); } catch { /* quota — skip */ }
-};
+/* ── Method chooser ───────────────────────────────────────────── */
 
-interface TabToggleProps {
-  mode: BuilderMode;
-  onChange: (m: BuilderMode) => void;
-}
+const METHODS: Array<{ key: Method; icon: React.ReactNode; title: string; sub: string }> = [
+  { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
+  { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+  { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
+  { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
+];
 
-const TabToggle: React.FC<TabToggleProps> = ({ mode, onChange }) => (
-  <div className="arb-tab-toggle" role="tablist" aria-label="Recipe builder mode">
-    <button
-      type="button"
-      role="tab"
-      aria-selected={mode === 'import'}
-      className={mode === 'import' ? 'is-active' : ''}
-      onClick={() => onChange('import')}
-    >
-      Import
-    </button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={mode === 'advanced'}
-      className={mode === 'advanced' ? 'is-active' : ''}
-      onClick={() => onChange('advanced')}
-    >
-      Builder
-    </button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={mode === 'ai'}
-      className={cn('arb-tab-ai', mode === 'ai' ? 'is-active' : '')}
-      onClick={() => onChange('ai')}
-    >
-      <Sparkles size={13} />
-      AI
-    </button>
+const MethodChooser: React.FC<{
+  phoneMode: boolean;
+  onPick: (m: Method) => void;
+  onClose: () => void;
+}> = ({ phoneMode, onPick, onClose }) => (
+  <div className="rcx-choose">
+    {phoneMode ? (
+      <div className="rcx-choose-handle" aria-hidden />
+    ) : (
+      <button type="button" className="rcx-choose-close" onClick={onClose} aria-label="Close">
+        <X size={14} />
+      </button>
+    )}
+    <h2 className="rcx-choose-title">Add a recipe</h2>
+    <p className="rcx-choose-sub">How do you want to start?</p>
+    {phoneMode ? (
+      <div className="rcx-choose-list">
+        {METHODS.map((m) => (
+          <button key={m.key} type="button" className="rcx-choose-row" onClick={() => onPick(m.key)}>
+            <span className="rcx-choose-icon">{m.icon}</span>
+            <span className="rcx-choose-text">
+              <span className="rcx-choose-name">{m.title}</span>
+              <span className="rcx-choose-hint">{m.sub}</span>
+            </span>
+            <ChevronRight size={15} className="rcx-choose-chev" />
+          </button>
+        ))}
+      </div>
+    ) : (
+      <div className="rcx-choose-grid">
+        {METHODS.map((m) => (
+          <button key={m.key} type="button" className="rcx-choose-card" onClick={() => onPick(m.key)}>
+            <span className="rcx-choose-icon">{m.icon}</span>
+            <span className="rcx-choose-name">{m.title}</span>
+            <span className="rcx-choose-hint">{m.sub}</span>
+          </button>
+        ))}
+      </div>
+    )}
   </div>
 );
+
+/* ── Modal ────────────────────────────────────────────────────── */
 
 export const AddHomeMealModal: React.FC = () => {
   const {
@@ -98,12 +105,9 @@ export const AddHomeMealModal: React.FC = () => {
 
   const existing = homeMealModalData;
 
-  // Editing always opens the builder (no tab strip). New recipes default
-  // to the user's last-used creation mode.
-  const [mode, setMode] = useState<BuilderMode>(() => {
-    if (existing || peekPendingResumeDraftId()) return 'advanced';
-    return loadMode();
-  });
+  const [stage, setStage] = useState<Stage>('choose');
+  const [mode, setMode] = useState<BuilderMode>('advanced');
+  const [importTab, setImportTab] = useState<'link' | 'photo' | 'text'>('link');
 
   // ── Create-with-AI state ──
   // `aiDraft` — the generated recipe shown in the RecipeDraftSheet
@@ -115,26 +119,41 @@ export const AddHomeMealModal: React.FC = () => {
   const [seed, setSeed] = useState<HomeMeal | null>(null);
   const [seedKind, setSeedKind] = useState<'ai' | 'import'>('ai');
 
-  // Re-evaluate when the modal opens with a different `existing` meal
-  // or a new pending-resume flag.
+  // Each open decides the entry point: editing an existing recipe or
+  // resuming a draft skips the chooser; new recipes start on it.
   useEffect(() => {
-    if (existing || peekPendingResumeDraftId()) setMode('advanced');
-  }, [existing, homeMealModalOpen]);
+    if (!homeMealModalOpen) return;
+    if (existing || peekPendingResumeDraftId()) {
+      setMode('advanced');
+      setStage('flow');
+    } else {
+      setStage('choose');
+    }
+  }, [homeMealModalOpen, existing]);
 
-  // Reset transient draft state whenever the modal closes so the next
-  // open starts clean.
+  // Reset transient state whenever the modal closes so the next open
+  // starts clean.
   useEffect(() => {
     if (!homeMealModalOpen) {
       setAiDraft(null);
       setSeed(null);
       setSeedKind('ai');
+      setStage('choose');
+      setMode('advanced');
     }
   }, [homeMealModalOpen]);
 
-  const handleModeChange = (m: BuilderMode) => {
-    setMode(m);
-    // The AI tab is transient — never persist it as the sticky default.
-    if (m !== 'ai') saveMode(m);
+  // Drag-to-dismiss for the phone chooser sheet.
+  const { dragProps } = useBottomSheet(homeMealModalOpen && stage === 'choose' && phoneMode, closeHomeMealModal);
+
+  const handlePickMethod = (m: Method) => {
+    if (m === 'custom') setMode('advanced');
+    else if (m === 'ai') setMode('ai');
+    else {
+      setMode('import');
+      setImportTab(m);
+    }
+    setStage('flow');
   };
 
   // Hand-off from the AI generator: stash the generated recipe and open
@@ -153,6 +172,7 @@ export const AddHomeMealModal: React.FC = () => {
     setSeed(meal);
     setSeedKind('import');
     setMode('advanced');
+    setStage('flow');
   };
 
   // Publish straight from the AI preview sheet.
@@ -199,6 +219,7 @@ export const AddHomeMealModal: React.FC = () => {
     setSeedKind('ai');
     setAiDraft(null);
     setMode('advanced');
+    setStage('flow');
   };
 
   // "Back to AI draft" from the Advanced builder. Only meaningful for
@@ -238,9 +259,16 @@ export const AddHomeMealModal: React.FC = () => {
 
   const [importRecipesOpen, setImportRecipesOpen] = useState(false);
 
-  const tabSlot = existing
-    ? undefined
-    : <TabToggle mode={mode} onChange={handleModeChange} />;
+  // Header-left slot inside each flow: a chip back to the chooser.
+  // Hidden when editing (the builder shows an "Edit recipe" eyebrow) and
+  // when a seed is under review (going back would discard it — the
+  // dedicated "Back to AI draft" chip covers the AI case).
+  const methodChip = (!existing && !seed) ? (
+    <button type="button" className="rcx-method-chip" onClick={() => setStage('choose')}>
+      <ChevronLeft size={13} strokeWidth={2.4} />
+      New recipe
+    </button>
+  ) : undefined;
 
   return (
     <>
@@ -253,44 +281,74 @@ export const AddHomeMealModal: React.FC = () => {
             )}
             onClick={closeHomeMealModal}
           >
-            <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              onClick={(e) => e.stopPropagation()}
-              className={cn('bg-surface w-full overflow-hidden flex flex-col',
-                phoneMode
-                  ? 'h-full rounded-none'
-                  : 'h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl'
-              )}
-            >
-              {mode === 'advanced' ? (
-                <AdvancedRecipeBuilder
-                  key={seed ? seed.id : 'fresh'}
-                  existing={existing}
-                  seed={seed}
-                  seedKind={seedKind}
-                  initialStep={seed ? 4 : undefined}
-                  onClose={closeHomeMealModal}
-                  onBackToDraft={backToDraft}
-                  tabSlot={tabSlot}
-                />
-              ) : mode === 'ai' ? (
-                <AiRecipeGenerator
-                  onGenerated={handleAiGenerated}
-                  onClose={closeHomeMealModal}
-                  phoneMode={phoneMode}
-                  tabSlot={tabSlot}
-                />
+            <AnimatePresence mode="wait">
+              {stage === 'choose' ? (
+                <motion.div
+                  key="chooser"
+                  initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.94, y: 14 }}
+                  animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+                  exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
+                  transition={phoneMode
+                    ? { type: 'spring', damping: 30, stiffness: 320 }
+                    : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  {...(phoneMode ? dragProps : {})}
+                  onClick={(e) => e.stopPropagation()}
+                  className={cn('w-full overflow-hidden',
+                    phoneMode
+                      ? 'rounded-t-3xl'
+                      : 'sm:max-w-[560px] rounded-t-3xl sm:rounded-3xl'
+                  )}
+                >
+                  <MethodChooser phoneMode={phoneMode} onPick={handlePickMethod} onClose={closeHomeMealModal} />
+                </motion.div>
               ) : (
-                <ImportRecipePanel
-                  onImported={handleImported}
-                  onClose={closeHomeMealModal}
-                  phoneMode={phoneMode}
-                  tabSlot={tabSlot}
-                  onOpenBulk={() => setImportRecipesOpen(true)}
-                />
+                <motion.div
+                  key={`flow-${mode}`}
+                  initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 10 }}
+                  animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+                  exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 8 }}
+                  transition={phoneMode
+                    ? { type: 'spring', damping: 30, stiffness: 300 }
+                    : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  onClick={(e) => e.stopPropagation()}
+                  className={cn('bg-surface w-full overflow-hidden flex flex-col',
+                    phoneMode
+                      ? 'h-full rounded-none'
+                      : 'h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl'
+                  )}
+                >
+                  {mode === 'advanced' ? (
+                    <AdvancedRecipeBuilder
+                      key={seed ? seed.id : 'fresh'}
+                      existing={existing}
+                      seed={seed}
+                      seedKind={seedKind}
+                      initialStep={seed ? 4 : undefined}
+                      onClose={closeHomeMealModal}
+                      onBackToDraft={backToDraft}
+                      tabSlot={methodChip}
+                    />
+                  ) : mode === 'ai' ? (
+                    <AiRecipeGenerator
+                      onGenerated={handleAiGenerated}
+                      onClose={closeHomeMealModal}
+                      phoneMode={phoneMode}
+                      tabSlot={methodChip}
+                    />
+                  ) : (
+                    <ImportRecipePanel
+                      key={importTab}
+                      onImported={handleImported}
+                      onClose={closeHomeMealModal}
+                      phoneMode={phoneMode}
+                      tabSlot={methodChip}
+                      initialTab={importTab}
+                      onOpenBulk={() => setImportRecipesOpen(true)}
+                    />
+                  )}
+                </motion.div>
               )}
-            </motion.div>
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
