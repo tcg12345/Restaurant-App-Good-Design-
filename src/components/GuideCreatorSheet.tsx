@@ -28,6 +28,7 @@ import { useLists, type CustomList, type RestaurantRating, type Recipe as ListRe
 import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide, type GuideTheme } from '../lib/supabase-guides';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
@@ -495,6 +496,11 @@ const StepAdd: React.FC<{
   const [recipesFilter, setRecipesFilter] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchReqIdRef = useRef(0);
+  // Bias the place search toward the user's chosen home location
+  // (falls back to NYC only when they never picked one).
+  const homeLoc = useHomeLocation();
+  const biasLat = homeLoc?.location?.lat ?? 40.7128;
+  const biasLng = homeLoc?.location?.lng ?? -74.0060;
 
   const isRecipes = type === 'recipes';
   const tabs: { key: SourceMode; label: string }[] = isRecipes
@@ -528,7 +534,7 @@ const StepAdd: React.FC<{
     const reqId = ++searchReqIdRef.current;
     searchDebounceRef.current = setTimeout(async () => {
       try {
-        const found = await searchPlacesByText(trimmedSearch, 40.7128, -74.0060);
+        const found = await searchPlacesByText(trimmedSearch, biasLat, biasLng);
         if (reqId !== searchReqIdRef.current) return;
         setSearchResults(found.slice(0, 10));
       } catch {
