@@ -57,6 +57,15 @@
   gap: 10px;
 }
 
+/* Fallback for the tab strip's slot when editing (no tabs shown). */
+.rcx-head-eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rcx-faint);
+}
+
 .rcx-head-actions {
   display: flex;
   align-items: center;
@@ -1433,6 +1442,167 @@
   color: var(--rcx-faint);
   margin: 0;
 }
+
+.rcx-fineprint-link {
+  font-size: inherit;
+  color: var(--rcx-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Import tab ─────────────────────────────────────────────────── */
+
+.rcx-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rcx-secondary);
+}
+
+/* Pill input (the link field). */
+.rcx-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 8px 0 15px;
+  background: var(--rcx-card);
+  border: 1.5px solid var(--rcx-hairline);
+  border-radius: 999px;
+  transition: border-color 0.2s ease;
+}
+
+.rcx-search:focus-within { border-color: var(--rcx-accent); }
+.rcx-search > svg { color: var(--rcx-faint); flex-shrink: 0; }
+
+.rcx-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  font-size: 14px;
+  color: var(--rcx-ink);
+}
+
+.rcx-search input::placeholder { color: var(--rcx-faint); }
+
+.rcx-search > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  color: var(--rcx-faint);
+  background: var(--rcx-chip);
+  flex-shrink: 0;
+}
+
+/* Source switcher: Web link / Photo / Text. */
+.rcx-src-seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--rcx-chip);
+  border-radius: 999px;
+}
+
+.rcx-src-btn {
+  flex: 1;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 620;
+  color: #6f6a61;
+  white-space: nowrap;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.rcx-src-btn svg { color: var(--rcx-faint); transition: color 0.18s ease; }
+
+.rcx-src-btn.is-on {
+  background: var(--rcx-card);
+  color: var(--rcx-ink);
+  box-shadow: 0 1px 3px rgba(29, 26, 22, 0.1);
+}
+
+.rcx-src-btn.is-on svg { color: var(--rcx-accent); }
+
+/* Inline "Paste" affordance inside the link pill. */
+.rcx-paste-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  width: auto !important;
+  height: 28px !important;
+  padding: 0 11px;
+  border-radius: 999px !important;
+  background: var(--rcx-chip) !important;
+  color: #5b554d !important;
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.rcx-paste-btn:hover { background: var(--rcx-hairline-strong) !important; }
+
+.rcx-import-thumbs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rcx-import-thumb {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--rcx-hairline-strong);
+  animation: rcxRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.rcx-import-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rcx-import-thumb > button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(29, 26, 22, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rcx-import-add {
+  width: 84px;
+  height: 84px;
+  border-radius: 14px;
+  border: 1.5px dashed #d8d2c9;
+  color: var(--rcx-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.rcx-import-add:hover { border-color: var(--rcx-accent); color: var(--rcx-accent); }
 
 .rcx-ai-loading {
   display: flex;

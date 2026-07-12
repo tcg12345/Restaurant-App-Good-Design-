@@ -590,9 +590,11 @@ export interface AdvancedRecipeBuilderProps {
   tabSlot?: React.ReactNode; // Basic/Advanced/AI toggle injected by parent
   /** Pre-fill the builder with this recipe but treat it as a NEW recipe
    *  (saves via createHomeMeal, never updateHomeMeal). Used by the
-   *  "Create with AI" flow to hand off a generated draft for review.
-   *  Ignored when `existing` is set. */
+   *  "Create with AI" flow and the Import tab to hand off a draft for
+   *  review. Ignored when `existing` is set. */
   seed?: HomeMeal | null;
+  /** Where the seed came from — drives the Review step's banner copy. */
+  seedKind?: 'ai' | 'import';
   /** Step index (0–4) to open on. Defaults to 0. The AI flow passes 4
    *  (Review) so the user lands on a skim of the finished recipe. */
   initialStep?: number;
@@ -602,7 +604,7 @@ export interface AdvancedRecipeBuilderProps {
   onBackToDraft?: () => void;
 }
 
-export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, initialStep, onBackToDraft }) => {
+export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, seedKind, initialStep, onBackToDraft }) => {
   const navigate = useNavigate();
   const auth = useAuth();
   const { phoneMode } = useSettings();
@@ -925,7 +927,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       case 1: return <StepDetails state={state} dispatch={dispatch} />;
       case 2: return <StepIngredients state={state} dispatch={dispatch} existingId={existing?.id} />;
       case 3: return <StepMethod state={state} dispatch={dispatch} existingId={existing?.id} />;
-      case 4: return <StepReview state={state} dispatch={dispatch} isAiDraft={!!seed && !existing} />;
+      case 4: return <StepReview state={state} dispatch={dispatch} draftKind={seed && !existing ? (seedKind || 'ai') : undefined} />;
       default: return null;
     }
   };
@@ -935,7 +937,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       {/* ── Header ── */}
       <div className="rcx-head">
         <div className="rcx-head-row">
-          {tabSlot}
+          {tabSlot ?? (
+            <span className="rcx-head-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</span>
+          )}
           <div className="rcx-head-actions">
             <span className={`rcx-saved${draftSavedAt ? ' is-saved' : ''}`}>
               <span className="rcx-saved-dot" />

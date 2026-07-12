@@ -13,7 +13,7 @@
 // just collects the publish-time inputs.
 
 import React, { useState } from 'react';
-import { Globe, Lock, ChevronRight, Sparkles, Trash2, Plus } from 'lucide-react';
+import { Globe, Lock, ChevronRight, Sparkles, FileText, Trash2, Plus } from 'lucide-react';
 import { flattenIngredientGroups } from '../../lib/ingredient-parsing';
 import { cn } from '../../lib/utils';
 import type { RecipeNote } from '../../contexts/ListsContext';
@@ -24,8 +24,9 @@ import { DEFAULT_RECIPE_TAGS, DEFAULT_EQUIPMENT } from '../../lib/recipe-vocab';
 interface Props {
   state: AdvancedRecipeState;
   dispatch: React.Dispatch<Action>;
-  /** True when this session is reviewing a fresh AI draft. */
-  isAiDraft?: boolean;
+  /** Set when this session is reviewing a freshly seeded draft — an AI
+   *  generation or an import. Drives the banner copy. */
+  draftKind?: 'ai' | 'import';
 }
 
 const NOTE_TYPES: Array<{ type: RecipeNote['type']; label: string }> = [
@@ -47,7 +48,7 @@ function fmtTime(min: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-export const StepReview: React.FC<Props> = ({ state, dispatch, isAiDraft }) => {
+export const StepReview: React.FC<Props> = ({ state, dispatch, draftKind }) => {
   // Extras opens automatically when any of its fields already has
   // content (editing an existing recipe shouldn't hide filled fields).
   const [extrasOpen, setExtrasOpen] = useState(
@@ -65,10 +66,16 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, isAiDraft }) => {
 
   return (
     <div className="rcx-stack">
-      {isAiDraft && (
+      {draftKind === 'ai' && (
         <div className="rcx-ai-banner">
           <Sparkles size={14} />
           <span><strong>AI draft ready.</strong> Step back through the builder to edit anything.</span>
+        </div>
+      )}
+      {draftKind === 'import' && (
+        <div className="rcx-ai-banner">
+          <FileText size={14} />
+          <span><strong>Recipe imported.</strong> Check it against the original — everything is editable.</span>
         </div>
       )}
 
