@@ -1,0 +1,20 @@
+{
+  "name": "gourmet-canvas-promo",
+  "private": true,
+  "description": "Remotion promo ad for Gourmet Canvas — 9:16, ~20s",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render GourmetCanvasAd out/gourmet-canvas-ad.mp4 --browser-executable=/opt/pw-browsers/chromium"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.246",
+    "@remotion/fonts": "4.0.246",
+    "remotion": "4.0.246",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.6.0"
+  }
+}
