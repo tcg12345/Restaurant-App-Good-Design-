@@ -32,46 +32,6 @@ export interface BrowseGuide {
   saves?: number;
 }
 
-/* Filler pool. `cityTitle` is used when the browser is opened from a
-   location surface ("{city}" → short city name); `genericTitle` when
-   opened from Discover where there's no single anchor city. Images are
-   reused from elsewhere in the app so they're known-good URLs. */
-const BROWSE_GUIDE_TEMPLATES: Array<{
-  id: string;
-  cityTitle: string;
-  genericTitle: string;
-  author: string;
-  image: string;
-  count: number;
-  daysAgo: number;
-  saves: number;
-}> = [
-  { id: 'bg-pasta', cityTitle: 'A Pasta Crawl Through {city}', genericTitle: 'A Proper Pasta Crawl', author: 'Jamie Lin', image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800', count: 9, daysAgo: 2, saves: 184 },
-  { id: 'bg-date', cityTitle: 'Where {city} Locals Take a Date', genericTitle: 'Where Locals Take a Date', author: 'Camille Durand', image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800', count: 12, daysAgo: 5, saves: 327 },
-  { id: 'bg-gems', cityTitle: 'Hidden Gems in {city}', genericTitle: 'Hidden Gems Worth a Detour', author: 'Marco Rossi', image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800', count: 8, daysAgo: 0, saves: 96 },
-  { id: 'bg-brunch', cityTitle: 'A Proper Brunch Itinerary in {city}', genericTitle: 'A Proper Weekend Brunch Itinerary', author: 'Aiko Tanaka', image: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&q=80&w=800', count: 7, daysAgo: 9, saves: 211 },
-  { id: 'bg-tasting', cityTitle: 'Tasting-Menu Temples Near {city}', genericTitle: 'Tasting-Menu Temples', author: 'Diego Ramirez', image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800', count: 10, daysAgo: 13, saves: 142 },
-  { id: 'bg-latenight', cityTitle: 'Late-Night {city} Standbys', genericTitle: 'Late-Night Standbys', author: 'Sam Hughes', image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&q=80&w=800', count: 11, daysAgo: 1, saves: 263 },
-  { id: 'bg-omakase', cityTitle: 'The {city} Omakase Shortlist', genericTitle: 'The Omakase Shortlist', author: 'Aiko Tanaka', image: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=800', count: 6, daysAgo: 3, saves: 388 },
-  { id: 'bg-classics', cityTitle: 'Old-School Classics of {city}', genericTitle: 'Old-School Classics Still Worth It', author: 'Marco Rossi', image: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800', count: 14, daysAgo: 21, saves: 175 },
-  { id: 'bg-slices', cityTitle: 'A Slice Tour of {city}', genericTitle: 'A Proper Slice Tour', author: 'Jamie Lin', image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&q=80&w=800', count: 13, daysAgo: 4, saves: 240 },
-  { id: 'bg-veg', cityTitle: 'Vegetarian Standouts in {city}', genericTitle: 'Vegetarian Standouts', author: 'Priya Patel', image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&q=80&w=800', count: 9, daysAgo: 7, saves: 118 },
-  { id: 'bg-comfort', cityTitle: 'Rainy-Day Comfort Food in {city}', genericTitle: 'Rainy-Day Comfort Food', author: 'Lena Kovács', image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?auto=format&fit=crop&q=80&w=800', count: 8, daysAgo: 11, saves: 87 },
-  { id: 'bg-bakery', cityTitle: 'The {city} Bakery Run', genericTitle: 'The Saturday Bakery Run', author: 'Priya Patel', image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=800', count: 10, daysAgo: 6, saves: 154 },
-  { id: 'bg-dessert', cityTitle: 'Dessert First: {city} Sweets', genericTitle: 'Dessert First', author: 'Camille Durand', image: 'https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&q=80&w=800', count: 7, daysAgo: 16, saves: 201 },
-  { id: 'bg-patio', cityTitle: 'Patio Season in {city}', genericTitle: 'Patio Season Essentials', author: 'Sam Hughes', image: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&q=80&w=800', count: 12, daysAgo: 8, saves: 133 },
-  { id: 'bg-spice', cityTitle: 'Spice Routes of {city}', genericTitle: 'Spice Routes', author: 'Lena Kovács', image: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&q=80&w=800', count: 9, daysAgo: 28, saves: 92 },
-  { id: 'bg-lunch', cityTitle: 'Healthy-ish Lunches in {city}', genericTitle: 'Healthy-ish Lunch Spots', author: 'Diego Ramirez', image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800', count: 8, daysAgo: 35, saves: 64 },
-];
-
-export function buildBrowseGuides(cityName?: string): BrowseGuide[] {
-  const city = cityName?.trim();
-  return BROWSE_GUIDE_TEMPLATES.map(({ cityTitle, genericTitle, ...rest }) => ({
-    ...rest,
-    title: city ? cityTitle.replace(/\{city\}/g, city) : genericTitle,
-  }));
-}
-
 /* Stable name → hue so author avatars get consistent colors without a
    palette table. Mirrors the hash Discover uses for guide author chips. */
 function hashToHue(str: string): number {
@@ -101,9 +61,8 @@ interface GuidesBrowserProps {
   /** Short city name ("New York"). Set on location surfaces — templates the
    *  guide titles and the header. Omit on Discover for the generic pool. */
   cityName?: string;
-  /** Real guides to browse. When provided (even empty), the filler pool is
-   *  NOT used — this is the city's actual public guides. Omit to fall back to
-   *  the placeholder pool (Discover, until it's wired to real data). */
+  /** Real guides to browse — the surface's actual public guides. An
+   *  empty array renders the honest "no guides yet" state. */
   realGuides?: BrowseGuide[];
   /** Open a real guide (navigate to its detail page). Set alongside
    *  `realGuides` so the cards become tappable. */
@@ -119,14 +78,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
   const [sortBy, setSortBy] = useState<SortKey>('recent');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Real guides when the parent supplies them (location surfaces); otherwise
-  // the placeholder pool. `realGuides === undefined` ⇒ filler; an empty array
-  // ⇒ a genuine "no guides here yet".
-  const usingReal = realGuides !== undefined;
-  const guides = useMemo(
-    () => realGuides ?? buildBrowseGuides(cityName),
-    [realGuides, cityName],
-  );
+  const guides = useMemo(() => realGuides ?? [], [realGuides]);
 
   // Author chips, ordered by how many guides each has so the most
   // prolific people surface first in the scroll row.
@@ -290,7 +242,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
   const grid = (
     <div className="flex-1 overflow-y-auto px-5 pb-safe-5 pt-4">
       {visible.length === 0 ? (
-        usingReal && guides.length === 0 ? (
+        guides.length === 0 ? (
           <div className="py-16 flex flex-col items-center text-center px-6">
             <div className="w-12 h-12 rounded-2xl bg-on-surface/[0.05] grid place-items-center text-on-surface/40">
               <BookOpen size={20} />

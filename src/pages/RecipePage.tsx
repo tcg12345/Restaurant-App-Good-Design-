@@ -1491,9 +1491,6 @@ export const RecipePage: React.FC = () => {
                 </div>
               ))}
               <div className="rd-ingr-actions">
-                <button type="button" className="rd-ingr-action" onClick={() => showToast('Coming soon')}>
-                  <Plus /> Add to list
-                </button>
                 <button type="button" className="rd-ingr-action" onClick={handlePrint}>
                   <Printer /> Print
                 </button>

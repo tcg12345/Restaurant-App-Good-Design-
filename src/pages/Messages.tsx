@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Image as ImageIcon, Smile, Mic, Store } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
@@ -1071,15 +1071,10 @@ const ChatView: React.FC<{
             </button>
           </div>
           {/* Input row */}
-          <div className="flex items-center gap-1 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 pl-1.5 pr-1.5 py-1.5">
-            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Photo (coming soon)"><ImageIcon size={18} /></button>
+          <div className="flex items-center gap-1 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 pl-4 pr-1.5 py-1.5">
             <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
               placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
               className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
-            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Emoji (coming soon)"><Smile size={18} /></button>
-            {!text.trim() && (
-              <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 active:bg-on-surface/[0.06] flex-shrink-0" title="Voice (coming soon)"><Mic size={18} /></button>
-            )}
             <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
               className="w-10 h-10 rounded-full bg-primary text-white grid place-items-center disabled:opacity-30 transition-opacity flex-shrink-0 active:scale-95"><Send size={16} /></button>
           </div>
@@ -1108,15 +1103,10 @@ const ChatView: React.FC<{
             </button>
           </div>
           {/* Input row */}
-          <div className="flex items-center gap-1.5 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all pl-2 pr-1.5 py-1.5">
-            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors flex-shrink-0" title="Photo (coming soon)"><ImageIcon size={18} /></button>
+          <div className="flex items-center gap-1.5 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all pl-4 pr-1.5 py-1.5">
             <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
               placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
               className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
-            <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors flex-shrink-0" title="Emoji (coming soon)"><Smile size={18} /></button>
-            {!text.trim() && (
-              <button className="w-9 h-9 rounded-full grid place-items-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors flex-shrink-0" title="Voice (coming soon)"><Mic size={18} /></button>
-            )}
             <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
               className="w-10 h-10 rounded-full bg-primary text-white grid place-items-center disabled:opacity-30 hover:bg-primary/90 transition-all flex-shrink-0 active:scale-95"><Send size={16} /></button>
           </div>

@@ -16,7 +16,7 @@ import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '
 import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
-import { getMyGuides, deleteGuide, setGuideVisibility, type Guide as MyGuide } from '../lib/supabase-guides';
+import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
@@ -127,7 +127,7 @@ type Guide = {
 
 const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
   <Link
-    to="/discover"
+    to={`/guides/${guide.id}`}
     className="flex-shrink-0 snap-start w-[260px] group"
   >
     <div className={cn(
@@ -174,7 +174,7 @@ const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
       </div>
       <p className="text-[12px] text-on-surface/55 truncate">
         <span className="font-semibold text-on-surface/75">{guide.authorName}</span>
-        <span className="text-on-surface/40"> · @{guide.authorHandle}</span>
+        {guide.authorHandle && <span className="text-on-surface/40"> · @{guide.authorHandle}</span>}
       </p>
     </div>
   </Link>
@@ -321,52 +321,32 @@ const DesktopTopSection: React.FC<{
   </section>
 );
 
-/* ── Mock recommended guides ──
-   Placeholder guides "curated by people you follow" until the real
-   guides feature is built. Each guide gets a distinct gradient and a
-   plausible author so the strip reads as a populated feed, not chrome. */
-const MOCK_GUIDES: Guide[] = [
-  {
-    id: 'mg-nyc-italian',
-    title: 'NYC Italian Hall of Fame',
-    authorName: 'Carmen Russo',
-    authorHandle: 'forkful',
-    authorInitials: 'CR',
-    placeCount: 22,
-    cuisineLabel: 'GUIDE COVER',
-    coverGradient: 'from-stone-700 via-stone-800 to-stone-950',
-  },
-  {
-    id: 'mg-paris-budget',
-    title: 'Paris on a budget',
-    authorName: 'Léa Bernard',
-    authorHandle: 'leabparis',
-    authorInitials: 'LB',
-    placeCount: 24,
-    cuisineLabel: 'GUIDE COVER',
-    coverGradient: 'from-zinc-700 via-zinc-800 to-stone-950',
-  },
-  {
-    id: 'mg-tokyo-ramen',
-    title: "Tokyo's hidden ramen gems",
-    authorName: 'Aiko Tanaka',
-    authorHandle: 'aiko_eats',
-    authorInitials: 'AT',
-    placeCount: 18,
-    cuisineLabel: 'GUIDE COVER',
-    coverGradient: 'from-neutral-700 via-neutral-800 to-stone-950',
-  },
-  {
-    id: 'mg-london-sundayroast',
-    title: 'Best Sunday roast in London',
-    authorName: 'Oliver West',
-    authorHandle: 'oliveats',
-    authorInitials: 'OW',
-    placeCount: 11,
-    cuisineLabel: 'GUIDE COVER',
-    coverGradient: 'from-stone-800 via-stone-900 to-zinc-950',
-  },
+/* ── Recommended guides ──
+   Real published + public guides from the community, mapped into the
+   GuideCard shape. Covers use the guide's own photo (or its first
+   entry's) with a rotating gradient fallback. */
+const GUIDE_GRADIENTS = [
+  'from-stone-700 via-stone-800 to-stone-950',
+  'from-zinc-700 via-zinc-800 to-stone-950',
+  'from-neutral-700 via-neutral-800 to-stone-950',
+  'from-stone-800 via-stone-900 to-zinc-950',
 ];
+
+function guideToCard(g: MyGuide, author: UserProfile | undefined, i: number): Guide {
+  const name = author?.display_name || author?.username || 'Gourmet Canvas cook';
+  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'GC';
+  return {
+    id: g.id,
+    title: g.title,
+    authorName: name,
+    authorHandle: author?.username || '',
+    authorInitials: initials,
+    placeCount: g.entries.length,
+    cuisineLabel: g.type === 'recipes' ? 'RECIPE GUIDE' : 'GUIDE',
+    coverGradient: GUIDE_GRADIENTS[i % GUIDE_GRADIENTS.length],
+    bgImage: g.coverPhoto || g.entries.find((e) => e.image)?.image || undefined,
+  };
+}
 
 /* ── EmptyTabState ──
    Friendly empty placeholder for any tab with no items. Matches the
@@ -743,6 +723,23 @@ export const Profile: React.FC = () => {
   // Dismiss the friend-request banner for this session (reappears on reload
   // while requests are still pending, so a real request isn't lost).
   const [friendReqDismissed, setFriendReqDismissed] = useState(false);
+
+  // Recommended guides — real public guides from the community (other
+  // authors first). The strip hides entirely while empty.
+  const [recommendedGuides, setRecommendedGuides] = useState<Guide[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const guides = await getGuidesForFeed({ limit: 8, excludeUserId: user?.id });
+      if (cancelled) return;
+      if (guides.length === 0) { setRecommendedGuides([]); return; }
+      const authorIds = Array.from(new Set(guides.map((g) => g.userId)));
+      const profiles = await getProfilesByIds(authorIds);
+      if (cancelled) return;
+      setRecommendedGuides(guides.map((g, i) => guideToCard(g, profiles[g.userId], i)));
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // Reels and posts authored by the signed-in user. Both come from their
   // respective contexts (loaded once at mount), filtered locally.
@@ -1606,28 +1603,29 @@ export const Profile: React.FC = () => {
                 </button>
               </div>
 
-              {/* Recommended guides — mock for now; "Explore" routes to
-                  Discover where real guides live. */}
-              <section>
-                <div className="px-5 flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">Recommended guides</h3>
-                    <p className="text-[12.5px] text-on-surface/45 mt-0.5">Curated by people you follow</p>
+              {/* Recommended guides — real public guides from the community. */}
+              {recommendedGuides.length > 0 && (
+                <section>
+                  <div className="px-5 flex items-start justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">Recommended guides</h3>
+                      <p className="text-[12.5px] text-on-surface/45 mt-0.5">Fresh from the community</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/discover')}
+                      className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
+                    >
+                      Explore <ChevronRight size={14} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/discover')}
-                    className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
-                  >
-                    Explore <ChevronRight size={14} />
-                  </button>
-                </div>
-                <div className="flex gap-4 overflow-x-auto px-5 pb-2 scrollbar-hide snap-x snap-mandatory">
-                  {MOCK_GUIDES.map((g) => (
-                    <GuideCard key={g.id} guide={g} />
-                  ))}
-                </div>
-              </section>
+                  <div className="flex gap-4 overflow-x-auto px-5 pb-2 scrollbar-hide snap-x snap-mandatory">
+                    {recommendedGuides.map((g) => (
+                      <GuideCard key={g.id} guide={g} />
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           ) : (() => {
             // ── Desktop "Top lists" — category rail + featured hero + rows ──
@@ -1720,27 +1718,29 @@ export const Profile: React.FC = () => {
                     </DesktopTopSection>
                   ))}
 
-                  {/* Recommended guides */}
-                  <section>
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="min-w-0">
-                        <h3 className="font-serif font-bold text-on-surface text-[26px] leading-tight">Recommended guides</h3>
-                        <p className="text-[13px] text-on-surface/45 mt-0.5">Curated by people you follow</p>
+                  {/* Recommended guides — real public guides from the community. */}
+                  {recommendedGuides.length > 0 && (
+                    <section>
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="min-w-0">
+                          <h3 className="font-serif font-bold text-on-surface text-[26px] leading-tight">Recommended guides</h3>
+                          <p className="text-[13px] text-on-surface/45 mt-0.5">Fresh from the community</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/discover')}
+                          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80 mt-1 flex-shrink-0"
+                        >
+                          Explore <ChevronRight size={14} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/discover')}
-                        className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80 mt-1 flex-shrink-0"
-                      >
-                        Explore <ChevronRight size={14} />
-                      </button>
-                    </div>
-                    <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
-                      {MOCK_GUIDES.map((g) => (
-                        <GuideCard key={g.id} guide={g} />
-                      ))}
-                    </div>
-                  </section>
+                      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
+                        {recommendedGuides.map((g) => (
+                          <GuideCard key={g.id} guide={g} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
               </div>
             );

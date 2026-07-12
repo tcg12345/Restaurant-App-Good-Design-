@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { PRIVACY_URL, SUPPORT_URL } from '../lib/external-links';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowUpRight, Heart, MapPin, Sparkles, Star, Users,
@@ -482,11 +483,9 @@ export const AuthShell: React.FC<{
         <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 px-8 xl:px-14 py-4 text-xs text-on-surface/40 flex-shrink-0">
           <span>© 2026 Gourmet Canvas</span>
           <span>·</span>
-          <a href="#" className="hover:text-on-surface/70">Terms</a>
+          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="hover:text-on-surface/70">Privacy</a>
           <span>·</span>
-          <a href="#" className="hover:text-on-surface/70">Privacy</a>
-          <span>·</span>
-          <a href="#" className="hover:text-on-surface/70">Help</a>
+          <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" className="hover:text-on-surface/70">Help</a>
         </footer>
       </div>
     </div>

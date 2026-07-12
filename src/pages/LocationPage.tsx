@@ -128,64 +128,6 @@ function daysSinceIso(iso?: string): number {
   return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 }
 
-/* ── Filler suggestions ──────────────────────────────────────────────────────
-   When the user_profiles table has no experts / non-expert candidates with
-   a home_city in the explored area (which is the default state until people
-   start filling in that field), the "Around {city}" row would render only
-   restaurant cards. These templates fill the row with placeholder
-   expert + friend cards keyed off the city name so the UX still shows the
-   full mixed-card concept.
-
-   The filler user_ids are namespaced ("filler-expert-…", "filler-friend-…")
-   so the follow / add-friend handlers can skip the real API call and stay
-   purely optimistic. Tapping the card navigates to /user/{username}, which
-   will land on the standard profile page's "couldn't find this user"
-   state — also acceptable until real data backfills.
-   ──────────────────────────────────────────────────────────────────── */
-const FILLER_EXPERT_TEMPLATES = [
-  { username: 'jamielin', display_name: 'Jamie Lin', bio: 'Food writer covering {city}.' },
-  { username: 'marcorossi', display_name: 'Marco Rossi', bio: 'Italian-trained chef, {city} regular.' },
-  { username: 'aikotanaka', display_name: 'Aiko Tanaka', bio: 'Brunch + sushi obsessive in {city}.' },
-];
-
-const FILLER_FRIEND_TEMPLATES = [
-  { username: 'camille_d', display_name: 'Camille Durand' },
-  { username: 'diegoramirez', display_name: 'Diego Ramirez' },
-  { username: 'samhughes', display_name: 'Sam Hughes' },
-];
-
-function isFillerProfile(profile: UserProfile): boolean {
-  return profile.user_id.startsWith('filler-');
-}
-
-function buildFillerExperts(shortCity: string): UserProfile[] {
-  const city = shortCity.trim() || 'the area';
-  return FILLER_EXPERT_TEMPLATES.map((t, i) => ({
-    user_id: `filler-expert-${i}`,
-    display_name: t.display_name,
-    username: t.username,
-    bio: t.bio.replace(/\{city\}/g, city),
-    is_public: true,
-    is_expert: true,
-    is_verified: true,
-    home_city: city,
-  }));
-}
-
-function buildFillerFriends(shortCity: string): UserProfile[] {
-  const city = shortCity.trim() || 'the area';
-  return FILLER_FRIEND_TEMPLATES.map((t, i) => ({
-    user_id: `filler-friend-${i}`,
-    display_name: t.display_name,
-    username: t.username,
-    bio: '',
-    is_public: true,
-    is_expert: false,
-    is_verified: false,
-    home_city: city,
-  }));
-}
-
 /* ── City-key helper ─────────────────────────────────────────────────────────
    The URL label may be a plain city ("Los Angeles, CA") or a street address
    ("123 Main St, Los Angeles, CA"). Either way we pull out the primary city
@@ -370,14 +312,6 @@ function buildSearchQueryPool(term: string, cityKey: string): string[] {
   push(`top rated ${q} in ${city}`);
   return out;
 }
-
-/* Discriminated union for the "Around {city}" suggestion row. The three
-   shapes don't share much beyond "render in a horizontal scroller", so
-   we keep them as a tagged union and dispatch in the renderer. */
-type SuggestionCard =
-  | { kind: 'expert'; profile: UserProfile }
-  | { kind: 'friend'; profile: UserProfile }
-  | { kind: 'restaurant'; place: ScoredPlace };
 
 type SortOption = 'recommended' | 'rating' | 'popularity' | 'distance';
 
@@ -639,7 +573,6 @@ export const LocationPage: React.FC = () => {
   // card buttons flip to their done state instantly, before the server
   // round-trip resolves.
   const [followedSuggestions, setFollowedSuggestions] = useState<Set<string>>(new Set());
-  const [requestedFriendIds, setRequestedFriendIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -780,7 +713,6 @@ export const LocationPage: React.FC = () => {
   // pending state shouldn't leak across cities.
   useEffect(() => {
     setFollowedSuggestions(new Set());
-    setRequestedFriendIds(new Set());
   }, [lat, lng]);
 
   // The sorted, deduplicated pool of places we've pulled for this city.
@@ -1267,70 +1199,21 @@ export const LocationPage: React.FC = () => {
     return m;
   }, [ranked]);
 
-  // Mixed expert / friend / restaurant cards for the "Around {city}" row.
-  // We interleave the three types so the row alternates kinds and the
-  // user always sees a bit of everything before scrolling — instead of
-  // grouping (which would put all experts first, all friends second, etc.).
-  // Capped at 12 cards total so the row stays scannable on phones.
-  //
-  // Filler profiles fill in for either column when nobody real has
-  // declared a home base in this area yet — that's the default state
-  // until users start opting into home_city, and without fillers the
-  // row would degrade to "all restaurants, every city". The follow /
-  // friend handlers below detect filler ids and skip the API call.
-  const suggestionCards = useMemo<SuggestionCard[]>(() => {
-    if (!hasCoords) return [];
-    const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
-    const friends = areaFriendCandidates.length > 0 ? areaFriendCandidates : buildFillerFriends(shortCityName);
-    const featuredRestaurants = ranked.slice(0, 6);
-    const cards: SuggestionCard[] = [];
-    const longest = Math.max(experts.length, friends.length, featuredRestaurants.length);
-    for (let i = 0; i < longest && cards.length < 12; i++) {
-      if (experts[i]) cards.push({ kind: 'expert', profile: experts[i] });
-      if (friends[i]) cards.push({ kind: 'friend', profile: friends[i] });
-      if (featuredRestaurants[i]) cards.push({ kind: 'restaurant', place: featuredRestaurants[i] });
-    }
-    return cards.slice(0, 12);
-  }, [hasCoords, areaExperts, areaFriendCandidates, ranked, shortCityName]);
-
   const handleFollowExpert = useCallback(
     async (targetId: string) => {
-      // Always flip the local set so the button's "Following" state is
-      // visible even for filler profiles or anonymous users — the row is
-      // a demo surface as much as a functional one.
+      // Optimistic: flip the local set so the button responds instantly,
+      // rolled back below if the API call fails.
       setFollowedSuggestions((prev) => {
         const next = new Set(prev);
         next.add(targetId);
         return next;
       });
-      // Filler profiles have synthetic ids that aren't in user_profiles,
-      // so the follow API would just error. Skip the call entirely.
-      if (!userId || targetId.startsWith('filler-')) return;
+      if (!userId) return;
       const ok = await followPublicAccount(userId, targetId);
       if (!ok) {
         // Roll back the optimistic update so the button doesn't lie about
         // the follow having succeeded.
         setFollowedSuggestions((prev) => {
-          const next = new Set(prev);
-          next.delete(targetId);
-          return next;
-        });
-      }
-    },
-    [userId],
-  );
-
-  const handleAddFriend = useCallback(
-    async (targetId: string) => {
-      setRequestedFriendIds((prev) => {
-        const next = new Set(prev);
-        next.add(targetId);
-        return next;
-      });
-      if (!userId || targetId.startsWith('filler-')) return;
-      const ok = await sendFriendRequest(userId, targetId);
-      if (!ok) {
-        setRequestedFriendIds((prev) => {
           const next = new Set(prev);
           next.delete(targetId);
           return next;
@@ -1527,13 +1410,13 @@ export const LocationPage: React.FC = () => {
       `/location/map?label=${encodeURIComponent(cityDisplay)}&lat=${lat}&lng=${lng}`,
     );
   }, [hasCoords, navigate, cityDisplay, lat, lng]);
-  // Visual-only Open-now toggle. TODO: filter when PlaceResult exposes
-  // openingHours.openNow.
-  const [openNow, setOpenNow] = useState(false);
-  // Visual-only neighborhood pill state. TODO: replace placeholder with a
-  // real neighborhood list per city + a real filter on visible[].
-  const [neighborhood, setNeighborhood] = useState<string>('all');
-  const [neighborhoodMenuOpen, setNeighborhoodMenuOpen] = useState(false);
+  // Quick "Open now" chip — a shortcut into the same hoursFilter the
+  // filter sheet uses, so it really filters the list.
+  const openNow = hoursFilter.openNow;
+  const toggleOpenNow = useCallback(
+    () => setHoursFilter((f) => ({ ...f, openNow: !f.openNow })),
+    [],
+  );
   // Sort dropdown opened from the sticky bar.
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   // Mini-map expand toggle.
@@ -1597,13 +1480,6 @@ export const LocationPage: React.FC = () => {
         prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type],
       );
     },
-    [],
-  );
-
-  // Placeholder neighborhood list — wired in but only filters by substring
-  // match against `place.address` (best-effort until we have real data).
-  const NEIGHBORHOODS = useMemo(
-    () => ['All neighborhoods', 'SoHo', 'West Village', 'Midtown', 'Brooklyn', 'Upper West'],
     [],
   );
 
@@ -2418,37 +2294,6 @@ export const LocationPage: React.FC = () => {
             <ArrowLeft />
           </button>
 
-          {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              className={cn('fb-chip', neighborhood !== 'all' && 'active')}
-              onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-            >
-              <MapIcon /> {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown />
-            </button>
-            {neighborhoodMenuOpen && (
-              <div className="fb-menu" style={{ right: 'auto', left: 0 }}>
-                {NEIGHBORHOODS.map((n) => {
-                  const value = n === 'All neighborhoods' ? 'all' : n;
-                  const active = neighborhood === value;
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      className={cn('fb-menu-item', active && 'active')}
-                      onClick={() => { setNeighborhood(value); setNeighborhoodMenuOpen(false); }}
-                    >
-                      <span>{n}</span>
-                      {active && <Check size={14} className="check" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           {/* Clear-all-cuisines chip */}
           <button
             type="button"
@@ -2479,7 +2324,7 @@ export const LocationPage: React.FC = () => {
           <button
             type="button"
             className={cn('fb-toggle', openNow && 'active')}
-            onClick={() => setOpenNow((v) => !v)}
+            onClick={toggleOpenNow}
           >
             <span className="sw" />
             Open now
@@ -2811,7 +2656,7 @@ export const LocationPage: React.FC = () => {
                         <ChevronRight />
                       </button>
                     </div>
-                    <a className="section-link" href="#">See all <ChevronRight /></a>
+                    <button type="button" className="section-link" onClick={() => navigate('/experts')}>See all <ChevronRight /></button>
                   </div>
                 )}
               </div>
@@ -2838,12 +2683,6 @@ export const LocationPage: React.FC = () => {
                         <p className="exp-tag">
                           {e.bio || `Verified voice on ${shortCityName} dining.`}
                         </p>
-                        <div className="exp-stats">
-                          {/* TODO: backfill with real counts when we have them. */}
-                          <div className="exp-stat"><div className="n">—</div><div className="l">Rated</div></div>
-                          <div className="exp-stat"><div className="n">—</div><div className="l">Guides</div></div>
-                          <div className="exp-stat"><div className="n">—</div><div className="l">Followers</div></div>
-                        </div>
                         <div className="exp-cta">
                           <button
                             type="button"
@@ -2912,16 +2751,7 @@ export const LocationPage: React.FC = () => {
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-3 py-0.5">
             <button
               type="button"
-              onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              style={neighborhood !== 'all' ? chipActive : chipIdle}
-            >
-              <MapIcon size={13} style={{ opacity: 0.7, flexShrink: 0 }} />
-              {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={13} style={{ opacity: 0.6, flexShrink: 0 }} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setOpenNow((v) => !v)}
+              onClick={toggleOpenNow}
               style={openNow ? chipActive : chipIdle}
             >
               <span
@@ -3364,172 +3194,6 @@ const scoreBg = (rating: number): string => {
   if (rating >= 8) return 'bg-emerald-500';
   if (rating >= 5) return 'bg-amber-500';
   return 'bg-red-500';
-};
-
-/* ── Suggestion card ─────────────────────────────────────────────────────────
-   The "Around {city}" row renders three card kinds — expert, friend
-   suggestion, restaurant — through this single component. They share
-   roughly the same footprint (260 × 320-ish) so the row stays visually
-   uniform while the content + CTA differ.
-
-   Expert / friend cards generate a colored gradient surface keyed off
-   the first letter of the name (no avatars yet) — same trick the Circle
-   page uses, so the visual language is consistent.
-
-   Restaurant cards link straight to the detail page, no inline CTA. */
-interface SuggestionCardViewProps {
-  card: SuggestionCard;
-  followed: boolean;
-  requested: boolean;
-  onFollow: (userId: string) => void;
-  onAddFriend: (userId: string) => void;
-}
-
-const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
-  card,
-  followed,
-  requested,
-  onFollow,
-  onAddFriend,
-}) => {
-  // Subscribe to the Michelin dataset (re-renders when it loads); the sync
-  // matcher below then overrides cuisine/price for matched restaurants.
-  const michelinReady = useMichelinIndexReady();
-  if (card.kind === 'restaurant') {
-    const place = card.place;
-    const mich = michelinReady
-      ? findMichelinMatchSync(place.name, place.lat, place.lng, place.fullAddress || place.address)
-      : null;
-    const cuisine = mich ? mich.cuisine : inferCuisineLabel(place.types);
-    const priceLabel = mich ? michelinPriceDisplay(mich) : priceLevelToString(place.priceLevel);
-    // These cards are the engine's top picks, so lead with the predicted
-    // "for you" score; Google (×2) only backfills a missing prediction.
-    const pickScore = typeof place.predicted === 'number' && place.predicted > 0
-      ? place.predicted
-      : place.rating > 0 ? place.rating * 2 : 0;
-    return (
-      <Link
-        to={`/restaurant/${place.id}`}
-        className="flex-shrink-0 snap-start group block w-56"
-      >
-        <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-primary/15 to-amber-100/40 flex items-center justify-center">
-          <span className="font-serif text-6xl font-bold text-primary/30">
-            {place.name.charAt(0).toUpperCase()}
-          </span>
-          {pickScore > 0 && (
-            <div
-              className={cn(
-                'absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold tabular-nums shadow-md',
-                scoreBg(pickScore),
-              )}
-            >
-              {pickScore.toFixed(1)}
-            </div>
-          )}
-          <div className="absolute top-3 left-3 inline-flex items-center px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-primary">
-            Pick
-          </div>
-        </div>
-        <div className="px-1 pt-2.5">
-          <h3 className="font-serif text-[15px] font-bold text-on-surface leading-snug line-clamp-2">
-            {place.name}
-          </h3>
-          <p className="mt-1 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider truncate">
-            {cuisine || 'Restaurant'}
-            {priceLabel && <span className="text-on-surface/25 mx-1.5">·</span>}
-            {priceLabel}
-          </p>
-        </div>
-      </Link>
-    );
-  }
-
-  const profile = card.profile;
-  const isExpert = card.kind === 'expert';
-  const cityShort = profile.home_city ? profile.home_city.split(',')[0].trim() : '';
-  // Filler profiles aren't real users, so navigating to /user/{username}
-  // would land on a 404. Render the avatar surface as a static div for
-  // fillers so the card still looks the same but the tap is a no-op.
-  const filler = isFillerProfile(profile);
-  const AvatarSurface: React.ElementType = filler ? 'div' : Link;
-  const avatarProps = filler ? {} : { to: `/user/${profile.username}` };
-  return (
-    <div className="flex-shrink-0 snap-start w-56">
-      <AvatarSurface
-        {...avatarProps}
-        className="block relative aspect-square rounded-2xl overflow-hidden group"
-      >
-        <div className={cn(
-          'h-full w-full flex items-center justify-center',
-          isExpert
-            ? 'bg-gradient-to-br from-amber-100 to-primary/10'
-            : 'bg-gradient-to-br from-secondary/20 to-secondary/5',
-        )}>
-          <span className={cn(
-            'text-6xl font-serif font-bold',
-            isExpert ? 'text-primary/30' : 'text-secondary/45',
-          )}>
-            {(profile.display_name || profile.username || '?').charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
-        <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider">
-          {isExpert ? (
-            <>
-              <VerifiedBadge size={10} />
-              <span className="text-primary">Verified</span>
-            </>
-          ) : (
-            <>
-              <Users size={9} className="text-secondary" />
-              <span className="text-secondary">Suggested</span>
-            </>
-          )}
-        </div>
-        <div className="absolute inset-x-3 bottom-3 text-white">
-          <h3 className="font-serif text-base font-bold leading-tight truncate">
-            {profile.display_name || profile.username}
-          </h3>
-          <p className="text-[10px] text-white/75 truncate mt-0.5">@{profile.username}</p>
-          {cityShort && (
-            <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-white/80">
-              <MapPin size={9} className="text-white/60" />
-              {cityShort}
-            </p>
-          )}
-        </div>
-      </AvatarSurface>
-      {isExpert ? (
-        followed ? (
-          <div className="mt-2 h-9 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
-            <Check size={13} className="text-on-surface/45" />
-            <span className="text-[11px] font-bold text-on-surface/55">Following</span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onFollow(profile.user_id)}
-            className="mt-2 w-full h-9 bg-primary/10 text-primary text-[11px] font-bold rounded-full hover:bg-primary/15 active:bg-primary/20 transition-colors"
-          >
-            Follow
-          </button>
-        )
-      ) : requested ? (
-        <div className="mt-2 h-9 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
-          <Check size={13} className="text-on-surface/45" />
-          <span className="text-[11px] font-bold text-on-surface/55">Requested</span>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => onAddFriend(profile.user_id)}
-          className="mt-2 w-full h-9 bg-secondary/10 text-secondary text-[11px] font-bold rounded-full hover:bg-secondary/15 active:bg-secondary/20 transition-colors"
-        >
-          Add Friend
-        </button>
-      )}
-    </div>
-  );
 };
 
 /* ── Filter chip ─────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import {
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
+import { getGuidesForFeed } from '../lib/supabase-guides';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { toggleRecipeLike, getRecipeLikes, getRecipeCommentCounts } from '../lib/supabase-recipes';
 import { RecipeCommentThread } from './RecipeCommentThread';
@@ -185,14 +186,9 @@ const PostMediaCarousel: React.FC<{
   );
 };
 
-// Mock guides for the suggestions rail. Curated copy matches the strip on
-// the Discover home page so the right column reads as a feature surface
-// rather than an empty placeholder.
-const SUGGESTION_GUIDES = [
-  { id: 'g-paris-bistros', title: 'Classic Paris Bistros', author: 'Camille Durand', spots: 8 },
-  { id: 'g-tokyo-ramen', title: 'Tokyo’s Hidden Ramen Gems', author: 'Aiko Tanaka', spots: 11 },
-  { id: 'g-nyc-chinese', title: 'Best Chinese Restaurants in NYC', author: 'Jamie Lin', spots: 12 },
-];
+/** Featured guides for the suggestions rail — real published + public
+ *  community guides with their real authors. */
+interface RailGuide { id: string; title: string; author: string; spots: number; isRecipes: boolean }
 
 /**
  * Right-side suggestions rail — Instagram-style. Shows people to follow
@@ -206,6 +202,7 @@ const SuggestionsRail: React.FC<{
   suggestedRestaurants?: SuggestedRestaurant[];
 }> = ({ userId, friendIds, suggestedRestaurants = [] }) => {
   const [suggested, setSuggested] = useState<UserProfile[]>([]);
+  const [railGuides, setRailGuides] = useState<RailGuide[]>([]);
   const navigate = useNavigate();
   const { isWishlisted } = useLists();
 
@@ -218,6 +215,26 @@ const SuggestionsRail: React.FC<{
     });
     return () => { cancelled = true; };
   }, [userId, friendIds]);
+
+  // Real featured guides: newest published + public community guides.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const guides = await getGuidesForFeed({ limit: 4, excludeUserId: userId || undefined });
+      if (cancelled || guides.length === 0) return;
+      const authorIds = Array.from(new Set(guides.map((g) => g.userId)));
+      const profiles = await getProfilesByIds(authorIds);
+      if (cancelled) return;
+      setRailGuides(guides.map((g) => ({
+        id: g.id,
+        title: g.title,
+        author: profiles[g.userId]?.display_name || profiles[g.userId]?.username || 'Community member',
+        spots: g.entries.length,
+        isRecipes: g.type === 'recipes',
+      })));
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   // Build the "why" line for each restaurant card — derived from the
   // viewer's wishlist + the restaurant's metadata so the line feels
@@ -321,36 +338,39 @@ const SuggestionsRail: React.FC<{
         )}
       </section>
 
-      {/* Featured guides — slim list rows with a cover icon and a
-          serif title, exactly like the mock's rail-guide treatment. */}
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Featured guides</h4>
-          <Link to="/discover" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">Browse</Link>
-        </div>
-        <ul>
-          {SUGGESTION_GUIDES.slice(0, 2).map((g) => (
-            <li key={g.id}>
-              <button
-                type="button"
-                className="w-full flex items-center gap-3 text-left group py-2 px-2 -mx-2 rounded-xl hover:bg-on-surface/[0.04] transition-colors"
-              >
-                <div className="w-12 h-12 rounded-xl bg-on-surface flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={17} className="text-surface" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[15px] font-serif font-semibold text-on-surface leading-[1.2] line-clamp-1 group-hover:text-primary transition-colors tracking-[-0.01em]">
-                    {g.title}
-                  </p>
-                  <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
-                    by {g.author} · {g.spots} spots
-                  </p>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {/* Featured guides — real published community guides. Hidden
+          entirely until at least one exists. */}
+      {railGuides.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Featured guides</h4>
+            <Link to="/discover" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">Browse</Link>
+          </div>
+          <ul>
+            {railGuides.slice(0, 3).map((g) => (
+              <li key={g.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/guides/${g.id}`)}
+                  className="w-full flex items-center gap-3 text-left group py-2 px-2 -mx-2 rounded-xl hover:bg-on-surface/[0.04] transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-xl bg-on-surface flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={17} className="text-surface" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[15px] font-serif font-semibold text-on-surface leading-[1.2] line-clamp-1 group-hover:text-primary transition-colors tracking-[-0.01em]">
+                      {g.title}
+                    </p>
+                    <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
+                      by {g.author} · {g.spots} {g.isRecipes ? 'recipes' : 'spots'}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </aside>
   );
 };
