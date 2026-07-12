@@ -22,13 +22,150 @@
 // client reuses the build-recipe stream reader.
 //
 // The Anthropic API key lives as a Supabase secret (`ANTHROPIC_API_KEY`).
+//
+// SELF-CONTAINED ON PURPOSE: the auth guard and the recipe input schema
+// are inlined below (instead of imported from ../_shared) so this file
+// can be pasted as-is into the Supabase Dashboard's function editor,
+// which can't reach files outside the function's own folder. Keep the
+// inlined blocks in sync with _shared/auth.ts and _shared/recipe-spec.ts.
 
-import { RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
-import { requireUser } from '../_shared/auth.ts';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
+
+/* ── Auth guard (inlined from _shared/auth.ts) ────────────────── */
+
+function unauthorized(): Response {
+  return new Response(JSON.stringify({ error: 'Sign in to use this feature.' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+/** Verify the caller is a signed-in Supabase user. SUPABASE_URL /
+ *  SUPABASE_ANON_KEY are injected automatically. */
+async function requireUser(
+  req: Request,
+): Promise<{ userId: string } | { response: Response }> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!token) return { response: unauthorized() };
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) return { response: unauthorized() };
+  return { userId: data.user.id };
+}
+
+/* ── Recipe input schema (inlined from _shared/recipe-spec.ts) ── */
+
+const CUISINE_HINT =
+  'Afghan, African, American, Argentinian, Australian, Austrian, BBQ, Bakery, Belgian, Brazilian, British, Cajun, Caribbean, Chinese, Cuban, Dessert, Ethiopian, Filipino, French, Fusion, German, Greek, Hawaiian, Indian, Indonesian, Irish, Israeli, Italian, Jamaican, Japanese, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nordic, Pakistani, Peruvian, Polish, Portuguese, Russian, Scandinavian, Seafood, Soul Food, Southern, Spanish, Sri Lankan, Swedish, Tex-Mex, Thai, Turkish, Ukrainian, Vegan, Vegetarian, Vietnamese';
+
+const COURSE_HINT = 'Breakfast, Lunch, Dinner, Snack, Dessert, Drinks, Appetizer, Side';
+
+const STEP_ITEM_SCHEMA = {
+  type: 'object',
+  required: ['body'],
+  properties: {
+    title: { type: 'string', description: 'Short imperative, e.g. "Brown the butter".' },
+    body: { type: 'string', description: 'The complete instruction for this step, as the source gives it.' },
+    durationMin: { type: 'integer', minimum: 0, description: 'Minutes this step takes, when the source states it.' },
+    tip: { type: 'string', description: 'Optional inline tip for this step.' },
+  },
+};
+
+const RECIPE_INPUT_SCHEMA = {
+  type: 'object',
+  required: ['name'],
+  properties: {
+    name: { type: 'string', description: 'Recipe title.' },
+    summary: { type: 'string', description: 'One line shown as the byline under the title.' },
+    introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body, when the source has one.' },
+    cuisine: { type: 'string', description: `Best-fit cuisine (examples: ${CUISINE_HINT}).` },
+    course: { type: 'array', items: { type: 'string' }, description: `One or more of: ${COURSE_HINT}. E.g. ["Dessert"] or ["Lunch", "Dinner"].` },
+    difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+    prepTime: { type: 'integer', minimum: 0, description: 'Minutes of hands-on prep.' },
+    cookTime: { type: 'integer', minimum: 0, description: 'Minutes of cook / bake / sear time.' },
+    chillTime: { type: 'integer', minimum: 0, description: 'Total passive minutes — proofing, chilling, resting, marinating, cooling.' },
+    servings: { type: 'integer', minimum: 1 },
+    yieldDescription: { type: 'string', description: 'Free-text yield label, e.g. "1 loaf (12 slices)".' },
+    ingredients: {
+      type: 'array',
+      description: 'Flat list of ingredients for single-stage recipes. Use this OR ingredientGroups.',
+      items: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', description: 'Ingredient name with its preparation note, exactly as the source gives it.' },
+          amount: { type: 'string', description: 'Number or fraction as a string. Blank when "to taste".' },
+          unit: { type: 'string', description: 'g, ml, tsp, tbsp, cup, oz, etc.' },
+        },
+      },
+    },
+    ingredientGroups: {
+      type: 'array',
+      description: 'Grouped ingredients when the source has sections ("For the sauce"). Use either this OR ingredients — not both.',
+      items: {
+        type: 'object',
+        required: ['name', 'ingredients'],
+        properties: {
+          name: { type: 'string', description: 'Section name.' },
+          ingredients: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['name'],
+              properties: {
+                name: { type: 'string' },
+                amount: { type: 'string' },
+                unit: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+    steps: {
+      type: 'array',
+      description: 'Ordered cooking steps for a single-flow recipe. Use this OR stepGroups — not both.',
+      items: STEP_ITEM_SCHEMA,
+    },
+    stepGroups: {
+      type: 'array',
+      description: 'The method split into named sections, when the source has them. Use this OR the flat steps array — not both.',
+      items: {
+        type: 'object',
+        required: ['name', 'steps'],
+        properties: {
+          name: { type: 'string', description: 'Section name, e.g. "For the duxelles" or "Assembly".' },
+          steps: {
+            type: 'array',
+            description: 'Ordered steps within this section.',
+            items: STEP_ITEM_SCHEMA,
+          },
+        },
+      },
+    },
+    equipment: { type: 'array', items: { type: 'string' }, description: 'Cookware, e.g. "9×5 loaf pan".' },
+    tags: { type: 'array', items: { type: 'string' } },
+    notes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['type', 'text'],
+        properties: {
+          type: { type: 'string', enum: ['tip', 'makeAhead', 'substitution', 'general'] },
+          text: { type: 'string' },
+        },
+      },
+    },
+  },
+};
 
 // Extraction is transcription, not authoring — Sonnet is accurate at it,
 // vision-capable for the photo mode, and much faster than Opus.
