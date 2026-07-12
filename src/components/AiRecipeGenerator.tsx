@@ -25,15 +25,16 @@ interface AiRecipeGeneratorProps {
   phoneMode?: boolean;
 }
 
-// Example prompts shown as tappable ideas. Concrete and varied so users
-// see the breadth of what they can ask for.
-const EXAMPLES: { title: string; hint: string }[] = [
-  { title: 'A cozy weeknight mushroom risotto for 4', hint: 'Creamy, stirring-optional comfort' },
-  { title: 'The best fudgy brown-butter brownies', hint: 'Crackly top, molten middle' },
-  { title: 'A high-protein chicken meal-prep bowl', hint: 'Five lunches, one pan' },
-  { title: 'Crispy Korean fried chicken wings', hint: 'Double-fried, gochujang glaze' },
-  { title: 'A vegan Thai red curry, ready in 30 min', hint: 'Pantry-friendly, deeply savory' },
-  { title: 'Classic New York–style cheesecake', hint: 'Weekend project, worth it' },
+// Example prompts shown as a tappable suggestion strip under the prompt
+// box. Concrete and varied so users see the breadth of what they can
+// ask for; tapping one fills the prompt (and can still be edited).
+const EXAMPLES = [
+  'A cozy weeknight mushroom risotto for 4',
+  'The best fudgy brown-butter brownies',
+  'A high-protein chicken meal-prep bowl',
+  'Crispy Korean fried chicken wings',
+  'A vegan Thai red curry, ready in 30 min',
+  'Classic New York–style cheesecake',
 ];
 
 // Optional guidelines — sent to the API as STRUCTURED constraints
@@ -189,7 +190,8 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
             {elapsed >= 3 && <span className="rcx-ai-loading-secs">{elapsed}s</span>}
           </div>
         ) : (
-          <div className="rcx-step-anim rcx-stack">
+          <div className="rcx-step-anim rcx-ai-stack">
+            {/* Prompt + tappable idea strip */}
             <div>
               <div className="rcx-kicker">What should we cook?</div>
               <textarea
@@ -204,120 +206,120 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               {error && (
                 <p className="rcx-modal-error"><AlertCircle size={13} /> {error}</p>
               )}
-            </div>
-
-            <div>
-              <div className="rcx-kicker">Or start from an idea</div>
-              <div className="rcx-ideas">
-                {EXAMPLES.map((ex) => {
-                  const isOn = prompt === ex.title;
-                  return (
-                    <button
-                      key={ex.title}
-                      type="button"
-                      className={`rcx-idea${isOn ? ' is-on' : ''}`}
-                      onClick={() => { setPrompt(ex.title); setError(null); }}
-                    >
-                      <Sparkles size={13} className="rcx-idea-icon" />
-                      <span className="rcx-idea-text">
-                        <span className="rcx-idea-title">{ex.title}</span>
-                        <span className="rcx-idea-hint">{ex.hint}</span>
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="rcx-idea-strip">
+                {EXAMPLES.map((ex) => (
+                  <button
+                    key={ex}
+                    type="button"
+                    className={`rcx-idea-pill${prompt === ex ? ' is-on' : ''}`}
+                    onClick={() => { setPrompt(ex); setError(null); }}
+                  >
+                    <Sparkles size={11} />
+                    {ex}
+                  </button>
+                ))}
               </div>
             </div>
 
+            {/* Guidelines — one compact card, a labeled row per constraint */}
             <div>
               <div className="rcx-kicker">
-                Guidelines<span className="rcx-kicker-opt"> · the AI will respect these</span>
+                Guidelines<span className="rcx-kicker-opt"> · optional — the AI will respect these</span>
               </div>
+              <div className="rcx-card">
+                <div className="rcx-ai-row">
+                  <span className="rcx-ai-row-label">Time</span>
+                  <div className="rcx-ai-row-chips">
+                    {TIME_OPTIONS.map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        className={`rcx-chip is-mini${timeBudget === t.key ? ' is-on' : ''}`}
+                        onClick={() => setTimeBudget((prev) => (prev === t.key ? '' : t.key))}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="rcx-guide-label">Dietary</div>
-              <div className="rcx-chips">
-                {DIETARY_OPTIONS.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={`rcx-chip${dietary.includes(d) ? ' is-on' : ''}`}
-                    onClick={() => toggleDietary(d)}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
+                <div className="rcx-ai-row">
+                  <span className="rcx-ai-row-label">Skill</span>
+                  <div className="rcx-ai-row-chips">
+                    {DIFFICULTIES.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={`rcx-chip is-mini${difficulty === d ? ' is-on' : ''}`}
+                        onClick={() => setDifficulty((prev) => (prev === d ? '' : d))}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="rcx-guide-label">Time</div>
-              <div className="rcx-chips">
-                {TIME_OPTIONS.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    className={`rcx-chip${timeBudget === t.key ? ' is-on' : ''}`}
-                    onClick={() => setTimeBudget((prev) => (prev === t.key ? '' : t.key))}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+                <div className="rcx-ai-row">
+                  <span className="rcx-ai-row-label">Course</span>
+                  <div className="rcx-ai-row-chips">
+                    {COURSE_OPTIONS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`rcx-chip is-mini${course === c ? ' is-on' : ''}`}
+                        onClick={() => setCourse((prev) => (prev === c ? '' : c))}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="rcx-guide-label">Skill level</div>
-              <div className="rcx-chips">
-                {DIFFICULTIES.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className={`rcx-chip${difficulty === d ? ' is-on' : ''}`}
-                    onClick={() => setDifficulty((prev) => (prev === d ? '' : d))}
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
+                <div className="rcx-ai-row">
+                  <span className="rcx-ai-row-label">Dietary</span>
+                  <div className="rcx-ai-row-chips">
+                    {DIETARY_OPTIONS.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={`rcx-chip is-mini${dietary.includes(d) ? ' is-on' : ''}`}
+                        onClick={() => toggleDietary(d)}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div className="rcx-guide-label">Course</div>
-              <div className="rcx-chips">
-                {COURSE_OPTIONS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`rcx-chip${course === c ? ' is-on' : ''}`}
-                    onClick={() => setCourse((prev) => (prev === c ? '' : c))}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-
-              <div className="rcx-serves-inline">
-                <span className="rcx-guide-label" style={{ marginTop: 0 }}>Serves</span>
-                <span className="rcx-serves-inline-controls">
-                  <button
-                    type="button"
-                    className="rcx-round-btn"
-                    onClick={() => setServings((prev) => {
-                      if (prev === null) return null;
-                      return prev <= 1 ? null : prev - 1;
-                    })}
-                    disabled={servings === null}
-                    aria-label="Decrease servings"
-                  >
-                    <Minus size={12} strokeWidth={2.4} />
-                  </button>
-                  <span className={`rcx-serves-value${servings === null ? ' is-any' : ''}`}>
-                    {servings === null ? 'Any' : servings}
-                  </span>
-                  <button
-                    type="button"
-                    className="rcx-round-btn"
-                    onClick={() => setServings((prev) => (prev === null ? 2 : Math.min(24, prev + 1)))}
-                    disabled={servings !== null && servings >= 24}
-                    aria-label="Increase servings"
-                  >
-                    <Plus size={12} strokeWidth={2.4} />
-                  </button>
-                </span>
+                <div className="rcx-ai-row">
+                  <span className="rcx-ai-row-label">Serves</span>
+                  <div className="rcx-ai-serves">
+                    <button
+                      type="button"
+                      className="rcx-round-btn"
+                      onClick={() => setServings((prev) => {
+                        if (prev === null) return null;
+                        return prev <= 1 ? null : prev - 1;
+                      })}
+                      disabled={servings === null}
+                      aria-label="Decrease servings"
+                    >
+                      <Minus size={12} strokeWidth={2.4} />
+                    </button>
+                    <span className={`rcx-serves-value${servings === null ? ' is-any' : ''}`}>
+                      {servings === null ? 'Any' : servings}
+                    </span>
+                    <button
+                      type="button"
+                      className="rcx-round-btn"
+                      onClick={() => setServings((prev) => (prev === null ? 2 : Math.min(24, prev + 1)))}
+                      disabled={servings !== null && servings >= 24}
+                      aria-label="Increase servings"
+                    >
+                      <Plus size={12} strokeWidth={2.4} />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

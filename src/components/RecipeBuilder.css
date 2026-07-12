@@ -1333,73 +1333,98 @@
 .rcx-prompt::placeholder { color: var(--rcx-faint); }
 .rcx-prompt.is-error { border-color: #c93a2c; }
 
-.rcx-ideas {
+.rcx-ai-stack { display: grid; gap: 22px; }
+
+/* Tappable idea strip — one scrollable line of prompt suggestions. */
+.rcx-idea-strip {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
 
-.rcx-idea {
+.rcx-idea-strip::-webkit-scrollbar { display: none; }
+
+.rcx-idea-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 13px;
+  border-radius: 999px;
+  background: var(--rcx-card);
+  border: 1px solid var(--rcx-hairline-strong);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: #5b554d;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.rcx-idea-pill svg { color: #c9c2b8; transition: color 0.18s ease; }
+.rcx-idea-pill:hover { border-color: var(--rcx-faint); }
+
+.rcx-idea-pill.is-on {
+  border-color: var(--rcx-accent);
+  color: var(--rcx-ink);
+  box-shadow: 0 2px 8px rgba(159, 48, 18, 0.1);
+}
+
+.rcx-idea-pill.is-on svg { color: var(--rcx-accent); }
+
+/* Guidelines card — one labeled row per constraint. */
+.rcx-ai-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--rcx-card);
-  border: 1.5px solid var(--rcx-hairline);
-  border-radius: 14px;
-  padding: 12px 14px;
-  text-align: left;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  animation: rcxRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f0ede7;
 }
 
-.rcx-idea:hover { border-color: var(--rcx-faint); }
+.rcx-ai-row:last-child { border-bottom: 0; }
 
-.rcx-idea.is-on {
-  border-color: var(--rcx-accent);
-  box-shadow: 0 2px 10px rgba(159, 48, 18, 0.1);
-}
-
-.rcx-idea-icon { color: #c9c2b8; flex-shrink: 0; transition: color 0.2s ease; }
-.rcx-idea.is-on .rcx-idea-icon { color: var(--rcx-accent); }
-
-.rcx-idea-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.rcx-idea-title {
-  font-size: 14px;
-  font-weight: 620;
-  color: var(--rcx-ink);
-}
-
-.rcx-idea-hint {
-  font-size: 12.5px;
-  color: var(--rcx-secondary);
-}
-
-.rcx-guide-label {
+.rcx-ai-row-label {
+  width: 52px;
+  flex-shrink: 0;
   font-size: 12.5px;
   font-weight: 620;
   color: #5b554d;
-  margin: 16px 0 8px;
 }
 
-.rcx-guide-label:first-of-type { margin-top: 2px; }
-
-.rcx-serves-inline {
+.rcx-ai-row-chips {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 18px;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
-.rcx-serves-inline-controls {
+/* On phone the chip rows stay a single scrollable line so the card
+   keeps a tidy fixed rhythm. */
+.rcx.is-phone .rcx-ai-row-chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 2px 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.rcx.is-phone .rcx-ai-row-chips::-webkit-scrollbar { display: none; }
+
+.rcx-chip.is-mini {
+  padding: 6px 11px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.rcx-ai-serves {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-left: auto;
 }
 
 .rcx-fineprint {
