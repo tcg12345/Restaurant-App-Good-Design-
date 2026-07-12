@@ -7,11 +7,12 @@
     "render": "remotion render GourmetCanvasAd out/gourmet-canvas-ad.mp4 --browser-executable=/opt/pw-browsers/chromium"
   },
   "dependencies": {
-    "@remotion/cli": "4.0.246",
-    "@remotion/fonts": "4.0.246",
-    "remotion": "4.0.246",
+    "@remotion/cli": "^4.0.489",
+    "@remotion/fonts": "^4.0.489",
+    "lucide-react": "^1.24.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.489"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
