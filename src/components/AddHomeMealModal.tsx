@@ -93,7 +93,7 @@ const MethodChooser: React.FC<{
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, closeHomeMealModal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, closeHomeMealModal,
     createHomeMeal, addRecipeToList,
   } = useLists();
   const { phoneMode } = useSettings();
@@ -120,16 +120,26 @@ export const AddHomeMealModal: React.FC = () => {
   const [seedKind, setSeedKind] = useState<'ai' | 'import'>('ai');
 
   // Each open decides the entry point: editing an existing recipe or
-  // resuming a draft skips the chooser; new recipes start on it.
+  // resuming a draft skips the chooser; a preselected method (from the
+  // Create page's embedded surface) jumps straight into that flow; new
+  // recipes otherwise start on the chooser.
   useEffect(() => {
     if (!homeMealModalOpen) return;
     if (existing || peekPendingResumeDraftId()) {
       setMode('advanced');
       setStage('flow');
+    } else if (homeMealModalInitialMethod) {
+      if (homeMealModalInitialMethod === 'custom') setMode('advanced');
+      else if (homeMealModalInitialMethod === 'ai') setMode('ai');
+      else {
+        setMode('import');
+        setImportTab(homeMealModalInitialMethod);
+      }
+      setStage('flow');
     } else {
       setStage('choose');
     }
-  }, [homeMealModalOpen, existing]);
+  }, [homeMealModalOpen, existing, homeMealModalInitialMethod]);
 
   // Reset transient state whenever the modal closes so the next open
   // starts clean.

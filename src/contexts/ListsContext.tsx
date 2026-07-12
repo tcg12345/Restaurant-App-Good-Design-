@@ -453,7 +453,10 @@ interface ListsContextValue {
    *  on a list page), the created meal is also added to this list on
    *  save — every builder tab (Basic / Advanced / AI) honors it. */
   homeMealModalTargetListId: string | null;
-  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string }) => void;
+  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'custom' | 'ai' }) => void;
+  /** Creation method preselected by the caller (Create page surface) —
+   *  the modal skips its chooser and opens that flow directly. */
+  homeMealModalInitialMethod: 'link' | 'photo' | 'custom' | 'ai' | null;
   closeHomeMealModal: () => void;
 }
 
@@ -1874,6 +1877,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
   const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
+  const [homeMealModalInitialMethod, setHomeMealModalInitialMethod] = useState<'link' | 'photo' | 'custom' | 'ai' | null>(null);
   const [homeMealModalTargetListId, setHomeMealModalTargetListId] = useState<string | null>(null);
 
   // Restaurant metadata cache
@@ -2607,13 +2611,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
-  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string }) => {
+  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'custom' | 'ai' }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);
     // Store as a value-returning thunk so React doesn't treat the
     // callback as a state updater.
     setHomeMealModalBackToDraft(() => opts?.onBackToDraft ?? null);
     setHomeMealModalTargetListId(opts?.targetListId ?? null);
+    setHomeMealModalInitialMethod(opts?.initialMethod ?? null);
     setHomeMealModalOpen(true);
   }, []);
   const closeHomeMealModal = useCallback(() => {
@@ -2621,6 +2626,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalData(null);
     setHomeMealModalBackToDraft(null);
     setHomeMealModalTargetListId(null);
+    setHomeMealModalInitialMethod(null);
   }, []);
 
   return (
@@ -2639,7 +2645,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
-      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, openHomeMealModal, closeHomeMealModal,
+      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

@@ -80,7 +80,7 @@ type Step = 1 | 2 | 3 | 4;
 /* ── Modal ──────────────────────────────────────────────────────────── */
 
 export const AddReelModal: React.FC = () => {
-  const { addReelModalOpen, addReelInitialKind, editingReelId, closeAddReelModal, postReel, updateReel, setReelVisibility, reels } = useReels();
+  const { addReelModalOpen, addReelInitialKind, editingReelId, closeAddReelModal, postReel, updateReel, setReelVisibility, reels, consumePendingReelVideo } = useReels();
   const editingReel = editingReelId ? reels.find((r) => r.id === editingReelId) ?? null : null;
   const isEditing = !!editingReel;
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
@@ -207,6 +207,23 @@ export const AddReelModal: React.FC = () => {
   // only fire when no video is chosen yet so going back to the video
   // step to replace doesn't re-open the picker automatically.
   const autoOpenedRef = useRef(false);
+
+  // Consume a video handed off from the Create page's embedded surface —
+  // it runs through the normal intake (probe + duration validation), and
+  // the auto-opened OS picker is suppressed so it doesn't pop over it.
+  const pendingConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!addReelModalOpen) { pendingConsumedRef.current = false; return; }
+    if (pendingConsumedRef.current) return;
+    pendingConsumedRef.current = true;
+    const file = consumePendingReelVideo();
+    if (file) {
+      autoOpenedRef.current = true;
+      void onPickFile(file);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addReelModalOpen]);
+
   useEffect(() => {
     if (!addReelModalOpen) { autoOpenedRef.current = false; return; }
     if (step !== 1 || videoUrl || autoOpenedRef.current) return;

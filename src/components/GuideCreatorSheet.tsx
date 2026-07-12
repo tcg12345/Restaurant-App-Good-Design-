@@ -44,6 +44,9 @@ interface GuideCreatorSheetProps {
   open: boolean;
   onClose: () => void;
   initialGuide?: Guide | null;
+  /** Light prefill for a brand-new guide (Create page hand-off): applied
+   *  on open when there is no initialGuide, wizard still starts on step 1. */
+  seed?: { type: GuideType; title: string } | null;
 }
 
 const STEPS_ORDER: Step[] = ['basics', 'add', 'arrange', 'publish'];
@@ -1084,7 +1087,7 @@ const StepPublish: React.FC<{
 
 /* ── Main component ──────────────────────────────────────────────── */
 
-export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onClose, initialGuide }) => {
+export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onClose, initialGuide, seed }) => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const { lists, ratings, restaurantMeta, getRestaurantInfo, homeMeals } = useLists();
@@ -1148,9 +1151,9 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       // flushed (autosave, launch-live-edit, save-then-publish) inserted a
       // fresh row each time — which is what produced duplicate guide cards.
       setEditingId(crypto.randomUUID());
-      setType('restaurants');
+      setType(seed?.type || 'restaurants');
       setSource('search');
-      setTitle('');
+      setTitle(seed?.title || '');
       setSubtitle('');
       setIntro('');
       setCity('');

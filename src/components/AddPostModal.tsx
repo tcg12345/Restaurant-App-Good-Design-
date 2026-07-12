@@ -128,7 +128,7 @@ const stepVariants = {
 /* ── The modal ──────────────────────────────────────────────────────── */
 
 export const AddPostModal: React.FC = () => {
-  const { addPostModalOpen, editingPostId, closeAddPostModal, createPost, updatePost, setPostVisibility, posts } = usePosts();
+  const { addPostModalOpen, editingPostId, closeAddPostModal, createPost, updatePost, setPostVisibility, posts, consumePendingPostDraft } = usePosts();
   // When editing, the modal pre-fills its fields and the submit button
   // updates instead of creating. Media files are immutable — only the
   // text fields and per-item attachments move.
@@ -246,6 +246,17 @@ export const AddPostModal: React.FC = () => {
       setAudio('Original audio');
       setIsPublic(true);
       setStep(1);
+      // Prefill handed off from the Create page's embedded surface —
+      // media runs through the normal intake pipeline; suppressing the
+      // auto-opened OS picker so it doesn't pop over prefilled media.
+      const draft = consumePendingPostDraft();
+      if (draft) {
+        if (draft.caption) setPostCaption(draft.caption);
+        if (draft.files.length > 0) {
+          autoOpenedRef.current = true;
+          void onPickFiles(draft.files);
+        }
+      }
     }
     setDirection(1);
     setLocationSuggestions([]);
