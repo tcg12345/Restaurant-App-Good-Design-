@@ -7,7 +7,7 @@
 // so the stream reader is shared. When the source contains no recipe the
 // model declines (decline_change) — surfaced here as a friendly error.
 
-import type { HomeMeal, RecipeNote } from '../contexts/ListsContext';
+import type { HomeMeal } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal } from './recipe-from-ai';
 import { readRecipeStream } from './build-recipe-client';
 import { apiUrl, apiHeaders } from './api-base';
@@ -27,19 +27,12 @@ export interface ImportRecipeResult {
   error?: string;
 }
 
-/** Human label for the source, stored as a note on the imported meal so
- *  provenance survives publishing. */
-function sourceNote(source: ImportSource): RecipeNote | null {
-  if ('url' in source) {
-    try {
-      const host = new URL(source.url).hostname.replace(/^www\./, '');
-      return { type: 'general', text: `Imported from ${host} — ${source.url}` };
-    } catch {
-      return { type: 'general', text: `Imported from ${source.url}` };
-    }
-  }
-  if ('images' in source) return { type: 'general', text: 'Imported from a photo.' };
-  return null;
+/** Provenance value stored on the meal: the source URL, or 'photo' /
+ *  'text'. Drives the "Imported from …" note on the recipe page. */
+function importedFromValue(source: ImportSource): string {
+  if ('url' in source) return source.url;
+  if ('images' in source) return 'photo';
+  return 'text';
 }
 
 /**
@@ -78,9 +71,11 @@ export async function importRecipe(
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "Couldn't read a recipe from that. Try a different source." };
 
-  // Record where it came from without touching the transcription itself.
-  const note = sourceNote(source);
-  if (note) meal.notes = [...(meal.notes || []), note];
+  // An import is a transcription, not an AI creation — swap the mapper's
+  // AI flag for import provenance so the recipe page says "Imported"
+  // rather than "Created with AI".
+  meal.createdWithAi = false;
+  meal.importedFrom = importedFromValue(source);
   return { ok: true, meal };
 }
 

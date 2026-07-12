@@ -241,6 +241,9 @@
   letter-spacing: 0.06em;
 }
 .recipe-detail-page .rd-ai-note svg { width: 14px; height: 14px; }
+/* The note can be a link (imported-from-URL) — keep the pill look. */
+.recipe-detail-page a.rd-ai-note { text-decoration: none; }
+.recipe-detail-page a.rd-ai-note:hover { text-decoration: underline; text-underline-offset: 3px; }
 .recipe-detail-page .rd-hero-meta-row .rating {
   display: inline-flex; align-items: center; gap: 6px;
   font-weight: 600;
@@ -2567,6 +2570,7 @@
   letter-spacing: 0.05em;
 }
 .recipe-detail-page .rdm-ai-note svg { width: 13px; height: 13px; }
+.recipe-detail-page a.rdm-ai-note { text-decoration: none; }
 
 /* ---- RATING ROW ---- */
 .recipe-detail-page .rdm-rating-row {

@@ -296,6 +296,10 @@ export interface HomeMeal {
    *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
    *  recipe page. Stays set after the user edits + publishes the draft. */
   createdWithAi?: boolean;
+  /** Set when this recipe came in through the Import tab: the source URL,
+   *  or 'photo' / 'text'. Drives the "Imported from …" note on the recipe
+   *  page (shown INSTEAD of the AI note). Survives editing + publishing. */
+  importedFrom?: string;
   /** When this meal was saved from another user's recipe, who
    *  originally authored it. Drives the "by @author" byline shown on
    *  cookbook / list / profile cards. Unset for the user's own meals. */

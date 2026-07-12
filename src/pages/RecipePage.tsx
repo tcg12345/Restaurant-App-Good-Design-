@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Bookmark, Edit3, Flame, ImagePlus, Loader2, Lock, Pause, Play,
+  Bookmark, Edit3, FileDown, Flame, ImagePlus, Loader2, Lock, Pause, Play,
   Plus, Printer, Share2, Sparkles, Star, Trash2, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -280,8 +280,23 @@ type UnifiedRecipe = {
   /** True when the recipe was drafted by the "Create with AI" generator.
    *  Drives the "Created with AI" note under the title. */
   createdWithAi?: boolean;
+  /** Import provenance (source URL, or 'photo' / 'text'). When set, the
+   *  page shows an "Imported from …" note instead of the AI note. */
+  importedFrom?: string;
   raw: Recipe | FriendHomeMeal;
 };
+
+/** Human copy for the imported-recipe note. URL sources link out. */
+function importedNote(raw: string): { label: string; href?: string } {
+  if (raw === 'photo') return { label: 'Imported from a photo' };
+  if (raw === 'text') return { label: 'Imported' };
+  try {
+    const u = new URL(raw);
+    return { label: `Imported from ${u.hostname.replace(/^www\./, '')}`, href: u.toString() };
+  } catch {
+    return { label: 'Imported' };
+  }
+}
 
 // Description may be a long multi-paragraph chef's note. Split on blank
 // lines so each paragraph gets its own <p> and the drop cap applies to the
@@ -362,6 +377,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     notes?: Array<{ type: 'tip' | 'makeAhead' | 'substitution' | 'general'; text: string }>;
     linkedRecipes?: LinkedRecipeRef[];
     createdWithAi?: boolean;
+    importedFrom?: string;
   };
   // If this meal was saved from another user, the original author owns
   // the recipe view — not the user who copied it. Attributing ownerId
@@ -404,6 +420,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     notes: adv.notes,
     linkedRecipes: adv.linkedRecipes,
     createdWithAi: adv.createdWithAi,
+    importedFrom: adv.importedFrom,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
@@ -903,6 +920,7 @@ export const RecipePage: React.FC = () => {
       stepGroups: data.stepGroups,
       notes: data.notes,
       createdWithAi: data.createdWithAi || undefined,
+      importedFrom: data.importedFrom || undefined,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
       ...(isAnotherUsers ? {
         sourceAuthorId: data.ownerId,
@@ -1297,12 +1315,25 @@ export const RecipePage: React.FC = () => {
               </div>
             </button>
           )}
-          {data.createdWithAi && (
+          {data.importedFrom ? (() => {
+            const note = importedNote(data.importedFrom);
+            return note.href ? (
+              <a className="rd-ai-note" href={note.href} target="_blank" rel="noopener noreferrer" role="note">
+                <FileDown />
+                <span>{note.label}</span>
+              </a>
+            ) : (
+              <div className="rd-ai-note" role="note">
+                <FileDown />
+                <span>{note.label}</span>
+              </div>
+            );
+          })() : data.createdWithAi ? (
             <div className="rd-ai-note" role="note">
               <Sparkles />
               <span>Created with AI</span>
             </div>
-          )}
+          ) : null}
         </div>
         <div className="rd-hero-image">
           <HeroGallery
@@ -2485,12 +2516,25 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </button>
         )}
 
-        {data.createdWithAi && (
+        {data.importedFrom ? (() => {
+          const note = importedNote(data.importedFrom);
+          return note.href ? (
+            <a className="rdm-ai-note" href={note.href} target="_blank" rel="noopener noreferrer" role="note">
+              <FileDown />
+              <span>{note.label}</span>
+            </a>
+          ) : (
+            <div className="rdm-ai-note" role="note">
+              <FileDown />
+              <span>{note.label}</span>
+            </div>
+          );
+        })() : data.createdWithAi ? (
           <div className="rdm-ai-note" role="note">
             <Sparkles />
             <span>Created with AI</span>
           </div>
-        )}
+        ) : null}
 
         <div className="rdm-stats">
           {data.prepMinutes > 0 && (

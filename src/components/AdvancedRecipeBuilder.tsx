@@ -84,6 +84,10 @@ export interface AdvancedRecipeState {
   /** Carried through from an AI-generated seed / existing AI recipe so the
    *  "Created with AI" note survives editing + publishing. Not user-editable. */
   createdWithAi: boolean;
+  /** Import provenance (source URL, or 'photo' / 'text') — carried through
+   *  from an imported seed so the "Imported from …" note survives editing
+   *  + publishing. Not user-editable. */
+  importedFrom: string;
 }
 
 /** Serif step titles for the header. Five steps: the old Basics+Timing
@@ -196,6 +200,7 @@ function emptyState(): AdvancedRecipeState {
     score: 0,
     isPublic: false,
     createdWithAi: false,
+    importedFrom: '',
   };
 }
 
@@ -244,6 +249,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
     createdWithAi: !!meal.createdWithAi,
+    importedFrom: meal.importedFrom || '',
   };
 }
 
@@ -293,6 +299,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
     builderVersion: 'advanced',
     createdWithAi: state.createdWithAi || undefined,
+    importedFrom: state.importedFrom || undefined,
     // Preserve source attribution if somehow present (defensive — saved
     // copies aren't editable, so this is normally undefined).
     sourceAuthorId: base?.sourceAuthorId,
@@ -880,6 +887,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
       builderVersion: 'advanced',
       createdWithAi: state.createdWithAi || undefined,
+      importedFrom: state.importedFrom || undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft
