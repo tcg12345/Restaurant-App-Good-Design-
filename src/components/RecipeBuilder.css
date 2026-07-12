@@ -296,8 +296,9 @@
   overflow: hidden;
 }
 
-/* ── Sliders (time) + serves ────────────────────────────────────── */
+/* ── Time wheels + serves ───────────────────────────────────────── */
 
+/* The rating slider on Review still uses a native range input. */
 .rcx input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
@@ -327,60 +328,135 @@
   cursor: pointer;
 }
 
-.rcx-time-block {
-  padding: 13px 15px 15px;
-  border-bottom: 1px solid #f0ede7;
-}
-
-.rcx-time-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .rcx-time-name {
   font-size: 14.5px;
   font-weight: 620;
   color: var(--rcx-ink);
 }
 
-.rcx-time-value {
+/* Prep | Cook — two wheel columns split by a hairline. */
+.rcx-tw-grid {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  border-bottom: 1px solid #f0ede7;
+}
+
+.rcx-tw-divider { background: #f0ede7; }
+
+.rcx-tw-col {
+  padding: 13px 14px 10px;
+  min-width: 0;
+}
+
+.rcx-tw-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rcx-tw-value {
   font-family: var(--rcx-serif);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--rcx-ink);
+  white-space: nowrap;
   transition: color 0.2s ease;
 }
 
-.rcx-time-value.is-empty { color: var(--rcx-faint); }
+.rcx-tw-value.is-empty { color: var(--rcx-faint); }
 
-.rcx-slider-row {
+.rcx-tw-wheels {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 11px;
+  gap: 2px;
+  margin-top: 6px;
 }
 
-.rcx-slider-row input[type='range'] { flex: 1; min-width: 0; }
+/* Center selection pill behind both wheels of the pair. */
+.rcx-tw-wheels::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 34px;
+  transform: translateY(-50%);
+  background: #f5f2ec;
+  border-radius: 10px;
+  pointer-events: none;
+}
 
-.rcx-slider-unit {
-  width: 30px;
+.rcx-tw-colon {
+  width: 10px;
+  text-align: center;
+  font-family: var(--rcx-serif);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--rcx-faint);
+  flex-shrink: 0;
+  padding-bottom: 2px;
+  z-index: 1;
+}
+
+.rcx-wheel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 8px;
+  outline: none;
+}
+
+.rcx-wheel:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--rcx-accent);
+}
+
+.rcx-wheel-item {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 34px;
+  margin-top: -17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--rcx-serif);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--rcx-secondary);
+  font-variant-numeric: tabular-nums;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+.rcx-wheel-item.is-active { color: var(--rcx-ink); font-weight: 700; }
+
+.rcx-tw-caps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.rcx-tw-caps span {
+  flex: 1;
+  text-align: center;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--rcx-faint);
-  flex-shrink: 0;
 }
 
-.rcx-slider-num {
-  width: 22px;
-  text-align: right;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #5b554d;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
+/* Matches the colon's width so the captions sit under their wheels. */
+.rcx-tw-caps .rcx-tw-caps-sep { flex: 0 0 10px; }
 
 .rcx-serves-row {
   display: flex;

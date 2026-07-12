@@ -1,12 +1,15 @@
 // Step 1 of the Advanced Recipe Builder — "The basics".
 // Name (serif underline), one-line summary, and the Time & servings
-// card: prep + cook as separate HRS (0–12) / MIN (0–59) sliders with a
-// live per-field label, a serves stepper row, and a running total.
-// The longer intro paragraph moved to the Extras section on Review.
+// card: Prep and Cook side by side, each as an inline pair of
+// infinitely-looping hour/minute wheels (iPhone-clock style — spin,
+// flick, tap a row, or scroll), plus a serves stepper row and a running
+// total. Minutes are per-minute precise; nothing snaps to 5s anymore.
+// The longer intro paragraph lives in the Extras section on Review.
 
 import React from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
+import { LoopWheel } from './LoopWheel';
 
 interface Props {
   state: AdvancedRecipeState;
@@ -21,8 +24,11 @@ function fmtTime(min: number): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-/** One time field: label + serif value, then HRS / MIN slider rows. */
-const TimeSliders: React.FC<{
+const pad2 = (v: number) => String(v).padStart(2, '0');
+
+/** One column of the time card: label, live value, and the h : mm
+ *  looping wheel pair. Hours wrap 0–12, minutes 0–59. */
+const TimeWheelsCol: React.FC<{
   label: string;
   totalMin: number;
   onChange: (totalMin: number) => void;
@@ -30,36 +36,31 @@ const TimeSliders: React.FC<{
   const hours = Math.min(12, Math.floor(totalMin / 60));
   const minutes = totalMin % 60;
   return (
-    <div className="rcx-time-block">
-      <div className="rcx-time-head">
+    <div className="rcx-tw-col">
+      <div className="rcx-tw-head">
         <span className="rcx-time-name">{label}</span>
-        <span className={`rcx-time-value${totalMin ? '' : ' is-empty'}`}>{fmtTime(totalMin)}</span>
+        <span className={`rcx-tw-value${totalMin ? '' : ' is-empty'}`}>{fmtTime(totalMin)}</span>
       </div>
-      <div className="rcx-slider-row">
-        <span className="rcx-slider-unit">HRS</span>
-        <input
-          type="range"
-          min={0}
-          max={12}
-          step={1}
+      <div className="rcx-tw-wheels">
+        <LoopWheel
+          count={13}
           value={hours}
-          onChange={(e) => onChange(parseInt(e.target.value, 10) * 60 + minutes)}
-          aria-label={`${label} hours`}
+          onChange={(h) => onChange(h * 60 + minutes)}
+          ariaLabel={`${label} hours`}
         />
-        <span className="rcx-slider-num">{hours}</span>
-      </div>
-      <div className="rcx-slider-row">
-        <span className="rcx-slider-unit">MIN</span>
-        <input
-          type="range"
-          min={0}
-          max={59}
-          step={1}
+        <span className="rcx-tw-colon" aria-hidden>:</span>
+        <LoopWheel
+          count={60}
           value={minutes}
-          onChange={(e) => onChange(hours * 60 + parseInt(e.target.value, 10))}
-          aria-label={`${label} minutes`}
+          onChange={(m) => onChange(hours * 60 + m)}
+          format={pad2}
+          ariaLabel={`${label} minutes`}
         />
-        <span className="rcx-slider-num">{minutes}</span>
+      </div>
+      <div className="rcx-tw-caps">
+        <span>hrs</span>
+        <span className="rcx-tw-caps-sep" aria-hidden />
+        <span>min</span>
       </div>
     </div>
   );
@@ -95,16 +96,19 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
       <div>
         <div className="rcx-kicker">Time &amp; servings</div>
         <div className="rcx-card">
-          <TimeSliders
-            label="Prep"
-            totalMin={state.prepTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
-          />
-          <TimeSliders
-            label="Cook"
-            totalMin={state.cookTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
-          />
+          <div className="rcx-tw-grid">
+            <TimeWheelsCol
+              label="Prep"
+              totalMin={state.prepTime}
+              onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
+            />
+            <div className="rcx-tw-divider" aria-hidden />
+            <TimeWheelsCol
+              label="Cook"
+              totalMin={state.cookTime}
+              onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
+            />
+          </div>
           <div className="rcx-serves-row">
             <span className="rcx-time-name">Serves</span>
             <span className="rcx-serves-value">{state.servings}</span>
