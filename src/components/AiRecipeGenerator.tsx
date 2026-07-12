@@ -4,7 +4,20 @@
 // language with the Advanced builder: same header, chips, and footer CTA.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, ChefHat, AlertCircle, X, Loader2, Minus, Plus } from 'lucide-react';
+import {
+  Sparkles,
+  ChefHat,
+  AlertCircle,
+  X,
+  Loader2,
+  Minus,
+  Plus,
+  Clock3,
+  Users,
+  Wand2,
+  SlidersHorizontal,
+  CheckCircle2,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 import { generateRecipe, type RecipeConstraints } from '../lib/build-recipe-client';
 import type { HomeMeal } from '../contexts/ListsContext';
@@ -191,142 +204,172 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
           </div>
         ) : (
           <div className="rcx-step-anim rcx-ai-stack">
-            {/* Prompt + tappable idea strip */}
-            <div>
-              <div className="rcx-kicker">What should we cook?</div>
-              <textarea
-                ref={textareaRef}
-                className={cn('rcx-prompt', error && 'is-error')}
-                value={prompt}
-                onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
-                onKeyDown={handleKeyDown}
-                placeholder="A cozy pasta for two with things I already have — garlic, a lemon, parmesan, and half a box of rigatoni."
-                rows={3}
-              />
-              {error && (
-                <p className="rcx-modal-error"><AlertCircle size={13} /> {error}</p>
-              )}
-              <div className="rcx-idea-strip">
-                {EXAMPLES.map((ex) => (
-                  <button
-                    key={ex}
-                    type="button"
-                    className={`rcx-idea-pill${prompt === ex ? ' is-on' : ''}`}
-                    onClick={() => { setPrompt(ex); setError(null); }}
-                  >
-                    <Sparkles size={11} />
-                    {ex}
-                  </button>
-                ))}
+            <section className="rcx-ai-hero" aria-label="AI recipe generator overview">
+              <div className="rcx-ai-hero-glow" />
+              <div className="rcx-ai-hero-icon"><Wand2 size={22} /></div>
+              <div>
+                <p className="rcx-ai-eyebrow">Smart recipe drafting</p>
+                <h3>Tell us the craving. We’ll shape the recipe.</h3>
+                <p>Start with a dish, ingredients, mood, or just set a few filters. You’ll get an editable draft before publishing.</p>
               </div>
-            </div>
-
-            {/* Guidelines — one compact card, a labeled row per constraint */}
-            <div>
-              <div className="rcx-kicker">
-                Guidelines<span className="rcx-kicker-opt"> · optional — the AI will respect these</span>
+              <div className="rcx-ai-hero-steps" aria-label="Generation steps">
+                <span><Sparkles size={13} /> Prompt</span>
+                <span><SlidersHorizontal size={13} /> Refine</span>
+                <span><CheckCircle2 size={13} /> Review</span>
               </div>
-              <div className="rcx-card">
-                <div className="rcx-ai-row">
-                  <span className="rcx-ai-row-label">Time</span>
-                  <div className="rcx-ai-row-chips">
-                    {TIME_OPTIONS.map((t) => (
-                      <button
-                        key={t.key}
-                        type="button"
-                        className={`rcx-chip is-mini${timeBudget === t.key ? ' is-on' : ''}`}
-                        onClick={() => setTimeBudget((prev) => (prev === t.key ? '' : t.key))}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            </section>
 
-                <div className="rcx-ai-row">
-                  <span className="rcx-ai-row-label">Skill</span>
-                  <div className="rcx-ai-row-chips">
-                    {DIFFICULTIES.map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={`rcx-chip is-mini${difficulty === d ? ' is-on' : ''}`}
-                        onClick={() => setDifficulty((prev) => (prev === d ? '' : d))}
-                      >
-                        {d}
-                      </button>
-                    ))}
+            <div className="rcx-ai-layout">
+              {/* Prompt + tappable idea strip */}
+              <section className="rcx-ai-panel rcx-ai-prompt-panel">
+                <div className="rcx-ai-section-head">
+                  <div>
+                    <div className="rcx-kicker">Step 1</div>
+                    <h3>Describe your recipe</h3>
                   </div>
+                  <span className="rcx-ai-hint">Press Enter to generate</span>
                 </div>
-
-                <div className="rcx-ai-row">
-                  <span className="rcx-ai-row-label">Course</span>
-                  <div className="rcx-ai-row-chips">
-                    {COURSE_OPTIONS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={`rcx-chip is-mini${course === c ? ' is-on' : ''}`}
-                        onClick={() => setCourse((prev) => (prev === c ? '' : c))}
-                      >
-                        {c}
-                      </button>
-                    ))}
-                  </div>
+                <div className="rcx-prompt-shell">
+                  <Sparkles size={17} className="rcx-prompt-icon" />
+                  <textarea
+                    ref={textareaRef}
+                    className={cn('rcx-prompt', error && 'is-error')}
+                    value={prompt}
+                    onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Example: A cozy pasta for two using garlic, lemon, parmesan, and rigatoni. Make it bright but comforting."
+                    rows={5}
+                  />
                 </div>
-
-                <div className="rcx-ai-row">
-                  <span className="rcx-ai-row-label">Dietary</span>
-                  <div className="rcx-ai-row-chips">
-                    {DIETARY_OPTIONS.map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={`rcx-chip is-mini${dietary.includes(d) ? ' is-on' : ''}`}
-                        onClick={() => toggleDietary(d)}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rcx-ai-row">
-                  <span className="rcx-ai-row-label">Serves</span>
-                  <div className="rcx-ai-serves">
+                {error && (
+                  <p className="rcx-modal-error"><AlertCircle size={13} /> {error}</p>
+                )}
+                <div className="rcx-ai-suggestions-head">Need an idea?</div>
+                <div className="rcx-idea-strip">
+                  {EXAMPLES.map((ex) => (
                     <button
+                      key={ex}
                       type="button"
-                      className="rcx-round-btn"
-                      onClick={() => setServings((prev) => {
-                        if (prev === null) return null;
-                        return prev <= 1 ? null : prev - 1;
-                      })}
-                      disabled={servings === null}
-                      aria-label="Decrease servings"
+                      className={`rcx-idea-pill${prompt === ex ? ' is-on' : ''}`}
+                      onClick={() => { setPrompt(ex); setError(null); }}
                     >
-                      <Minus size={12} strokeWidth={2.4} />
+                      <Sparkles size={11} />
+                      {ex}
                     </button>
-                    <span className={`rcx-serves-value${servings === null ? ' is-any' : ''}`}>
-                      {servings === null ? 'Any' : servings}
-                    </span>
-                    <button
-                      type="button"
-                      className="rcx-round-btn"
-                      onClick={() => setServings((prev) => (prev === null ? 2 : Math.min(24, prev + 1)))}
-                      disabled={servings !== null && servings >= 24}
-                      aria-label="Increase servings"
-                    >
-                      <Plus size={12} strokeWidth={2.4} />
-                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Guidelines — one compact card, a labeled row per constraint */}
+              <section className="rcx-ai-panel rcx-ai-guidelines-panel">
+                <div className="rcx-ai-section-head">
+                  <div>
+                    <div className="rcx-kicker">Step 2</div>
+                    <h3>Fine-tune the draft</h3>
+                  </div>
+                  <span className="rcx-ai-hint">Optional</span>
+                </div>
+                <div className="rcx-card rcx-ai-guidelines-card">
+                  <div className="rcx-ai-row">
+                    <span className="rcx-ai-row-label"><Clock3 size={14} /> Time</span>
+                    <div className="rcx-ai-row-chips">
+                      {TIME_OPTIONS.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          className={`rcx-chip is-mini${timeBudget === t.key ? ' is-on' : ''}`}
+                          onClick={() => setTimeBudget((prev) => (prev === t.key ? '' : t.key))}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rcx-ai-row">
+                    <span className="rcx-ai-row-label">Skill</span>
+                    <div className="rcx-ai-row-chips">
+                      {DIFFICULTIES.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`rcx-chip is-mini${difficulty === d ? ' is-on' : ''}`}
+                          onClick={() => setDifficulty((prev) => (prev === d ? '' : d))}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rcx-ai-row">
+                    <span className="rcx-ai-row-label">Course</span>
+                    <div className="rcx-ai-row-chips">
+                      {COURSE_OPTIONS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className={`rcx-chip is-mini${course === c ? ' is-on' : ''}`}
+                          onClick={() => setCourse((prev) => (prev === c ? '' : c))}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rcx-ai-row">
+                    <span className="rcx-ai-row-label">Dietary</span>
+                    <div className="rcx-ai-row-chips">
+                      {DIETARY_OPTIONS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`rcx-chip is-mini${dietary.includes(d) ? ' is-on' : ''}`}
+                          onClick={() => toggleDietary(d)}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rcx-ai-row">
+                    <span className="rcx-ai-row-label"><Users size={14} /> Serves</span>
+                    <div className="rcx-ai-serves">
+                      <button
+                        type="button"
+                        className="rcx-round-btn"
+                        onClick={() => setServings((prev) => {
+                          if (prev === null) return null;
+                          return prev <= 1 ? null : prev - 1;
+                        })}
+                        disabled={servings === null}
+                        aria-label="Decrease servings"
+                      >
+                        <Minus size={12} strokeWidth={2.4} />
+                      </button>
+                      <span className={`rcx-serves-value${servings === null ? ' is-any' : ''}`}>
+                        {servings === null ? 'Any' : servings}
+                      </span>
+                      <button
+                        type="button"
+                        className="rcx-round-btn"
+                        onClick={() => setServings((prev) => (prev === null ? 2 : Math.min(24, prev + 1)))}
+                        disabled={servings !== null && servings >= 24}
+                        aria-label="Increase servings"
+                      >
+                        <Plus size={12} strokeWidth={2.4} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+                <p className="rcx-fineprint">
+                  The AI writes a full draft — name, timing, ingredients, and method — into the builder.
+                  Everything stays editable before you publish. {DISCLAIMER}
+                </p>
+              </section>
             </div>
-
-            <p className="rcx-fineprint">
-              The AI writes a full draft — name, timing, ingredients, and method — into the builder.
-              Everything stays editable before you publish. {DISCLAIMER}
-            </p>
           </div>
         )}
       </div>
