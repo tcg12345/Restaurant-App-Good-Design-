@@ -103,6 +103,28 @@
 
 .gcx-head-close:hover { color: var(--gcx-ink); background: var(--gcx-hairline-strong); }
 
+/* Phone header — no eyebrow / Live edit; actions hug the right edge and
+   the close button steps up to a full-size, high-contrast target. */
+.gcx-phone .gcx-head-row { justify-content: flex-end; }
+
+.gcx-phone .gcx-head-link {
+  font-size: 13px;
+  font-weight: 650;
+  padding: 8px 13px;
+  color: var(--gcx-ink);
+  background: var(--gcx-chip);
+}
+
+.gcx-phone .gcx-head-close {
+  width: 40px;
+  height: 40px;
+  background: var(--gcx-ink);
+  color: #faf9f7;
+  margin-left: 2px;
+}
+
+.gcx-phone .gcx-head-close:hover { background: #33302b; color: #ffffff; }
+
 .gcx-step-title {
   margin: 12px 0 0;
   font-family: var(--gcx-serif);
@@ -777,26 +799,19 @@
   background-position: center;
 }
 
-.gcx-card-move {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
+/* Phone drag grip — a taller dot-grid touch target; touch-action none
+   so the drag starts immediately instead of scrolling the page. */
+.gcx-grip-phone {
+  width: 22px;
+  height: 40px;
+  touch-action: none;
+  background-image: radial-gradient(#cfc8bc 1.6px, transparent 1.7px);
+  background-size: 8px 9px;
+  background-position: center;
 }
 
-.gcx-card-move button {
-  width: 24px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--gcx-secondary);
-  transition: color 0.12s ease, background 0.12s ease;
-}
-
-.gcx-card-move button:not(:disabled):active { background: var(--gcx-chip); color: var(--gcx-ink); }
-.gcx-card-move button:disabled { opacity: 0.25; cursor: default; }
+.gcx-card-drag { user-select: none; -webkit-user-select: none; }
+.gcx-card-drag .gcx-row-main { cursor: pointer; }
 
 .gcx-card-num {
   font-family: var(--gcx-serif);
@@ -1170,3 +1185,206 @@
 @media (prefers-reduced-motion: reduce) {
   .gcx *, .gcx { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Entry detail page (phone) ──────────────────────────────────────
+   Full-screen editor for one entry — slides in from the right over the
+   arrange step. Paper background, hero photo, serif title, one white
+   card per field group, pinned Done button. */
+
+.gcx-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  background: var(--gcx-bg);
+  box-shadow: -24px 0 60px rgba(29, 26, 22, 0.28);
+}
+
+.gcx-detail-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.gcx-detail-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 10px;
+  border-bottom: 1px solid var(--gcx-hairline);
+}
+
+.gcx-detail-back,
+.gcx-detail-trash {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gcx-chip);
+  color: var(--gcx-ink);
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.gcx-detail-back:active { background: var(--gcx-hairline-strong); }
+
+.gcx-detail-trash { color: #8a4a42; }
+.gcx-detail-trash:active { background: #f6e7e4; color: #b4231b; }
+
+.gcx-detail-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gcx-faint);
+}
+
+.gcx-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 18px 20px calc(130px + var(--kb-height, 0px));
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.gcx-detail-hero {
+  height: 176px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--gcx-chip);
+}
+
+.gcx-detail-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gcx-detail-title-wrap { padding: 2px 2px 6px; }
+
+.gcx-detail-name {
+  margin: 0;
+  font-family: var(--gcx-serif);
+  font-size: 27px;
+  font-weight: 650;
+  line-height: 1.12;
+  letter-spacing: -0.012em;
+  color: var(--gcx-ink);
+}
+
+.gcx-detail-meta {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gcx-secondary);
+}
+
+.gcx-detail-card {
+  background: var(--gcx-card);
+  border: 1px solid var(--gcx-hairline-strong);
+  border-radius: 16px;
+  padding: 16px 16px 15px;
+}
+
+.gcx-detail-card .gcx-hint { margin-top: 9px; }
+
+.gcx-detail-fields { display: grid; gap: 20px; }
+
+/* Score slider with a big serif readout. */
+.gcx-dscore {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 2px;
+}
+
+.gcx-dscore-num {
+  font-family: var(--gcx-serif);
+  font-size: 40px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--gcx-faint);
+  width: 78px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s ease;
+}
+
+.gcx-dscore-num.is-set { color: var(--gcx-accent); }
+
+.gcx-dscore-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--gcx-hairline-strong);
+  outline: none;
+}
+
+.gcx-dscore-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--gcx-accent);
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 6px rgba(29, 26, 22, 0.3);
+  cursor: pointer;
+}
+
+.gcx-dscore-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--gcx-accent);
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 6px rgba(29, 26, 22, 0.3);
+  cursor: pointer;
+}
+
+.gcx-dscore-clear {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--gcx-secondary);
+  transition: color 0.15s ease;
+}
+
+.gcx-dscore-clear:active { color: var(--gcx-ink); }
+
+.gcx-detail-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--gcx-bg) 62%, rgba(250, 249, 247, 0));
+  pointer-events: none;
+}
+
+.gcx-detail-done {
+  pointer-events: auto;
+  width: 100%;
+  height: 50px;
+  border-radius: 999px;
+  background: var(--gcx-ink);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  transition: transform 0.12s ease;
+}
+
+.gcx-detail-done:active { transform: scale(0.98); }

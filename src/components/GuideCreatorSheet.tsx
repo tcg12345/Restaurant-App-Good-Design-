@@ -18,9 +18,9 @@
  * upfront id, and the Live Editor round-trip.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
 import { searchCities, type HomeLocation } from './HomeLocationBar';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -773,6 +773,197 @@ const StepAdd: React.FC<{
 
 /* ── Step 3: Arrange ─────────────────────────────────────────────── */
 
+/** Phone entry card — dragged by its grip to reorder (framer Reorder
+ *  drives the spring layout animation); the pencil (or the row itself)
+ *  opens the full-page entry editor. */
+const ArrangeCardPhone: React.FC<{
+  entry: GuideEntry;
+  index: number;
+  isRecipes: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+}> = ({ entry, index, isRecipes, onEdit, onRemove }) => {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={entry}
+      as="div"
+      className="gcx-card gcx-card-drag"
+      dragListener={false}
+      dragControls={controls}
+      style={{ position: 'relative' }}
+      whileDrag={{ scale: 1.03, boxShadow: '0 16px 36px rgba(29, 26, 22, 0.2)', zIndex: 30 }}
+    >
+      <div className="gcx-card-row">
+        <span
+          className="gcx-grip gcx-grip-phone"
+          onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
+          role="button"
+          aria-label="Drag to reorder"
+        />
+        <span className="gcx-card-num">{String(index + 1).padStart(2, '0')}</span>
+        {entry.image && (
+          <span className="gcx-card-thumb">
+            <img src={entry.image} alt="" referrerPolicy="no-referrer" />
+          </span>
+        )}
+        <span className="gcx-row-main" onClick={onEdit} role="button">
+          <span className="gcx-row-name">{entry.name}</span>
+          <span className="gcx-row-meta">
+            {[typeof entry.score === 'number' ? entry.score.toFixed(1) : null, entry.subtitle].filter(Boolean).join(' · ') || (isRecipes ? 'Recipe' : 'Place')}
+          </span>
+        </span>
+        <span className="gcx-card-actions">
+          <button type="button" className="gcx-icon-btn" onClick={onEdit} aria-label="Edit details">
+            <Pencil size={13} />
+          </button>
+          <button type="button" className="gcx-icon-btn gcx-icon-danger" onClick={onRemove} aria-label="Remove">
+            <Trash2 size={13} />
+          </button>
+        </span>
+      </div>
+    </Reorder.Item>
+  );
+};
+
+/** Full-page entry editor (phone) — slides in over the arrange step.
+ *  A calmer, roomier take on the old inline expand: hero photo, serif
+ *  title, a score slider with a big readout, then one card per field. */
+const EntryDetail: React.FC<{
+  entry: GuideEntry;
+  index: number;
+  type: GuideType;
+  onPatch: (id: string, patch: Partial<GuideEntry>) => void;
+  onRemove: (id: string) => void;
+  onClose: () => void;
+}> = ({ entry, index, type, onPatch, onRemove, onClose }) => {
+  const isRecipes = type === 'recipes';
+  const orderedKey = isRecipes ? 'keyIngredients' : 'mustOrder';
+  const orderedLabel = isRecipes ? 'Key ingredients' : 'Favorite dishes';
+  const orderedVals = isRecipes ? entry.keyIngredients : entry.mustOrder;
+  const hasScore = typeof entry.score === 'number';
+
+  return (
+    <div className="gcx-detail-inner">
+      <div className="gcx-detail-head">
+        <button type="button" className="gcx-detail-back" onClick={onClose} aria-label="Back">
+          <ArrowLeft size={18} strokeWidth={2.2} />
+        </button>
+        <span className="gcx-detail-eyebrow">
+          {String(index + 1).padStart(2, '0')} · {isRecipes ? 'Recipe' : 'Place'}
+        </span>
+        <button
+          type="button"
+          className="gcx-detail-trash"
+          onClick={() => { onRemove(entry.id); onClose(); }}
+          aria-label="Remove entry"
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
+
+      <div className="gcx-detail-body">
+        {entry.image && (
+          <div className="gcx-detail-hero">
+            <img src={entry.image} alt="" referrerPolicy="no-referrer" />
+          </div>
+        )}
+        <div className="gcx-detail-title-wrap">
+          <h3 className="gcx-detail-name">{entry.name}</h3>
+          {entry.subtitle && <p className="gcx-detail-meta">{entry.subtitle}</p>}
+        </div>
+
+        {/* Score */}
+        <div className="gcx-detail-card">
+          <FieldKicker optional>Your score · 0–10</FieldKicker>
+          <div className="gcx-dscore">
+            <span className={`gcx-dscore-num${hasScore ? ' is-set' : ''}`}>
+              {hasScore ? entry.score!.toFixed(1) : '—'}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={10}
+              step={0.1}
+              value={hasScore ? entry.score : 7.5}
+              onChange={(ev) => {
+                const v = Math.max(0, Math.min(10, parseFloat(ev.target.value)));
+                if (Number.isFinite(v)) onPatch(entry.id, { score: v });
+              }}
+              className="gcx-dscore-slider"
+              aria-label="Score out of ten"
+            />
+          </div>
+          {hasScore ? (
+            <button type="button" className="gcx-dscore-clear" onClick={() => onPatch(entry.id, { score: undefined })}>
+              Clear score
+            </button>
+          ) : (
+            <p className="gcx-hint">Slide to add a score.</p>
+          )}
+        </div>
+
+        {/* Dishes / ingredients */}
+        <div className="gcx-detail-card">
+          <FieldKicker optional>{orderedLabel}</FieldKicker>
+          <DishesInput
+            value={orderedVals || []}
+            placeholder={isRecipes ? 'Saffron, Bomba rice' : 'Cold sesame noodles, Pork belly'}
+            onCommit={(next) => onPatch(entry.id, { [orderedKey]: next } as Partial<GuideEntry>)}
+          />
+          <p className="gcx-hint">Separate with commas.</p>
+        </div>
+
+        {/* Note */}
+        <div className="gcx-detail-card">
+          <FieldKicker optional>Note</FieldKicker>
+          <textarea
+            value={entry.notes || ''}
+            onChange={(ev) => onPatch(entry.id, { notes: ev.target.value })}
+            placeholder="What makes this special? Why are you sending people here?"
+            rows={4}
+            className="gcx-area"
+          />
+          <p className="gcx-hint">The heart of the entry — readers see this first.</p>
+        </div>
+
+        {/* Restaurant extras */}
+        {!isRecipes && (
+          <div className="gcx-detail-card">
+            <div className="gcx-detail-fields">
+              <div>
+                <FieldKicker optional>Best for</FieldKicker>
+                <input
+                  value={entry.bestFor || ''}
+                  onChange={(ev) => onPatch(entry.id, { bestFor: ev.target.value })}
+                  placeholder="A grown-up dinner"
+                  className="gcx-line-input"
+                />
+              </div>
+              <div>
+                <FieldKicker optional>Insider tip</FieldKicker>
+                <input
+                  value={entry.insiderTip || ''}
+                  onChange={(ev) => onPatch(entry.id, { insiderTip: ev.target.value })}
+                  placeholder="Sit upstairs by the window"
+                  className="gcx-line-input"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="gcx-detail-foot">
+        <button type="button" className="gcx-detail-done" onClick={onClose}>
+          <Check size={15} strokeWidth={2.6} />
+          Done
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const StepArrange: React.FC<{
   type: GuideType;
   entries: GuideEntry[];
@@ -788,9 +979,10 @@ const StepArrange: React.FC<{
   onRemove: (id: string) => void;
   onPatch: (id: string, patch: Partial<GuideEntry>) => void;
   onMove: (from: number, to: number) => void;
+  onReorder: (next: GuideEntry[]) => void;
   onAddMore: () => void;
   dragRef: React.MutableRefObject<number | null>;
-}> = ({ type, entries, phoneMode, coverPhoto, onPickCoverFile, onPickCoverFromEntry, onClearCover, includePhotos, onTogglePhotos, expandedId, onToggleExpand, onRemove, onPatch, onMove, onAddMore, dragRef }) => {
+}> = ({ type, entries, phoneMode, coverPhoto, onPickCoverFile, onPickCoverFromEntry, onClearCover, includePhotos, onTogglePhotos, expandedId, onToggleExpand, onRemove, onPatch, onMove, onReorder, onAddMore, dragRef }) => {
   const isRecipes = type === 'recipes';
   const orderedKey = isRecipes ? 'keyIngredients' : 'mustOrder';
   const orderedLabel = isRecipes ? 'Key ingredients' : 'Favorite dishes';
@@ -862,6 +1054,22 @@ const StepArrange: React.FC<{
       {/* Entries */}
       <div>
         <FieldKicker>{isRecipes ? 'Your recipes' : 'Your places'}</FieldKicker>
+        {phoneMode ? (
+          /* Phone — drag the grip to reorder (spring layout animations);
+             the pencil opens the full-page entry editor. */
+          <Reorder.Group axis="y" as="div" values={entries} onReorder={onReorder} className="gcx-cards">
+            {entries.map((e, i) => (
+              <ArrangeCardPhone
+                key={e.id}
+                entry={e}
+                index={i}
+                isRecipes={isRecipes}
+                onEdit={() => onToggleExpand(e.id)}
+                onRemove={() => onRemove(e.id)}
+              />
+            ))}
+          </Reorder.Group>
+        ) : (
         <div className="gcx-cards">
           {entries.map((e, i) => {
             const isOpen = expandedId === e.id;
@@ -870,7 +1078,7 @@ const StepArrange: React.FC<{
               <div
                 key={e.id}
                 className={`gcx-card${isOpen ? ' is-open' : ''}`}
-                draggable={!phoneMode && !isOpen}
+                draggable={!isOpen}
                 onDragStart={() => { dragRef.current = i; }}
                 onDragOver={(ev) => ev.preventDefault()}
                 onDrop={() => {
@@ -879,18 +1087,7 @@ const StepArrange: React.FC<{
                 }}
               >
                 <div className="gcx-card-row">
-                  {phoneMode ? (
-                    <span className="gcx-card-move">
-                      <button type="button" onClick={() => onMove(i, i - 1)} disabled={i === 0} aria-label="Move up">
-                        <ChevronUp size={14} strokeWidth={2.4} />
-                      </button>
-                      <button type="button" onClick={() => onMove(i, i + 1)} disabled={i === entries.length - 1} aria-label="Move down">
-                        <ChevronDown size={14} strokeWidth={2.4} />
-                      </button>
-                    </span>
-                  ) : (
-                    <span className="gcx-grip" aria-hidden />
-                  )}
+                  <span className="gcx-grip" aria-hidden />
                   <span className="gcx-card-num">{String(i + 1).padStart(2, '0')}</span>
                   {e.image && (
                     <span className="gcx-card-thumb">
@@ -985,12 +1182,15 @@ const StepArrange: React.FC<{
             );
           })}
         </div>
+        )}
         <button type="button" className="gcx-addmore" onClick={onAddMore}>
           <Plus size={14} strokeWidth={2.2} />
           Add more {isRecipes ? 'recipes' : 'places'}
         </button>
-        {!phoneMode && entries.length > 1 && (
-          <div className="gcx-hint" style={{ marginTop: 8 }}>Drag cards to reorder.</div>
+        {entries.length > 1 && (
+          <div className="gcx-hint" style={{ marginTop: 8 }}>
+            {phoneMode ? 'Hold the dots and drag to reorder.' : 'Drag cards to reorder.'}
+          </div>
         )}
       </div>
     </div>
@@ -1594,11 +1794,15 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           {/* ── Header ── */}
           <div className="gcx-head">
             <div className="gcx-head-row">
-              <div className="gcx-eyebrow">
-                {initialGuide ? 'EDIT GUIDE' : 'NEW GUIDE'} · {currentStepIdx + 1} OF {STEPS_ORDER.length}
-              </div>
+              {/* Phone keeps the chrome minimal: just Save draft + a
+                  prominent close. Desktop keeps the eyebrow + Live edit. */}
+              {!phoneMode && (
+                <div className="gcx-eyebrow">
+                  {initialGuide ? 'EDIT GUIDE' : 'NEW GUIDE'} · {currentStepIdx + 1} OF {STEPS_ORDER.length}
+                </div>
+              )}
               <div className="gcx-head-actions">
-                {liveEditUnlocked && (
+                {!phoneMode && liveEditUnlocked && (
                   <button type="button" className="gcx-head-link" onClick={() => void onLaunchLiveEdit()} disabled={busy} title="Open the Live editor — visual customizer">
                     <Wand2 size={12} /> Live edit
                   </button>
@@ -1608,7 +1812,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   Save draft
                 </button>
                 <button type="button" className="gcx-head-close" onClick={onClose} aria-label="Close">
-                  <X size={14} />
+                  <X size={phoneMode ? 18 : 14} strokeWidth={2.4} />
                 </button>
               </div>
             </div>
@@ -1619,7 +1823,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           </div>
 
           {/* ── Scrollable step body ── */}
-          <div className="gcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
+          <motion.div layoutScroll className="gcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={step}
@@ -1674,6 +1878,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     onRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
                     onPatch={patchEntry}
                     onMove={moveEntry}
+                    onReorder={setEntries}
                     onAddMore={() => setStep('add')}
                     dragRef={dragRef}
                   />
@@ -1696,7 +1901,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                 )}
               </motion.div>
             </AnimatePresence>
-          </div>
+          </motion.div>
 
           {/* ── Footer ── */}
           <div className="gcx-foot">
@@ -1721,6 +1926,34 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               {gateOk && step === 'publish' && !busy && <Check size={16} strokeWidth={2.4} />}
             </button>
           </div>
+
+          {/* ── Entry detail page (phone) — slides in over the wizard ── */}
+          <AnimatePresence>
+            {phoneMode && expandedEntryId && (() => {
+              const idx = entries.findIndex((e) => e.id === expandedEntryId);
+              const entry = idx >= 0 ? entries[idx] : null;
+              if (!entry) return null;
+              return (
+                <motion.div
+                  key="gcx-detail"
+                  className="gcx-detail"
+                  initial={{ x: '100%' }}
+                  animate={{ x: 0 }}
+                  exit={{ x: '100%' }}
+                  transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                >
+                  <EntryDetail
+                    entry={entry}
+                    index={idx}
+                    type={type}
+                    onPatch={patchEntry}
+                    onRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
+                    onClose={() => setExpandedEntryId(null)}
+                  />
+                </motion.div>
+              );
+            })()}
+          </AnimatePresence>
 
           {/* ── Published overlay ── */}
           <AnimatePresence>
