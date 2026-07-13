@@ -972,7 +972,9 @@ export const AddPostModal: React.FC = () => {
     : step === 3 ? Math.min(Math.max(winH * 0.48, 350), 500)
     : Math.min(Math.max(winH * 0.58, 430), 600),
   );
-  const phoneSheetMax = winH - 130; // keep the header + a sliver of canvas
+  // Full detent reaches the header's bottom edge, so a fully-raised
+  // gallery completely covers the canvas (and the selection preview).
+  const phoneSheetMax = winH - 108;
 
   // Same as desktopPrimary except the media step, which may need to
   // materialize staged native camera-roll picks before advancing.
