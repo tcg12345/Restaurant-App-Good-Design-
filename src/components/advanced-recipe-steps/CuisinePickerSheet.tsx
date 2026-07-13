@@ -1,7 +1,13 @@
 // Mobile cuisine bottom-sheet picker. Search + scrollable list.
-// Used by StepBasics on phone-mode in place of the native <select>.
+// Used by StepDetails on phone-mode in place of the native <select>.
+//
+// Rendered through a portal to <body>: the recipe builder's step
+// wrapper keeps a residual framer transform (even identity transforms
+// create a containing block), which would trap this sheet's
+// position:fixed backdrop inside the modal body and clip its chrome.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search } from 'lucide-react';
 import { useBottomSheet } from '../../lib/useBottomSheet';
@@ -30,7 +36,7 @@ export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected,
     return options.filter((c) => c.toLowerCase().includes(q));
   }, [query, options]);
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -127,6 +133,7 @@ export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected,
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };

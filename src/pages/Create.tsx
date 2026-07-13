@@ -21,7 +21,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
-  X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine,
+  X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
   Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -224,24 +224,43 @@ const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () =>
 );
 
 /* ── Post surface — the composer's media page, embedded ───────────
-   The dark canvas previews the current selection; the camera roll
-   lives in a draggable bottom sheet (pull the handle up for a
-   full-screen gallery, down to see what you've picked). Next routes
-   the selection Instagram-style: exactly one video continues into the
-   reel editor, anything else into the post composer at its Edit step. */
+   Mirrors the composer modal's media step: the dark canvas previews
+   the selection, and the sheet below holds RECENTS with the selected
+   strip (numbered, tap to remove) above the camera roll. Picks
+   materialize into real files as they're tapped so the canvas preview
+   is crisp and Next is instant. The sheet drags all the way up to a
+   full-screen gallery — covering the canvas completely — and back
+   down. Next routes Instagram-style: exactly one video continues into
+   the reel editor, anything else into the post composer's Edit step. */
+
+interface SurfacePick {
+  /** PHAsset id for camera-roll picks; synthetic for web/camera files. */
+  id: string;
+  kind: 'photo' | 'video';
+  /** Native thumbnail (instant, low-res) while the full file loads. */
+  thumb?: string;
+  /** Object URL of the materialized file. */
+  previewUrl?: string;
+  file?: File;
+  loading: boolean;
+}
 
 const PostSurface: React.FC = () => {
+  const navigate = useNavigate();
   const openComposer = useUnifiedComposer();
   const useNative = canUseNativePhotoLibrary();
-  // Web picks (OS picker) and native camera captures land here…
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
-  // …while native camera-roll picks stay as staged PHAssets until Next.
-  const [nativePicks, setNativePicks] = useState<MediaItem[]>([]);
-  const [materializing, setMaterializing] = useState(false);
+  // Tracks the sheet's detent so the floating close button can restyle
+  // itself for the light sheet when the gallery is fully raised.
+  const [sheetPos, setSheetPos] = useState<'default' | 'full'>('default');
+  const [picks, setPicks] = useState<SurfacePick[]>([]);
+  const [handingOff, setHandingOff] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Guards materialization results landing after the pick was removed.
+  const picksRef = useRef(picks);
+  picksRef.current = picks;
 
-  // Sheet detents track the surface's real height.
+  // Sheet detents track the surface's real height; the full detent
+  // covers the canvas entirely.
   const rootRef = useRef<HTMLDivElement>(null);
   const [rootH, setRootH] = useState(0);
   useEffect(() => {
@@ -255,98 +274,102 @@ const PostSurface: React.FC = () => {
   }, []);
 
   // Revoke preview URLs on unmount.
-  useEffect(() => () => { previews.forEach((u) => URL.revokeObjectURL(u)); },
+  useEffect(() => () => {
+    picksRef.current.forEach((p) => { if (p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []);
+  }, []);
 
-  const count = files.length + nativePicks.length;
+  const count = picks.length;
+  const anyLoading = picks.some((p) => p.loading);
 
-  const addFiles = (list: FileList | null) => {
-    if (!list) return;
-    const picked = Array.from(list)
-      .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
-      .slice(0, Math.max(0, POST_MAX_ITEMS - count));
-    if (picked.length === 0) return;
-    setFiles((prev) => [...prev, ...picked]);
-    setPreviews((prev) => [...prev, ...picked.map((f) => URL.createObjectURL(f))]);
-  };
-
-  const removeFileAt = (i: number) => {
-    URL.revokeObjectURL(previews[i]);
-    setFiles((prev) => prev.filter((_, j) => j !== i));
-    setPreviews((prev) => prev.filter((_, j) => j !== i));
-  };
-
-  const toggleNative = (item: MediaItem) => {
-    setNativePicks((prev) => {
-      const idx = prev.findIndex((p) => p.id === item.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next.splice(idx, 1);
-        return next;
-      }
-      if (count >= POST_MAX_ITEMS) return prev;
-      return [...prev, item];
+  const removePick = (id: string) => {
+    setPicks((prev) => {
+      const gone = prev.find((p) => p.id === id);
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
+      return prev.filter((p) => p.id !== id);
     });
   };
 
+  // Native camera-roll tap — toggle, materializing the full asset in
+  // the background so the canvas/strip get a crisp preview.
+  const toggleNative = (item: MediaItem) => {
+    if (picks.some((p) => p.id === item.id)) { removePick(item.id); return; }
+    if (count >= POST_MAX_ITEMS) return;
+    setPicks((prev) => [...prev, {
+      id: item.id,
+      kind: item.type,
+      thumb: item.thumbnailDataUrl,
+      loading: true,
+    }]);
+    void (async () => {
+      try {
+        const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+        const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+        const file = await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType);
+        if (!picksRef.current.some((p) => p.id === item.id)) return; // unpicked meanwhile
+        const url = URL.createObjectURL(file);
+        setPicks((prev) => prev.map((p) => p.id === item.id ? { ...p, file, previewUrl: url, loading: false } : p));
+      } catch (err) {
+        console.warn('[Create] materialize failed:', err);
+        setPicks((prev) => prev.filter((p) => p.id !== item.id));
+      }
+    })();
+  };
+
+  // Web / OS-picker files land pre-materialized.
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    const room = Math.max(0, POST_MAX_ITEMS - count);
+    const incoming = Array.from(list)
+      .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .slice(0, room)
+      .map((f, i): SurfacePick => ({
+        id: `web-${Date.now()}-${i}-${f.name}`,
+        kind: f.type.startsWith('video/') ? 'video' : 'photo',
+        previewUrl: URL.createObjectURL(f),
+        file: f,
+        loading: false,
+      }));
+    if (incoming.length > 0) setPicks((prev) => [...prev, ...incoming]);
+  };
+
   const onCameraTap = async () => {
-    setMaterializing(true);
     try {
       const res = await PhotoLibrary.pickCamera({ mediaType: 'all' });
       if (res.cancelled || !res.path || !res.mimeType) return;
       const ext = res.mimeType.split('/')[1] || (res.mediaType === 'video' ? 'mov' : 'jpg');
       const file = await nativePathToFile(res.path, `camera-${Date.now()}.${ext}`, res.mimeType);
-      setFiles((prev) => [...prev, file]);
-      setPreviews((prev) => [...prev, URL.createObjectURL(file)]);
+      setPicks((prev) => prev.length >= POST_MAX_ITEMS ? prev : [...prev, {
+        id: `camera-${Date.now()}`,
+        kind: res.mediaType === 'video' ? 'video' : 'photo',
+        previewUrl: URL.createObjectURL(file),
+        file,
+        loading: false,
+      }]);
     } catch (err) {
       console.warn('[Create] camera failed:', err);
-    } finally {
-      setMaterializing(false);
     }
   };
 
-  const handleNext = async () => {
-    if (materializing || count === 0) return;
-    let all = files;
-    if (nativePicks.length > 0) {
-      setMaterializing(true);
-      try {
-        const materialized: File[] = [];
-        for (const item of nativePicks) {
-          const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
-          const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
-          materialized.push(await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType));
-        }
-        all = [...files, ...materialized];
-      } catch (err) {
-        console.warn('[Create] materialize failed:', err);
-        setMaterializing(false);
-        return;
-      }
-      setMaterializing(false);
-    }
-    if (all.length === 0) return;
-    openComposer(all);
-    previews.forEach((u) => URL.revokeObjectURL(u));
-    setFiles([]);
-    setPreviews([]);
-    setNativePicks([]);
+  const handleNext = () => {
+    if (handingOff || count === 0 || anyLoading) return;
+    const files = picks.map((p) => p.file).filter((f): f is File => !!f);
+    if (files.length === 0) return;
+    setHandingOff(true);
+    openComposer(files);
+    // Object URLs stay alive — the composer's own previews are fresh
+    // object URLs of the same File objects, so ours can go.
+    picks.forEach((p) => { if (p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
+    setPicks([]);
+    setHandingOff(false);
   };
 
-  // Canvas preview — the most recently added pick.
-  const lastNative = nativePicks[nativePicks.length - 1];
-  const lastPreviewIdx = previews.length - 1;
-  const coverSrc = lastNative?.thumbnailDataUrl ?? (lastPreviewIdx >= 0 ? previews[lastPreviewIdx] : null);
-  const coverIsVideo = lastNative ? lastNative.type === 'video'
-    : (lastPreviewIdx >= 0 && files[lastPreviewIdx]?.type.startsWith('video/'));
-  // Instagram routing hint: a lone video continues as a reel.
-  const willBeReel = count === 1 && (
-    nativePicks.length === 1 ? nativePicks[0].type === 'video' : files[0]?.type.startsWith('video/')
-  );
+  // Canvas preview — the most recently added pick, crisp once loaded.
+  const last = picks[picks.length - 1];
+  const willBeReel = count === 1 && picks[0].kind === 'video';
 
-  const sheetH = Math.round(Math.min(Math.max(rootH * 0.52, 260), 460));
-  const sheetMax = Math.max(sheetH, rootH - 48);
+  const sheetH = Math.round(Math.min(Math.max(rootH * 0.52, 260), 480));
+  const sheetMax = Math.max(sheetH, rootH); // full detent covers the canvas
 
   return (
     <div ref={rootRef} className="relative h-full flex flex-col bg-[#16120e] text-white overflow-hidden">
@@ -361,18 +384,24 @@ const PostSurface: React.FC = () => {
 
       {/* ── Canvas — preview of the selection ── */}
       <div className="flex-1 min-h-0 relative">
-        {coverSrc ? (
+        {last ? (
           <motion.div
-            key={coverSrc}
+            key={last.id}
             initial={{ opacity: 0.4, scale: 0.99 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-x-3 top-1 bottom-2"
+            className="absolute inset-x-3 bottom-2"
+            style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 50px)' }}
           >
-            {coverIsVideo && !lastNative ? (
-              <video src={coverSrc} muted playsInline autoPlay loop className="w-full h-full object-contain" />
-            ) : (
-              <img src={coverSrc} alt="" className="w-full h-full object-contain" />
+            {last.previewUrl && last.kind === 'video' ? (
+              <video src={last.previewUrl} muted playsInline autoPlay loop className="w-full h-full object-contain" />
+            ) : last.previewUrl || last.thumb ? (
+              <img src={last.previewUrl || last.thumb} alt="" className="w-full h-full object-contain" />
+            ) : null}
+            {count > 1 && (
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white tabular-nums">
+                {count} selected
+              </div>
             )}
             {willBeReel && (
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur px-3 py-1.5 text-[11px] font-bold text-white whitespace-nowrap">
@@ -404,57 +433,88 @@ const PostSurface: React.FC = () => {
             )}
           </div>
         )}
+      </div>
 
-        {/* Floating Next pill */}
+      {/* Top row — close on the left, Next on the right, floating above
+          the sheet (z-30) so both stay reachable with the gallery raised
+          to full screen. The close button crossfades from its on-canvas
+          style to a light-sheet style when the sheet snaps full, so it
+          reads as part of the raised sheet. */}
+      <div
+        className="absolute inset-x-4 z-30 flex items-center justify-between pointer-events-none"
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          aria-label="Close"
+          className={cn(
+            'w-9 h-9 rounded-full flex items-center justify-center pointer-events-auto transition-colors duration-300',
+            sheetPos === 'full'
+              ? 'bg-on-surface/[0.06] text-on-surface/70 active:bg-on-surface/[0.12]'
+              : 'bg-white/10 text-white active:bg-white/20',
+          )}
+        >
+          <X size={16} strokeWidth={2.4} />
+        </button>
         {count > 0 && (
           <motion.button
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
             type="button"
-            onClick={() => { void handleNext(); }}
-            disabled={materializing}
-            className="absolute top-2 right-4 z-20 h-9 pl-4 pr-3 rounded-full bg-surface text-on-surface inline-flex items-center gap-1 text-[13px] font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+            onClick={handleNext}
+            disabled={anyLoading || handingOff}
+            className="h-9 pl-4 pr-3 rounded-full bg-primary text-white inline-flex items-center gap-1 text-[13px] font-bold shadow-lg pointer-events-auto active:scale-95 transition-transform disabled:opacity-60"
           >
-            {materializing ? (
+            {anyLoading ? (
               <><Loader2 size={13} className="animate-spin" /> Loading…</>
             ) : (
-              <>Next <span className="opacity-70">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
+              <>Next <span className="opacity-80">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
             )}
           </motion.button>
         )}
       </div>
 
-      {/* ── Camera-roll sheet — drag up for the full gallery ── */}
+      {/* ── Camera-roll sheet — drag up for the full-screen gallery ── */}
       <DraggableSheet
         height={sheetH}
         maxHeight={sheetMax}
         draggable
+        onSnap={setSheetPos}
+        safeTopAtFull
         className="relative z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
       >
-        <div className="px-5 pt-1 pb-safe-6">
-          <div className="flex items-baseline justify-between">
+        <div className="pb-safe-6">
+          {/* Sticky header — stays put while the gallery scrolls. */}
+          <div className={cn(
+            'sticky top-0 z-10 bg-surface pb-2 flex items-baseline gap-2 transition-[padding] duration-300',
+            // When fully raised, the floating close/Next overlay the top
+            // of the sheet — indent the header row so nothing collides.
+            sheetPos === 'full' ? 'pl-16 pr-[124px]' : 'px-5',
+          )}>
             <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
             <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">{count} / {POST_MAX_ITEMS}</span>
           </div>
 
-          {/* Camera captures / web picks — tap to remove. */}
-          {files.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide mt-3 pb-1">
-              {files.map((f, i) => (
+          {/* Selected strip — numbered, tap to remove. */}
+          {count > 0 && (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-5 pb-3">
+              {picks.map((p, idx) => (
                 <button
-                  key={`${f.name}-${i}`}
+                  key={p.id}
                   type="button"
-                  onClick={() => removeFileAt(i)}
+                  onClick={() => removePick(p.id)}
                   className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 ring-1 ring-on-surface/[0.08]"
-                  aria-label={`Remove item ${i + 1}`}
+                  aria-label={`Remove item ${idx + 1}`}
                 >
-                  {f.type.startsWith('video/') ? (
-                    <video src={previews[i]} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                  {p.previewUrl && p.kind === 'video' ? (
+                    <video src={p.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                   ) : (
-                    <img src={previews[i]} alt="" className="w-full h-full object-cover" />
+                    <img src={p.previewUrl || p.thumb} alt="" className="w-full h-full object-cover" />
                   )}
+                  {p.loading && <span className="absolute inset-0 bg-white/40 animate-pulse" />}
                   <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-white text-[10px] font-bold flex items-center justify-center">
-                    {i + 1}
+                    {idx + 1}
                   </span>
                   <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white/90 text-[9px] font-bold py-0.5">
                     Remove
@@ -466,18 +526,16 @@ const PostSurface: React.FC = () => {
 
           {useNative ? (
             /* Native camera roll — auto-loaded, numbered multi-select. */
-            <div className="-mx-5 mt-2">
-              <PhotoLibraryGrid
-                mediaType="all"
-                onSelect={toggleNative}
-                selectedIds={nativePicks.map((p) => p.id)}
-                selectionMode="multi"
-                onCameraTap={onCameraTap}
-              />
-            </div>
+            <PhotoLibraryGrid
+              mediaType="all"
+              onSelect={toggleNative}
+              selectedIds={picks.map((p) => p.id)}
+              selectionMode="multi"
+              onCameraTap={() => { void onCameraTap(); }}
+            />
           ) : (
             /* Web fallback — the OS picker is the camera roll. */
-            <div className="grid grid-cols-3 gap-1.5 mt-3">
+            <div className="grid grid-cols-3 gap-1.5 px-5">
               {count < POST_MAX_ITEMS && (
                 <button
                   type="button"
@@ -561,9 +619,10 @@ const GuideSurface: React.FC = () => {
 const RecipeSurface: React.FC = () => {
   const { openHomeMealModal } = useLists();
 
-  const methods: Array<{ key: 'link' | 'photo' | 'custom' | 'ai'; icon: React.ReactNode; title: string; sub: string }> = [
+  const methods: Array<{ key: 'link' | 'photo' | 'text' | 'custom' | 'ai'; icon: React.ReactNode; title: string; sub: string }> = [
     { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
     { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+    { key: 'text', icon: <ClipboardType size={17} strokeWidth={2} />, title: 'From text', sub: 'Paste a recipe you already have' },
     { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
     { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
   ];
@@ -603,23 +662,10 @@ export const Create: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-on-surface">
-      {/* Top bar */}
-      <header className="flex-shrink-0 px-4 pt-safe-4 pb-2 grid grid-cols-[1fr_auto_1fr] items-center">
-        <div className="flex items-center justify-start">
-          <button
-            onClick={() => navigate('/')}
-            aria-label="Close"
-            className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
-          >
-            <X size={19} />
-          </button>
-        </div>
-        <h1 className="text-base font-serif font-bold tracking-tight">Create</h1>
-        <div />
-      </header>
-
       {/* Live surfaces — all mounted so half-written input survives
-          wheel spins; only the active one is visible + interactive. */}
+          wheel spins; only the active one is visible + interactive.
+          There's no page header: each surface carries its own close
+          button so the post composer can run edge-to-edge. */}
       <div className="relative flex-1 min-h-0">
         {MODES.map((m) => {
           const active = m === mode;
@@ -630,11 +676,21 @@ export const Create: React.FC = () => {
                 'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
                 // The post surface is a full-bleed composer (dark canvas
                 // + its own bottom sheet); the others are padded forms.
-                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-4 pb-6',
+                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-safe-4 pb-6',
                 active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
               )}
               aria-hidden={!active}
             >
+              {m !== 'post' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  aria-label="Close"
+                  className="w-10 h-10 mb-3 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+                >
+                  <X size={19} />
+                </button>
+              )}
               {m === 'post' && <PostSurface />}
               {m === 'guide' && <GuideSurface />}
               {m === 'recipe' && <RecipeSurface />}

@@ -16,14 +16,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Link2, Camera, PenLine, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Sparkles, Link2, Camera, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { ImportRecipesModal } from './ImportRecipesModal';
 import { ImportRecipePanel } from './ImportRecipePanel';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
@@ -36,13 +35,14 @@ import './RecipeBuilder.css';
 
 type BuilderMode = 'import' | 'advanced' | 'ai';
 type Stage = 'choose' | 'flow';
-type Method = 'link' | 'photo' | 'custom' | 'ai';
+type Method = 'link' | 'photo' | 'text' | 'custom' | 'ai';
 
 /* ── Method chooser ───────────────────────────────────────────── */
 
 const METHODS: Array<{ key: Method; icon: React.ReactNode; title: string; sub: string }> = [
   { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
   { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+  { key: 'text', icon: <ClipboardType size={17} strokeWidth={2} />, title: 'From text', sub: 'Paste a recipe you already have' },
   { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
   { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
 ];
@@ -267,8 +267,6 @@ export const AddHomeMealModal: React.FC = () => {
     return generateRecipeImage(aiDraft);
   };
 
-  const [importRecipesOpen, setImportRecipesOpen] = useState(false);
-
   // Header-left slot inside each flow: a chip back to the chooser.
   // Hidden when editing (the builder shows an "Edit recipe" eyebrow) and
   // when a seed is under review (going back would discard it — the
@@ -353,7 +351,6 @@ export const AddHomeMealModal: React.FC = () => {
                       phoneMode={phoneMode}
                       tabSlot={methodChip}
                       initialTab={importTab}
-                      onOpenBulk={() => setImportRecipesOpen(true)}
                     />
                   )}
                 </motion.div>
@@ -362,11 +359,6 @@ export const AddHomeMealModal: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <ImportRecipesModal
-        open={importRecipesOpen}
-        onClose={() => setImportRecipesOpen(false)}
-      />
 
       {/* AI recipe preview — the SAME sheet the main chat uses. Layered
           above the modal (z-[210]) so Publish / Edit / cover-photo all
