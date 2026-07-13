@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
@@ -718,6 +719,10 @@ export const Profile: React.FC = () => {
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const { openGuideCreator, isOpen: guideCreatorOpen } = useGuideCreator();
+  // Unified Post entry in the create menu — media picked first, then a
+  // single video routes to the reel editor, anything else to the post
+  // composer (Instagram-style).
+  const { openPicker: openUnifiedPicker, pickerInput } = useUnifiedCreatePicker();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
 
   // Dismiss the friend-request banner for this session (reappears on reload
@@ -1389,6 +1394,9 @@ export const Profile: React.FC = () => {
 
         {/* Action row */}
         <div ref={createWrapRef} className="relative flex items-center gap-2 mt-4">
+          {/* Hidden media input for the unified Post entry — outside the
+              AnimatePresence menu so it survives the menu closing. */}
+          {pickerInput}
           <button
             type="button"
             onClick={() => setCreateMenuOpen((o) => !o)}
@@ -1458,7 +1466,7 @@ export const Profile: React.FC = () => {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                  onClick={() => { setCreateMenuOpen(false); openUnifiedPicker(); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
                 >
                   <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
@@ -1466,22 +1474,7 @@ export const Profile: React.FC = () => {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-bold leading-tight">Post</span>
-                    <span className="block text-[11px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
-                  </span>
-                </button>
-                <div className="border-t border-on-surface/[0.06]" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                >
-                  <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
-                    <Film size={16} strokeWidth={2.2} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-bold leading-tight">Reel</span>
-                    <span className="block text-[11px] text-on-surface/50 leading-tight">Single short video</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Photos or a video — one video posts as a reel</span>
                   </span>
                 </button>
                 <div className="border-t border-on-surface/[0.06]" />

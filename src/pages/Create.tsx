@@ -1,37 +1,35 @@
 // /create — the plus-button page. YouTube-Shorts-style creation hub:
-// the bottom is an infinite wheel carousel of the four actions (Post,
-// Reel, Guide, Recipe — momentum, always-centered selection, faded
+// the bottom is an infinite wheel carousel of the three actions (Post,
+// Guide, Recipe — momentum, always-centered selection, faded
 // neighbors), and the area above it IS the selected action's surface,
 // live and usable immediately — no "Start X" button:
 //
-//   Post   — pick media + write the caption right here; Continue hands
-//            both into the full composer.
-//   Reel   — tap the tile, choose a video, and the reel editor opens
-//            with it already loaded.
+//   Post   — pick media + write the caption right here (Instagram-style
+//            media-first: a single video continues as a reel, anything
+//            else as a post); Continue hands it into the right composer.
 //   Guide  — choose the guide type and name it; Continue opens the
 //            wizard pre-filled.
 //   Recipe — the four ways in (link / photo / scratch / AI), one tap
 //            deep-links into that flow.
 //
-// All four surfaces stay mounted so half-written input survives wheel
+// All surfaces stay mounted so half-written input survives wheel
 // spins. The full flows open as the usual overlays above this page.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  X, ImagePlus, Video, ChefHat, ArrowRight, Link2, Camera, PenLine,
+  X, ImagePlus, Film, ChefHat, ArrowRight, Link2, Camera, PenLine,
   Sparkles, ChevronRight, MapPin,
 } from 'lucide-react';
-import { useReels } from '../contexts/ReelsContext';
-import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
+import { useUnifiedComposer, routesToReel } from '../components/useUnifiedComposer';
 import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 
-type Mode = 'post' | 'reel' | 'guide' | 'recipe';
-const MODES: Mode[] = ['post', 'reel', 'guide', 'recipe'];
-const MODE_LABELS: Record<Mode, string> = { post: 'Post', reel: 'Reel', guide: 'Guide', recipe: 'Recipe' };
+type Mode = 'post' | 'guide' | 'recipe';
+const MODES: Mode[] = ['post', 'guide', 'recipe'];
+const MODE_LABELS: Record<Mode, string> = { post: 'Post', guide: 'Guide', recipe: 'Recipe' };
 
 const mod = (n: number, m: number) => ((n % m) + m) % m;
 
@@ -218,10 +216,14 @@ const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () =>
   </button>
 );
 
-/* ── Post surface — media + caption, handed into the composer ────── */
+/* ── Post surface — media-first, Instagram-style ──────────────────
+   One surface covers both posts and reels: pick photos and/or videos,
+   and the selection decides where Continue goes — exactly one video
+   routes into the reel editor (already loaded), anything else into
+   the post composer with the caption carried along.                 */
 
 const PostSurface: React.FC = () => {
-  const { openAddPostModal } = usePosts();
+  const openComposer = useUnifiedComposer();
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [caption, setCaption] = useState('');
@@ -246,10 +248,11 @@ const PostSurface: React.FC = () => {
     setPreviews((prev) => prev.filter((_, j) => j !== i));
   };
 
+  const isReel = routesToReel(files);
   const canContinue = files.length > 0 || caption.trim().length > 0;
 
   const handleContinue = () => {
-    openAddPostModal({ files, caption: caption.trim() });
+    openComposer(files, caption.trim());
     previews.forEach((u) => URL.revokeObjectURL(u));
     setFiles([]);
     setPreviews([]);
@@ -295,65 +298,38 @@ const PostSurface: React.FC = () => {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
           multiple
           className="hidden"
           onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
         />
       </div>
 
-      <textarea
-        value={caption}
-        onChange={(e) => setCaption(e.target.value)}
-        placeholder="Write a caption…"
-        rows={4}
-        className="w-full mt-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] p-4 text-[15px] leading-relaxed placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 resize-none"
-      />
+      {isReel ? (
+        // A lone video continues as a reel — the reel editor has its own
+        // caption field, so swap the textarea for a heads-up instead.
+        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-primary/[0.05] border border-primary/15 px-4 py-3.5">
+          <span className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+            <Film size={16} />
+          </span>
+          <p className="text-[12.5px] leading-snug text-on-surface/70">
+            <span className="font-bold text-on-surface">One video — this continues as a reel.</span>
+            <br />Add a photo to make it a post instead.
+          </p>
+        </div>
+      ) : (
+        <textarea
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          placeholder="Write a caption…"
+          rows={4}
+          className="w-full mt-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] p-4 text-[15px] leading-relaxed placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 resize-none"
+        />
+      )}
 
       <div className="mt-4 flex justify-end">
         <ContinueBtn disabled={!canContinue} onClick={handleContinue} />
       </div>
-    </div>
-  );
-};
-
-/* ── Reel surface — pick a video, editor opens with it loaded ────── */
-
-const ReelSurface: React.FC = () => {
-  const { openAddReelModal } = useReels();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <div className="w-full max-w-md mx-auto flex flex-col items-center">
-      <div className="w-full"><Eyebrow>Share a reel</Eyebrow></div>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className={cn(
-          'w-[min(58vw,240px)] aspect-[9/16] rounded-3xl border-[1.5px] border-dashed border-on-surface/20',
-          'flex flex-col items-center justify-center gap-3 text-on-surface/45',
-          'transition-colors hover:border-primary hover:text-primary active:scale-[0.99]',
-        )}
-      >
-        <span className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-          <Video size={24} />
-        </span>
-        <span className="text-[13.5px] font-semibold text-on-surface/70">Tap to choose a video</span>
-        <span className="text-[11.5px] text-on-surface/40 px-6 text-center leading-relaxed">
-          Vertical works best · the editor opens with it loaded
-        </span>
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (f) openAddReelModal(undefined, f);
-        }}
-      />
     </div>
   );
 };
@@ -495,7 +471,6 @@ export const Create: React.FC = () => {
               aria-hidden={!active}
             >
               {m === 'post' && <PostSurface />}
-              {m === 'reel' && <ReelSurface />}
               {m === 'guide' && <GuideSurface />}
               {m === 'recipe' && <RecipeSurface />}
             </div>
