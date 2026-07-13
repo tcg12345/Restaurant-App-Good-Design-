@@ -222,6 +222,11 @@
 .rcx-choose-card:nth-child(2) { animation-delay: 0.07s; }
 .rcx-choose-card:nth-child(3) { animation-delay: 0.11s; }
 .rcx-choose-card:nth-child(4) { animation-delay: 0.15s; }
+.rcx-choose-card:nth-child(5) { animation-delay: 0.19s; }
+
+/* An odd final card (e.g. the 5th "Create with AI") would sit alone in
+   a 2-col grid — span it full-width so the grid stays balanced. */
+.rcx-choose-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
 .rcx-choose-card:hover {
   border-color: #1d1a16;

@@ -1,11 +1,15 @@
-// "Import" tab of the Add Recipe modal — bring a recipe in from
+// "Import" flow of the Add Recipe modal — bring a recipe in from
 // somewhere else: a web link, photos (cookbook page / screenshot /
 // handwritten card), or pasted text. The import-recipe Edge Function
 // transcribes the source with AI and the result lands on the Advanced
 // builder's Review step as a fully editable draft.
 //
+// On phone each source is its own page — the method chooser routes
+// straight into it, so there's no in-page tab switcher. On desktop the
+// three sources stay as a segmented control for quick switching.
+//
 // Shares the rcx- design language with the Advanced builder and the AI
-// generator: same header, segmented tabs, and footer CTA.
+// generator: same header and footer CTA.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Link2, Camera, ClipboardType, ClipboardPaste, Plus, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
@@ -26,13 +30,18 @@ interface ImportRecipePanelProps {
   /** Header-left slot (the "back to methods" chip), injected by the parent. */
   tabSlot?: React.ReactNode;
   phoneMode?: boolean;
-  /** Opens the legacy CSV / JSON bulk importer. */
-  onOpenBulk?: () => void;
   /** Which source tab to open on — set by the method chooser. */
   initialTab?: 'link' | 'photo' | 'text';
 }
 
 const MAX_PHOTOS = 3;
+
+/** Phone-mode page title per source (desktop keeps the tabs + generic title). */
+const TITLE_BY_TAB: Record<SourceTab, string> = {
+  link: 'Import from a link',
+  photo: 'Import from a photo',
+  text: 'Import from text',
+};
 
 /** Accept "foodblog.com/carbonara" as well as a full URL. */
 function normalizeUrl(raw: string): string | null {
@@ -53,7 +62,6 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
   onClose,
   tabSlot,
   phoneMode,
-  onOpenBulk,
   initialTab,
 }) => {
   const [tab, setTab] = useState<SourceTab>(initialTab || 'link');
@@ -167,7 +175,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
           </div>
         </div>
         <div className="rcx-title-row">
-          <h2 className="rcx-step-title">Import a recipe</h2>
+          <h2 className="rcx-step-title">{phoneMode ? TITLE_BY_TAB[tab] : 'Import a recipe'}</h2>
         </div>
       </div>
 
@@ -184,21 +192,25 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
           </div>
         ) : (
           <div className="rcx-step-anim rcx-ai-stack">
-            <div className="rcx-src-seg" role="tablist">
-              {tabs.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.key}
-                  className={`rcx-src-btn${tab === t.key ? ' is-on' : ''}`}
-                  onClick={() => { setTab(t.key); setError(null); }}
-                >
-                  {t.icon}
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            {/* Desktop keeps the source switcher; on phone each source is
+                its own page reached from the method chooser. */}
+            {!phoneMode && (
+              <div className="rcx-src-seg" role="tablist">
+                {tabs.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.key}
+                    className={`rcx-src-btn${tab === t.key ? ' is-on' : ''}`}
+                    onClick={() => { setTab(t.key); setError(null); }}
+                  >
+                    {t.icon}
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {tab === 'link' && (
               <div>
@@ -302,19 +314,6 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                 <AlertCircle size={13} /> {error}
               </p>
             )}
-
-            <p className="rcx-fineprint">
-              The importer transcribes the original faithfully — nothing is invented or "improved".
-              You'll review the draft and can edit anything before it's saved.
-              {onOpenBulk && (
-                <>
-                  {' '}Moving a whole collection?{' '}
-                  <button type="button" className="rcx-fineprint-link" onClick={onOpenBulk}>
-                    Use the CSV / JSON bulk importer
-                  </button>.
-                </>
-              )}
-            </p>
           </div>
         )}
       </div>
