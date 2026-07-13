@@ -2,13 +2,14 @@
  * MediaEditor — Instagram-style per-item editor for photos and videos.
  *
  *   Photos: crop with aspect-ratio chips + pan, brightness / contrast /
- *           saturation sliders, and a strip of preset filters. On apply,
- *           we re-render the photo through a canvas pipeline and hand
- *           back an edited JPEG.
+ *           saturation / warmth / vignette controls, a strip of preset
+ *           filters, and draggable text overlays (font, style, color,
+ *           optional solid background). On apply, we re-render the photo
+ *           through a canvas pipeline and hand back an edited JPEG.
  *   Videos: trim handles on a frame timeline plus the same color
- *           sliders and presets. On apply, we re-encode the trimmed +
- *           color-graded video through canvas → MediaRecorder and hand
- *           back a WebM.
+ *           controls, presets and text overlays. On apply, we re-encode
+ *           the trimmed + color-graded video (text baked into every
+ *           frame) through canvas → MediaRecorder and hand back a WebM.
  *
  * The editor is content-agnostic: parents pass an array of EditableItem
  * (one per photo/video) and receive back the same items with their
@@ -16,7 +17,10 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2, Play } from 'lucide-react';
+import {
+  Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2, Play,
+  Type, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Plus, Trash2, Thermometer, Aperture,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -38,9 +42,13 @@ export const FILTER_PRESETS: FilterPreset[] = [
   { id: 'none',    label: 'None',    filter: 'none' },
   { id: 'vintage', label: 'Vintage', filter: 'sepia(0.45) saturate(1.2) contrast(0.95) brightness(1.05)' },
   { id: 'warm',    label: 'Warm',    filter: 'saturate(1.25) hue-rotate(-8deg) brightness(1.05)' },
+  { id: 'golden',  label: 'Golden',  filter: 'sepia(0.3) saturate(1.35) contrast(1.05) brightness(1.06)' },
   { id: 'cool',    label: 'Cool',    filter: 'saturate(1.15) hue-rotate(8deg) brightness(0.98)' },
+  { id: 'crisp',   label: 'Crisp',   filter: 'contrast(1.15) saturate(1.1) brightness(1.02)' },
+  { id: 'pop',     label: 'Pop',     filter: 'saturate(1.45) contrast(1.08)' },
   { id: 'bw',      label: 'B & W',   filter: 'grayscale(1) contrast(1.05) brightness(1.02)' },
   { id: 'mono',    label: 'Mono',    filter: 'grayscale(1) brightness(1.05) contrast(1.1)' },
+  { id: 'noir',    label: 'Noir',    filter: 'grayscale(1) contrast(1.3) brightness(0.94)' },
   { id: 'fade',    label: 'Fade',    filter: 'saturate(0.8) contrast(0.92) brightness(1.06)' },
 ];
 
@@ -52,6 +60,40 @@ export interface CropRect {
   height: number;
 }
 
+/** A user-placed text box, baked into the exported media on apply. */
+export interface TextOverlay {
+  id: string;
+  /** Content; supports newlines. */
+  text: string;
+  /** Normalised centre position within the FULL (uncropped) source. */
+  x: number;
+  y: number;
+  /** Font size as a fraction of the source width (e.g. 0.07). */
+  size: number;
+  /** Text color (hex). */
+  color: string;
+  /** Solid background behind the text box, or null for none. */
+  bg: string | null;
+  font: 'serif' | 'sans' | 'mono';
+  weight: 'normal' | 'bold';
+  italic: boolean;
+  align: 'left' | 'center' | 'right';
+}
+
+/** Fonts offered for text overlays — the app's own loaded families, so
+ *  the canvas bake renders exactly what the preview shows. */
+export const TEXT_FONTS: { id: TextOverlay['font']; label: string; stack: string }[] = [
+  { id: 'serif', label: 'Serif', stack: '"Fraunces", "Noto Serif", serif' },
+  { id: 'sans',  label: 'Sans',  stack: '"Manrope", sans-serif' },
+  { id: 'mono',  label: 'Mono',  stack: '"JetBrains Mono", ui-monospace, monospace' },
+];
+
+/** Swatches for overlay text + backgrounds — brand-adjacent palette. */
+export const TEXT_COLORS = [
+  '#ffffff', '#1d1a16', '#fbf4f0', '#9f3012',
+  '#d97706', '#1e7a55', '#2563eb', '#e11d48',
+] as const;
+
 export interface EditState {
   /** Normalised crop rectangle. The source extent is implicitly 0..1. */
   crop: CropRect;
@@ -59,7 +101,13 @@ export interface EditState {
   brightness: number;   // 100 = neutral, range 50..150
   contrast: number;     // 100 = neutral
   saturation: number;   // 100 = neutral
+  /** 100 = neutral; >100 shifts warmer (amber), <100 cooler (blue). */
+  warmth: number;
+  /** 0 = off, 100 = strongest edge darkening. */
+  vignette: number;
   filterPreset: string; // FilterPreset.id
+  /** User-placed text boxes, drawn over the media on apply. */
+  texts: TextOverlay[];
   /** Video-only — trim window in seconds. Null when untouched. */
   trim?: { start: number; end: number } | null;
 }
@@ -70,7 +118,10 @@ export const DEFAULT_EDIT_STATE: EditState = {
   brightness: 100,
   contrast: 100,
   saturation: 100,
+  warmth: 100,
+  vignette: 0,
   filterPreset: 'none',
+  texts: [],
   trim: null,
 };
 
@@ -93,12 +144,99 @@ export interface EditableItem {
 
 export function cssFilterFor(edits: EditState): string {
   const preset = FILTER_PRESETS.find((p) => p.id === edits.filterPreset)?.filter ?? 'none';
-  const tweaks = [
+  const parts = [
     `brightness(${edits.brightness / 100})`,
     `contrast(${edits.contrast / 100})`,
     `saturate(${edits.saturation / 100})`,
-  ].join(' ');
+  ];
+  // Warmth: piecewise approximation with plain CSS filters (shared by the
+  // live preview and the canvas bake, so both stay pixel-identical).
+  const wd = ((edits.warmth ?? 100) - 100) / 50; // -1..1
+  if (wd > 0.001) {
+    parts.push(`sepia(${(wd * 0.32).toFixed(3)}) saturate(${(1 + wd * 0.18).toFixed(3)}) hue-rotate(${(-wd * 6).toFixed(1)}deg)`);
+  } else if (wd < -0.001) {
+    parts.push(`hue-rotate(${(-wd * 10).toFixed(1)}deg) saturate(${(1 + wd * 0.12).toFixed(3)})`);
+  }
+  const tweaks = parts.join(' ');
   return preset === 'none' ? tweaks : `${preset} ${tweaks}`;
+}
+
+/* ── Overlay drawing (vignette + text) — shared by photo & video bake ── */
+
+function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number): void {
+  if (strength <= 0) return;
+  const cx = w / 2;
+  const cy = h / 2;
+  // Outer radius = farthest corner, matching the CSS preview's default
+  // `radial-gradient(circle, …)` extent.
+  const outer = Math.hypot(w, h) / 2;
+  const g = ctx.createRadialGradient(cx, cy, outer * 0.55, cx, cy, outer);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(0,0,0,${(0.72 * strength) / 100})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const rad = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+
+const TEXT_LINE_HEIGHT = 1.25;
+const TEXT_PAD_X = 0.5;  // × font size, when a background is set
+const TEXT_PAD_Y = 0.32;
+const TEXT_BG_RADIUS = 0.3;
+
+/**
+ * Draw the text overlays into a canvas whose origin is offset (offX, offY)
+ * pixels into the full source of (sw × sh) pixels — i.e. the crop window.
+ * Overlay coords are normalised against the FULL source so this maps the
+ * preview (which shows the uncropped media) onto the cropped output; text
+ * dragged outside the crop simply falls off the canvas, mirroring the
+ * dimmed regions the user saw.
+ */
+function drawTextOverlays(
+  ctx: CanvasRenderingContext2D,
+  texts: TextOverlay[],
+  sw: number,
+  sh: number,
+  offX: number,
+  offY: number,
+): void {
+  for (const t of texts) {
+    const content = t.text.trim();
+    if (!content) continue;
+    const px = Math.max(8, t.size * sw);
+    const lineHeight = px * TEXT_LINE_HEIGHT;
+    const fontStack = TEXT_FONTS.find((f) => f.id === t.font)?.stack ?? TEXT_FONTS[0].stack;
+    ctx.font = `${t.italic ? 'italic ' : ''}${t.weight === 'bold' ? '700' : '400'} ${px}px ${fontStack}`;
+    const lines = t.text.split('\n');
+    const widths = lines.map((l) => ctx.measureText(l).width);
+    const maxW = Math.max(1, ...widths);
+    const totalH = lines.length * lineHeight;
+    const cx = t.x * sw - offX;
+    const cy = t.y * sh - offY;
+    if (t.bg) {
+      const padX = px * TEXT_PAD_X;
+      const padY = px * TEXT_PAD_Y;
+      ctx.fillStyle = t.bg;
+      roundedRectPath(ctx, cx - maxW / 2 - padX, cy - totalH / 2 - padY, maxW + padX * 2, totalH + padY * 2, px * TEXT_BG_RADIUS);
+      ctx.fill();
+    }
+    ctx.fillStyle = t.color;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = t.align;
+    const lineX = t.align === 'left' ? cx - maxW / 2 : t.align === 'right' ? cx + maxW / 2 : cx;
+    lines.forEach((line, i) => {
+      ctx.fillText(line, lineX, cy - totalH / 2 + lineHeight * (i + 0.5));
+    });
+  }
 }
 
 /* ── Crop / aspect helpers ───────────────────────────────────────────── */
@@ -143,6 +281,9 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 async function applyPhotoEdits(item: EditableItem): Promise<File> {
+  // Make sure the overlay fonts are decoded before we measure/draw text,
+  // otherwise the canvas silently falls back to a default face.
+  try { await document.fonts.ready; } catch { /* non-blocking */ }
   const img = await loadImage(item.previewUrl);
   const sw = img.naturalWidth;
   const sh = img.naturalHeight;
@@ -160,6 +301,11 @@ async function applyPhotoEdits(item: EditableItem): Promise<File> {
   // the chosen preset get baked into the output pixels.
   ctx.filter = cssFilterFor(item.edits);
   ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  // Overlays draw unfiltered — the vignette darkens the graded pixels and
+  // the text keeps its exact chosen colors.
+  ctx.filter = 'none';
+  drawVignette(ctx, cropW, cropH, item.edits.vignette ?? 0);
+  drawTextOverlays(ctx, item.edits.texts ?? [], sw, sh, cropX, cropY);
   const blob: Blob = await new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.92),
   );
@@ -235,7 +381,14 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
   recorder.start();
 
   // Draw frames as they come in. Use rAF and check currentTime; stop
-  // when we hit the trim end.
+  // when we hit the trim end. Vignette + text overlays are re-drawn on
+  // every frame (unfiltered) so they bake into the output.
+  const vignette = item.edits.vignette ?? 0;
+  const texts = item.edits.texts ?? [];
+  const hasOverlays = vignette > 0 || texts.length > 0;
+  if (hasOverlays) {
+    try { await document.fonts.ready; } catch { /* non-blocking */ }
+  }
   let cancelled = false;
   const drawLoop = () => {
     if (cancelled) return;
@@ -244,6 +397,13 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
       return;
     }
     ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    if (hasOverlays) {
+      ctx.save();
+      ctx.filter = 'none';
+      drawVignette(ctx, cropW, cropH, vignette);
+      drawTextOverlays(ctx, texts, sw, sh, cropX, cropY);
+      ctx.restore();
+    }
     const elapsed = Math.min(totalSeconds, v.currentTime - start);
     onProgress?.(Math.max(0, Math.min(1, elapsed / totalSeconds)));
     requestAnimationFrame(drawLoop);
@@ -323,6 +483,9 @@ export function isEdited(edits: EditState, durationSeconds?: number | null): boo
     edits.brightness !== 100 ||
     edits.contrast !== 100 ||
     edits.saturation !== 100 ||
+    (edits.warmth ?? 100) !== 100 ||
+    (edits.vignette ?? 0) > 0 ||
+    (edits.texts ?? []).some((t) => t.text.trim().length > 0) ||
     edits.filterPreset !== 'none' ||
     hasCustomCrop(edits) ||
     trimActive
@@ -370,7 +533,7 @@ function computeMediaRect(
 
 /* ── Editor UI ───────────────────────────────────────────────────────── */
 
-type Tab = 'crop' | 'adjust' | 'filter' | 'trim';
+type Tab = 'crop' | 'adjust' | 'filter' | 'text' | 'trim';
 
 interface MediaEditorProps {
   items: EditableItem[];
@@ -465,6 +628,11 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
 
   // Default the tab to the most useful one for the media type.
   const [tab, setTab] = useState<Tab>(active?.mediaType === 'video' ? 'trim' : 'crop');
+
+  // Which text overlay is selected for editing (Text tab). Reset when
+  // the active item changes so we never edit a stale overlay.
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  useEffect(() => { setSelectedTextId(null); }, [active?.key]);
 
   // When the active media type changes, snap to a sensible default tab.
   useEffect(() => {
@@ -607,6 +775,18 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                 ) : (
                   hasCustomCrop(it.edits) && <CropOverlay edits={it.edits} natural={naturalSizes[it.key]} />
                 )}
+                {/* Vignette + text overlays. Read-only everywhere so the
+                    preview always mirrors the final output; interactive
+                    (drag to reposition, tap to select) on the active
+                    slide while the Text tab is open. */}
+                <MediaOverlays
+                  edits={it.edits}
+                  natural={naturalSizes[it.key]}
+                  interactive={isActive && tab === 'text'}
+                  selectedId={isActive ? selectedTextId : null}
+                  onSelect={(id) => setSelectedTextId(id)}
+                  onTextsChange={(texts) => onEditsChange(it.key, { ...it.edits, texts })}
+                />
                 {/* Index pill + edit indicator on the corner. */}
                 <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
                   <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
@@ -660,6 +840,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
           { id: 'trim',   icon: Scissors,label: 'Trim',    show: active.mediaType === 'video' },
           { id: 'adjust', icon: Sun,     label: 'Adjust',  show: true },
           { id: 'filter', icon: Sparkles,label: 'Filters', show: true },
+          { id: 'text',   icon: Type,    label: 'Text',    show: true },
         ] as const).filter((t) => t.show).map((t) => {
           const Icon = t.icon;
           return (
@@ -695,6 +876,14 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
           )}
           {tab === 'filter' && (
             <FilterTab edits={edits} setEdits={setEdits} />
+          )}
+          {tab === 'text' && (
+            <TextTab
+              edits={edits}
+              setEdits={setEdits}
+              selectedId={selectedTextId}
+              onSelect={setSelectedTextId}
+            />
           )}
           {tab === 'trim' && active.mediaType === 'video' && (
             <TrimTab item={active} edits={edits} setEdits={setEdits} />
@@ -1031,6 +1220,139 @@ const InteractiveCropOverlay: React.FC<{
   );
 };
 
+/* ── Vignette + text overlay layer (preview) ──────────────────────────
+ *
+ * Anchored to the media's on-screen rect (like the crop overlays) so
+ * overlay coords map 1:1 onto source pixels. Read-only by default; when
+ * `interactive` the text boxes can be dragged to reposition and tapped
+ * to select for editing in the Text tab. */
+
+const MediaOverlays: React.FC<{
+  edits: EditState;
+  natural?: { w: number; h: number };
+  interactive?: boolean;
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+  onTextsChange?: (texts: TextOverlay[]) => void;
+}> = ({ edits, natural, interactive = false, selectedId, onSelect, onTextsChange }) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const mediaRect = computeMediaRect(size.w, size.h, natural?.w, natural?.h);
+
+  const texts = edits.texts ?? [];
+  const vignette = edits.vignette ?? 0;
+
+  const dragRef = useRef<{
+    id: string;
+    pointerId: number;
+    start: { x: number; y: number };
+    startClient: { x: number; y: number };
+    moved: boolean;
+  } | null>(null);
+
+  const onPointerDown = (t: TextOverlay) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!interactive) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect?.(t.id);
+    dragRef.current = {
+      id: t.id,
+      pointerId: e.pointerId,
+      start: { x: t.x, y: t.y },
+      startClient: { x: e.clientX, y: e.clientY },
+      moved: false,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (!mediaRect.width || !mediaRect.height) return;
+    const dx = (e.clientX - d.startClient.x) / mediaRect.width;
+    const dy = (e.clientY - d.startClient.y) / mediaRect.height;
+    if (Math.abs(dx) > 0.002 || Math.abs(dy) > 0.002) d.moved = true;
+    const nx = Math.max(0.02, Math.min(0.98, d.start.x + dx));
+    const ny = Math.max(0.02, Math.min(0.98, d.start.y + dy));
+    onTextsChange?.(texts.map((t) => (t.id === d.id ? { ...t, x: nx, y: ny } : t)));
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    dragRef.current = null;
+  };
+
+  if (vignette <= 0 && texts.length === 0) return null;
+
+  return (
+    <div ref={wrapRef} className="absolute inset-0 pointer-events-none">
+      {vignette > 0 && (
+        <div
+          className="absolute"
+          style={{
+            left: mediaRect.left,
+            top: mediaRect.top,
+            width: mediaRect.width,
+            height: mediaRect.height,
+            background: `radial-gradient(circle, rgba(0,0,0,0) 55%, rgba(0,0,0,${(0.72 * vignette) / 100}) 100%)`,
+          }}
+        />
+      )}
+      {texts.map((t) => {
+        const fz = Math.max(6, t.size * mediaRect.width);
+        const fontStack = TEXT_FONTS.find((f) => f.id === t.font)?.stack ?? TEXT_FONTS[0].stack;
+        const isSelected = interactive && selectedId === t.id;
+        return (
+          <div
+            key={t.id}
+            onPointerDown={onPointerDown(t)}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className={cn(
+              'absolute max-w-none',
+              interactive && 'cursor-move touch-none pointer-events-auto',
+            )}
+            style={{
+              left: mediaRect.left + t.x * mediaRect.width,
+              top: mediaRect.top + t.y * mediaRect.height,
+              transform: 'translate(-50%, -50%)',
+              fontFamily: fontStack,
+              fontSize: fz,
+              lineHeight: TEXT_LINE_HEIGHT,
+              fontWeight: t.weight === 'bold' ? 700 : 400,
+              fontStyle: t.italic ? 'italic' : 'normal',
+              textAlign: t.align,
+              color: t.color,
+              whiteSpace: 'pre',
+              background: t.bg ?? 'transparent',
+              padding: t.bg ? `${fz * TEXT_PAD_Y}px ${fz * TEXT_PAD_X}px` : 0,
+              borderRadius: t.bg ? fz * TEXT_BG_RADIUS : 0,
+              outline: isSelected ? '1.5px dashed rgba(255,255,255,0.9)' : 'none',
+              outlineOffset: 3,
+              filter: isSelected ? 'drop-shadow(0 0 6px rgba(0,0,0,0.35))' : 'none',
+            }}
+          >
+            {t.text || ' '}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 /* ── Tabs ────────────────────────────────────────────────────────────── */
 
 const ASPECT_CHIPS: { value: AspectRatio; label: string }[] = [
@@ -1101,13 +1423,270 @@ const AdjustTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) 
         value={edits.saturation}
         onChange={(v) => setEdits({ saturation: v })}
       />
+      <Slider
+        icon={<Thermometer size={14} />}
+        label="Warmth"
+        value={edits.warmth ?? 100}
+        onChange={(v) => setEdits({ warmth: v })}
+      />
+      <Slider
+        icon={<Aperture size={14} />}
+        label="Vignette"
+        value={edits.vignette ?? 0}
+        min={0}
+        max={100}
+        format={(v) => String(v)}
+        onChange={(v) => setEdits({ vignette: v })}
+      />
       <button
         type="button"
-        onClick={() => setEdits({ brightness: 100, contrast: 100, saturation: 100 })}
+        onClick={() => setEdits({ brightness: 100, contrast: 100, saturation: 100, warmth: 100, vignette: 0 })}
         className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
       >
         <Wand2 size={12} /> Reset adjustments
       </button>
+    </div>
+  );
+};
+
+/* ── Text tab ────────────────────────────────────────────────────────── */
+
+const newTextOverlay = (): TextOverlay => ({
+  id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `t-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+  text: 'Your text',
+  x: 0.5,
+  y: 0.5,
+  size: 0.07,
+  color: '#ffffff',
+  bg: null,
+  font: 'serif',
+  weight: 'bold',
+  italic: false,
+  align: 'center',
+});
+
+/** Sensible default background for the chosen text color — dark ink
+ *  behind light text, white behind everything else. */
+const defaultBgFor = (color: string): string =>
+  color === '#ffffff' || color === '#fbf4f0' ? '#1d1a16' : '#ffffff';
+
+const SwatchRow: React.FC<{
+  value: string | null;
+  onPick: (color: string) => void;
+}> = ({ value, onPick }) => (
+  <div className="flex gap-1.5 flex-wrap">
+    {TEXT_COLORS.map((c) => (
+      <button
+        key={c}
+        type="button"
+        onClick={() => onPick(c)}
+        className={cn(
+          'w-7 h-7 rounded-full border transition-transform',
+          value === c ? 'scale-110 border-primary ring-2 ring-primary/30' : 'border-on-surface/15 hover:scale-105',
+        )}
+        style={{ background: c }}
+        aria-label={`Color ${c}`}
+      />
+    ))}
+  </div>
+);
+
+const TextTab: React.FC<{
+  edits: EditState;
+  setEdits: (n: Partial<EditState>) => void;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}> = ({ edits, setEdits, selectedId, onSelect }) => {
+  const texts = edits.texts ?? [];
+  const selected = texts.find((t) => t.id === selectedId) ?? texts[texts.length - 1] ?? null;
+
+  const addText = () => {
+    const nt = newTextOverlay();
+    setEdits({ texts: [...texts, nt] });
+    onSelect(nt.id);
+  };
+  const patch = (p: Partial<TextOverlay>) => {
+    if (!selected) return;
+    setEdits({ texts: texts.map((t) => (t.id === selected.id ? { ...t, ...p } : t)) });
+  };
+  const removeSelected = () => {
+    if (!selected) return;
+    setEdits({ texts: texts.filter((t) => t.id !== selected.id) });
+    onSelect(null);
+  };
+
+  if (texts.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2.5 py-4 text-center">
+        <p className="text-[12.5px] text-on-surface/55 leading-relaxed max-w-[280px]">
+          Add a caption, a title, or a label right on the photo. Drag it anywhere once it&apos;s placed.
+        </p>
+        <button
+          type="button"
+          onClick={addText}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-primary text-white text-[12.5px] font-bold hover:opacity-90 transition-opacity"
+        >
+          <Plus size={14} strokeWidth={2.6} /> Add text
+        </button>
+      </div>
+    );
+  }
+
+  const alignIcons = { left: AlignLeft, center: AlignCenter, right: AlignRight } as const;
+  const AlignIcon = selected ? alignIcons[selected.align] : AlignCenter;
+  const cycleAlign = () => {
+    if (!selected) return;
+    const order: TextOverlay['align'][] = ['left', 'center', 'right'];
+    patch({ align: order[(order.indexOf(selected.align) + 1) % order.length] });
+  };
+
+  return (
+    <div className="space-y-3.5">
+      {/* Overlay switcher + add. */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {texts.map((t, i) => {
+          const label = t.text.trim().replace(/\s+/g, ' ').slice(0, 14) || `Text ${i + 1}`;
+          const isSel = selected?.id === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onSelect(t.id)}
+              className={cn(
+                'px-3 h-8 rounded-full text-[12px] font-bold transition-colors max-w-[140px] truncate',
+                isSel ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={addText}
+          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10 transition-colors"
+          aria-label="Add another text box"
+        >
+          <Plus size={14} strokeWidth={2.6} />
+        </button>
+      </div>
+
+      {selected && (
+        <>
+          {/* Content */}
+          <textarea
+            value={selected.text}
+            onChange={(e) => patch({ text: e.target.value })}
+            rows={2}
+            placeholder="Type something…"
+            className="w-full rounded-xl border border-on-surface/10 bg-on-surface/[0.03] px-3 py-2.5 text-[14px] text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 resize-none"
+          />
+
+          {/* Font + style row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {TEXT_FONTS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => patch({ font: f.id })}
+                className={cn(
+                  'px-3 h-8 rounded-full text-[12.5px] transition-colors',
+                  selected.font === f.id ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                )}
+                style={{ fontFamily: f.stack }}
+              >
+                {f.label}
+              </button>
+            ))}
+            <span className="w-px h-5 bg-on-surface/10 mx-0.5" />
+            <button
+              type="button"
+              onClick={() => patch({ weight: selected.weight === 'bold' ? 'normal' : 'bold' })}
+              className={cn(
+                'inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors',
+                selected.weight === 'bold' ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+              )}
+              aria-label="Bold"
+            >
+              <Bold size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => patch({ italic: !selected.italic })}
+              className={cn(
+                'inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors',
+                selected.italic ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+              )}
+              aria-label="Italic"
+            >
+              <Italic size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={cycleAlign}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10 transition-colors"
+              aria-label={`Text alignment: ${selected.align}`}
+            >
+              <AlignIcon size={14} />
+            </button>
+          </div>
+
+          {/* Size */}
+          <Slider
+            icon={<Type size={14} />}
+            label="Size"
+            value={Math.round(selected.size * 100)}
+            min={3}
+            max={16}
+            format={(v) => String(v)}
+            onChange={(v) => patch({ size: v / 100 })}
+          />
+
+          {/* Text color */}
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">Text color</p>
+            <SwatchRow value={selected.color} onPick={(c) => patch({ color: c })} />
+          </div>
+
+          {/* Background */}
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">Background</p>
+            <div className="flex items-center gap-1.5 mb-2">
+              <button
+                type="button"
+                onClick={() => patch({ bg: null })}
+                className={cn(
+                  'px-3 h-8 rounded-full text-[12px] font-bold transition-colors',
+                  selected.bg === null ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                )}
+              >
+                None
+              </button>
+              <button
+                type="button"
+                onClick={() => patch({ bg: selected.bg ?? defaultBgFor(selected.color) })}
+                className={cn(
+                  'px-3 h-8 rounded-full text-[12px] font-bold transition-colors',
+                  selected.bg !== null ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                )}
+              >
+                Solid
+              </button>
+            </div>
+            {selected.bg !== null && (
+              <SwatchRow value={selected.bg} onPick={(c) => patch({ bg: c })} />
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={removeSelected}
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-700/80 hover:text-red-700"
+          >
+            <Trash2 size={12} /> Delete this text
+          </button>
+        </>
+      )}
     </div>
   );
 };
@@ -1436,19 +2015,25 @@ const Slider: React.FC<{
   label: string;
   value: number;
   onChange: (v: number) => void;
-}> = ({ icon, label, value, onChange }) => (
+  min?: number;
+  max?: number;
+  /** Value display — defaults to a signed offset from the 100 neutral. */
+  format?: (v: number) => string;
+}> = ({ icon, label, value, onChange, min = 50, max = 150, format }) => (
   <div>
     <div className="flex items-center justify-between mb-1">
       <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-on-surface/75">
         <span className="text-on-surface/55">{icon}</span>
         {label}
       </span>
-      <span className="text-[11.5px] tabular-nums text-on-surface/55">{value - 100 >= 0 ? '+' : ''}{value - 100}</span>
+      <span className="text-[11.5px] tabular-nums text-on-surface/55">
+        {format ? format(value) : `${value - 100 >= 0 ? '+' : ''}${value - 100}`}
+      </span>
     </div>
     <input
       type="range"
-      min={50}
-      max={150}
+      min={min}
+      max={max}
       step={1}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}

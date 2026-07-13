@@ -965,7 +965,7 @@ export const AddPostModal: React.FC = () => {
                 {!isEditing && (
                   <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
                     {step === 1 && `Up to ${POST_MAX_ITEMS} items.`}
-                    {step === 2 && 'Crop, trim, adjust, or pick a filter.'}
+                    {step === 2 && 'Crop, trim, adjust, add text, or pick a filter.'}
                     {step === 3 && 'Add a per-item caption and featured restaurant or recipe.'}
                     {step === 4 && 'Post caption, location, and visibility.'}
                   </p>
