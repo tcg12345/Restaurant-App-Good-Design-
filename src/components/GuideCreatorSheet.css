@@ -799,14 +799,16 @@
   background-position: center;
 }
 
-/* Phone drag grip — a taller dot-grid touch target; touch-action none
-   so the drag starts immediately instead of scrolling the page. */
+/* Phone drag grip — small, quiet dot column; touch-action none so the
+   drag starts immediately instead of scrolling the page. (The hit area
+   stays comfortable via the card row's padding around it.) */
 .gcx-grip-phone {
-  width: 22px;
-  height: 40px;
+  width: 10px;
+  height: 30px;
+  margin: 0 2px;
   touch-action: none;
-  background-image: radial-gradient(#cfc8bc 1.6px, transparent 1.7px);
-  background-size: 8px 9px;
+  background-image: radial-gradient(#ddd6cb 1.1px, transparent 1.2px);
+  background-size: 5px 7px;
   background-position: center;
 }
 
@@ -1249,16 +1251,15 @@
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 18px 20px calc(130px + var(--kb-height, 0px));
-  display: grid;
-  gap: 14px;
+  padding: 0 22px calc(130px + var(--kb-height, 0px));
   align-content: start;
 }
 
+/* Full-bleed hero that dissolves into the paper below. */
 .gcx-detail-hero {
-  height: 176px;
-  border-radius: 18px;
-  overflow: hidden;
+  height: 216px;
+  margin: 0 -22px;
+  position: relative;
   background: var(--gcx-chip);
 }
 
@@ -1269,7 +1270,15 @@
   display: block;
 }
 
-.gcx-detail-title-wrap { padding: 2px 2px 6px; }
+.gcx-detail-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--gcx-bg) 2%, rgba(250, 249, 247, 0) 42%);
+  pointer-events: none;
+}
+
+.gcx-detail-title-wrap { padding: 16px 0 8px; }
 
 .gcx-detail-name {
   margin: 0;
@@ -1287,12 +1296,13 @@
   color: var(--gcx-secondary);
 }
 
+/* Field sections flow on the paper itself — hairlines, not boxes. */
 .gcx-detail-card {
-  background: var(--gcx-card);
-  border: 1px solid var(--gcx-hairline-strong);
-  border-radius: 16px;
-  padding: 16px 16px 15px;
+  padding: 22px 0 24px;
+  border-bottom: 1px solid var(--gcx-hairline);
 }
+
+.gcx-detail-card:last-of-type { border-bottom: 0; }
 
 .gcx-detail-card .gcx-hint { margin-top: 9px; }
 
