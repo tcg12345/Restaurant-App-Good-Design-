@@ -4,9 +4,11 @@
 // neighbors), and the area above it IS the selected action's surface,
 // live and usable immediately — no "Start X" button:
 //
-//   Post   — pick media + write the caption right here (Instagram-style
-//            media-first: a single video continues as a reel, anything
-//            else as a post); Continue hands it into the right composer.
+//   Post   — the composer's media page, embedded: a dark canvas
+//            previewing the selection with the camera roll in a
+//            draggable bottom sheet (pull up for a full-screen
+//            gallery). Next routes Instagram-style — one video becomes
+//            a reel, anything else a post — into the full composer.
 //   Guide  — choose the guide type and name it; Continue opens the
 //            wizard pre-filled.
 //   Recipe — the four ways in (link / photo / scratch / AI), one tap
@@ -17,13 +19,18 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
 import {
-  X, ImagePlus, Film, ChefHat, ArrowRight, Link2, Camera, PenLine,
-  Sparkles, ChevronRight, MapPin,
+  X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine,
+  Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
-import { useUnifiedComposer, routesToReel } from '../components/useUnifiedComposer';
+import { useUnifiedComposer } from '../components/useUnifiedComposer';
+import { DraggableSheet } from '../components/DraggableSheet';
+import { PhotoLibraryGrid } from '../components/PhotoLibraryGrid';
+import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
+import { POST_MAX_ITEMS } from '../contexts/PostsContext';
 import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 
@@ -216,120 +223,275 @@ const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () =>
   </button>
 );
 
-/* ── Post surface — media-first, Instagram-style ──────────────────
-   One surface covers both posts and reels: pick photos and/or videos,
-   and the selection decides where Continue goes — exactly one video
-   routes into the reel editor (already loaded), anything else into
-   the post composer with the caption carried along.                 */
+/* ── Post surface — the composer's media page, embedded ───────────
+   The dark canvas previews the current selection; the camera roll
+   lives in a draggable bottom sheet (pull the handle up for a
+   full-screen gallery, down to see what you've picked). Next routes
+   the selection Instagram-style: exactly one video continues into the
+   reel editor, anything else into the post composer at its Edit step. */
 
 const PostSurface: React.FC = () => {
   const openComposer = useUnifiedComposer();
+  const useNative = canUseNativePhotoLibrary();
+  // Web picks (OS picker) and native camera captures land here…
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
-  const [caption, setCaption] = useState('');
+  // …while native camera-roll picks stay as staged PHAssets until Next.
+  const [nativePicks, setNativePicks] = useState<MediaItem[]>([]);
+  const [materializing, setMaterializing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sheet detents track the surface's real height.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [rootH, setRootH] = useState(0);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const update = () => setRootH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Revoke preview URLs on unmount.
   useEffect(() => () => { previews.forEach((u) => URL.revokeObjectURL(u)); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []);
 
+  const count = files.length + nativePicks.length;
+
   const addFiles = (list: FileList | null) => {
     if (!list) return;
-    const picked = Array.from(list).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    const picked = Array.from(list)
+      .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .slice(0, Math.max(0, POST_MAX_ITEMS - count));
     if (picked.length === 0) return;
     setFiles((prev) => [...prev, ...picked]);
     setPreviews((prev) => [...prev, ...picked.map((f) => URL.createObjectURL(f))]);
   };
 
-  const removeAt = (i: number) => {
+  const removeFileAt = (i: number) => {
     URL.revokeObjectURL(previews[i]);
     setFiles((prev) => prev.filter((_, j) => j !== i));
     setPreviews((prev) => prev.filter((_, j) => j !== i));
   };
 
-  const isReel = routesToReel(files);
-  const canContinue = files.length > 0 || caption.trim().length > 0;
+  const toggleNative = (item: MediaItem) => {
+    setNativePicks((prev) => {
+      const idx = prev.findIndex((p) => p.id === item.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next.splice(idx, 1);
+        return next;
+      }
+      if (count >= POST_MAX_ITEMS) return prev;
+      return [...prev, item];
+    });
+  };
 
-  const handleContinue = () => {
-    openComposer(files, caption.trim());
+  const onCameraTap = async () => {
+    setMaterializing(true);
+    try {
+      const res = await PhotoLibrary.pickCamera({ mediaType: 'all' });
+      if (res.cancelled || !res.path || !res.mimeType) return;
+      const ext = res.mimeType.split('/')[1] || (res.mediaType === 'video' ? 'mov' : 'jpg');
+      const file = await nativePathToFile(res.path, `camera-${Date.now()}.${ext}`, res.mimeType);
+      setFiles((prev) => [...prev, file]);
+      setPreviews((prev) => [...prev, URL.createObjectURL(file)]);
+    } catch (err) {
+      console.warn('[Create] camera failed:', err);
+    } finally {
+      setMaterializing(false);
+    }
+  };
+
+  const handleNext = async () => {
+    if (materializing || count === 0) return;
+    let all = files;
+    if (nativePicks.length > 0) {
+      setMaterializing(true);
+      try {
+        const materialized: File[] = [];
+        for (const item of nativePicks) {
+          const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+          const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+          materialized.push(await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType));
+        }
+        all = [...files, ...materialized];
+      } catch (err) {
+        console.warn('[Create] materialize failed:', err);
+        setMaterializing(false);
+        return;
+      }
+      setMaterializing(false);
+    }
+    if (all.length === 0) return;
+    openComposer(all);
     previews.forEach((u) => URL.revokeObjectURL(u));
     setFiles([]);
     setPreviews([]);
-    setCaption('');
+    setNativePicks([]);
   };
 
+  // Canvas preview — the most recently added pick.
+  const lastNative = nativePicks[nativePicks.length - 1];
+  const lastPreviewIdx = previews.length - 1;
+  const coverSrc = lastNative?.thumbnailDataUrl ?? (lastPreviewIdx >= 0 ? previews[lastPreviewIdx] : null);
+  const coverIsVideo = lastNative ? lastNative.type === 'video'
+    : (lastPreviewIdx >= 0 && files[lastPreviewIdx]?.type.startsWith('video/'));
+  // Instagram routing hint: a lone video continues as a reel.
+  const willBeReel = count === 1 && (
+    nativePicks.length === 1 ? nativePicks[0].type === 'video' : files[0]?.type.startsWith('video/')
+  );
+
+  const sheetH = Math.round(Math.min(Math.max(rootH * 0.52, 260), 460));
+  const sheetMax = Math.max(sheetH, rootH - 48);
+
   return (
-    <div className="w-full max-w-md mx-auto">
-      <Eyebrow>Share a post</Eyebrow>
+    <div ref={rootRef} className="relative h-full flex flex-col bg-[#16120e] text-white overflow-hidden">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.heic,.heif"
+        multiple
+        className="hidden"
+        onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
+      />
 
-      <div className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-        {previews.map((url, i) => (
-          <div key={url} className="relative flex-shrink-0 w-[96px] h-[128px] rounded-2xl overflow-hidden border border-on-surface/[0.08] bg-on-surface/[0.04]">
-            {files[i]?.type.startsWith('video/') ? (
-              <video src={url} muted playsInline className="w-full h-full object-cover" />
+      {/* ── Canvas — preview of the selection ── */}
+      <div className="flex-1 min-h-0 relative">
+        {coverSrc ? (
+          <motion.div
+            key={coverSrc}
+            initial={{ opacity: 0.4, scale: 0.99 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-x-3 top-1 bottom-2"
+          >
+            {coverIsVideo && !lastNative ? (
+              <video src={coverSrc} muted playsInline autoPlay loop className="w-full h-full object-contain" />
             ) : (
-              <img src={url} alt="" className="w-full h-full object-cover" />
+              <img src={coverSrc} alt="" className="w-full h-full object-contain" />
             )}
-            <button
-              type="button"
-              onClick={() => removeAt(i)}
-              aria-label="Remove"
-              className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm text-white flex items-center justify-center"
-            >
-              <X size={12} strokeWidth={2.6} />
-            </button>
+            {willBeReel && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur px-3 py-1.5 text-[11px] font-bold text-white whitespace-nowrap">
+                <Film size={11} />
+                One video — continues as a reel
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-10 text-center">
+            <div className="flex items-center gap-2.5 text-white/40">
+              <ImageIcon size={26} />
+              <VideoIcon size={26} />
+            </div>
+            <p className="text-[14px] font-semibold text-white/75 mt-3">
+              {useNative ? 'Pick from your camera roll below' : 'Add photos or a video'}
+            </p>
+            <p className="text-[12px] text-white/40 mt-1 leading-relaxed">
+              One video becomes a reel · up to {POST_MAX_ITEMS} items
+            </p>
+            {!useNative && (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="mt-4 h-10 px-5 rounded-full bg-surface text-on-surface text-[13px] font-bold active:scale-95 transition-transform"
+              >
+                Open camera roll
+              </button>
+            )}
           </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className={cn(
-            'flex-shrink-0 rounded-2xl border-[1.5px] border-dashed border-on-surface/20 text-on-surface/45',
-            'flex flex-col items-center justify-center gap-2 transition-colors hover:border-primary hover:text-primary',
-            previews.length > 0 ? 'w-[96px] h-[128px]' : 'w-full h-[128px]',
+        )}
+
+        {/* Floating Next pill */}
+        {count > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            type="button"
+            onClick={() => { void handleNext(); }}
+            disabled={materializing}
+            className="absolute top-2 right-4 z-20 h-9 pl-4 pr-3 rounded-full bg-surface text-on-surface inline-flex items-center gap-1 text-[13px] font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {materializing ? (
+              <><Loader2 size={13} className="animate-spin" /> Loading…</>
+            ) : (
+              <>Next <span className="opacity-70">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
+            )}
+          </motion.button>
+        )}
+      </div>
+
+      {/* ── Camera-roll sheet — drag up for the full gallery ── */}
+      <DraggableSheet
+        height={sheetH}
+        maxHeight={sheetMax}
+        draggable
+        className="relative z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
+      >
+        <div className="px-5 pt-1 pb-safe-6">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
+            <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">{count} / {POST_MAX_ITEMS}</span>
+          </div>
+
+          {/* Camera captures / web picks — tap to remove. */}
+          {files.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide mt-3 pb-1">
+              {files.map((f, i) => (
+                <button
+                  key={`${f.name}-${i}`}
+                  type="button"
+                  onClick={() => removeFileAt(i)}
+                  className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 ring-1 ring-on-surface/[0.08]"
+                  aria-label={`Remove item ${i + 1}`}
+                >
+                  {f.type.startsWith('video/') ? (
+                    <video src={previews[i]} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={previews[i]} alt="" className="w-full h-full object-cover" />
+                  )}
+                  <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-white text-[10px] font-bold flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white/90 text-[9px] font-bold py-0.5">
+                    Remove
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
-        >
-          <ImagePlus size={22} />
-          <span className="text-[11px] font-bold uppercase tracking-[0.14em]">
-            {previews.length > 0 ? 'Add' : 'Add photos or video'}
-          </span>
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
-          multiple
-          className="hidden"
-          onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
-        />
-      </div>
 
-      {isReel ? (
-        // A lone video continues as a reel — the reel editor has its own
-        // caption field, so swap the textarea for a heads-up instead.
-        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-primary/[0.05] border border-primary/15 px-4 py-3.5">
-          <span className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-            <Film size={16} />
-          </span>
-          <p className="text-[12.5px] leading-snug text-on-surface/70">
-            <span className="font-bold text-on-surface">One video — this continues as a reel.</span>
-            <br />Add a photo to make it a post instead.
-          </p>
+          {useNative ? (
+            /* Native camera roll — auto-loaded, numbered multi-select. */
+            <div className="-mx-5 mt-2">
+              <PhotoLibraryGrid
+                mediaType="all"
+                onSelect={toggleNative}
+                selectedIds={nativePicks.map((p) => p.id)}
+                selectionMode="multi"
+                onCameraTap={onCameraTap}
+              />
+            </div>
+          ) : (
+            /* Web fallback — the OS picker is the camera roll. */
+            <div className="grid grid-cols-3 gap-1.5 mt-3">
+              {count < POST_MAX_ITEMS && (
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="aspect-square rounded-[10px] border-[1.5px] border-dashed border-on-surface/20 flex flex-col items-center justify-center gap-1 text-on-surface/45 active:bg-on-surface/[0.04] transition-colors"
+                >
+                  <Plus size={17} strokeWidth={2.4} />
+                  <span className="text-[10.5px] font-bold uppercase tracking-wider">Add</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
-      ) : (
-        <textarea
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          placeholder="Write a caption…"
-          rows={4}
-          className="w-full mt-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] p-4 text-[15px] leading-relaxed placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 resize-none"
-        />
-      )}
-
-      <div className="mt-4 flex justify-end">
-        <ContinueBtn disabled={!canContinue} onClick={handleContinue} />
-      </div>
+      </DraggableSheet>
     </div>
   );
 };
@@ -465,7 +627,10 @@ export const Create: React.FC = () => {
             <div
               key={m}
               className={cn(
-                'absolute inset-0 overflow-y-auto px-5 pt-4 pb-6 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                // The post surface is a full-bleed composer (dark canvas
+                // + its own bottom sheet); the others are padded forms.
+                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-4 pb-6',
                 active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
               )}
               aria-hidden={!active}
