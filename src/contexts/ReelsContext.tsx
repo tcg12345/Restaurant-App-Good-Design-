@@ -151,7 +151,12 @@ interface ReelsContextValue {
   addReelInitialKind: ReelKind | null;
   /** When set, the modal is in edit mode against this reel's id. */
   editingReelId: string | null;
-  openAddReelModal: (kind?: ReelKind) => void;
+  /** Open the composer, optionally pre-loaded with a video file handed
+   *  off from the Create page's embedded surface. */
+  openAddReelModal: (kind?: ReelKind, video?: File) => void;
+  /** One-shot: the video passed to openAddReelModal, consumed by the
+   *  modal on open. Returns null after the first call. */
+  consumePendingReelVideo: () => File | null;
   openEditReelModal: (reelId: string) => void;
   closeAddReelModal: () => void;
 
@@ -365,14 +370,22 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   /* ── Modals ────────────────────────────────────────────────────── */
 
-  const openAddReelModal = useCallback((kind?: ReelKind) => {
+  const pendingReelVideoRef = useRef<File | null>(null);
+  const openAddReelModal = useCallback((kind?: ReelKind, video?: File) => {
     if (!userIdRef.current) { requireSignIn('Sign in to post a reel'); return; }
+    pendingReelVideoRef.current = video ?? null;
     setEditingReelId(null);
     setAddReelInitialKind(kind ?? null);
     setAddReelModalOpen(true);
   }, [requireSignIn]);
+  const consumePendingReelVideo = useCallback(() => {
+    const f = pendingReelVideoRef.current;
+    pendingReelVideoRef.current = null;
+    return f;
+  }, []);
   const openEditReelModal = useCallback((reelId: string) => {
     if (!userIdRef.current) { requireSignIn('Sign in to edit your reel'); return; }
+    pendingReelVideoRef.current = null;
     setEditingReelId(reelId);
     setAddReelInitialKind(null);
     setAddReelModalOpen(true);
@@ -408,6 +421,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     openAddReelModal,
     openEditReelModal,
     closeAddReelModal,
+    consumePendingReelVideo,
     openCommentsReelId,
     openCommentsSheet,
     closeCommentsSheet,

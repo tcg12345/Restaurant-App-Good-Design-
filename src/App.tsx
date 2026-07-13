@@ -105,8 +105,8 @@ const CircleDesktopOverlay: React.FC = () => {
  * Create page.
  */
 const GuideCreatorMount: React.FC = () => {
-  const { isOpen, initialGuide, closeGuideCreator } = useGuideCreator();
-  return <GuideCreatorSheet open={isOpen} onClose={closeGuideCreator} initialGuide={initialGuide} />;
+  const { isOpen, initialGuide, seed, closeGuideCreator } = useGuideCreator();
+  return <GuideCreatorSheet open={isOpen} onClose={closeGuideCreator} initialGuide={initialGuide} seed={seed} />;
 };
 
 function useIsDesktop(): boolean {

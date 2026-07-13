@@ -84,6 +84,10 @@ export interface AdvancedRecipeState {
   /** Carried through from an AI-generated seed / existing AI recipe so the
    *  "Created with AI" note survives editing + publishing. Not user-editable. */
   createdWithAi: boolean;
+  /** Import provenance (source URL, or 'photo' / 'text') — carried through
+   *  from an imported seed so the "Imported from …" note survives editing
+   *  + publishing. Not user-editable. */
+  importedFrom: string;
 }
 
 /** Serif step titles for the header. Five steps: the old Basics+Timing
@@ -196,6 +200,7 @@ function emptyState(): AdvancedRecipeState {
     score: 0,
     isPublic: false,
     createdWithAi: false,
+    importedFrom: '',
   };
 }
 
@@ -244,6 +249,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
     createdWithAi: !!meal.createdWithAi,
+    importedFrom: meal.importedFrom || '',
   };
 }
 
@@ -293,6 +299,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
     builderVersion: 'advanced',
     createdWithAi: state.createdWithAi || undefined,
+    importedFrom: state.importedFrom || undefined,
     // Preserve source attribution if somehow present (defensive — saved
     // copies aren't editable, so this is normally undefined).
     sourceAuthorId: base?.sourceAuthorId,
@@ -590,9 +597,11 @@ export interface AdvancedRecipeBuilderProps {
   tabSlot?: React.ReactNode; // Basic/Advanced/AI toggle injected by parent
   /** Pre-fill the builder with this recipe but treat it as a NEW recipe
    *  (saves via createHomeMeal, never updateHomeMeal). Used by the
-   *  "Create with AI" flow to hand off a generated draft for review.
-   *  Ignored when `existing` is set. */
+   *  "Create with AI" flow and the Import tab to hand off a draft for
+   *  review. Ignored when `existing` is set. */
   seed?: HomeMeal | null;
+  /** Where the seed came from — drives the Review step's banner copy. */
+  seedKind?: 'ai' | 'import';
   /** Step index (0–4) to open on. Defaults to 0. The AI flow passes 4
    *  (Review) so the user lands on a skim of the finished recipe. */
   initialStep?: number;
@@ -602,7 +611,7 @@ export interface AdvancedRecipeBuilderProps {
   onBackToDraft?: () => void;
 }
 
-export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, initialStep, onBackToDraft }) => {
+export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ existing, onClose, tabSlot, seed, seedKind, initialStep, onBackToDraft }) => {
   const navigate = useNavigate();
   const auth = useAuth();
   const { phoneMode } = useSettings();
@@ -878,6 +887,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
       builderVersion: 'advanced',
       createdWithAi: state.createdWithAi || undefined,
+      importedFrom: state.importedFrom || undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft
@@ -925,7 +935,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       case 1: return <StepDetails state={state} dispatch={dispatch} />;
       case 2: return <StepIngredients state={state} dispatch={dispatch} existingId={existing?.id} />;
       case 3: return <StepMethod state={state} dispatch={dispatch} existingId={existing?.id} />;
-      case 4: return <StepReview state={state} dispatch={dispatch} isAiDraft={!!seed && !existing} />;
+      case 4: return <StepReview state={state} dispatch={dispatch} draftKind={seed && !existing ? (seedKind || 'ai') : undefined} />;
       default: return null;
     }
   };
@@ -935,7 +945,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       {/* ── Header ── */}
       <div className="rcx-head">
         <div className="rcx-head-row">
-          {tabSlot}
+          {tabSlot ?? (
+            <span className="rcx-head-eyebrow">{existing ? 'Edit recipe' : 'New recipe'}</span>
+          )}
           <div className="rcx-head-actions">
             <span className={`rcx-saved${draftSavedAt ? ' is-saved' : ''}`}>
               <span className="rcx-saved-dot" />

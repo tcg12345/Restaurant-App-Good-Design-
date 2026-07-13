@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin,
   ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon,
-  Share2, MoreHorizontal, Send, ArrowUpDown, Image as ImageIcon,
+  Share2, Send, ArrowUpDown, Image as ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -1105,13 +1105,6 @@ export const UserProfile: React.FC = () => {
               aria-label={copied ? 'Link copied' : 'Share profile'}
             >
               {copied ? <Check size={17} className="text-primary" /> : <Share2 size={17} />}
-            </button>
-            <button
-              type="button"
-              className="w-[38px] h-[38px] rounded-full grid place-items-center bg-on-surface/[0.05] text-on-surface active:bg-on-surface/[0.1] transition-colors"
-              aria-label="More"
-            >
-              <MoreHorizontal size={19} />
             </button>
           </div>
         </div>

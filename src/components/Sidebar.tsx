@@ -6,11 +6,10 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
-import { useReels } from '../contexts/ReelsContext';
-import { usePosts } from '../contexts/PostsContext';
 import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
+import { useUnifiedCreatePicker } from './useUnifiedComposer';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -40,8 +39,10 @@ export const Sidebar: React.FC = () => {
   const { profile, pendingRequestCount } = useAuth();
   const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
-  const { openAddReelModal } = useReels();
-  const { openAddPostModal } = usePosts();
+  // One "Post" entry covers photos AND video — the user picks media
+  // first (Instagram-style) and the selection routes itself: a single
+  // video continues as a reel, everything else as a post.
+  const { openPicker: openUnifiedPicker, pickerInput } = useUnifiedCreatePicker();
   const { openGuideCreator } = useGuideCreator();
   const { open: circleOpen, toggle: toggleCircle, setOpen: setCircleOpen } = useCirclePanel();
   // Page-contextual quick-add (was the removed desktop header's CTA): Pantry
@@ -155,8 +156,11 @@ export const Sidebar: React.FC = () => {
       <div className="border-t border-on-surface/[0.06] mx-3" />
 
       {/* ── Create CTA — single red button that opens a small menu with
-              Post and Reel choices. */}
+              Post, Guide and Recipe choices. */}
       <div ref={createWrapRef} className={cn('relative px-3 pt-4 pb-3', collapsed && 'px-2')}>
+        {/* Hidden media input for the unified Post entry — lives outside
+            the AnimatePresence menu so it survives the menu closing. */}
+        {pickerInput}
         <button
           type="button"
           onClick={() => setCreateMenuOpen((o) => !o)}
@@ -228,7 +232,7 @@ export const Sidebar: React.FC = () => {
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                onClick={() => { setCreateMenuOpen(false); openUnifiedPicker(); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
               >
                 <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
@@ -236,22 +240,7 @@ export const Sidebar: React.FC = () => {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-bold leading-tight">Post</span>
-                  <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
-                </span>
-              </button>
-              <div className="border-t border-on-surface/[0.06]" />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-              >
-                <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
-                  <Film size={16} strokeWidth={2.2} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-bold leading-tight">Reel</span>
-                  <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Photos or a video — one video posts as a reel</span>
                 </span>
               </button>
               <div className="border-t border-on-surface/[0.06]" />

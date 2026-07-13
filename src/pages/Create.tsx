@@ -1,124 +1,605 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+// /create — the plus-button page. YouTube-Shorts-style creation hub:
+// the bottom is an infinite wheel carousel of the three actions (Post,
+// Guide, Recipe — momentum, always-centered selection, faded
+// neighbors), and the area above it IS the selected action's surface,
+// live and usable immediately — no "Start X" button:
+//
+//   Post   — the composer's media page, embedded: a dark canvas
+//            previewing the selection with the camera roll in a
+//            draggable bottom sheet (pull up for a full-screen
+//            gallery). Next routes Instagram-style — one video becomes
+//            a reel, anything else a post — into the full composer.
+//   Guide  — choose the guide type and name it; Continue opens the
+//            wizard pre-filled.
+//   Recipe — the four ways in (link / photo / scratch / AI), one tap
+//            deep-links into that flow.
+//
+// All surfaces stay mounted so half-written input survives wheel
+// spins. The full flows open as the usual overlays above this page.
+
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence, type PanInfo } from 'motion/react';
-import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video, BookOpen, ChefHat, UtensilsCrossed } from 'lucide-react';
-import { useReels } from '../contexts/ReelsContext';
-import { usePosts } from '../contexts/PostsContext';
+import { motion } from 'motion/react';
+import {
+  X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine,
+  Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
+} from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
+import { useUnifiedComposer } from '../components/useUnifiedComposer';
+import { DraggableSheet } from '../components/DraggableSheet';
+import { PhotoLibraryGrid } from '../components/PhotoLibraryGrid';
+import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
+import { POST_MAX_ITEMS } from '../contexts/PostsContext';
+import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 
-type Mode = 'post' | 'reel' | 'guide' | 'recipe';
-const MODES: Mode[] = ['post', 'reel', 'guide', 'recipe'];
+type Mode = 'post' | 'guide' | 'recipe';
+const MODES: Mode[] = ['post', 'guide', 'recipe'];
+const MODE_LABELS: Record<Mode, string> = { post: 'Post', guide: 'Guide', recipe: 'Recipe' };
 
-interface ModeMeta {
-  label: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  preview: React.ReactNode;
-  cta: string;
-}
+const mod = (n: number, m: number) => ((n % m) + m) % m;
 
-const MODE_META: Record<Mode, ModeMeta> = {
-  post: {
-    label: 'Post',
-    title: 'Share a Post',
-    description: 'Photos and short videos with captions, restaurant or recipe tags. Friends see it on their feed.',
-    icon: <FileText size={28} />,
-    preview: (
-      <div className="w-44 h-56 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] flex flex-col items-center justify-center gap-2 text-on-surface/35">
-        <ImagePlus size={28} />
-        <span className="text-[11px] font-bold uppercase tracking-[0.18em]">Photos &amp; text</span>
+/* ── Infinite mode wheel ──────────────────────────────────────────
+   Horizontal looping carousel, iOS-camera-style: drag with momentum,
+   the selected label always snaps to center, neighbors fade + shrink,
+   tapping a side label glides to it. Pointer-driven (not native
+   scroll) so the loop is seamless in both directions.               */
+
+const ITEM_W = 92;
+const WHEEL_MASK =
+  'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.5) 18%, black 34%, black 66%, rgba(0,0,0,0.5) 82%, transparent 100%)';
+
+const ModeWheel: React.FC<{
+  count: number;
+  labels: string[];
+  onChange: (idx: number) => void;
+}> = ({ count, labels, onChange }) => {
+  const [offset, setOffset] = useState(0);
+  const offsetRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
+  const lastXRef = useRef(0);
+  const movedRef = useRef(0);
+  const lastTimeRef = useRef(0);
+  const velRef = useRef(0);
+  const lastReportedRef = useRef(0);
+
+  const setOff = (v: number) => { offsetRef.current = v; setOffset(v); };
+
+  const reportRef = useRef<(off: number) => void>(() => {});
+  reportRef.current = (off: number) => {
+    const v = mod(Math.round(off), count);
+    if (v !== lastReportedRef.current) {
+      lastReportedRef.current = v;
+      onChange(v);
+    }
+  };
+  const report = (off: number) => reportRef.current(off);
+
+  const stopAnim = () => {
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+  };
+
+  const settleTo = (target?: number) => {
+    const t = target ?? Math.round(offsetRef.current);
+    stopAnim();
+    const step = () => {
+      const diff = t - offsetRef.current;
+      if (Math.abs(diff) < 0.004) {
+        setOff(t);
+        report(t);
+        rafRef.current = null;
+        return;
+      }
+      setOff(offsetRef.current + diff * 0.22);
+      report(offsetRef.current);
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  };
+
+  const momentum = () => {
+    stopAnim();
+    const step = () => {
+      velRef.current *= 0.93;
+      const next = offsetRef.current + velRef.current;
+      setOff(next);
+      report(next);
+      if (Math.abs(velRef.current) < 0.02) {
+        rafRef.current = null;
+        settleTo();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  };
+
+  useEffect(() => () => stopAnim(), []);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    stopAnim();
+    lastXRef.current = e.clientX;
+    movedRef.current = 0;
+    velRef.current = 0;
+    lastTimeRef.current = performance.now();
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    const dx = e.clientX - lastXRef.current;
+    lastXRef.current = e.clientX;
+    movedRef.current += Math.abs(dx);
+    const now = performance.now();
+    const dt = Math.max(1, now - lastTimeRef.current);
+    lastTimeRef.current = now;
+    const dItems = -dx / ITEM_W;
+    velRef.current = dItems * (16.7 / dt);
+    const next = offsetRef.current + dItems;
+    setOff(next);
+    report(next);
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (movedRef.current < 6) {
+      // Tap — glide to the tapped label.
+      const rect = e.currentTarget.getBoundingClientRect();
+      const delta = Math.round((e.clientX - (rect.left + rect.width / 2)) / ITEM_W);
+      settleTo(Math.round(offsetRef.current) + delta);
+      return;
+    }
+    if (Math.abs(velRef.current) > 0.05) momentum();
+    else settleTo();
+  };
+
+  // Labels around the current position (center ± 3 covers the mask).
+  const first = Math.floor(offset) - 3;
+  const items: Array<{ k: number; label: string; d: number }> = [];
+  for (let k = first; k <= first + 7; k++) {
+    items.push({ k, label: labels[mod(k, count)], d: k - offset });
+  }
+
+  return (
+    <div className="flex flex-col items-center">
+      <div
+        className="relative w-full max-w-sm h-11 overflow-hidden select-none cursor-ew-resize"
+        style={{ touchAction: 'none', WebkitMaskImage: WHEEL_MASK, maskImage: WHEEL_MASK }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        role="tablist"
+        aria-label="Creation mode"
+      >
+        {items.map(({ k, label, d }) => {
+          const dist = Math.min(Math.abs(d), 2.4);
+          return (
+            <span
+              key={k}
+              className="absolute top-1/2 left-1/2 flex items-center justify-center uppercase font-bold text-[12.5px] tracking-[0.2em] text-on-surface whitespace-nowrap pointer-events-none"
+              style={{
+                width: ITEM_W,
+                transform: `translate(calc(-50% + ${d * ITEM_W}px), -50%) scale(${1 - dist * 0.07})`,
+                opacity: Math.max(0.25, 1 - dist * 0.42),
+                willChange: 'transform, opacity',
+              }}
+              aria-hidden
+            >
+              {label}
+            </span>
+          );
+        })}
       </div>
-    ),
-    cta: 'Start Post',
-  },
-  reel: {
-    label: 'Reel',
-    title: 'Share a Reel',
-    description: 'A short vertical food video with audio, dish tag, and the restaurant it came from.',
-    icon: <Film size={28} />,
-    preview: (
-      <div className="w-44 h-56 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] flex flex-col items-center justify-center gap-2 text-on-surface/35">
-        <Video size={28} />
-        <span className="text-[11px] font-bold uppercase tracking-[0.18em]">Vertical video</span>
-      </div>
-    ),
-    cta: 'Start Reel',
-  },
-  guide: {
-    label: 'Guide',
-    title: 'Build a Guide',
-    description: 'A curated editorial list of restaurants or recipes — with a hero cover, ranked entries, and notes.',
-    icon: <BookOpen size={28} />,
-    preview: (
-      <div className="relative w-44 h-56 rounded-2xl overflow-hidden border border-on-surface/[0.08] bg-gradient-to-br from-stone-200 to-stone-300 flex flex-col justify-end p-3 text-stone-900/80">
-        <span className="text-[9px] font-bold uppercase tracking-[0.22em] mb-1 opacity-60">Guides / NYC</span>
-        <span className="font-serif font-bold text-[15px] leading-tight">Best Chinese Restaurants in NYC</span>
-        <span className="text-[10px] opacity-60 mt-1">12 spots · 6 min read</span>
-      </div>
-    ),
-    cta: 'Start Guide',
-  },
-  recipe: {
-    label: 'Recipe',
-    title: 'Add a Recipe',
-    description: 'Save a dish you cook at home — ingredients, steps, and a hero photo. Publish privately or share with friends.',
-    icon: <ChefHat size={28} />,
-    preview: (
-      <div className="relative w-44 h-56 rounded-2xl overflow-hidden border border-on-surface/[0.08] bg-gradient-to-br from-amber-50 to-rose-100 flex flex-col justify-end p-3 text-stone-900/80">
-        <UtensilsCrossed size={26} className="absolute top-3 right-3 text-stone-900/30" />
-        <span className="text-[9px] font-bold uppercase tracking-[0.22em] mb-1 opacity-60">Italian · Easy</span>
-        <span className="font-serif font-bold text-[15px] leading-tight">Spaghetti alla Carbonara</span>
-        <span className="text-[10px] opacity-60 mt-1">6 ingredients · 25 min</span>
-      </div>
-    ),
-    cta: 'Start Recipe',
-  },
+      <span className="mt-1 w-1 h-1 rounded-full bg-primary" aria-hidden />
+    </div>
+  );
 };
+
+/* ── Shared surface bits ─────────────────────────────────────────── */
+
+const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">{children}</div>
+);
+
+const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () => void }> = ({ label = 'Continue', disabled, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className={cn(
+      'inline-flex items-center gap-2 px-7 py-3 rounded-full font-semibold text-[14px] transition-all active:scale-[0.98]',
+      disabled
+        ? 'bg-on-surface/[0.07] text-on-surface/35'
+        : 'bg-primary text-white shadow-sm hover:bg-primary/90',
+    )}
+  >
+    {label}
+    <ArrowRight size={15} strokeWidth={2.2} />
+  </button>
+);
+
+/* ── Post surface — the composer's media page, embedded ───────────
+   The dark canvas previews the current selection; the camera roll
+   lives in a draggable bottom sheet (pull the handle up for a
+   full-screen gallery, down to see what you've picked). Next routes
+   the selection Instagram-style: exactly one video continues into the
+   reel editor, anything else into the post composer at its Edit step. */
+
+const PostSurface: React.FC = () => {
+  const openComposer = useUnifiedComposer();
+  const useNative = canUseNativePhotoLibrary();
+  // Web picks (OS picker) and native camera captures land here…
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  // …while native camera-roll picks stay as staged PHAssets until Next.
+  const [nativePicks, setNativePicks] = useState<MediaItem[]>([]);
+  const [materializing, setMaterializing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sheet detents track the surface's real height.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [rootH, setRootH] = useState(0);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const update = () => setRootH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Revoke preview URLs on unmount.
+  useEffect(() => () => { previews.forEach((u) => URL.revokeObjectURL(u)); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []);
+
+  const count = files.length + nativePicks.length;
+
+  const addFiles = (list: FileList | null) => {
+    if (!list) return;
+    const picked = Array.from(list)
+      .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .slice(0, Math.max(0, POST_MAX_ITEMS - count));
+    if (picked.length === 0) return;
+    setFiles((prev) => [...prev, ...picked]);
+    setPreviews((prev) => [...prev, ...picked.map((f) => URL.createObjectURL(f))]);
+  };
+
+  const removeFileAt = (i: number) => {
+    URL.revokeObjectURL(previews[i]);
+    setFiles((prev) => prev.filter((_, j) => j !== i));
+    setPreviews((prev) => prev.filter((_, j) => j !== i));
+  };
+
+  const toggleNative = (item: MediaItem) => {
+    setNativePicks((prev) => {
+      const idx = prev.findIndex((p) => p.id === item.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next.splice(idx, 1);
+        return next;
+      }
+      if (count >= POST_MAX_ITEMS) return prev;
+      return [...prev, item];
+    });
+  };
+
+  const onCameraTap = async () => {
+    setMaterializing(true);
+    try {
+      const res = await PhotoLibrary.pickCamera({ mediaType: 'all' });
+      if (res.cancelled || !res.path || !res.mimeType) return;
+      const ext = res.mimeType.split('/')[1] || (res.mediaType === 'video' ? 'mov' : 'jpg');
+      const file = await nativePathToFile(res.path, `camera-${Date.now()}.${ext}`, res.mimeType);
+      setFiles((prev) => [...prev, file]);
+      setPreviews((prev) => [...prev, URL.createObjectURL(file)]);
+    } catch (err) {
+      console.warn('[Create] camera failed:', err);
+    } finally {
+      setMaterializing(false);
+    }
+  };
+
+  const handleNext = async () => {
+    if (materializing || count === 0) return;
+    let all = files;
+    if (nativePicks.length > 0) {
+      setMaterializing(true);
+      try {
+        const materialized: File[] = [];
+        for (const item of nativePicks) {
+          const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+          const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+          materialized.push(await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType));
+        }
+        all = [...files, ...materialized];
+      } catch (err) {
+        console.warn('[Create] materialize failed:', err);
+        setMaterializing(false);
+        return;
+      }
+      setMaterializing(false);
+    }
+    if (all.length === 0) return;
+    openComposer(all);
+    previews.forEach((u) => URL.revokeObjectURL(u));
+    setFiles([]);
+    setPreviews([]);
+    setNativePicks([]);
+  };
+
+  // Canvas preview — the most recently added pick.
+  const lastNative = nativePicks[nativePicks.length - 1];
+  const lastPreviewIdx = previews.length - 1;
+  const coverSrc = lastNative?.thumbnailDataUrl ?? (lastPreviewIdx >= 0 ? previews[lastPreviewIdx] : null);
+  const coverIsVideo = lastNative ? lastNative.type === 'video'
+    : (lastPreviewIdx >= 0 && files[lastPreviewIdx]?.type.startsWith('video/'));
+  // Instagram routing hint: a lone video continues as a reel.
+  const willBeReel = count === 1 && (
+    nativePicks.length === 1 ? nativePicks[0].type === 'video' : files[0]?.type.startsWith('video/')
+  );
+
+  const sheetH = Math.round(Math.min(Math.max(rootH * 0.52, 260), 460));
+  const sheetMax = Math.max(sheetH, rootH - 48);
+
+  return (
+    <div ref={rootRef} className="relative h-full flex flex-col bg-[#16120e] text-white overflow-hidden">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.heic,.heif"
+        multiple
+        className="hidden"
+        onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
+      />
+
+      {/* ── Canvas — preview of the selection ── */}
+      <div className="flex-1 min-h-0 relative">
+        {coverSrc ? (
+          <motion.div
+            key={coverSrc}
+            initial={{ opacity: 0.4, scale: 0.99 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-x-3 top-1 bottom-2"
+          >
+            {coverIsVideo && !lastNative ? (
+              <video src={coverSrc} muted playsInline autoPlay loop className="w-full h-full object-contain" />
+            ) : (
+              <img src={coverSrc} alt="" className="w-full h-full object-contain" />
+            )}
+            {willBeReel && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur px-3 py-1.5 text-[11px] font-bold text-white whitespace-nowrap">
+                <Film size={11} />
+                One video — continues as a reel
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-10 text-center">
+            <div className="flex items-center gap-2.5 text-white/40">
+              <ImageIcon size={26} />
+              <VideoIcon size={26} />
+            </div>
+            <p className="text-[14px] font-semibold text-white/75 mt-3">
+              {useNative ? 'Pick from your camera roll below' : 'Add photos or a video'}
+            </p>
+            <p className="text-[12px] text-white/40 mt-1 leading-relaxed">
+              One video becomes a reel · up to {POST_MAX_ITEMS} items
+            </p>
+            {!useNative && (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="mt-4 h-10 px-5 rounded-full bg-surface text-on-surface text-[13px] font-bold active:scale-95 transition-transform"
+              >
+                Open camera roll
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Floating Next pill */}
+        {count > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            type="button"
+            onClick={() => { void handleNext(); }}
+            disabled={materializing}
+            className="absolute top-2 right-4 z-20 h-9 pl-4 pr-3 rounded-full bg-surface text-on-surface inline-flex items-center gap-1 text-[13px] font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {materializing ? (
+              <><Loader2 size={13} className="animate-spin" /> Loading…</>
+            ) : (
+              <>Next <span className="opacity-70">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
+            )}
+          </motion.button>
+        )}
+      </div>
+
+      {/* ── Camera-roll sheet — drag up for the full gallery ── */}
+      <DraggableSheet
+        height={sheetH}
+        maxHeight={sheetMax}
+        draggable
+        className="relative z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
+      >
+        <div className="px-5 pt-1 pb-safe-6">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
+            <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">{count} / {POST_MAX_ITEMS}</span>
+          </div>
+
+          {/* Camera captures / web picks — tap to remove. */}
+          {files.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide mt-3 pb-1">
+              {files.map((f, i) => (
+                <button
+                  key={`${f.name}-${i}`}
+                  type="button"
+                  onClick={() => removeFileAt(i)}
+                  className="relative w-16 h-16 rounded-xl overflow-hidden flex-shrink-0 ring-1 ring-on-surface/[0.08]"
+                  aria-label={`Remove item ${i + 1}`}
+                >
+                  {f.type.startsWith('video/') ? (
+                    <video src={previews[i]} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={previews[i]} alt="" className="w-full h-full object-cover" />
+                  )}
+                  <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-white text-[10px] font-bold flex items-center justify-center">
+                    {i + 1}
+                  </span>
+                  <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white/90 text-[9px] font-bold py-0.5">
+                    Remove
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {useNative ? (
+            /* Native camera roll — auto-loaded, numbered multi-select. */
+            <div className="-mx-5 mt-2">
+              <PhotoLibraryGrid
+                mediaType="all"
+                onSelect={toggleNative}
+                selectedIds={nativePicks.map((p) => p.id)}
+                selectionMode="multi"
+                onCameraTap={onCameraTap}
+              />
+            </div>
+          ) : (
+            /* Web fallback — the OS picker is the camera roll. */
+            <div className="grid grid-cols-3 gap-1.5 mt-3">
+              {count < POST_MAX_ITEMS && (
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="aspect-square rounded-[10px] border-[1.5px] border-dashed border-on-surface/20 flex flex-col items-center justify-center gap-1 text-on-surface/45 active:bg-on-surface/[0.04] transition-colors"
+                >
+                  <Plus size={17} strokeWidth={2.4} />
+                  <span className="text-[10.5px] font-bold uppercase tracking-wider">Add</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </DraggableSheet>
+    </div>
+  );
+};
+
+/* ── Guide surface — type + title, wizard opens pre-filled ───────── */
+
+const GuideSurface: React.FC = () => {
+  const { openGuideCreator } = useGuideCreator();
+  const [type, setType] = useState<GuideType>('restaurants');
+  const [title, setTitle] = useState('');
+
+  const handleContinue = () => {
+    openGuideCreator(null, { seed: { type, title: title.trim() } });
+    setTitle('');
+  };
+
+  return (
+    <div className="w-full max-w-md mx-auto">
+      <Eyebrow>Build a guide</Eyebrow>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        {([
+          { key: 'restaurants' as GuideType, label: 'Restaurants', sub: 'Places to eat & drink', icon: <MapPin size={16} /> },
+          { key: 'recipes' as GuideType, label: 'Recipes', sub: 'Things to cook at home', icon: <ChefHat size={16} /> },
+        ]).map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => setType(o.key)}
+            className={cn(
+              'flex flex-col items-start gap-1 rounded-2xl border p-4 text-left transition-all',
+              type === o.key
+                ? 'border-primary ring-1 ring-primary bg-primary/[0.04]'
+                : 'border-on-surface/[0.1] hover:border-on-surface/25',
+            )}
+          >
+            <span className={cn('mb-1.5 w-9 h-9 rounded-full flex items-center justify-center',
+              type === o.key ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-on-surface/45')}>
+              {o.icon}
+            </span>
+            <span className="text-[14px] font-semibold">{o.label}</span>
+            <span className="text-[11.5px] text-on-surface/45 leading-snug">{o.sub}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-6">
+        <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mb-1.5">Title</div>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={type === 'recipes' ? 'Weeknight comfort classics' : 'Best pasta in the Village'}
+          maxLength={80}
+          className="w-full bg-transparent border-0 border-b-[1.5px] border-on-surface/15 focus:border-primary focus:outline-none py-2 font-serif font-semibold text-[21px] placeholder:text-on-surface/25"
+        />
+      </div>
+
+      <div className="mt-6 flex justify-end">
+        <ContinueBtn onClick={handleContinue} />
+      </div>
+    </div>
+  );
+};
+
+/* ── Recipe surface — the four ways in, one tap deep ─────────────── */
+
+const RecipeSurface: React.FC = () => {
+  const { openHomeMealModal } = useLists();
+
+  const methods: Array<{ key: 'link' | 'photo' | 'custom' | 'ai'; icon: React.ReactNode; title: string; sub: string }> = [
+    { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
+    { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+    { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
+    { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
+  ];
+
+  return (
+    <div className="w-full max-w-md mx-auto">
+      <Eyebrow>Add a recipe</Eyebrow>
+      <div>
+        {methods.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => openHomeMealModal(undefined, { initialMethod: m.key })}
+            className="w-full flex items-center gap-3.5 py-3.5 text-left border-b border-on-surface/[0.07] last:border-0 active:bg-on-surface/[0.03] transition-colors"
+          >
+            <span className="w-11 h-11 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+              {m.icon}
+            </span>
+            <span className="flex flex-col gap-0.5 flex-1 min-w-0">
+              <span className="text-[15px] font-semibold">{m.title}</span>
+              <span className="text-[12.5px] text-on-surface/45">{m.sub}</span>
+            </span>
+            <ChevronRight size={15} className="text-on-surface/30 flex-shrink-0" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* ── Page ─────────────────────────────────────────────────────────── */
 
 export const Create: React.FC = () => {
   const navigate = useNavigate();
-  const { openAddPostModal } = usePosts();
-  const { openAddReelModal } = useReels();
-  const { openHomeMealModal } = useLists();
-
-  const [mode, setMode] = useState<Mode>('post');
-  const { openGuideCreator } = useGuideCreator();
-  const idx = MODES.indexOf(mode);
-
-  const close = () => navigate('/');
-
-  const begin = () => {
-    if (mode === 'post') openAddPostModal();
-    else if (mode === 'reel') openAddReelModal();
-    else if (mode === 'guide') openGuideCreator();
-    else openHomeMealModal();
-  };
-
-  // Horizontal swipe on the content area changes mode — same gesture
-  // Instagram uses on its create surface.
-  const onContentDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.x < -60 && idx < MODES.length - 1) setMode(MODES[idx + 1]);
-    else if (info.offset.x > 60 && idx > 0) setMode(MODES[idx - 1]);
-  };
-
-  // Measure each tab so the underline indicator slides cleanly between
-  // them regardless of label length / font metrics.
-  const tabRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ post: null, reel: null, guide: null, recipe: null });
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const [indicator, setIndicator] = useState<{ x: number; w: number }>({ x: 0, w: 0 });
-  useLayoutEffect(() => {
-    const btn = tabRefs.current[mode];
-    const track = trackRef.current;
-    if (!btn || !track) return;
-    const btnRect = btn.getBoundingClientRect();
-    const trackRect = track.getBoundingClientRect();
-    setIndicator({ x: btnRect.left - trackRect.left, w: btnRect.width });
-  }, [mode]);
-
-  const meta = MODE_META[mode];
+  const [modeIdx, setModeIdx] = useState(0);
+  const mode = MODES[modeIdx];
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-on-surface">
@@ -126,80 +607,49 @@ export const Create: React.FC = () => {
       <header className="flex-shrink-0 px-4 pt-safe-4 pb-2 grid grid-cols-[1fr_auto_1fr] items-center">
         <div className="flex items-center justify-start">
           <button
-            onClick={close}
+            onClick={() => navigate('/')}
             aria-label="Close"
             className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
           >
-            <ArrowLeft size={20} />
+            <X size={19} />
           </button>
         </div>
         <h1 className="text-base font-serif font-bold tracking-tight">Create</h1>
         <div />
       </header>
 
-      {/* Content area — swipe horizontally to switch modes. */}
-      <motion.div
-        className="flex-1 flex flex-col items-center justify-center px-6 select-none"
-        drag="x"
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.18}
-        dragMomentum={false}
-        onDragEnd={onContentDragEnd}
-        style={{ touchAction: 'pan-y' }}
-      >
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={mode}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -14 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="flex flex-col items-center text-center max-w-sm"
-          >
-            <div className="mb-7">{meta.preview}</div>
-            <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-4">
-              {meta.icon}
-            </div>
-            <h2 className="text-[22px] font-serif font-bold mb-2 leading-tight">{meta.title}</h2>
-            <p className="text-[13.5px] text-on-surface/55 leading-relaxed mb-7 px-2">{meta.description}</p>
-            <button
-              onClick={begin}
-              className="inline-flex items-center gap-2 bg-primary text-white px-7 py-3 rounded-full font-semibold text-[14px] shadow-sm hover:bg-primary/90 active:scale-[0.98] transition-all"
-            >
-              {meta.cta}
-              <ChevronRight size={16} />
-            </button>
-          </motion.div>
-        </AnimatePresence>
-      </motion.div>
-
-      {/* Bottom mode picker — Instagram-style centered carousel. The
-          selected label is opaque and large; the other shrinks and
-          dims. A pill indicator slides under the active tab. */}
-      <div className="flex-shrink-0 pb-10 pt-3">
-        <div ref={trackRef} className="relative flex items-center justify-center gap-10 px-6">
-          {MODES.map((m) => (
-            <button
+      {/* Live surfaces — all mounted so half-written input survives
+          wheel spins; only the active one is visible + interactive. */}
+      <div className="relative flex-1 min-h-0">
+        {MODES.map((m) => {
+          const active = m === mode;
+          return (
+            <div
               key={m}
-              ref={(el) => { tabRefs.current[m] = el; }}
-              onClick={() => setMode(m)}
               className={cn(
-                'uppercase tracking-[0.22em] text-[13px] font-bold py-1 transition-all duration-200',
-                m === mode ? 'text-on-surface scale-100' : 'text-on-surface/35 scale-90',
+                'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                // The post surface is a full-bleed composer (dark canvas
+                // + its own bottom sheet); the others are padded forms.
+                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-4 pb-6',
+                active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
               )}
+              aria-hidden={!active}
             >
-              {MODE_META[m].label}
-            </button>
-          ))}
-          {indicator.w > 0 && (
-            <motion.span
-              className="absolute -bottom-1 h-[3px] rounded-full bg-primary"
-              animate={{ x: indicator.x, width: indicator.w }}
-              transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-              style={{ left: 0 }}
-            />
-          )}
-        </div>
+              {m === 'post' && <PostSurface />}
+              {m === 'guide' && <GuideSurface />}
+              {m === 'recipe' && <RecipeSurface />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Infinite mode wheel */}
+      <div className="flex-shrink-0 pt-2 pb-safe-6">
+        <ModeWheel
+          count={MODES.length}
+          labels={MODES.map((m) => MODE_LABELS[m])}
+          onChange={setModeIdx}
+        />
       </div>
     </div>
   );

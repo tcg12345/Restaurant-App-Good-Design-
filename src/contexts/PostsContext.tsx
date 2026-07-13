@@ -96,9 +96,14 @@ interface PostsContextValue {
   addPostModalOpen: boolean;
   /** When set, the modal is in edit mode against this post's id. */
   editingPostId: string | null;
-  openAddPostModal: () => void;
+  /** Open the composer, optionally pre-filled with media + caption
+   *  handed off from the Create page's embedded surface. */
+  openAddPostModal: (draft?: { files: File[]; caption: string }) => void;
   openEditPostModal: (postId: string) => void;
   closeAddPostModal: () => void;
+  /** One-shot: the draft passed to openAddPostModal, consumed by the
+   *  modal's open-reset effect. Returns null after the first call. */
+  consumePendingPostDraft: () => { files: File[]; caption: string } | null;
 
   // Comments-sheet state (post)
   openPostCommentsId: string | null;
@@ -349,12 +354,20 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ok;
   }, []);
 
-  const openAddPostModal = useCallback(() => {
+  const pendingPostDraftRef = useRef<{ files: File[]; caption: string } | null>(null);
+  const openAddPostModal = useCallback((draft?: { files: File[]; caption: string }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to post'); return; }
+    pendingPostDraftRef.current = draft ?? null;
     setEditingPostId(null);
     setAddPostModalOpen(true);
   }, [requireSignIn]);
+  const consumePendingPostDraft = useCallback(() => {
+    const d = pendingPostDraftRef.current;
+    pendingPostDraftRef.current = null;
+    return d;
+  }, []);
   const openEditPostModal = useCallback((postId: string) => {
+    pendingPostDraftRef.current = null;
     setEditingPostId(postId);
     setAddPostModalOpen(true);
   }, []);
@@ -384,6 +397,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     openAddPostModal,
     openEditPostModal,
     closeAddPostModal,
+    consumePendingPostDraft,
     openPostCommentsId,
     openPostCommentsSheet,
     closePostCommentsSheet,

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { PRIVACY_URL } from '../lib/external-links';
 import { cn } from '../lib/utils';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding kit; desktop keeps the
@@ -413,8 +414,7 @@ const StepSetPassword: React.FC<SharedProps> = ({
 
         <p className="text-xs text-on-surface/45 text-center leading-relaxed">
           At least 8 characters. By continuing you agree to our{' '}
-          <a href="#" className="text-on-surface/70 underline">Terms</a> and{' '}
-          <a href="#" className="text-on-surface/70 underline">Privacy Policy</a>.
+          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="text-on-surface/70 underline">Privacy Policy</a>.
         </p>
       </form>
     </div>

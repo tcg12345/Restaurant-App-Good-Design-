@@ -7,6 +7,7 @@ web and native apps at `<VITE_SUPABASE_URL>/functions/v1/<name>`:
 |----------|---------|-------------|
 | `location-chat` | Streaming AI chat (Anthropic) | `ANTHROPIC_API_KEY` |
 | `build-recipe` | "Create with AI" recipe authoring (Anthropic) | `ANTHROPIC_API_KEY` |
+| `import-recipe` | Import tab — transcribe a recipe from a URL / photos / pasted text (Anthropic) | `ANTHROPIC_API_KEY` |
 | `generate-recipe-image` | Recipe hero photo (OpenAI) | `OPENAI_API_KEY` |
 
 Each requires a signed-in Supabase user — `_shared/auth.ts` verifies the
@@ -22,9 +23,10 @@ supabase link --project-ref YOUR_PROJECT_REF
 # Set the server-side keys (stored as Supabase secrets, never in the bundle)
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-... OPENAI_API_KEY=sk-...
 
-# Deploy all three
+# Deploy all four
 supabase functions deploy location-chat
 supabase functions deploy build-recipe
+supabase functions deploy import-recipe
 supabase functions deploy generate-recipe-image
 ```
 

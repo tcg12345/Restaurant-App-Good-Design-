@@ -470,6 +470,74 @@ export async function listReels(opts: {
   return reels;
 }
 
+/**
+ * Reels that feature a specific restaurant, newest first. Backs the
+ * "More from {restaurant}" rail on the restaurant detail pages / panel.
+ *
+ * Returns `[]` (never filler) when the place has no reels yet — the rail
+ * hides itself in that case. Mirrors `listReels`' migration-tolerance and
+ * public/own-visibility filtering, just scoped by `restaurant_id`.
+ */
+export async function listReelsForRestaurant(
+  restaurantId: string,
+  opts: { limit?: number; viewerId?: string | null } = {},
+): Promise<ReelRow[] | null> {
+  if (!supabaseConfigured) return [];
+  if (!restaurantId) return [];
+  const { limit = 12, viewerId } = opts;
+
+  const { data, error } = await supabase.from('reels')
+    .select('*, reel_likes(count), reel_saves(count), reel_comments(count)')
+    .eq('restaurant_id', restaurantId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('[Reels] listForRestaurant failed:', error.message);
+    return null;
+  }
+  if (!data || data.length === 0) return [];
+
+  const reelIds = data.map((r) => String((r as { id: unknown }).id));
+  let myLikes = new Set<string>();
+  let mySaves = new Set<string>();
+  if (viewerId) {
+    const [{ data: likeRows }, { data: saveRows }] = await Promise.all([
+      supabase.from('reel_likes').select('reel_id').eq('user_id', viewerId).in('reel_id', reelIds),
+      supabase.from('reel_saves').select('reel_id').eq('user_id', viewerId).in('reel_id', reelIds),
+    ]);
+    myLikes = new Set((likeRows || []).map((r) => String((r as { reel_id: unknown }).reel_id)));
+    mySaves = new Set((saveRows || []).map((r) => String((r as { reel_id: unknown }).reel_id)));
+  }
+
+  const allReels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
+  // Same visibility rules as the main feed: hide others' still-transcoding
+  // Mux reels (no playable asset yet) and others' followers-only reels.
+  const reels = allReels.filter((r) => {
+    if (r.muxStatus && r.muxStatus !== 'ready' && r.userId !== viewerId) return false;
+    if (!r.isPublic && r.userId !== viewerId) return false;
+    return true;
+  });
+  if (reels.length === 0) return [];
+
+  const legacy = reels.filter((r) => !r.muxPlaybackId && r.videoPath);
+  const [signed, signedPosters, authors] = await Promise.all([
+    signVideoPaths(legacy.map((r) => r.videoPath)),
+    signVideoPaths(legacy.map((r) => posterPathFor(r.videoPath))),
+    hydrateAuthors(reels.map((r) => r.userId)),
+  ]);
+  for (const r of reels) {
+    r.author = authors[r.userId] ?? null;
+    if (r.muxPlaybackId) {
+      r.videoUrl = '';
+      r.posterUrl = muxPosterUrl(r.muxPlaybackId);
+    } else {
+      r.videoUrl = signed[r.videoPath] || '';
+      r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
+    }
+  }
+  return reels;
+}
+
 /* ── Like / save toggles ────────────────────────────────────────────── */
 
 export async function setLike(reelId: string, userId: string, liked: boolean): Promise<boolean> {

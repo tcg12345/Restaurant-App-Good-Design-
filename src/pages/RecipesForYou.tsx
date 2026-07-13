@@ -30,13 +30,12 @@ import { shareExternally } from '../lib/native-share';
 import './RecipesForYou.css';
 
 type SourceFilter = 'all' | 'friend' | 'chef' | 'home';
-type SortKey = 'recent' | 'popular' | 'quick' | 'az';
+type SortKey = 'recent' | 'quick' | 'az';
 type MealKey = 'breakfast' | 'lunch' | 'dinner' | 'dessert' | 'baking' | 'drinks';
 type ViewMode = 'grid' | 'list';
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent: 'Most Recent',
-  popular: 'Most Saved',
   quick: 'Quickest first',
   az: 'A–Z',
 };
@@ -63,47 +62,6 @@ const MEAL_CATEGORIES: { key: MealKey; label: string; hue: number; icon: typeof 
   { key: 'drinks',    label: 'Drinks',    hue: 200, icon: Wine },
 ];
 
-// Hand-curated collections — same shape as the mock-up. Keeps the section
-// alive while a real collections backend doesn't exist yet.
-const COLLECTIONS = [
-  {
-    id: 'c1',
-    title: '30-Minute Weeknights',
-    sub: '25 fast dinners that don\'t skimp',
-    count: 25,
-    by: 'Editors',
-    img: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=900&auto=format&fit=crop',
-    filter: { source: 'all' as SourceFilter, quick: true },
-  },
-  {
-    id: 'c2',
-    title: 'Weekend Baking Projects',
-    sub: 'Slow loaves, laminated dough, big ambitions',
-    count: 12,
-    by: 'Editors',
-    img: 'https://images.unsplash.com/photo-1568051243851-f9b136146e97?w=900&auto=format&fit=crop',
-    filter: { source: 'all' as SourceFilter, meal: 'baking' as MealKey },
-  },
-  {
-    id: 'c3',
-    title: 'Comfort From Around the World',
-    sub: 'Soul-warming dishes for cold nights',
-    count: 18,
-    by: 'Editors',
-    img: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=900&auto=format&fit=crop',
-    filter: { source: 'all' as SourceFilter, tag: 'comfort' },
-  },
-  {
-    id: 'c4',
-    title: 'Vegetarian Showstoppers',
-    sub: 'Mains that don\'t miss meat',
-    count: 14,
-    by: 'Editors',
-    img: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=900&auto=format&fit=crop',
-    filter: { source: 'all' as SourceFilter, tag: 'vegetarian' },
-  },
-];
-
 // Hash a string to a stable hue 0–360. Used for author avatars when we
 // don't have an explicit color.
 const hashToHue = (s: string): number => {
@@ -112,9 +70,9 @@ const hashToHue = (s: string): number => {
   return h;
 };
 
-// Stable seed-based number from a string. Used for pseudo-real counts
-// (followers, trending up arrows) so the same recipe always shows the
-// same number rather than reshuffling each render.
+// Stable seed-based number from a string — used only for deterministic
+// ordering (so mixed pools don't reshuffle between renders), never for
+// displayed counts.
 const stableHash = (s: string): number => {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
@@ -486,10 +444,6 @@ export const RecipesForYou: React.FC = () => {
         const bv = bt <= 0 ? Number.POSITIVE_INFINITY : bt;
         return av - bv;
       });
-    } else if (sortBy === 'popular') {
-      // No real popularity metric yet — fall back to a stable per-recipe
-      // pseudo-saves score so the order is deterministic.
-      pool.sort((a, b) => stableHash(b.id) - stableHash(a.id));
     } else {
       pool.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
@@ -580,8 +534,7 @@ export const RecipesForYou: React.FC = () => {
         const bt = (b.prepTimeMinutes ?? 0) + (b.cookTimeMinutes ?? 0);
         return (at <= 0 ? Infinity : at) - (bt <= 0 ? Infinity : bt);
       });
-    } else if (sortBy === 'popular') out.sort((a, b) => stableHash(b.id) - stableHash(a.id));
-    else if (sortBy === 'az') out.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (sortBy === 'az') out.sort((a, b) => a.title.localeCompare(b.title));
     else out.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     return out;
   }, [displayRecipes, authors, facetSel, facetGet, searchQuery, sortBy]);
@@ -922,7 +875,7 @@ export const RecipesForYou: React.FC = () => {
                     </button>
                     {sortMenuOpen && (
                       <div className="rbx-sort-menu">
-                        {(['recent', 'popular', 'quick', 'az'] as SortKey[]).map((k) => (
+                        {(['recent', 'quick', 'az'] as SortKey[]).map((k) => (
                           <button key={k} type="button" className={cn('opt', sortBy === k && 'active')} onClick={() => { setSortBy(k); setSortMenuOpen(false); }}>
                             {SORT_LABELS[k]}{sortBy === k && <Check />}
                           </button>
@@ -1164,214 +1117,6 @@ const RecipeOfTheDay: React.FC<{
   );
 };
 
-const TrendCard: React.FC<{ r: Recipe; rank: number; onClick: () => void }> = ({ r, rank, onClick }) => {
-  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
-  const time = formatTime(totalTime);
-  const trendCount = 80 + (stableHash(r.id) % 200);
-  return (
-    <button type="button" className="trend-card" onClick={onClick}>
-      <div className={cn('trend-rank', rank > 3 && 'dim')}>{rank}</div>
-      <div className="trend-info">
-        <h4 className="trend-name">{r.title}</h4>
-        <div className="trend-meta">
-          {r.cuisine && <span>{r.cuisine}</span>}
-          {r.cuisine && time ? <span className="sep" /> : null}
-          {time && <span>{time}</span>}
-          <span className="sep" />
-          <span className="up"><TrendingUp /> {trendCount}</span>
-        </div>
-      </div>
-    </button>
-  );
-};
-
-const MiniRecipeCard: React.FC<{
-  r: Recipe;
-  source: SourceFilter;
-  author?: UserProfile;
-  saved: boolean;
-  onSave: (id: string) => void;
-  onClick: () => void;
-}> = ({ r, source, author, saved, onSave, onClick }) => {
-  const cover = r.photos?.[0] || '';
-  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
-  const time = formatTime(totalTime);
-  const authorName = author?.display_name || author?.username || 'Anonymous';
-  const authorHue = hashToHue(r.userId || authorName);
-  return (
-    <article className="rg-card" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
-      <div className="rg-img">
-        <div className="bg" style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }} />
-        {cover ? (
-          <img className="rg-photo" src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="ph-fallback"><ChefHat /></div>
-        )}
-        <span className={cn('rg-source', source)}>
-          <SourceIcon source={source} /> {author?.display_name || author?.username || sourceLabelOf(source)}
-        </span>
-        <button
-          type="button"
-          className={cn('rg-save', saved && 'saved')}
-          onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
-          title={saved ? 'Saved' : 'Save'}
-          aria-label={saved ? 'Saved' : 'Save'}
-        >
-          <Bookmark fill={saved ? 'currentColor' : 'none'} />
-        </button>
-      </div>
-      <div className="rg-body">
-        <h3 className="rg-name">{r.title}</h3>
-        {r.cuisine && <div className="rg-cuisine">{r.cuisine}</div>}
-      </div>
-      <div className="rg-meta">
-        {time && <span className="item"><Clock /> {time}</span>}
-        {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
-        <span className="item" style={{ marginLeft: 'auto' }}>
-          <span
-            className="rg-author-av"
-            style={{ background: `hsl(${authorHue} 45% 40%)`, width: 20, height: 20, fontSize: 10 }}
-          >
-            {(authorName[0] || '?').toUpperCase()}
-          </span>
-          {authorName}
-        </span>
-      </div>
-    </article>
-  );
-};
-
-const GridRecipeCard: React.FC<{
-  r: Recipe;
-  source: SourceFilter;
-  author?: UserProfile;
-  saved: boolean;
-  onSave: (id: string) => void;
-  onClick: () => void;
-  view: ViewMode;
-}> = ({ r, source, author, saved, onSave, onClick, view }) => {
-  const cover = r.photos?.[0] || '';
-  const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
-  const time = formatTime(totalTime);
-  const authorName = author?.display_name || author?.username || 'Anonymous';
-  const authorHue = hashToHue(r.userId || authorName);
-  const visibleTags = r.tags.slice(0, 2);
-  const extraTags = r.tags.length - 2;
-  const saveCount = 4 + (stableHash(r.id) % 30);
-
-  const ImageBlock = (
-    <div className="rg-img">
-      <div className="bg" style={{ background: `linear-gradient(135deg, hsl(${authorHue} 50% 52%), hsl(${(authorHue + 25) % 360} 50% 42%))` }} />
-      {cover ? (
-        <img className="rg-photo" src={cover} alt={r.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-      ) : (
-        <div className="ph-fallback"><ChefHat /></div>
-      )}
-      <span className={cn('rg-source', source)}>
-        <SourceIcon source={source} /> {author?.display_name || author?.username || sourceLabelOf(source)}
-      </span>
-      <button
-        type="button"
-        className={cn('rg-save', saved && 'saved')}
-        onClick={(e) => { e.stopPropagation(); onSave(r.id); }}
-        title={saved ? 'Saved' : 'Save'}
-        aria-label={saved ? 'Saved' : 'Save'}
-      >
-        <Bookmark fill={saved ? 'currentColor' : 'none'} />
-      </button>
-    </div>
-  );
-
-  const BodyBlock = (
-    <div className="rg-body">
-      <h3 className="rg-name">{r.title}</h3>
-      <div className="rg-cuisine">
-        {r.cuisine || 'Recipe'}
-        {r.difficulty && <span className={cn('diff', r.difficulty)}>{DIFFICULTY_LABEL[r.difficulty]}</span>}
-      </div>
-      {r.description && <p className="rg-desc">{r.description}</p>}
-      {visibleTags.length > 0 && (
-        <div className="rg-tags">
-          {visibleTags.map((t) => <span key={t} className="rg-tag">{t}</span>)}
-          {extraTags > 0 && <span className="rg-tag more">+{extraTags}</span>}
-        </div>
-      )}
-    </div>
-  );
-
-  if (view === 'list') {
-    return (
-      <article className="rg-card" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
-        {ImageBlock}
-        <div className="rg-card-right">
-          {BodyBlock}
-          <div className="list-side">
-            <span
-              className="rg-author-av"
-              style={{ background: `hsl(${authorHue} 45% 40%)` }}
-            >
-              {(authorName[0] || '?').toUpperCase()}
-            </span>
-            <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{authorName}</span>
-            <span className="sep" />
-            {time && <span className="item"><Clock /> {time}</span>}
-            {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
-            <span className="item"><Bookmark /> {saveCount}</span>
-          </div>
-        </div>
-      </article>
-    );
-  }
-
-  return (
-    <article className="rg-card" onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>
-      {ImageBlock}
-      {BodyBlock}
-      <div className="rg-meta">
-        {time && <span className="item"><Clock /> {time}</span>}
-        {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
-        <span className="item"><Bookmark /> {saveCount}</span>
-      </div>
-      <div className="rg-author">
-        <span
-          className="rg-author-av"
-          style={{ background: `hsl(${authorHue} 45% 40%)` }}
-        >
-          {(authorName[0] || '?').toUpperCase()}
-        </span>
-        <span className="rg-author-name">{authorName}</span>
-      </div>
-    </article>
-  );
-};
-
-const ChefCard: React.FC<{
-  profile: UserProfile;
-  recipeCount: number;
-  onClick: () => void;
-}> = ({ profile, recipeCount, onClick }) => {
-  const name = profile.display_name || profile.username || 'Chef';
-  const role = profile.home_city || 'Featured chef';
-  const initials = name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase() || 'C';
-  const hue = hashToHue(profile.user_id || name);
-  const followers = 1000 + (stableHash(profile.user_id) % 16000);
-  const followersLabel = followers >= 1000 ? `${(followers / 1000).toFixed(1)}k` : String(followers);
-  return (
-    <button type="button" className="chef-card" onClick={onClick}>
-      <div className="chef-av" style={{ background: `hsl(${hue} 50% 32%)` }}>{initials}</div>
-      <div className="chef-info">
-        <h3 className="chef-name">{name}</h3>
-        <div className="chef-role">{role}</div>
-        {profile.bio && <p className="chef-tag">{profile.bio}</p>}
-        <div className="chef-stats">
-          <span className="item"><BookOpen /> <span className="b">{recipeCount}</span> recipes</span>
-          <span className="item"><Users /> <span className="b">{followersLabel}</span> followers</span>
-        </div>
-      </div>
-    </button>
-  );
-};
-
 /* ── Mobile sub-components ─────────────────────────────────────────── */
 
 const MobileExploreCard: React.FC<{
@@ -1386,7 +1131,6 @@ const MobileExploreCard: React.FC<{
   const cover = r.photos?.[0] || '';
   const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
   const time = formatTime(totalTime);
-  const saveCount = 4 + (stableHash(r.id) % 30);
   const hue = hashToHue(r.userId || r.id);
 
   const ImageBlock = (
@@ -1443,7 +1187,6 @@ const MobileExploreCard: React.FC<{
             <span className="sep" />
             {time && <span className="item"><Clock /> {time}</span>}
             {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
-            <span className="item"><Bookmark /> {saveCount}</span>
           </div>
         </div>
       </article>
@@ -1466,7 +1209,7 @@ const MobileExploreCard: React.FC<{
         </div>
         <div className="m-er-meta">
           {time && <span><Clock /> {time}</span>}
-          <span><Bookmark /> {saveCount}</span>
+          {r.servings ? <span><UtensilsCrossed /> Serves {r.servings}</span> : null}
         </div>
       </div>
     </article>

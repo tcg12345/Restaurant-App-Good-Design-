@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Star, MapPin, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark, MoreHorizontal,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   Edit3, Send, Building2, TrendingUp, TrendingDown,
   Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
 } from 'lucide-react';
@@ -323,9 +323,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
             >
               <Bookmark size={18} className={isWishlisted(place.id) ? 'fill-current' : ''} />
             </button>
-            <button type="button" aria-label="More" className="w-10 h-10 rounded-full grid place-items-center text-on-surface hover:bg-on-surface/[0.05] transition-colors">
-              <MoreHorizontal size={20} />
-            </button>
           </div>
         </div>
       </header>
@@ -634,10 +631,9 @@ export const RestaurantDetailDesktop: React.FC = () => {
             );
           })()}
 
-          {/* ── More from {restaurant} — featured reels rail ── */}
-          <section>
-            <RestaurantFeaturedReels restaurantId={place.id} restaurantName={place.name} size="md" />
-          </section>
+          {/* ── More from {restaurant} — featured reels rail. Renders its own
+              <section> when the place has reels, or nothing at all. ── */}
+          <RestaurantFeaturedReels restaurantId={place.id} restaurantName={place.name} size="md" />
 
           {/* ── Hotel dining ── */}
           {isHotel && (
