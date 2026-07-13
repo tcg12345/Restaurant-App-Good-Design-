@@ -631,10 +631,9 @@ export const RestaurantDetailDesktop: React.FC = () => {
             );
           })()}
 
-          {/* ── More from {restaurant} — featured reels rail ── */}
-          <section>
-            <RestaurantFeaturedReels restaurantId={place.id} restaurantName={place.name} size="md" />
-          </section>
+          {/* ── More from {restaurant} — featured reels rail. Renders its own
+              <section> when the place has reels, or nothing at all. ── */}
+          <RestaurantFeaturedReels restaurantId={place.id} restaurantName={place.name} size="md" />
 
           {/* ── Hotel dining ── */}
           {isHotel && (
