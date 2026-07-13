@@ -535,6 +535,10 @@ function computeMediaRect(
 
 type Tab = 'crop' | 'adjust' | 'filter' | 'text' | 'trim';
 
+/** Exported for split-layout hosts (desktop composer) that own the tab
+ *  state themselves and compose EditorStage + EditorControls. */
+export type EditorTab = Tab;
+
 interface MediaEditorProps {
   items: EditableItem[];
   /** Currently focused item key. */
@@ -875,7 +879,11 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
             <AdjustTab edits={edits} setEdits={setEdits} />
           )}
           {tab === 'filter' && (
-            <FilterTab edits={edits} setEdits={setEdits} />
+            <FilterTab
+              edits={edits}
+              setEdits={setEdits}
+              previewUrl={active.mediaType === 'photo' ? active.previewUrl : undefined}
+            />
           )}
           {tab === 'text' && (
             <TextTab
@@ -1235,20 +1243,23 @@ const MediaOverlays: React.FC<{
   onSelect?: (id: string) => void;
   onTextsChange?: (texts: TextOverlay[]) => void;
 }> = ({ edits, natural, interactive = false, selectedId, onSelect, onTextsChange }) => {
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Callback-ref + state so the ResizeObserver attaches whenever the
+  // wrapper (re)mounts — this component returns null until there's an
+  // overlay to draw, so a mount-once effect would observe nothing and
+  // every overlay would render at 0×0.
+  const [wrapEl, setWrapEl] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
+    if (!wrapEl) return;
     const update = () => {
-      const r = el.getBoundingClientRect();
+      const r = wrapEl.getBoundingClientRect();
       setSize({ w: r.width, h: r.height });
     };
     update();
     const ro = new ResizeObserver(update);
-    ro.observe(el);
+    ro.observe(wrapEl);
     return () => ro.disconnect();
-  }, []);
+  }, [wrapEl]);
   const mediaRect = computeMediaRect(size.w, size.h, natural?.w, natural?.h);
 
   const texts = edits.texts ?? [];
@@ -1297,7 +1308,7 @@ const MediaOverlays: React.FC<{
   if (vignette <= 0 && texts.length === 0) return null;
 
   return (
-    <div ref={wrapRef} className="absolute inset-0 pointer-events-none">
+    <div ref={setWrapEl} className="absolute inset-0 pointer-events-none">
       {vignette > 0 && (
         <div
           className="absolute"
@@ -1691,7 +1702,53 @@ const TextTab: React.FC<{
   );
 };
 
-const FilterTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) => void }> = ({ edits, setEdits }) => {
+const FilterTab: React.FC<{
+  edits: EditState;
+  setEdits: (n: Partial<EditState>) => void;
+  /** When set (photos), each preset swatch shows the actual photo with
+   *  that preset applied instead of a generic gradient. */
+  previewUrl?: string;
+  /** 3-column grid layout (desktop side panel) instead of the strip. */
+  grid?: boolean;
+}> = ({ edits, setEdits, previewUrl, grid = false }) => {
+  const swatchInner = (filter: string) => previewUrl ? (
+    <img src={previewUrl} alt="" draggable={false} className="w-full h-full object-cover" style={{ filter }} />
+  ) : (
+    <div className="w-full h-full bg-gradient-to-br from-amber-200 to-rose-300" style={{ filter }} />
+  );
+  if (grid) {
+    return (
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">Preset</p>
+        <div className="grid grid-cols-3 gap-2.5">
+          {FILTER_PRESETS.map((preset) => {
+            const active = edits.filterPreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => setEdits({ filterPreset: preset.id })}
+                className="group"
+              >
+                <div className={cn(
+                  'aspect-square rounded-xl overflow-hidden border-2 transition-colors',
+                  active ? 'border-primary' : 'border-transparent group-hover:border-on-surface/15',
+                )}>
+                  {swatchInner(preset.filter)}
+                </div>
+                <span className={cn(
+                  'block text-center text-[11px] mt-1.5 transition-colors',
+                  active ? 'font-bold text-primary' : 'font-semibold text-on-surface/55 group-hover:text-on-surface/80',
+                )}>
+                  {preset.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   return (
     <div>
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2">Preset</p>
@@ -1708,13 +1765,12 @@ const FilterTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) 
                 active ? 'opacity-100' : 'opacity-80 hover:opacity-100',
               )}
             >
-              <div
-                className={cn(
-                  'w-14 h-14 rounded-xl overflow-hidden border-2 transition-colors bg-gradient-to-br from-amber-200 to-rose-300',
-                  active ? 'border-primary' : 'border-transparent',
-                )}
-                style={{ filter: preset.filter }}
-              />
+              <div className={cn(
+                'w-14 h-14 rounded-xl overflow-hidden border-2 transition-colors',
+                active ? 'border-primary' : 'border-transparent',
+              )}>
+                {swatchInner(preset.filter)}
+              </div>
               <span className={cn('text-[10.5px] font-bold', active ? 'text-primary' : 'text-on-surface/55')}>{preset.label}</span>
             </button>
           );
@@ -2041,4 +2097,192 @@ const Slider: React.FC<{
     />
   </div>
 );
+
+/* ── Split-layout pieces ──────────────────────────────────────────────
+ *
+ * The desktop composer lays the editor out Instagram-style: the media
+ * canvas on the left, the controls in a side panel on the right. These
+ * two components expose the same behaviour as the stacked MediaEditor
+ * (live filter, interactive crop, draggable text, trim-window playback)
+ * but let the host own the layout, active item and tab state. */
+
+/**
+ * EditorStage — one item's live preview. Renders the media letterboxed
+ * (object-contain) inside whatever box the host gives it, with the CSS
+ * filter chain applied and the crop / vignette / text overlays anchored
+ * to the media rect. Pass `tab` to enable the interactive overlays
+ * (crop drag on 'crop', text drag/select on 'text'); pass null for a
+ * static preview that still reflects every edit.
+ */
+export const EditorStage: React.FC<{
+  item: EditableItem;
+  tab?: Tab | null;
+  selectedTextId?: string | null;
+  onSelectText?: (id: string) => void;
+  onEditsChange?: (edits: EditState) => void;
+  /** Autoplay (muted) when the item is a video. */
+  active?: boolean;
+  /** Reports the media's natural pixel size once known — the host can
+   *  hand it to EditorControls so aspect-chip crops centre correctly. */
+  onNatural?: (size: { w: number; h: number }) => void;
+  className?: string;
+}> = ({ item, tab = null, selectedTextId = null, onSelectText, onEditsChange, active = true, onNatural, className }) => {
+  const [natural, setNatural] = useState<{ w: number; h: number } | undefined>(undefined);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // New media → forget the previous item's dimensions until load fires.
+  useEffect(() => { setNatural(undefined); }, [item.key]);
+
+  const handleNatural = (_key: string, w: number, h: number) => {
+    setNatural((prev) => (prev?.w === w && prev?.h === h ? prev : { w, h }));
+    onNatural?.({ w, h });
+  };
+
+  // Keep video playback inside the trim window — same behaviour as the
+  // stacked editor's carousel.
+  useEffect(() => {
+    if (item.mediaType !== 'video') return;
+    const video = videoRef.current;
+    const trim = item.edits.trim;
+    if (!video || !trim) return;
+    if (video.currentTime < trim.start - 0.05 || video.currentTime > trim.end + 0.05) {
+      try { video.currentTime = trim.start; } catch { /* ignore */ }
+    }
+    const onTimeUpdate = () => {
+      if (video.currentTime >= trim.end) {
+        try { video.currentTime = trim.start; } catch { /* ignore */ }
+      }
+    };
+    video.addEventListener('timeupdate', onTimeUpdate);
+    return () => video.removeEventListener('timeupdate', onTimeUpdate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.key, item.mediaType, item.edits.trim?.start, item.edits.trim?.end]);
+
+  const filter = cssFilterFor(item.edits);
+
+  return (
+    <div className={cn('relative w-full h-full', className)}>
+      {item.mediaType === 'photo' ? (
+        <img
+          src={item.previewUrl}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-contain"
+          style={{ filter }}
+          onLoad={(e) => handleNatural(item.key, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
+        />
+      ) : (
+        <VideoPreview
+          itemKey={item.key}
+          src={item.previewUrl}
+          filter={filter}
+          isActive={active}
+          onRefChange={(el) => { videoRef.current = el; }}
+          onNatural={handleNatural}
+        />
+      )}
+      {tab === 'crop' && item.mediaType === 'photo' && onEditsChange ? (
+        <InteractiveCropOverlay
+          crop={item.edits.crop}
+          natural={natural}
+          onChange={(nextCrop) => onEditsChange({ ...item.edits, crop: nextCrop, aspectRatio: 'free' })}
+        />
+      ) : (
+        hasCustomCrop(item.edits) && <CropOverlay edits={item.edits} natural={natural} />
+      )}
+      <MediaOverlays
+        edits={item.edits}
+        natural={natural}
+        interactive={tab === 'text' && !!onEditsChange}
+        selectedId={selectedTextId}
+        onSelect={onSelectText}
+        onTextsChange={(texts) => onEditsChange?.({ ...item.edits, texts })}
+      />
+    </div>
+  );
+};
+
+/**
+ * EditorControls — the tab bar + active tab body for one item, sized
+ * for a narrow side panel. The host owns `tab` (so EditorStage can make
+ * the matching overlay interactive) and the text-overlay selection.
+ */
+export const EditorControls: React.FC<{
+  item: EditableItem;
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
+  onEditsChange: (edits: EditState) => void;
+  selectedTextId: string | null;
+  onSelectTextId: (id: string | null) => void;
+  /** Media natural size, as reported by EditorStage.onNatural. */
+  natural?: { w: number; h: number };
+}> = ({ item, tab, onTabChange, onEditsChange, selectedTextId, onSelectTextId, natural }) => {
+  const edits = item.edits;
+  const setEdits = (next: Partial<EditState>) => onEditsChange({ ...edits, ...next });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-center gap-1 rounded-full bg-on-surface/[0.05] p-1">
+        {([
+          { id: 'crop',   icon: Crop,     label: 'Crop',    show: item.mediaType === 'photo' },
+          { id: 'trim',   icon: Scissors, label: 'Trim',    show: item.mediaType === 'video' },
+          { id: 'adjust', icon: Sun,      label: 'Adjust',  show: true },
+          { id: 'filter', icon: Sparkles, label: 'Filters', show: true },
+          { id: 'text',   icon: Type,     label: 'Text',    show: true },
+        ] as const).filter((t) => t.show).map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onTabChange(t.id)}
+              className={cn(
+                'flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[12px] font-bold transition-colors',
+                tab === t.id ? 'bg-white shadow text-on-surface' : 'text-on-surface/55 hover:text-on-surface',
+              )}
+            >
+              <Icon size={13} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={tab + item.key}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
+          {tab === 'crop' && (
+            <CropTab edits={edits} setEdits={setEdits} natural={natural} />
+          )}
+          {tab === 'adjust' && (
+            <AdjustTab edits={edits} setEdits={setEdits} />
+          )}
+          {tab === 'filter' && (
+            <FilterTab
+              edits={edits}
+              setEdits={setEdits}
+              previewUrl={item.mediaType === 'photo' ? item.previewUrl : undefined}
+              grid
+            />
+          )}
+          {tab === 'text' && (
+            <TextTab
+              edits={edits}
+              setEdits={setEdits}
+              selectedId={selectedTextId}
+              onSelect={onSelectTextId}
+            />
+          )}
+          {tab === 'trim' && item.mediaType === 'video' && (
+            <TrimTab item={item} edits={edits} setEdits={setEdits} />
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+};
 
