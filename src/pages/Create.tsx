@@ -246,8 +246,12 @@ interface SurfacePick {
 }
 
 const PostSurface: React.FC = () => {
+  const navigate = useNavigate();
   const openComposer = useUnifiedComposer();
   const useNative = canUseNativePhotoLibrary();
+  // Tracks the sheet's detent so the floating close button can restyle
+  // itself for the light sheet when the gallery is fully raised.
+  const [sheetPos, setSheetPos] = useState<'default' | 'full'>('default');
   const [picks, setPicks] = useState<SurfacePick[]>([]);
   const [handingOff, setHandingOff] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -386,7 +390,8 @@ const PostSurface: React.FC = () => {
             initial={{ opacity: 0.4, scale: 0.99 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-x-3 top-1 bottom-2"
+            className="absolute inset-x-3 bottom-2"
+            style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 50px)' }}
           >
             {last.previewUrl && last.kind === 'video' ? (
               <video src={last.previewUrl} muted playsInline autoPlay loop className="w-full h-full object-contain" />
@@ -394,7 +399,7 @@ const PostSurface: React.FC = () => {
               <img src={last.previewUrl || last.thumb} alt="" className="w-full h-full object-contain" />
             ) : null}
             {count > 1 && (
-              <div className="absolute top-2 left-2 rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white tabular-nums">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white tabular-nums">
                 {count} selected
               </div>
             )}
@@ -430,35 +435,63 @@ const PostSurface: React.FC = () => {
         )}
       </div>
 
-      {/* Floating Next pill — above the sheet (z-30) so it stays
-          reachable even with the gallery raised to full screen. */}
-      {count > 0 && (
-        <motion.button
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
+      {/* Top row — close on the left, Next on the right, floating above
+          the sheet (z-30) so both stay reachable with the gallery raised
+          to full screen. The close button crossfades from its on-canvas
+          style to a light-sheet style when the sheet snaps full, so it
+          reads as part of the raised sheet. */}
+      <div
+        className="absolute inset-x-4 z-30 flex items-center justify-between pointer-events-none"
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
+      >
+        <button
           type="button"
-          onClick={handleNext}
-          disabled={anyLoading || handingOff}
-          className="absolute top-2 right-4 z-30 h-9 pl-4 pr-3 rounded-full bg-primary text-white inline-flex items-center gap-1 text-[13px] font-bold shadow-lg active:scale-95 transition-transform disabled:opacity-60"
-        >
-          {anyLoading ? (
-            <><Loader2 size={13} className="animate-spin" /> Loading…</>
-          ) : (
-            <>Next <span className="opacity-80">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
+          onClick={() => navigate('/')}
+          aria-label="Close"
+          className={cn(
+            'w-9 h-9 rounded-full flex items-center justify-center pointer-events-auto transition-colors duration-300',
+            sheetPos === 'full'
+              ? 'bg-on-surface/[0.06] text-on-surface/70 active:bg-on-surface/[0.12]'
+              : 'bg-white/10 text-white active:bg-white/20',
           )}
-        </motion.button>
-      )}
+        >
+          <X size={16} strokeWidth={2.4} />
+        </button>
+        {count > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            type="button"
+            onClick={handleNext}
+            disabled={anyLoading || handingOff}
+            className="h-9 pl-4 pr-3 rounded-full bg-primary text-white inline-flex items-center gap-1 text-[13px] font-bold shadow-lg pointer-events-auto active:scale-95 transition-transform disabled:opacity-60"
+          >
+            {anyLoading ? (
+              <><Loader2 size={13} className="animate-spin" /> Loading…</>
+            ) : (
+              <>Next <span className="opacity-80">· {count}</span> <ChevronRight size={13} strokeWidth={2.8} /></>
+            )}
+          </motion.button>
+        )}
+      </div>
 
       {/* ── Camera-roll sheet — drag up for the full-screen gallery ── */}
       <DraggableSheet
         height={sheetH}
         maxHeight={sheetMax}
         draggable
+        onSnap={setSheetPos}
+        safeTopAtFull
         className="relative z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
       >
         <div className="pb-safe-6">
           {/* Sticky header — stays put while the gallery scrolls. */}
-          <div className="sticky top-0 z-10 bg-surface px-5 pb-2 flex items-baseline gap-2">
+          <div className={cn(
+            'sticky top-0 z-10 bg-surface pb-2 flex items-baseline gap-2 transition-[padding] duration-300',
+            // When fully raised, the floating close/Next overlay the top
+            // of the sheet — indent the header row so nothing collides.
+            sheetPos === 'full' ? 'pl-16 pr-[124px]' : 'px-5',
+          )}>
             <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
             <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">{count} / {POST_MAX_ITEMS}</span>
           </div>
@@ -628,23 +661,10 @@ export const Create: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-on-surface">
-      {/* Top bar */}
-      <header className="flex-shrink-0 px-4 pt-safe-4 pb-2 grid grid-cols-[1fr_auto_1fr] items-center">
-        <div className="flex items-center justify-start">
-          <button
-            onClick={() => navigate('/')}
-            aria-label="Close"
-            className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
-          >
-            <X size={19} />
-          </button>
-        </div>
-        <h1 className="text-base font-serif font-bold tracking-tight">Create</h1>
-        <div />
-      </header>
-
       {/* Live surfaces — all mounted so half-written input survives
-          wheel spins; only the active one is visible + interactive. */}
+          wheel spins; only the active one is visible + interactive.
+          There's no page header: each surface carries its own close
+          button so the post composer can run edge-to-edge. */}
       <div className="relative flex-1 min-h-0">
         {MODES.map((m) => {
           const active = m === mode;
@@ -655,11 +675,21 @@ export const Create: React.FC = () => {
                 'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
                 // The post surface is a full-bleed composer (dark canvas
                 // + its own bottom sheet); the others are padded forms.
-                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-4 pb-6',
+                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-safe-4 pb-6',
                 active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
               )}
               aria-hidden={!active}
             >
+              {m !== 'post' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/')}
+                  aria-label="Close"
+                  className="w-10 h-10 mb-3 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+                >
+                  <X size={19} />
+                </button>
+              )}
               {m === 'post' && <PostSurface />}
               {m === 'guide' && <GuideSurface />}
               {m === 'recipe' && <RecipeSurface />}

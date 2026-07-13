@@ -26,11 +26,16 @@ export const DraggableSheet: React.FC<{
   className?: string;
   /** Notified when the sheet settles on a detent. */
   onSnap?: (pos: 'default' | 'full') => void;
+  /** When the full detent reaches the very top of the screen, pad the
+   *  grab handle by the iOS safe-area inset while fully expanded so it
+   *  clears the notch/status bar (animates in with the snap). */
+  safeTopAtFull?: boolean;
   children: React.ReactNode;
-}> = ({ height, maxHeight, draggable = false, resetKey, className, onSnap, children }) => {
+}> = ({ height, maxHeight, draggable = false, resetKey, className, onSnap, safeTopAtFull = false, children }) => {
   const canDrag = draggable && maxHeight != null && maxHeight > height + 40;
   const [h, setH] = useState(height);
   const [dragging, setDragging] = useState(false);
+  const [pos, setPos] = useState<'default' | 'full'>('default');
   const posRef = useRef<'default' | 'full'>('default');
   const dragRef = useRef<{
     pointerId: number;
@@ -44,6 +49,7 @@ export const DraggableSheet: React.FC<{
   // Step change → glide back to the (possibly new) default detent.
   useEffect(() => {
     posRef.current = 'default';
+    setPos('default');
     setH(height);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
@@ -92,6 +98,7 @@ export const DraggableSheet: React.FC<{
       full = h > (height + maxHeight) / 2;
     }
     posRef.current = full ? 'full' : 'default';
+    setPos(full ? 'full' : 'default');
     setH(full ? maxHeight : height);
     onSnap?.(full ? 'full' : 'default');
   };
@@ -107,7 +114,15 @@ export const DraggableSheet: React.FC<{
     >
       {/* Grab-handle strip — full-width touch target for the drag. */}
       <div
-        className={cn('flex-shrink-0 flex justify-center pt-2.5 pb-1.5', canDrag && 'touch-none cursor-grab active:cursor-grabbing')}
+        className={cn(
+          'flex-shrink-0 flex justify-center pb-1.5 transition-[padding] duration-300',
+          canDrag && 'touch-none cursor-grab active:cursor-grabbing',
+        )}
+        style={{
+          paddingTop: safeTopAtFull && pos === 'full'
+            ? 'max(0.875rem, env(safe-area-inset-top, 0px))'
+            : '0.625rem',
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
