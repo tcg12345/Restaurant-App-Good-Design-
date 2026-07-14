@@ -11,6 +11,7 @@ import { VerificationApply } from './pages/VerificationApply';
 import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
+import { RecommendedForYou } from './pages/RecommendedForYou';
 import { Circle } from './pages/Circle';
 import { Search } from './pages/Search';
 import { SearchMain } from './pages/SearchMain';
@@ -374,6 +375,7 @@ const AppContent: React.FC = () => {
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
+          <Route path="/pantry/recommended" element={<RequireAuthRoute reason="Sign in for your recommendations"><RecommendedForYou /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
           <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
           <Route path="/onboarding" element={<Onboarding />} />
