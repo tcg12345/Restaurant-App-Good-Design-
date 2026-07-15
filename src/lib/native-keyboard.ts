@@ -105,6 +105,39 @@ export async function configureNativeKeyboard(
   const setAppVh = (h: number) => root.style.setProperty('--app-vh', `${Math.round(h)}px`);
   const setKbHeight = (h: number) => root.style.setProperty('--kb-height', `${Math.round(h)}px`);
   let keyboardHeight = 0;
+
+  // Because the web view is never resized (resize:"none"), the keyboard
+  // simply overlays the bottom of the page — a focused field low on the
+  // screen ends up hidden behind it. Keyboard-aware panels pad their
+  // scroll area by --kb-height, which creates the *room* to scroll clear,
+  // but nothing scrolls automatically. Do that here: once the keyboard
+  // (and the padding it triggers) is in, scroll the focused field into
+  // the middle of its scroll container. Also re-run on focus moves while
+  // the keyboard stays up (tabbing between fields doesn't re-fire
+  // keyboardWillShow).
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  const revealActiveField = () => {
+    clearTimeout(revealTimer);
+    revealTimer = setTimeout(() => {
+      if (keyboardHeight <= 0) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return;
+      const tag = el.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !el.isContentEditable) return;
+      // Fields above the keyboard already visible? Only nudge when the
+      // field's bottom is at (or under) the keyboard's top edge.
+      const kbTop = window.innerHeight - keyboardHeight;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom <= kbTop - 12 && rect.top >= 0) return;
+      try {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } catch {
+        el.scrollIntoView();
+      }
+    }, 250); // let the kb-height padding land first
+  };
+  const onFocusIn = () => revealActiveField();
+  document.addEventListener('focusin', onFocusIn);
   const vv = window.visualViewport;
   const syncViewportHeight = () => {
     if (keyboardHeight > 0) return; // keyboard listeners own --app-vh while open
@@ -124,6 +157,7 @@ export async function configureNativeKeyboard(
         setAppVh(window.innerHeight - keyboardHeight);
         setKbHeight(keyboardHeight);
         root.classList.add('kb-open');
+        revealActiveField();
       }
       options.onKeyboardChange?.(true);
     }),
@@ -139,6 +173,8 @@ export async function configureNativeKeyboard(
   return {
     destroy() {
       document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('focusin', onFocusIn);
+      clearTimeout(revealTimer);
       if (vv) {
         vv.removeEventListener('resize', syncViewportHeight);
         vv.removeEventListener('scroll', syncViewportHeight);

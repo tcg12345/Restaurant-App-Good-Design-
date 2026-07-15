@@ -55,6 +55,7 @@ const isPantrySubView = (search: string): boolean => {
  */
 export function logicalParent(pathname: string, search: string): string | null {
   if (pathname === '/pantry' && isPantrySubView(search)) return '/pantry';
+  if (pathname === '/pantry/recommended') return '/pantry';
   if (/^\/activity\/(saved|likes|comments|drafts)$/.test(pathname)) return '/activity';
   const circle = /^(\/restaurant\/[^/]+)\/circle$/.exec(pathname);
   if (circle) return circle[1];

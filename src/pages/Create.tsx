@@ -27,7 +27,7 @@ import {
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
 import { useUnifiedComposer } from '../components/useUnifiedComposer';
-import { DraggableSheet } from '../components/DraggableSheet';
+import { DraggableSheet, type SheetPos } from '../components/DraggableSheet';
 import { PhotoLibraryGrid } from '../components/PhotoLibraryGrid';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { POST_MAX_ITEMS } from '../contexts/PostsContext';
@@ -167,7 +167,10 @@ const ModeWheel: React.FC<{
   return (
     <div className="flex flex-col items-center">
       <div
-        className="relative w-full max-w-sm h-11 overflow-hidden select-none cursor-ew-resize"
+        // The translucent frosted fill shares the strip's edge-fade mask,
+        // so it reads as a soft pill keeping the labels legible over
+        // whatever the wheel happens to float above — not a solid band.
+        className="relative w-full max-w-sm h-11 overflow-hidden select-none cursor-ew-resize rounded-full bg-surface/60 backdrop-blur-md"
         style={{ touchAction: 'none', WebkitMaskImage: WHEEL_MASK, maskImage: WHEEL_MASK }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -245,13 +248,19 @@ interface SurfacePick {
   loading: boolean;
 }
 
-const PostSurface: React.FC = () => {
+const PostSurface: React.FC<{
+  /** Reports whether the gallery sheet is raised to full screen — the
+   *  page hides the floating mode wheel while it is. */
+  onFullChange?: (full: boolean) => void;
+}> = ({ onFullChange }) => {
   const navigate = useNavigate();
   const openComposer = useUnifiedComposer();
   const useNative = canUseNativePhotoLibrary();
   // Tracks the sheet's detent so the floating close button can restyle
   // itself for the light sheet when the gallery is fully raised.
-  const [sheetPos, setSheetPos] = useState<'default' | 'full'>('default');
+  const [sheetPos, setSheetPos] = useState<SheetPos>('default');
+  // Canvas space reserved behind the sheet's settled position.
+  const [sheetReserve, setSheetReserve] = useState(320);
   const [picks, setPicks] = useState<SurfacePick[]>([]);
   const [handingOff, setHandingOff] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -475,16 +484,30 @@ const PostSurface: React.FC = () => {
         )}
       </div>
 
+      {/* Space reserved behind the resting sheet — the sheet itself is
+          an overlay, so dragging it never reflows the canvas. */}
+      <div
+        className="flex-shrink-0 transition-[height] duration-[400ms]"
+        style={{ height: sheetReserve, transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
+      />
+
       {/* ── Camera-roll sheet — drag up for the full-screen gallery ── */}
       <DraggableSheet
         height={sheetH}
+        minHeight={128}
         maxHeight={sheetMax}
         draggable
-        onSnap={setSheetPos}
+        onSnap={(pos) => {
+          setSheetPos(pos);
+          onFullChange?.(pos === 'full');
+        }}
+        onReserveChange={setSheetReserve}
         safeTopAtFull
-        className="relative z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
+        className="z-10 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
       >
-        <div className="pb-safe-6">
+        {/* Bottom padding keeps the last gallery rows scrollable above
+            the floating mode wheel. */}
+        <div className="pb-[calc(env(safe-area-inset-bottom,0px)+92px)]">
           {/* Sticky header — stays put while the gallery scrolls. */}
           <div className={cn(
             'sticky top-0 z-10 bg-surface pb-2 flex items-baseline gap-2 transition-[padding] duration-300',
@@ -658,54 +681,64 @@ const RecipeSurface: React.FC = () => {
 export const Create: React.FC = () => {
   const navigate = useNavigate();
   const [modeIdx, setModeIdx] = useState(0);
+  // Post surface's gallery sheet is at full screen — hide the wheel.
+  const [postSheetFull, setPostSheetFull] = useState(false);
   const mode = MODES[modeIdx];
+  const wheelHidden = mode === 'post' && postSheetFull;
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface text-on-surface">
+    <div className="relative h-[100dvh] overflow-hidden bg-surface text-on-surface">
       {/* Live surfaces — all mounted so half-written input survives
           wheel spins; only the active one is visible + interactive.
-          There's no page header: each surface carries its own close
-          button so the post composer can run edge-to-edge. */}
-      <div className="relative flex-1 min-h-0">
-        {MODES.map((m) => {
-          const active = m === mode;
-          return (
-            <div
-              key={m}
-              className={cn(
-                'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
-                // The post surface is a full-bleed composer (dark canvas
-                // + its own bottom sheet); the others are padded forms.
-                m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-safe-4 pb-6',
-                active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
-              )}
-              aria-hidden={!active}
-            >
-              {m !== 'post' && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  aria-label="Close"
-                  className="w-10 h-10 mb-3 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
-                >
-                  <X size={19} />
-                </button>
-              )}
-              {m === 'post' && <PostSurface />}
-              {m === 'guide' && <GuideSurface />}
-              {m === 'recipe' && <RecipeSurface />}
-            </div>
-          );
-        })}
-      </div>
+          They run full-bleed to the bottom edge; the mode wheel floats
+          above them on a transparent background. */}
+      {MODES.map((m) => {
+        const active = m === mode;
+        return (
+          <div
+            key={m}
+            className={cn(
+              'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+              // The post surface is a full-bleed composer (dark canvas
+              // + its own bottom sheet); the others are padded forms
+              // whose bottom padding clears the floating wheel.
+              m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-safe-4 pb-32',
+              active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
+            )}
+            aria-hidden={!active}
+          >
+            {m !== 'post' && (
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                aria-label="Close"
+                className="w-10 h-10 mb-3 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+              >
+                <X size={19} />
+              </button>
+            )}
+            {m === 'post' && <PostSurface onFullChange={setPostSheetFull} />}
+            {m === 'guide' && <GuideSurface />}
+            {m === 'recipe' && <RecipeSurface />}
+          </div>
+        );
+      })}
 
-      {/* Infinite mode wheel */}
-      <div className="flex-shrink-0 pt-2 pb-safe-6">
-        <ModeWheel
-          count={MODES.length}
-          labels={MODES.map((m) => MODE_LABELS[m])}
-          onChange={setModeIdx}
-        />
+      {/* Infinite mode wheel — floats over the surfaces, no backing
+          band; fades away while the post gallery is raised to full. */}
+      <div
+        className={cn(
+          'absolute inset-x-0 bottom-0 z-40 pt-2 pb-safe-6 pointer-events-none transition-opacity duration-300',
+          wheelHidden && 'opacity-0',
+        )}
+      >
+        <div className={wheelHidden ? 'pointer-events-none' : 'pointer-events-auto'}>
+          <ModeWheel
+            count={MODES.length}
+            labels={MODES.map((m) => MODE_LABELS[m])}
+            onChange={setModeIdx}
+          />
+        </div>
       </div>
     </div>
   );

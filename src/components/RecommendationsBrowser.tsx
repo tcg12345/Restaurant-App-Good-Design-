@@ -160,9 +160,17 @@ interface RecommendationsBrowserProps {
   onClose: () => void;
   /** Parent-supplied mobile signal (each page already has its own). */
   isMobile: boolean;
+  /**
+   * 'popup' (default) — portaled overlay: slide-up pager on mobile,
+   * spotlight card on desktop. 'page' — inline full-height layout for the
+   * /pantry/recommended route: restaurant taps push the detail page on top
+   * (no closing), so swipe-back returns here with the ranking intact.
+   */
+  variant?: 'popup' | 'page';
 }
 
-export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ open, onClose, isMobile }) => {
+export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ open, onClose, isMobile, variant = 'popup' }) => {
+  const isPage = variant === 'page';
   const navigate = useNavigate();
   const { setHideBottomNav } = useSettings();
   const { user } = useAuth();
@@ -649,9 +657,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         key={p.id}
         role="button"
         tabIndex={0}
-        onClick={() => { onClose(); navigate(`/restaurant/${p.id}`); }}
+        // Page mode keeps this surface alive underneath — the detail page
+        // pushes on top and a back-swipe reveals the ranking again.
+        onClick={() => { if (!isPage) onClose(); navigate(`/restaurant/${p.id}`); }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose(); navigate(`/restaurant/${p.id}`); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!isPage) onClose(); navigate(`/restaurant/${p.id}`); }
         }}
         className={cn(
           'group flex w-full cursor-pointer items-center gap-3 py-3.5 text-left transition-colors hover:bg-on-surface/[0.025] sm:gap-3.5',
@@ -708,7 +718,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             </button>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onClose(); openAddRestaurantModal(meta); }}
+              onClick={(e) => { e.stopPropagation(); if (!isPage) onClose(); openAddRestaurantModal(meta); }}
               className={cn(
                 'grid place-items-center rounded-full bg-on-surface/[0.05] text-on-surface/60 transition-colors hover:bg-on-surface/[0.1]',
                 isMobile ? 'h-7 w-7' : 'h-8 w-8',
@@ -825,6 +835,42 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     />
   );
 
+  /* Mobile header — back arrow + title. Shared by the slide-up popup and
+     the /pantry/recommended route page. */
+  const mobileHeader = (
+    <div className="flex flex-shrink-0 items-center gap-1 pb-1 pl-2 pr-4 pt-safe-4">
+      <button
+        type="button"
+        onClick={onClose}
+        className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full text-on-surface/70 transition-colors hover:bg-on-surface/[0.05]"
+        aria-label="Back"
+      >
+        <ArrowLeft size={22} />
+      </button>
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate font-serif text-[19px] font-semibold tracking-[-0.015em] text-on-surface">
+          Recommended for you
+        </h3>
+        <p className="truncate text-[11.5px] font-medium text-on-surface/45">{subtitle}</p>
+      </div>
+    </div>
+  );
+
+  /* Page mode — a normal route-owned layout (no portal, no overlay): the
+     route transition animates it, swipe-back works, and pushed detail
+     pages cover it instead of replacing it. */
+  if (isPage) {
+    if (!open) return null;
+    return (
+      <div className="flex h-[100dvh] flex-col bg-surface">
+        {mobileHeader}
+        {controls}
+        {body}
+        {picker}
+      </div>
+    );
+  }
+
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -837,22 +883,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             transition={{ type: 'spring' as const, damping: 28, stiffness: 300 }}
             className="fixed inset-0 z-50 flex flex-col bg-surface"
           >
-            <div className="flex flex-shrink-0 items-center gap-1 pb-1 pl-2 pr-4 pt-safe-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full text-on-surface/70 transition-colors hover:bg-on-surface/[0.05]"
-                aria-label="Back"
-              >
-                <ArrowLeft size={22} />
-              </button>
-              <div className="min-w-0 flex-1">
-                <h3 className="truncate font-serif text-[19px] font-semibold tracking-[-0.015em] text-on-surface">
-                  Recommended for you
-                </h3>
-                <p className="truncate text-[11.5px] font-medium text-on-surface/45">{subtitle}</p>
-              </div>
-            </div>
+            {mobileHeader}
             {controls}
             {body}
             {picker}

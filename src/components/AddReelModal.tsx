@@ -13,11 +13,12 @@
  * accepted.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   X, Film, ChefHat, MapPin, Search, Check, Upload, AlertCircle,
   Loader2, Globe, Users as UsersIcon, Star, ChevronLeft, ChevronRight,
-  Image as ImageIcon, Trash2,
+  Image as ImageIcon, Trash2, Music2, Video as VideoIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -29,11 +30,15 @@ import {
 } from '../contexts/ReelsContext';
 import {
   MediaEditor,
+  EditorStage,
+  EditorControls,
   applyAllEdits,
   DEFAULT_EDIT_STATE,
   isEdited,
   type EditState,
+  type EditorTab,
 } from './MediaEditor';
+import { DraggableSheet } from './DraggableSheet';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -87,8 +92,9 @@ export const AddReelModal: React.FC = () => {
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+  const navigate = useNavigate();
 
-  const { dragProps } = useBottomSheet(addReelModalOpen, closeAddReelModal);
+  const { dragProps } = useBottomSheet(addReelModalOpen && !phoneMode, closeAddReelModal);
 
   // ── Step machine ──
   const [step, setStep] = useState<Step>(1);
@@ -117,9 +123,21 @@ export const AddReelModal: React.FC = () => {
   // from the upload progress.
   const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [caption, setCaption] = useState('');
+  const [audio, setAudio] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [pickedLocation, setPickedLocation] = useState<HomeLocation | null>(null);
   const [isPublic, setIsPublic] = useState(true);
+  // ── Phone composer state — mirrors AddPostModal's canvas + sheet. ──
+  // Edit-step tab + text-overlay selection live here so the canvas can
+  // make the matching overlay interactive; `stageNatural` feeds the
+  // crop controls.
+  const [editTab, setEditTab] = useState<EditorTab>('trim');
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [stageNatural, setStageNatural] = useState<{ w: number; h: number } | undefined>(undefined);
+  // Canvas space reserved behind the sheet's settled position.
+  const [sheetReserve, setSheetReserve] = useState(360);
+  // Set after a successful share — drives the success overlay.
+  const [sharedReel, setSharedReel] = useState<{ id: string } | null>(null);
   const [pickedRestaurantId, setPickedRestaurantId] = useState<string | null>(null);
   const [pickedRecipeId, setPickedRecipeId] = useState<string | null>(null);
   const [restaurantSearch, setRestaurantSearch] = useState('');
@@ -178,6 +196,11 @@ export const AddReelModal: React.FC = () => {
       setPickedRecipeId(null);
       setStep(1);
     }
+    setAudio('');
+    setSharedReel(null);
+    setEditTab('trim');
+    setSelectedTextId(null);
+    setStageNatural(undefined);
     setFinalizingEdits(false);
     setDirection(1);
     setRestaurantSearch('');
@@ -595,7 +618,7 @@ export const AddReelModal: React.FC = () => {
       const reel = await postReel({
         file: fileToUpload, kind,
         caption: caption.trim(),
-        audioLabel: 'Original audio',
+        audioLabel: audio.trim() || 'Original audio',
         locationLabel: resolvedLocationLabel,
         bgGradient,
         durationSeconds: durationToUpload,
@@ -604,8 +627,13 @@ export const AddReelModal: React.FC = () => {
         onProgress: (n) => setProgress(n),
       });
       if (!reel) throw new Error("Couldn't create the reel — try again.");
-      showToast('Reel posted', { subtitle: "It's live in the feed" });
-      closeAddReelModal();
+      if (phoneMode) {
+        // The composer's animated success overlay takes it from here.
+        setSharedReel({ id: reel.id });
+      } else {
+        showToast('Reel posted', { subtitle: "It's live in the feed" });
+        closeAddReelModal();
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
       setErrorMsg(msg);
@@ -622,8 +650,85 @@ export const AddReelModal: React.FC = () => {
     exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
   };
 
-  const totalSteps = isEditing ? 1 : 4;
-  const stepIndex = isEditing ? 0 : step - 1;
+  // ── Phone composer derivations — mirrors AddPostModal's layout. ──
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const phoneSheetH = Math.round(
+    step === 1 ? Math.min(Math.max(winH * 0.46, 320), 480)
+    : step === 2 ? Math.min(Math.max(winH * 0.52, 380), 540)
+    : step === 3 ? Math.min(Math.max(winH * 0.55, 400), 560)
+    : Math.min(Math.max(winH * 0.58, 430), 600),
+  );
+  const phoneSheetMax = winH - 108;
+
+  const phoneTitle = isEditing
+    ? 'Edit reel'
+    : step === 1 ? 'New reel' : step === 2 ? 'Edit' : step === 3 ? 'Featured' : 'Details';
+  const phoneDotSteps: Step[] = isEditing ? [4] : [1, 2, 3, 4];
+  const canJumpTo = (s: Step) => (isEditing ? s === 4 : s === 1 || !!videoUrl);
+
+  const phonePrimary =
+    step === 1 ? {
+      label: nativeMaterializing ? (
+        <><Loader2 size={14} className="animate-spin" /> Loading…</>
+      ) : (
+        <>Next <ChevronRight size={13} strokeWidth={2.8} /></>
+      ),
+      onClick: () => {
+        if (nativeMaterializing) return;
+        if (videoFile && videoUrl && !nativePick) { goToStep(2); return; }
+        if (nativePick) void materializeNativePick().then((ok) => { if (ok) goToStep(2); });
+      },
+      disabled: !canAdvanceFromStep1 || nativeMaterializing,
+    }
+    : step === 2 ? {
+      label: <>Next <ChevronRight size={13} strokeWidth={2.8} /></>,
+      onClick: () => goToStep(3),
+      disabled: false,
+    }
+    : step === 3 ? {
+      label: <>Next <ChevronRight size={13} strokeWidth={2.8} /></>,
+      onClick: () => goToStep(4),
+      disabled: !canAdvanceFromStep3,
+    }
+    : {
+      label: submitting ? (
+        <><Loader2 size={14} className="animate-spin" /> {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing…' : `Uploading ${Math.round(progress * 100)}%`}</>
+      ) : (
+        <>{isEditing ? 'Save changes' : 'Share'} <ChevronRight size={14} strokeWidth={2.6} /></>
+      ),
+      onClick: onSubmit,
+      disabled: !canSubmit,
+    };
+
+  // The canvas item — the picked video with its live edits.
+  const stageItem = videoFile && videoUrl ? {
+    key: 'reel-video',
+    mediaType: 'video' as const,
+    file: videoFile,
+    previewUrl: videoUrl,
+    durationSeconds: videoDuration,
+    edits: videoEdits,
+  } : null;
+
+  // "Create another" from the success overlay — back to a clean slate.
+  const resetForCreate = () => {
+    clearVideo();
+    setVideoEdits(DEFAULT_EDIT_STATE);
+    setCaption('');
+    setAudio('');
+    setLocationLabel('');
+    setPickedLocation(null);
+    setIsPublic(true);
+    setPickedRestaurantId(null);
+    setPickedRecipeId(null);
+    setEditTab('trim');
+    setSelectedTextId(null);
+    setStageNatural(undefined);
+    setErrorMsg(null);
+    setSharedReel(null);
+    setDirection(-1);
+    setStep(1);
+  };
 
   return (
     <AnimatePresence>
@@ -636,17 +741,539 @@ export const AddReelModal: React.FC = () => {
           )}
           onClick={() => { if (!submitting) closeAddReelModal(); }}
         >
+          {phoneMode ? (
+
+          /* ═════════ Phone composer ═════════
+             Same design as the post composer: full-screen dark canvas
+             with the step content in a draggable bottom sheet. */
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full h-full bg-[#16120e] text-white flex flex-col overflow-hidden"
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void onPickFile(f);
+                e.target.value = '';
+              }}
+            />
+
+            {/* ── Header ── */}
+            <div className="pt-safe-4 px-4 pb-2.5 flex items-center relative flex-shrink-0 z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  if (submitting) return;
+                  if (step > 1 && !isEditing && !sharedReel) goToStep((step - 1) as Step);
+                  else closeAddReelModal();
+                }}
+                disabled={submitting}
+                className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
+                aria-label={step > 1 && !isEditing && !sharedReel ? 'Back' : 'Close'}
+              >
+                {step > 1 && !isEditing && !sharedReel ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
+              </button>
+
+              {/* Centered title + step dots */}
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 mt-[calc(env(safe-area-inset-top,0px)/2)] flex flex-col items-center gap-[5px]">
+                <h2 className="font-serif font-bold text-[17px] leading-none whitespace-nowrap">
+                  {sharedReel ? 'Reel shared' : phoneTitle}
+                </h2>
+                <div className="flex gap-1">
+                  {phoneDotSteps.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => { if (!submitting && !sharedReel && canJumpTo(s)) goToStep(s); }}
+                      className={cn(
+                        'w-[16px] h-[3px] rounded-full transition-colors',
+                        s === step ? 'bg-primary' : s < step ? 'bg-primary/60' : 'bg-white/25',
+                      )}
+                      aria-label={`Go to step ${s}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {!sharedReel && (
+                <button
+                  type="button"
+                  onClick={phonePrimary.onClick}
+                  disabled={phonePrimary.disabled}
+                  className="ml-auto h-9 pl-4 pr-3.5 rounded-full bg-surface text-on-surface inline-flex items-center gap-1 text-[13px] font-bold active:scale-95 transition-transform disabled:opacity-35"
+                >
+                  {phonePrimary.label}
+                </button>
+              )}
+            </div>
+
+            {/* ── Video canvas ── */}
+            <div className="flex-1 min-h-0 relative">
+              {stageItem ? (
+                <>
+                  <motion.div
+                    key={stageItem.key}
+                    initial={{ opacity: 0.35, scale: 0.99 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.22, ease: 'easeOut' }}
+                    className="absolute inset-x-3 top-0.5 bottom-2"
+                  >
+                    <EditorStage
+                      item={stageItem}
+                      tab={step === 2 ? editTab : null}
+                      selectedTextId={selectedTextId}
+                      onSelectText={(id) => setSelectedTextId(id)}
+                      onEditsChange={step === 2 ? (edits) => setVideoEdits(edits) : undefined}
+                      onNatural={(size) => setStageNatural(size)}
+                    />
+                  </motion.div>
+                  {videoDuration != null && step !== 2 && (
+                    <div className="absolute left-5 bottom-4 rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white pointer-events-none z-10">
+                      {videoDuration.toFixed(0)}s
+                    </div>
+                  )}
+                  {step === 3 && hasFeatured && (
+                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
+                      {kind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                      <span className="max-w-[180px] truncate">
+                        {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
+                      </span>
+                    </div>
+                  )}
+                </>
+              ) : isEditing && editingReel?.videoUrl ? (
+                /* Edit mode — media is locked; preview the existing reel. */
+                <div className="absolute inset-x-3 top-0.5 bottom-2">
+                  <video
+                    src={editingReel.videoUrl}
+                    muted
+                    autoPlay
+                    loop
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              ) : nativePick?.thumbnailDataUrl ? (
+                /* Staged camera-roll pick — instant low-res preview. */
+                <motion.div
+                  key={nativePick.id}
+                  initial={{ opacity: 0.4, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute inset-x-3 top-0.5 bottom-2"
+                >
+                  <img src={nativePick.thumbnailDataUrl} alt="" className="w-full h-full object-contain" />
+                </motion.div>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center px-10 text-center">
+                  <div className="flex items-center gap-2.5 text-white/40">
+                    <Film size={26} />
+                    <VideoIcon size={26} />
+                  </div>
+                  <p className="text-[14px] font-semibold text-white/75 mt-3">
+                    {canUseNativePhotoLibrary() ? 'Pick a video from your camera roll below' : 'Add a video'}
+                  </p>
+                  <p className="text-[12px] text-white/40 mt-1 leading-relaxed">
+                    Vertical works best · up to {REEL_MAX_DURATION_SECONDS}s
+                  </p>
+                  {!canUseNativePhotoLibrary() && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-4 h-10 px-5 rounded-full bg-surface text-on-surface text-[13px] font-bold active:scale-95 transition-transform"
+                    >
+                      Open camera roll
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Space reserved behind the resting sheet — the sheet itself
+                is an overlay, so dragging it never reflows the canvas. */}
+            <div
+              className="flex-shrink-0 transition-[height] duration-[400ms]"
+              style={{ height: sheetReserve, transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
+            />
+
+            {/* ── Bottom sheet ── */}
+            <DraggableSheet
+              height={phoneSheetH}
+              minHeight={92}
+              maxHeight={phoneSheetMax}
+              draggable={!sharedReel}
+              fit={step !== 1}
+              resetKey={step}
+              onReserveChange={setSheetReserve}
+              className="z-20 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={step}
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                  className="px-5 pt-1"
+                  // Clears the home indicator, and lifts the fields above
+                  // the native keyboard when it opens (--kb-height).
+                  style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px), calc(var(--kb-height, 0px) + 0.75rem))' }}
+                >
+                  {/* ── STEP 1 · Camera roll ── */}
+                  {step === 1 && !isEditing && (
+                    <div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
+                        <span className="text-[12px] font-semibold text-on-surface/45">
+                          Videos · up to {REEL_MAX_DURATION_SECONDS}s
+                        </span>
+                      </div>
+
+                      {canUseNativePhotoLibrary() ? (
+                        /* Native camera roll — auto-loaded, single-select;
+                           drag the sheet up for the full-screen gallery. */
+                        <div className="-mx-5 mt-2">
+                          <PhotoLibraryGrid
+                            mediaType="video"
+                            onSelect={(item) => {
+                              if (nativePick?.id === item.id) { setNativePick(null); return; }
+                              if (videoUrl) clearVideo();
+                              setNativePick(item);
+                            }}
+                            selectedIds={nativePick ? [nativePick.id] : []}
+                            selectionMode="single"
+                            onCameraTap={() => { void onCameraTap(); }}
+                          />
+                        </div>
+                      ) : videoUrl ? (
+                        /* Web — a video is picked; offer replace/remove. */
+                        <div className="flex items-center gap-2 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-full bg-on-surface/[0.05] active:bg-on-surface/10 text-[12.5px] font-bold text-on-surface/70 transition-colors"
+                          >
+                            <ImageIcon size={13} /> Replace
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearVideo}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-full bg-on-surface/[0.05] active:bg-on-surface/10 text-[12.5px] font-bold text-on-surface/70 transition-colors"
+                          >
+                            <Trash2 size={13} /> Remove
+                          </button>
+                        </div>
+                      ) : (
+                        /* Web fallback — the OS picker is the camera roll. */
+                        <div className="grid grid-cols-3 gap-1.5 mt-3">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="aspect-square rounded-[10px] border-[1.5px] border-dashed border-on-surface/20 flex flex-col items-center justify-center gap-1 text-on-surface/45 active:bg-on-surface/[0.04] transition-colors"
+                          >
+                            <Film size={17} strokeWidth={2.2} />
+                            <span className="text-[10.5px] font-bold uppercase tracking-wider">Add</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {validationMsg && (
+                        <div className="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>{validationMsg}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── STEP 2 · Edit ── */}
+                  {step === 2 && !isEditing && stageItem && (
+                    <div>
+                      <div className="flex items-baseline justify-between mb-3.5">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
+                          Your video
+                        </span>
+                        {isEdited(videoEdits, videoDuration) && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+                            <Check size={10} /> Edited
+                          </span>
+                        )}
+                      </div>
+                      <EditorControls
+                        item={stageItem}
+                        tab={editTab}
+                        onTabChange={setEditTab}
+                        onEditsChange={setVideoEdits}
+                        selectedTextId={selectedTextId}
+                        onSelectTextId={setSelectedTextId}
+                        natural={stageNatural}
+                      />
+                    </div>
+                  )}
+
+                  {/* ── STEP 3 · Type + featured ── */}
+                  {step === 3 && !isEditing && (
+                    <StepFeatured
+                      kind={kind}
+                      setKind={(k) => {
+                        setKind(k);
+                        setPickedRestaurantId(null);
+                        setPickedRecipeId(null);
+                        setRestaurantSearch('');
+                        setRecipeSearch('');
+                      }}
+                      pickedRestaurant={pickedRestaurant}
+                      pickedRecipe={pickedRecipe}
+                      onClearPick={() => {
+                        setPickedRestaurantId(null);
+                        setPickedRecipeId(null);
+                      }}
+                      restaurantSearch={restaurantSearch}
+                      setRestaurantSearch={setRestaurantSearch}
+                      recipeSearch={recipeSearch}
+                      setRecipeSearch={setRecipeSearch}
+                      restaurantPickList={restaurantPickList}
+                      recipePickList={recipePickList}
+                      searchingPlaces={searchingPlaces}
+                      onPickRestaurant={(id) => setPickedRestaurantId(id)}
+                      onPickRecipe={(id) => setPickedRecipeId(id)}
+                    />
+                  )}
+
+                  {/* ── STEP 4 · Details ── */}
+                  {step === 4 && (
+                    <div className="space-y-4">
+                      <section>
+                        <textarea
+                          value={caption}
+                          onChange={(e) => setCaption(e.target.value.slice(0, 280))}
+                          placeholder="Write a caption…"
+                          rows={3}
+                          disabled={submitting}
+                          className="w-full rounded-2xl bg-white border-[1.5px] border-on-surface/[0.08] px-3.5 py-3 text-[14px] leading-relaxed placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_rgba(159,48,18,0.07)] resize-none disabled:opacity-50 transition-all"
+                        />
+                        <div className="text-right text-[11px] font-semibold text-on-surface/35 mt-1 tabular-nums">{caption.length} / 280</div>
+                      </section>
+
+                      {/* Location — pick a suggestion to attach it. */}
+                      <section ref={locationWrapRef} className="relative">
+                        <div className="flex items-baseline justify-between mb-2">
+                          <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Location</label>
+                          {pickedLocation && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+                              <Check size={10} /> Selected
+                            </span>
+                          )}
+                        </div>
+                        <div className={cn(
+                          'flex items-center gap-2 rounded-full bg-on-surface/[0.04] border px-4 h-11 transition-colors',
+                          pickedLocation ? 'border-emerald-200 bg-emerald-50/40' : 'border-on-surface/[0.06]',
+                        )}>
+                          <MapPin size={15} className={cn('flex-shrink-0', pickedLocation ? 'text-emerald-600' : 'text-on-surface/45')} />
+                          <input
+                            value={locationLabel}
+                            onChange={(e) => {
+                              setLocationLabel(e.target.value);
+                              if (pickedLocation) setPickedLocation(null);
+                            }}
+                            onFocus={() => setLocationFocused(true)}
+                            placeholder="Search a city, neighborhood, or country…"
+                            disabled={submitting}
+                            maxLength={100}
+                            className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
+                          />
+                          {locationLabel && !submitting && (
+                            <button
+                              type="button"
+                              onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
+                              className="w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
+                              aria-label="Clear location"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </div>
+                        <AnimatePresence>
+                          {locationFocused && !pickedLocation && locationSuggestions.length > 0 && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.12 }}
+                              className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                            >
+                              <ul className="max-h-[260px] overflow-y-auto">
+                                {locationSuggestions.map((s, idx) => (
+                                  <li key={`${s.label}-${idx}`}>
+                                    <button
+                                      type="button"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setPickedLocation(s);
+                                        setLocationLabel(s.label);
+                                        setLocationSuggestions([]);
+                                        setLocationFocused(false);
+                                      }}
+                                      className="w-full flex items-start gap-3 px-3 py-2.5 active:bg-on-surface/[0.05] text-left"
+                                    >
+                                      <MapPin size={14} className="text-on-surface/40 flex-shrink-0 mt-0.5" />
+                                      <span className="min-w-0 flex-1 text-sm text-on-surface truncate">{s.label}</span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </section>
+
+                      <section>
+                        <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Audio</label>
+                        <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 h-11">
+                          <Music2 size={15} className="text-on-surface/45 flex-shrink-0" />
+                          <input
+                            value={audio}
+                            onChange={(e) => setAudio(e.target.value)}
+                            placeholder="Original audio"
+                            disabled={submitting}
+                            maxLength={60}
+                            className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
+                          />
+                        </div>
+                      </section>
+
+                      <section>
+                        <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
+                        <div className="flex gap-2">
+                          {([
+                            { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas' },
+                            { value: false, label: 'Followers only', sub: 'Only people who follow you' },
+                          ] as const).map((opt) => {
+                            const active = isPublic === opt.value;
+                            return (
+                              <button
+                                key={opt.label}
+                                type="button"
+                                onClick={() => setIsPublic(opt.value)}
+                                disabled={submitting}
+                                className={cn(
+                                  'flex-1 min-w-0 flex flex-col gap-0.5 rounded-2xl border-[1.5px] px-3.5 py-3 text-left transition-all disabled:opacity-40',
+                                  active
+                                    ? 'border-primary bg-white shadow-[0_0_0_3px_rgba(159,48,18,0.08)]'
+                                    : 'border-on-surface/[0.09]',
+                                )}
+                              >
+                                <span className={cn('text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
+                                <span className="text-[11.5px] text-on-surface/45 leading-snug">{opt.sub}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    </div>
+                  )}
+
+                  {/* Notices — sign-in gate + submit errors, every step. */}
+                  {(!user?.id || errorMsg) && !sharedReel && (
+                    <div className="mt-3.5 space-y-2">
+                      {!user?.id && (
+                        <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>Sign in to post reels.</span>
+                        </div>
+                      )}
+                      {errorMsg && (
+                        <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                          <span>{errorMsg}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </DraggableSheet>
+
+            {/* ── Success overlay ── */}
+            <AnimatePresence>
+              {sharedReel && (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="absolute inset-0 z-40 bg-surface text-on-surface flex flex-col items-center justify-center"
+                >
+                  <motion.div
+                    initial={{ scale: 0.4, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', damping: 13, stiffness: 240, delay: 0.05 }}
+                    className="w-[76px] h-[76px] rounded-full bg-primary flex items-center justify-center"
+                  >
+                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                      <motion.path
+                        d="M5 13l5 5L20 7"
+                        initial={{ pathLength: 0 }}
+                        animate={{ pathLength: 1 }}
+                        transition={{ delay: 0.28, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                      />
+                    </svg>
+                  </motion.div>
+                  <motion.h3
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.3 }}
+                    className="font-serif font-bold text-[26px] mt-6"
+                  >
+                    Your reel is live
+                  </motion.h3>
+                  <motion.p
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.28, duration: 0.3 }}
+                    className="text-[13.5px] text-on-surface/50 mt-2"
+                  >
+                    {isPublic ? "Shared publicly — it's in the feed now" : 'Shared with your followers'}
+                  </motion.p>
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.36, duration: 0.3 }}
+                    className="flex items-center gap-2.5 mt-7"
+                  >
+                    <button
+                      type="button"
+                      onClick={resetForCreate}
+                      className="h-[42px] px-5 rounded-full border-[1.5px] border-on-surface/15 text-[13.5px] font-bold text-on-surface/70 active:bg-on-surface/[0.05] transition-colors"
+                    >
+                      Create another
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = sharedReel.id;
+                        closeAddReelModal();
+                        navigate(`/r/reel-${id}`);
+                      }}
+                      className="h-[42px] px-6 rounded-full bg-on-surface text-surface text-[13.5px] font-bold active:opacity-90 transition-opacity"
+                    >
+                      View reel
+                    </button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+          ) : (
+
+          /* ═════════ Desktop card ═════════ */
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn(
-              'relative bg-surface w-full overflow-hidden flex flex-col',
-              phoneMode
-                ? 'h-full rounded-none'
-                : 'h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
-            )}
+            className="relative bg-surface w-full overflow-hidden flex flex-col h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
           >
             {/* Header */}
             <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
@@ -678,29 +1305,12 @@ export const AddReelModal: React.FC = () => {
                   </p>
                 )}
               </div>
-              {/* Step pip indicator — phone only. Wide viewports get the
-                  fuller horizontal stepper below the header. */}
-              {!isEditing && phoneMode && (
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {Array.from({ length: totalSteps }).map((_, i) => (
-                    <motion.span
-                      key={i}
-                      className={cn(
-                        'h-1.5 rounded-full',
-                        i <= stepIndex ? 'bg-primary' : 'bg-on-surface/10',
-                      )}
-                      animate={{ width: i === stepIndex ? 20 : 6 }}
-                      transition={{ duration: 0.25, ease: 'easeOut' }}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Desktop stepper — full-width progress bar with labelled
-                checkpoints, like YouTube's upload flow. Hidden on phone
-                (header pip is enough) and in edit mode (single step). */}
-            {!isEditing && !phoneMode && (
+                checkpoints, like YouTube's upload flow. Hidden in edit
+                mode (single step). */}
+            {!isEditing && (
               <DesktopStepper currentStep={step} />
             )}
 
@@ -881,6 +1491,7 @@ export const AddReelModal: React.FC = () => {
               );
             })()}
           </motion.div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
@@ -925,7 +1536,7 @@ const StepFeatured: React.FC<{
     <div className="space-y-6">
       {/* Type chooser — two big cards */}
       <section>
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">Type</h3>
+        <p className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">Type</p>
         <div className="grid grid-cols-2 gap-3">
           {(['restaurant', 'recipe'] as const).map((k) => {
             const Icon = k === 'restaurant' ? MapPin : ChefHat;
@@ -967,9 +1578,9 @@ const StepFeatured: React.FC<{
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: 'easeOut' }}
       >
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">
+        <p className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">
           {kind === 'restaurant' ? 'Featured restaurant' : 'Featured recipe'}
-        </h3>
+        </p>
 
         {picked ? (
           <PickedPill

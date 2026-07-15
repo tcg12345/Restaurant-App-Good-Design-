@@ -201,6 +201,10 @@ export const AddPostModal: React.FC = () => {
   // Set after a successful desktop share — drives the animated success
   // overlay ("Create another" / "View post") instead of closing.
   const [sharedPost, setSharedPost] = useState<{ id: string } | null>(null);
+  // Canvas space reserved behind the phone composer's bottom sheet —
+  // the sheet is an overlay, so drags never reflow the canvas; only
+  // settled positions commit here (animated by the spacer's transition).
+  const [sheetReserve, setSheetReserve] = useState(360);
 
   // Picker state — shared between restaurant and recipe.
   const [pickerOpen, setPickerOpen] = useState<PostAttachedKind | null>(null);
@@ -1386,13 +1390,23 @@ export const AddPostModal: React.FC = () => {
               )}
             </div>
 
+            {/* Space reserved behind the resting sheet — the sheet itself
+                is an overlay, so dragging it never reflows the canvas. */}
+            <div
+              className="flex-shrink-0 transition-[height] duration-[400ms]"
+              style={{ height: sheetReserve, transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}
+            />
+
             {/* ── Bottom sheet ── */}
             <DraggableSheet
               height={phoneSheetH}
+              minHeight={92}
               maxHeight={phoneSheetMax}
-              draggable={step === 1 && !sharedPost}
+              draggable={!sharedPost}
+              fit={step !== 1}
               resetKey={step}
-              className="relative z-20 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
+              onReserveChange={setSheetReserve}
+              className="z-20 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
             >
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
@@ -1401,7 +1415,10 @@ export const AddPostModal: React.FC = () => {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -10 }}
                   transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
-                  className="px-5 pt-1 pb-safe-6"
+                  className="px-5 pt-1"
+                  // Clears the home indicator, and lifts the fields above
+                  // the native keyboard when it opens (--kb-height).
+                  style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px), calc(var(--kb-height, 0px) + 0.75rem))' }}
                 >
                   {/* ── STEP 1 · Camera roll ── */}
                   {step === 1 && (

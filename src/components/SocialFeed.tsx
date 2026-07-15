@@ -4,7 +4,6 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
-import { RestaurantPanel, type RestaurantPanelSnapshot } from './RestaurantPanel';
 import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
 import { usePosts } from '../contexts/PostsContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -470,7 +469,6 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   // Post-level overlays (open one at a time, controlled by the post card)
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
-  const [restaurantPanelSnap, setRestaurantPanelSnap] = useState<RestaurantPanelSnapshot | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
   const { dragProps: postCommentsDragProps } = useBottomSheet(!!openPostCommentsId, () => setOpenPostCommentsId(null));
   // Ratings authored by experts the user follows. Loaded lazily the first
@@ -534,10 +532,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Hide the bottom nav while any comment popup is open (recipe, post, or the
   // inline restaurant thread) so the sheet reads as a focused overlay.
   useEffect(() => {
-    const open = !!openMealComments || !!openPostCommentsId || !!openComments || !!restaurantPanelSnap;
+    const open = !!openMealComments || !!openPostCommentsId || !!openComments;
     setHideBottomNav(open);
     return () => setHideBottomNav(false);
-  }, [openMealComments, openPostCommentsId, openComments, restaurantPanelSnap, setHideBottomNav]);
+  }, [openMealComments, openPostCommentsId, openComments, setHideBottomNav]);
 
   // Always navigate to the full recipe page — the phone-optimized layout
   // handles the narrow viewport, so we no longer need the bottom-sheet modal.
@@ -772,15 +770,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     });
   };
 
-  // Featured place — desktop navigates to the full restaurant detail
-  // page; phone-frame and mobile open the same in-feed sheet that the
-  // reels viewer uses for "Featured place" taps.
+  // Featured place — every layout opens the full restaurant detail page,
+  // matching the activity tab's rows (swipe-back returns to the feed).
+  // The old in-feed sheet made restaurant taps behave differently between
+  // the two tabs.
   const handleFeaturedPlaceClick = (restaurant: PostRestaurantSnapshot) => {
-    if (isDesktop) {
-      navigate(`/restaurant/${restaurant.id}`);
-    } else {
-      setRestaurantPanelSnap(restaurant);
-    }
+    navigate(`/restaurant/${restaurant.id}`);
   };
 
   // Adapters fold PostComment (with extra postId) into the same shape
@@ -1806,17 +1801,6 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           )
         )}
       </AnimatePresence>
-
-      {/* Restaurant detail — mobile/phone-frame sheet variant only.
-          Desktop taps navigate to the full /restaurant page instead. */}
-      {!isDesktop && (
-        <RestaurantPanel
-          variant="sheet"
-          snapshot={restaurantPanelSnap}
-          onClose={() => setRestaurantPanelSnap(null)}
-          currentUserId={userId}
-        />
-      )}
 
       {/* Share dialog */}
       <ShareDialog

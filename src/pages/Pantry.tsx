@@ -7307,7 +7307,9 @@ export const Pantry: React.FC = () => {
             }}
             onOpenRated={() => setShowAllRated(true)}
             onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
-            onOpenRecommendations={() => setRecsOpen(true)}
+            // Phone opens the ranked list as a real route so restaurant taps
+            // push the detail page and swipe-back returns to the ranking.
+            onOpenRecommendations={() => navigate('/pantry/recommended')}
             onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
             onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
@@ -7341,7 +7343,7 @@ export const Pantry: React.FC = () => {
                   )}
                   <button
                     type="button"
-                    onClick={() => setRecsOpen(true)}
+                    onClick={() => navigate('/pantry/recommended')}
                     className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex-shrink-0"
                   >
                     <span>For you</span>
