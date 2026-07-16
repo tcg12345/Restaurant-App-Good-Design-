@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, type FC } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
 import { getPrimaryScroller, setPageScroll, maxPageScroll } from '../lib/page-scroll';
 import { isKeepAlivePath } from '../lib/keep-alive';
@@ -30,7 +30,7 @@ export function savedScrollFor(idx: number): number {
   return positions.get(idx) ?? 0;
 }
 
-export const ScrollRestoration: React.FC = () => {
+export const ScrollRestoration: FC = () => {
   const location = useLocation();
   const navType = useNavigationType(); // 'POP' | 'PUSH' | 'REPLACE'
 

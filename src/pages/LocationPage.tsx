@@ -5,7 +5,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import {
   ArrowLeft,
   BookOpen,

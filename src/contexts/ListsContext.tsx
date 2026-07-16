@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, type UserAppData } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, type UserAppData } from '../lib/supabase-db';
+import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
+import { MAX_INLINE_PHOTO_BYTES } from '../lib/images';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -32,7 +34,13 @@ export interface RestaurantRating {
   favoriteDishes?: string[]; // dishes worth ordering — flows into guide entries
   listIds: string[];      // which lists this rating belongs to
   friendIds: string[];    // user IDs of friends who joined
-  createdAt: number;      // timestamp
+  createdAt: number;      // timestamp (first rated)
+  /** Last-modified timestamp — bumped on every rate/update/settle. Drives
+   *  the multi-device merge (mergeUserData): when the same rating exists on
+   *  two devices, the newer `updatedAt` wins, so an edit is never clobbered
+   *  by a stale copy. Optional for backward-compat with rows saved before
+   *  this field existed; the merge falls back to createdAt when absent. */
+  updatedAt?: number;
 }
 
 export interface RestaurantMeta {
@@ -899,6 +907,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // recipe stash — before loadUserData could read it. localStorage still saves
   // locally; the next successful load unions local + cloud and backfills.
   const cloudReadyRef = useRef(false);
+  // Set true whenever a mutation's cloud sync is skipped because the initial
+  // load hadn't finished (cloudReadyRef false). The load, once it commits the
+  // merged state, checks this and pushes the freshly-merged localStorage
+  // snapshot to the cloud — so a change made DURING sign-in (which the merge
+  // already folded into state via the localStorage re-read) also reaches the
+  // server, instead of living only on this device until the next mutation.
+  const dirtyDuringLoadRef = useRef(false);
   // Deletion tombstones for the "All Recipes" cookbook. Subtracted from the
   // home-meals union at load time so a delete sticks even though the recipe may
   // still be sitting in localStorage, the home_meals column, or the
@@ -926,13 +941,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
-  const isPublicRef = useRef(authProfile?.is_public ?? true);
-  isPublicRef.current = authProfile?.is_public ?? true;
+  // Default to FALSE (private) while the profile is still loading or absent:
+  // treating unknown visibility as public let a private user's photos get
+  // published to the world-readable community_photos table during sign-in
+  // (before the profile resolved). Every publishCommunityPhotos call is gated
+  // on this ref, so an unknown/private account never publishes photos. Flips
+  // to the real value once authProfile loads. (community_photos RLS in
+  // migration 046 also enforces this server-side.)
+  const isPublicRef = useRef(authProfile?.is_public ?? false);
+  isPublicRef.current = authProfile?.is_public ?? false;
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
     // Block all cloud writes until THIS user's data has been loaded once.
     cloudReadyRef.current = false;
+    dirtyDuringLoadRef.current = false;
     if (!userId || !supabaseConfigured) {
       if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
       return;
@@ -1018,74 +1041,48 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           } catch (err) { console.warn('[Supabase] community_ratings recovery failed:', err); }
         }
 
-        // Use cloud data, but if cloud is empty and local has content, keep local
-        let cloudRatings = migrateRatings(
-          cloud.ratings.length > 0 ? cloud.ratings : localRatings.length > 0 ? localRatings : recoveredRatings
-        );
-        const baseCloudLists = migrateLists(
-          cloud.lists.length > 0 ? cloud.lists : localLists.length > 0 ? localLists : DEFAULT_LISTS
-        );
-        // Top-level pick (cloud or local) used to silently wipe anything
-        // local had that cloud didn't — recipes added to a list right
-        // before close, restaurants just dropped into a wishlist, even
-        // entire lists created on this device but never synced. Merge
-        // local additions in by id so a slightly-stale cloud snapshot
-        // can't erase work the user already saw committed locally.
-        const cloudLists = (() => {
-          const localById = new Map<string, CustomList>(
-            (localLists as CustomList[]).map((l) => [l.id, l]),
-          );
-          const merged = baseCloudLists.map((cl) => {
-            const ll = localById.get(cl.id);
-            if (!ll) return cl;
-            const cloudRecipeIds = new Set((cl.recipes || []).map((r) => r.id));
-            const localOnlyRecipes = (ll.recipes || []).filter((r) => r && r.id && !cloudRecipeIds.has(r.id));
-            const cloudRestaurantIds = new Set(cl.restaurantIds || []);
-            const localOnlyRestaurantIds = (ll.restaurantIds || []).filter((id) => id && !cloudRestaurantIds.has(id));
-            const cloudWishlistIds = new Set(cl.wishlistIds || []);
-            const localOnlyWishlistIds = (ll.wishlistIds || []).filter((id) => id && !cloudWishlistIds.has(id));
-            if (localOnlyRecipes.length === 0 && localOnlyRestaurantIds.length === 0 && localOnlyWishlistIds.length === 0) {
-              return cl;
-            }
-            return {
-              ...cl,
-              recipes: localOnlyRecipes.length > 0
-                ? [...(cl.recipes || []), ...localOnlyRecipes]
-                : cl.recipes,
-              restaurantIds: localOnlyRestaurantIds.length > 0
-                ? [...(cl.restaurantIds || []), ...localOnlyRestaurantIds]
-                : cl.restaurantIds,
-              wishlistIds: localOnlyWishlistIds.length > 0
-                ? [...(cl.wishlistIds || []), ...localOnlyWishlistIds]
-                : cl.wishlistIds,
-            };
-          });
-          // Local-only lists (created before sync completed) are appended
-          // so the user doesn't lose a freshly-created list on reload.
-          const baseIds = new Set(baseCloudLists.map((l) => l.id));
-          const localOnlyLists = (localLists as CustomList[]).filter((l) => l && l.id && !baseIds.has(l.id));
-          return [...merged, ...localOnlyLists];
-        })();
-        // Track whether the merge actually rescued anything — if so we
-        // need to push the unioned set back to the cloud so subsequent
-        // reloads see it without relying on local cache again.
-        const listsMergedFromLocal = cloudLists.length !== baseCloudLists.length
+        // ── Real multi-device merge (mergeUserData) ──
+        // Every entity is keyed by id; the newer copy wins (updatedAt →
+        // createdAt), and array memberships are UNIONED. This replaces the
+        // old "cloud wins wholesale, then union only ids cloud lacked"
+        // logic, which silently dropped an EDIT to an entry that existed on
+        // both sides (e.g. a re-rate made on this device while the sign-in
+        // load was still in flight). recoveredRatings only feeds in when
+        // both sides are genuinely empty (community_ratings recovery).
+        const cloudRatingsBase = migrateRatings(cloud.ratings.length > 0 ? cloud.ratings : recoveredRatings);
+        const localRatingsMig = migrateRatings(localRatings);
+        let cloudRatings = mergeRatings(localRatingsMig, cloudRatingsBase);
+        const ratingsMergedFromLocal =
+          cloudRatings.length !== cloudRatingsBase.length
+          || cloudRatings.some((r, i) => r !== cloudRatingsBase[i]);
+
+        const baseCloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
+        const cloudLists = mergeLists(migrateLists(localLists), baseCloudLists);
+        const listsMergedFromLocal =
+          cloudLists.length !== baseCloudLists.length
           || cloudLists.some((l, i) => l !== baseCloudLists[i]);
-        let cloudWishlist = migrateWishlist(
-          cloud.wishlist.length > 0 ? cloud.wishlist : localWishlist.length > 0 ? localWishlist : []
-        );
+
+        const cloudWishlistBase = migrateWishlist(cloud.wishlist.length > 0 ? cloud.wishlist : []);
+        let cloudWishlist = mergeWishlist(migrateWishlist(localWishlist), cloudWishlistBase);
+
         const cloudMeta = cloud.restaurantMeta || {};
-        // Restore trips: try dedicated column first, fall back to __trips__ in meta
-        let cloudTrips: Trip[] = ((cloud as any).trips && (cloud as any).trips.length > 0)
+        // Trips: dedicated column (migration 012) is the source of truth;
+        // fall back to the legacy restaurant_meta.__trips__ mirror for rows
+        // written by older clients, then merge this device's local trips.
+        const cloudTripsBase: Trip[] = ((cloud as any).trips && (cloud as any).trips.length > 0)
           ? (cloud as any).trips
-          : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
+          : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ as Trip[] : []);
+        let cloudTrips = mergeTrips(loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []), cloudTripsBase);
         const cloudRecentViews = cloud.recentViews || [];
-        // Restore custom order from meta; fall back to this device's saved
-        // order when the cloud has none (a wholesale [] here also wiped the
-        // local copy at the cache-write below).
-        let cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__)
-          ? (cloudMeta as any).__custom_order__ as string[]
-          : loadFromStorage<string[]>(STORAGE_KEY_CUSTOM_ORDER, []);
+        // Custom order: dedicated column (migration 038) is the source of
+        // truth; fall back to the legacy __custom_order__ mirror, then this
+        // device's saved order. It's an ordering not a set, so no merge —
+        // the freshest available wins (column > legacy meta > local).
+        let cloudCustomOrder = (Array.isArray((cloud as any).customOrder) && (cloud as any).customOrder.length > 0)
+          ? (cloud as any).customOrder as string[]
+          : Array.isArray((cloudMeta as any).__custom_order__)
+            ? (cloudMeta as any).__custom_order__ as string[]
+            : loadFromStorage<string[]>(STORAGE_KEY_CUSTOM_ORDER, []);
 
         // ── Merge + apply unified deletion tombstones ──
         // Pull the cloud's tombstone stash, union it into this device's set, and
@@ -1119,33 +1116,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         cloudCustomOrder = cloudCustomOrder.filter((id) => !tomb.restaurants.has(id));
         let tombstonesRemovedData = cloudRatings.length !== ratingsBeforeTomb;
 
-        // ── Union in local-only ratings + wishlist hearts ──
-        // The top-level pick above takes the cloud copy wholesale whenever
-        // it's non-empty, which silently dropped anything local-only: a
-        // rating saved while this load was in flight, or one saved offline
-        // that never reached the cloud. Merge them in by restaurantId —
-        // cloud wins on id conflicts (an edit on another device beats a
-        // stale local copy) and tombstoned ids stay dead. Mirrors the
-        // lists/home-meals merges above.
-        const cloudRatingIds = new Set(cloudRatings.map((r) => r.restaurantId));
-        const localOnlyRatings = migrateRatings(localRatings)
-          .filter((r) => r && r.restaurantId && !cloudRatingIds.has(r.restaurantId) && !tomb.restaurants.has(r.restaurantId))
-          .map((r) => {
-            const keptListIds = r.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, r.restaurantId));
-            return keptListIds.length === r.listIds.length ? r : { ...r, listIds: keptListIds };
-          });
-        const ratingsMergedFromLocal = localOnlyRatings.length > 0;
-        if (ratingsMergedFromLocal) cloudRatings = [...localOnlyRatings, ...cloudRatings];
-
-        const cloudWishlistRids = new Set(cloudWishlist.map((w) => w.restaurantId));
-        const localOnlyWishlist = migrateWishlist(localWishlist)
-          .filter((w) => w && w.restaurantId && !cloudWishlistRids.has(w.restaurantId) && !tomb.wishlist.has(w.restaurantId))
-          .map((w) => {
-            const keptListIds = w.listIds.filter((lid) => !tomb.lists.has(lid) && !memberDeleted(lid, w.restaurantId));
-            return keptListIds.length === w.listIds.length ? w : { ...w, listIds: keptListIds };
-          });
-        const wishlistMergedFromLocal = localOnlyWishlist.length > 0;
-        if (wishlistMergedFromLocal) cloudWishlist = [...cloudWishlist, ...localOnlyWishlist];
+        // Ratings/wishlist were already unioned local+cloud by mergeRatings /
+        // mergeWishlist above (newer-wins, listIds unioned), and the tombstone
+        // pass just filtered the merged result. Whether the merge rescued
+        // anything local-only gates the cloud backfill push below.
+        const wishlistMergedFromLocal =
+          cloudWishlist.length !== cloudWishlistBase.length
+          || cloudWishlist.some((w, i) => w !== cloudWishlistBase[i]);
 
         // ── Restore visit history from the durable stash ──
         // The dedicated `visit_history` table isn't present on every deployment
@@ -1191,9 +1168,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           : metaHomeMeals.length > 0
             ? metaHomeMeals
             : [];
-        const mergedById = new Map<string, HomeMeal>();
-        for (const m of localHomeMeals) if (m && m.id) mergedById.set(m.id, m);
-        for (const m of baseCloudHomeMeals) if (m && m.id) mergedById.set(m.id, m);
 
         // ── Apply deletion tombstones ──
         // The merge above is a pure union and can't represent a removal: a
@@ -1210,7 +1184,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         deletedMealIdsRef.current = mergedDeletedIds;
         saveToStorage(STORAGE_KEY_DELETED_MEALS, Array.from(mergedDeletedIds));
 
-        const unionedHomeMeals = migrateHomeMeals(Array.from(mergedById.values()));
+        const unionedHomeMeals = migrateHomeMeals(mergeHomeMeals(localHomeMeals, baseCloudHomeMeals));
         const cloudHomeMeals = mergedDeletedIds.size > 0
           ? unionedHomeMeals.filter((m) => !mergedDeletedIds.has(m.id))
           : unionedHomeMeals;
@@ -1271,9 +1245,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         for (const [mk, mv] of Object.entries(localMetaSnapshot)) {
           if (!(mk in cloudMeta)) { localOnlyMeta[mk] = mv; metaMergedFromLocal = true; }
         }
+        // Legacy sync channels: trips and custom order used to be mirrored
+        // into the meta blob (__trips__/__custom_order__), which doubled the
+        // clobber surface — every unrelated meta write rewrote them. They now
+        // have dedicated columns (trips: 012, custom_order: 038) and were
+        // already read into cloudTrips / cloudCustomOrder above, so strip the
+        // keys here on load; the app no longer writes them.
+        const stripLegacyMetaKeys = (m: Record<string, unknown>) => {
+          const { __trips__, __custom_order__, ...rest } = m;
+          void __trips__; void __custom_order__;
+          return rest;
+        };
         const cloudMetaWithMeals = {
-          ...localOnlyMeta,
-          ...migrateMeta(cloudMeta),
+          ...stripLegacyMetaKeys(localOnlyMeta),
+          ...stripLegacyMetaKeys(migrateMeta(cloudMeta)),
           __home_meals__: cloudHomeMeals as unknown as RestaurantMeta,
           __deleted_meals__: Array.from(mergedDeletedIds) as unknown as RestaurantMeta,
           __tombstones__: tombstonesToJSON(tomb) as unknown as RestaurantMeta,
@@ -1308,8 +1293,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // with the resolved union, so recipes are backed up into a column that
         // is always present (covers schemas missing the home_meals column).
         const metaStashStale = metaHomeMeals.length !== cloudHomeMeals.length;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || ratingsMergedFromLocal || wishlistMergedFromLocal || metaMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale || tombstonesRemovedSomething || cloudTombstonesStale || tombGrew || tombstonesRemovedData || cloudTombHadFewer || visitHistoryStale) {
-          await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
+        // Migrating trips/custom-order out of the meta blob: if the cloud row
+        // still carried either legacy dunder key, push back so the stripped
+        // meta + the dedicated trips/custom_order columns replace it.
+        const legacyDunderPresent =
+          '__trips__' in (cloudMeta as Record<string, unknown>)
+          || '__custom_order__' in (cloudMeta as Record<string, unknown>);
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || ratingsMergedFromLocal || wishlistMergedFromLocal || metaMergedFromLocal || homeMealsUsedLocalFallback || metaStashStale || tombstonesRemovedSomething || cloudTombstonesStale || tombGrew || tombstonesRemovedData || cloudTombHadFewer || visitHistoryStale || legacyDunderPresent) {
+          await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals, customOrder: cloudCustomOrder });
         }
 
         // Sync all ratings to community_ratings (ensures they're visible on user profiles)
@@ -1321,6 +1312,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
+            // Only republish photos for accounts KNOWN to be public. While the
+            // auth profile is still loading, isPublicRef is false (see its
+            // declaration), so a private — or not-yet-resolved — account never
+            // publishes photos to the world-readable gallery during sign-in.
             if (r.photos && r.photos.length > 0 && isPublicRef.current) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
             } else if (!r.photos || r.photos.length === 0) {
@@ -1374,8 +1369,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             recentViews: [],
             trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
             homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
-            chats: [],
-            chatsRead: {},
           });
         }
       }
@@ -1384,36 +1377,70 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       cloudLoadFailedRef.current = false;
       cloudReadyRef.current = true;
       setCloudLoaded(true);
+
+      // A mutation landed while the load was in flight: its state change was
+      // folded into the merge (the load re-reads localStorage), but its cloud
+      // sync was skipped because cloudReadyRef was false. Push the merged
+      // localStorage snapshot once so the server converges too. Re-read at
+      // call time so anything committed up to this tick is included.
+      if (dirtyDuringLoadRef.current) {
+        dirtyDuringLoadRef.current = false;
+        const uid = userIdRef.current;
+        if (uid && supabaseConfigured) {
+          saveUserData(uid, {
+            ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
+            lists: migrateLists(loadFromStorage<CustomList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
+            wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
+            restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
+            recentViews: loadFromStorage<unknown[]>('gourmad-recent-views', []),
+            trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
+            homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
+            customOrder: loadFromStorage<string[]>(STORAGE_KEY_CUSTOM_ORDER, []),
+          }).catch(() => { /* best-effort; next mutation/reload will retry */ });
+        }
+      }
     })();
 
     return () => { cancelled = true; };
   }, [userId]);
 
   // ── Helper to save to Supabase in the background ──
+  // A mutation whose sync is skipped because the load is still in flight marks
+  // the session dirty; the load's post-commit reconcile pushes the merged
+  // localStorage snapshot so the change reaches the cloud (see load effect).
+  const skippedBecauseLoading = () => {
+    if (userIdRef.current && supabaseConfigured && !cloudReadyRef.current) dirtyDuringLoadRef.current = true;
+  };
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
-      // Strip large base64 photos before syncing to avoid payload size issues.
-      // NEVER truncate: a sliced data-URL is an undecodable image that would
-      // sync back down on the next boot and permanently replace the user's
-      // intact local photo. Drop it instead (same semantics as stripDataUrls).
-      const stripped = data.map((r) => ({
-        ...r,
-        photos: r.photos.map((p) => ({
-          ...p,
-          url: p.url.length > 100000 && p.url.startsWith('data:') ? '' : p.url,
-        })),
-      }));
+      // Photos now upload to Storage and are stored as short URLs (see
+      // src/lib/images.ts), so oversized inline base64 should be rare. As a
+      // safety net, DROP (skip) any remaining data: URL over the limit —
+      // never slice it (a sliced base64 is an undecodable image that would
+      // sync back down and permanently replace the intact local photo) and
+      // never blank it to '' (that leaves a broken empty PhotoItem). Http(s)
+      // Storage URLs are always kept regardless of length.
+      const stripped = data.map((r) => {
+        const kept = r.photos.filter((p) => !(p.url.startsWith('data:') && p.url.length > MAX_INLINE_PHOTO_BYTES));
+        if (kept.length !== r.photos.length) {
+          console.warn(`[Lists] Dropped ${r.photos.length - kept.length} oversized inline photo(s) for "${r.name}" before cloud sync (upload to Storage instead).`);
+        }
+        return kept.length === r.photos.length ? r : { ...r, photos: kept };
+      });
       saveRatings(userIdRef.current, stripped);
-    }
+    } else skippedBecauseLoading();
   }, []);
   const syncListsToCloud = useCallback((data: CustomList[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
+    else skippedBecauseLoading();
   }, []);
   const syncWishlistToCloud = useCallback((data: WishlistItem[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveWishlistData(userIdRef.current, data);
+    else skippedBecauseLoading();
   }, []);
   const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
+    else skippedBecauseLoading();
   }, []);
 
   // Persist the unified tombstone set to localStorage (always) and the durable
@@ -1456,31 +1483,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [persistTombstones]);
   const syncTripsToCloud = useCallback((data: Trip[]) => {
-    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
-      // Save trips via the dedicated column (may fail if column doesn't exist)
-      saveTrips(userIdRef.current, data);
-      // Also save trips inside restaurant_meta as a fallback (always works)
-      setRestaurantMeta((prev) => {
-        const next = { ...prev, __trips__: data as unknown as RestaurantMeta };
-        saveToStorage(STORAGE_KEY_META, next);
-        syncMetaToCloud(next);
-        return next;
-      });
-    }
-  }, [syncMetaToCloud]);
+    if (!userIdRef.current || !supabaseConfigured) return;
+    if (!cloudReadyRef.current) { dirtyDuringLoadRef.current = true; return; }
+    // Dedicated trips column only (migration 012) — no longer mirrored into
+    // restaurant_meta.__trips__, which used to double the clobber surface.
+    saveTrips(userIdRef.current, data);
+  }, []);
 
   // ── Custom Order ──
   const setCustomOrder = useCallback((order: string[]) => {
     setCustomOrderState(order);
     saveToStorage(STORAGE_KEY_CUSTOM_ORDER, order);
-    // Persist inside restaurant_meta for cloud sync
-    setRestaurantMeta((prev) => {
-      const next = { ...prev, __custom_order__: order as unknown as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [syncMetaToCloud]);
+    // Dedicated custom_order column only (migration 038) — no longer mirrored
+    // into restaurant_meta.__custom_order__.
+    if (!userIdRef.current || !supabaseConfigured) return;
+    if (!cloudReadyRef.current) { dirtyDuringLoadRef.current = true; return; }
+    saveCustomOrder(userIdRef.current, order);
+  }, []);
 
   // ── Home Meals cloud sync ──
   // ── Trip CRUD ──
@@ -2012,7 +2031,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // settled array is available to the publish + toast below. Note-only
     // edits keep the score identical and must NOT settle (drift guard).
     const scoreChanged = !existingForArchive || existingForArchive.score !== rating.score;
-    const baseNext = [rating, ...ratings.filter((r) => r.restaurantId !== rating.restaurantId)];
+    // Stamp updatedAt now so this save wins the multi-device merge over any
+    // stale copy of the same rating on another device.
+    const now = Date.now();
+    const stampedRating: RestaurantRating = { ...rating, updatedAt: now };
+    const baseNext = [stampedRating, ...ratings.filter((r) => r.restaurantId !== rating.restaurantId)];
     const settleChanges: SettleChange[] = scoreChanged
       ? settleScores(baseNext, {
           justRatedId: rating.restaurantId,
@@ -2022,7 +2045,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           explicitOrder: options?.settleOrder,
         })
       : [];
-    const next = applySettleChanges(baseNext, settleChanges);
+    // Every row the settle moved (plus the rated row) is a modification —
+    // bump updatedAt on each so their new scores survive a merge too.
+    const changedIds = new Set<string>([rating.restaurantId, ...settleChanges.map((c) => c.restaurantId)]);
+    const next = applySettleChanges(baseNext, settleChanges)
+      .map((r) => (changedIds.has(r.restaurantId) ? { ...r, updatedAt: now } : r));
     const settledSelf = next.find((r) => r.restaurantId === rating.restaurantId) ?? rating;
     const otherChanged = settleChanges.filter((c) => c.restaurantId !== rating.restaurantId);
     setRatings(() => {
@@ -2114,7 +2141,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
-      const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial } : r);
+      const now = Date.now();
+      const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial, updatedAt: now } : r);
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
       // Keep the community copy in step — without this, reorder/edit paths
@@ -2134,7 +2162,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return row !== undefined && row.score !== c.score;
       });
       if (real.length === 0) return prev;
-      const next = applySettleChanges(prev, real);
+      const now = Date.now();
+      const changedIds = new Set(real.map((c) => c.restaurantId));
+      const next = applySettleChanges(prev, real)
+        .map((r) => (changedIds.has(r.restaurantId) ? { ...r, updatedAt: now } : r));
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
       const uid = userIdRef.current;

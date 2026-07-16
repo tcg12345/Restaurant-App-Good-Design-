@@ -26,7 +26,7 @@ import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFil
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
-import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { searchPlacesByText } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -159,15 +159,30 @@ export const UserProfile: React.FC = () => {
 
       const isAuthed = !!userId;
 
+      // Resolve visibility BEFORE fetching any profile content. A private
+      // account's ratings / lists / wishlist / meals / photos must never be
+      // fetched for a viewer who can't see them — otherwise the private lock
+      // screen only hides data that's already been downloaded (and is sitting
+      // in the network response). The server enforces this too (community_*
+      // RLS + the profile RPCs, migrations 036/046); skipping the requests
+      // means a blocked viewer's network tab shows zero of B's data.
+      // canViewProfile returns true immediately for public accounts (no query).
+      const viewable = isAuthed ? await canViewProfile(userId!, p) : !!p.is_public;
+      if (cancelled) return;
+      setCanView(viewable);
+
       const fSnapshot: Partial<typeof profileCache[string]> = {
         profile: p,
         ratings: [], photos: [], lists: [], wishlistItems: [],
         publicHomeMeals: [], guides: [], followers: 0, following: 0,
-        canView: !isAuthed && !!p.is_public, isFollowing: false,
+        canView: viewable, isFollowing: false,
         followSent: false, theyFollowMe: false,
       };
       const promises: Promise<void>[] = [];
 
+      // Follower / following counts + my relationship to them drive the header
+      // and the follow button — shown even on the private lock screen, so they
+      // are fetched regardless of `viewable`.
       promises.push(getFollowCounts(p.user_id).then((counts) => {
         if (cancelled) return;
         const c = counts || { followers: 0, following: 0 };
@@ -177,48 +192,7 @@ export const UserProfile: React.FC = () => {
         fSnapshot.following = c.following || 0;
       }));
 
-      promises.push(getUserRatings(p.user_id).then((ratings) => {
-        if (cancelled) return;
-        const r = (ratings || []) as CommunityRating[];
-        setUserRatings(r);
-        fSnapshot.ratings = r;
-      }));
-
-      promises.push(getUserLists(p.user_id).then((lists) => {
-        if (cancelled) return;
-        const l = ((lists || []) as any[]).filter((x: any) => x.restaurantIds?.length > 0);
-        setUserLists(l);
-        fSnapshot.lists = l;
-      }));
-
-      promises.push(getUserWishlist(p.user_id).then((wishlist) => {
-        if (cancelled) return;
-        const w = (wishlist || []) as typeof userWishlistItems;
-        setUserWishlistItems(w);
-        fSnapshot.wishlistItems = w;
-      }));
-
-      promises.push(getUserPublicHomeMeals(p.user_id).then((meals) => {
-        if (cancelled) return;
-        const m = (meals || []) as HomeMeal[];
-        setPublicHomeMeals(m);
-        fSnapshot.publicHomeMeals = m;
-      }));
-
-      promises.push(getMyGuides(p.user_id).then((guides) => {
-        if (cancelled) return;
-        const g = (guides || []).filter(isPublicGuide);
-        setPublicGuides(g);
-        fSnapshot.guides = g;
-      }));
-
       if (isAuthed) {
-        promises.push(canViewProfile(userId!, p).then((viewable) => {
-          if (cancelled) return;
-          const v = !!viewable;
-          setCanView(v);
-          fSnapshot.canView = v;
-        }));
         promises.push(getFriendshipStatus(userId!, p.user_id).then((st) => {
           if (cancelled) return;
           const following = st.iFollow === 'accepted';
@@ -231,13 +205,45 @@ export const UserProfile: React.FC = () => {
           fSnapshot.followSent = sent;
           fSnapshot.theyFollowMe = followsMe;
         }));
-        promises.push(getUserPhotos(p.user_id).then((photos) => {
+      }
+
+      // Private profile content — only when the viewer is allowed to see it.
+      if (viewable) {
+        promises.push(getUserRatings(p.user_id).then((ratings) => {
           if (cancelled) return;
-          const f = (photos || []) as CommunityPhoto[];
-          setUserPhotos(f);
-          fSnapshot.photos = f;
+          const r = (ratings || []) as CommunityRating[];
+          setUserRatings(r);
+          fSnapshot.ratings = r;
         }));
-      } else if (p.is_public) {
+
+        promises.push(getUserLists(p.user_id).then((lists) => {
+          if (cancelled) return;
+          const l = ((lists || []) as any[]).filter((x: any) => x.restaurantIds?.length > 0);
+          setUserLists(l);
+          fSnapshot.lists = l;
+        }));
+
+        promises.push(getUserWishlist(p.user_id).then((wishlist) => {
+          if (cancelled) return;
+          const w = (wishlist || []) as typeof userWishlistItems;
+          setUserWishlistItems(w);
+          fSnapshot.wishlistItems = w;
+        }));
+
+        promises.push(getUserPublicHomeMeals(p.user_id).then((meals) => {
+          if (cancelled) return;
+          const m = (meals || []) as HomeMeal[];
+          setPublicHomeMeals(m);
+          fSnapshot.publicHomeMeals = m;
+        }));
+
+        promises.push(getMyGuides(p.user_id).then((guides) => {
+          if (cancelled) return;
+          const g = (guides || []).filter(isPublicGuide);
+          setPublicGuides(g);
+          fSnapshot.guides = g;
+        }));
+
         promises.push(getUserPhotos(p.user_id).then((photos) => {
           if (cancelled) return;
           const f = (photos || []) as CommunityPhoto[];
@@ -397,20 +403,64 @@ export const UserProfile: React.FC = () => {
         const el = createRatingMarkerEl(Number(r.score) || 0);
 
         const cityState = (() => { const parts = (r.address || '').split(',').map(s => s.trim()); return parts.length >= 2 ? parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '') : parts[0] || ''; })();
-        const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
-        const scoreHtml = r.score ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${r.price}</span>` : ''}</div>` : '';
 
         const rid = r.restaurant_id;
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           if (activePopup) activePopup.remove();
-          const cbId = `mp_${Date.now()}`;
-          (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+          // Popup content is built with DOM APIs: every community_ratings
+          // field is attacker-controlled, so user strings only ever go
+          // through textContent / property setters, never into markup.
+          const content = document.createElement('div');
+          content.style.cssText = 'font-family:inherit;padding:4px 0;cursor:pointer;';
+          content.addEventListener('click', () => navigate(`/restaurant/${rid}`));
+          if (r.photo_url) {
+            const img = document.createElement('img');
+            img.src = r.photo_url;
+            img.referrerPolicy = 'no-referrer';
+            img.style.cssText = 'width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;';
+            content.appendChild(img);
+          }
+          const name = document.createElement('div');
+          name.style.cssText = 'font-size:13px;font-weight:700;margin-bottom:2px;';
+          name.textContent = r.restaurant_name;
+          content.appendChild(name);
+          if (r.cuisine) {
+            const cuisine = document.createElement('div');
+            cuisine.style.cssText = 'font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;';
+            cuisine.textContent = r.cuisine;
+            content.appendChild(cuisine);
+          }
+          if (r.score) {
+            const scoreRow = document.createElement('div');
+            scoreRow.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:2px;';
+            scoreRow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+            const scoreText = document.createElement('span');
+            scoreText.style.cssText = 'font-size:12px;font-weight:700;color:#9f3012;';
+            scoreText.textContent = Number(r.score).toFixed(1);
+            scoreRow.appendChild(scoreText);
+            if (r.price) {
+              const dot = document.createElement('span');
+              dot.style.cssText = 'color:#ccc;margin:0 2px;';
+              dot.textContent = '·';
+              scoreRow.appendChild(dot);
+              const price = document.createElement('span');
+              price.style.cssText = 'font-size:11px;color:#888;font-weight:600;';
+              price.textContent = r.price;
+              scoreRow.appendChild(price);
+            }
+            content.appendChild(scoreRow);
+          }
+          const city = document.createElement('div');
+          city.style.cssText = 'font-size:11px;color:#999;';
+          city.textContent = cityState;
+          content.appendChild(city);
+
           const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
             .setLngLat([lng, lat])
-            .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
+            .setDOMContent(content)
             .addTo(map);
-          popup.on('close', () => { activePopup = null; delete (window as any)[cbId]; });
+          popup.on('close', () => { activePopup = null; });
           activePopup = popup;
         });
 

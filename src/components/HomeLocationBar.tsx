@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';

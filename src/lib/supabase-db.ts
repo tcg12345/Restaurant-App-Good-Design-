@@ -4,12 +4,14 @@
  */
 import { supabase, supabaseConfigured } from './supabase';
 import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip, HomeMeal } from '../contexts/ListsContext';
-import type { Conversation } from '../contexts/ChatContext';
 
 function asArray<T>(v: unknown, fallback: T[]): T[] {
   return Array.isArray(v) ? (v as T[]) : fallback;
 }
 
+// Chats deliberately absent: conversations live in the shared
+// conversations/messages tables (migration 037, see ChatContext), never in
+// this per-user blob.
 export interface UserAppData {
   ratings: RestaurantRating[];
   lists: CustomList[];
@@ -18,8 +20,9 @@ export interface UserAppData {
   recentViews: unknown[];
   trips: Trip[];
   homeMeals: HomeMeal[];
-  chats?: Conversation[];
-  chatsRead?: Record<string, number>;
+  /** Manual drag-order of rated restaurant ids. Dedicated column as of
+   *  migration 038 — was previously stashed in restaurant_meta.__custom_order__. */
+  customOrder?: string[];
 }
 
 /**
@@ -41,22 +44,14 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       // schema hasn't been migrated yet.
       let { data, error } = await supabase
         .from('user_app_data')
-        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, chats, chats_read')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, custom_order')
         .eq('user_id', userId)
         .single();
 
-      // Retry without chats columns if they don't exist yet (schema drift)
-      if (error && !data && error.code !== 'PGRST116') {
-        const retry = await supabase
-          .from('user_app_data')
-          .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
-          .eq('user_id', userId)
-          .single();
-        data = retry.data as typeof data;
-        error = retry.error;
-      }
-
-      // Final fallback without trips/home_meals either
+      // Fallback without trips/home_meals/custom_order if those columns don't
+      // exist yet (schema drift — trips/order still round-trip via the
+      // restaurant_meta __trips__/__custom_order__ legacy mirrors that older
+      // clients wrote; home_meals via __home_meals__).
       if (error && !data && error.code !== 'PGRST116') {
         const fallback = await supabase
           .from('user_app_data')
@@ -84,10 +79,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         recentViews: asArray<unknown>(data.recent_views, []),
         trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
         homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
-        chats: asArray<Conversation>((data as Record<string, unknown>).chats, []),
-        chatsRead: ((data as Record<string, unknown>).chats_read && typeof (data as Record<string, unknown>).chats_read === 'object' && !Array.isArray((data as Record<string, unknown>).chats_read)
-          ? (data as Record<string, unknown>).chats_read
-          : {}) as Record<string, number>,
+        customOrder: asArray<string>((data as Record<string, unknown>).custom_order, []),
       };
     } catch (err) {
       lastError = err;
@@ -108,13 +100,24 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
  * Save all user data to Supabase (upsert — creates row if needed).
  * This is the ONLY function that should create new rows.
  */
+/** Columns that may be absent on live schemas that predate their
+ *  migrations. Only these may be dropped from a failed upsert. */
+const OPTIONAL_COLUMNS = ['trips', 'home_meals', 'custom_order'];
+
+/** When PostgREST rejects a write because a column doesn't exist
+ *  (PGRST204: "Could not find the 'X' column ..."), return that column
+ *  name — but only if it's one we consider optional. */
+function missingOptionalColumn(error: { code?: string; message?: string } | null): string | null {
+  if (!error || error.code !== 'PGRST204') return null;
+  const m = /Could not find the '([^']+)' column/i.exec(error.message || '');
+  const col = m?.[1];
+  return col && OPTIONAL_COLUMNS.includes(col) ? col : null;
+}
+
 export async function saveUserData(userId: string, data: UserAppData): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
 
   try {
-    // Only include chats/chats_read in the upsert when caller provided them.
-    // Otherwise we'd silently wipe out conversations whenever ListsContext
-    // reconciles ratings/lists without touching chat state.
     const payload: Record<string, unknown> = {
       user_id: userId,
       ratings: data.ratings,
@@ -124,38 +127,29 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
       recent_views: data.recentViews || [],
       trips: data.trips || [],
       home_meals: data.homeMeals || [],
+      custom_order: data.customOrder || [],
       updated_at: new Date().toISOString(),
     };
-    if (data.chats !== undefined) payload.chats = data.chats;
-    if (data.chatsRead !== undefined) payload.chats_read = data.chatsRead;
 
-    // Try saving with trips; fall back without if column doesn't exist
-    let { error } = await supabase
-      .from('user_app_data')
-      .upsert(payload, { onConflict: 'user_id' });
-
-    if (error) {
-      // Retry without newer columns
-      const fallback = await supabase
+    // Retry dropping ONLY the specific column PostgREST reports as missing
+    // (schema drift). The old blanket fallback re-sent the payload without
+    // trips AND home_meals, so one missing column silently stopped the
+    // other from ever persisting.
+    for (let attempt = 0; attempt <= OPTIONAL_COLUMNS.length; attempt++) {
+      const { error } = await supabase
         .from('user_app_data')
-        .upsert({
-          user_id: userId,
-          ratings: data.ratings,
-          lists: data.lists,
-          wishlist: data.wishlist,
-          restaurant_meta: data.restaurantMeta,
-          recent_views: data.recentViews || [],
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' });
-      error = fallback.error;
-    }
+        .upsert(payload, { onConflict: 'user_id' });
+      if (!error) return true;
 
-    if (error) {
-      console.error('[Supabase] saveUserData error:', error);
-      return false;
+      const missing = missingOptionalColumn(error);
+      if (!missing || !(missing in payload)) {
+        console.error('[Supabase] saveUserData error:', error);
+        return false;
+      }
+      console.warn(`[Supabase] saveUserData: '${missing}' column missing on this schema — retrying without it (its data persists via the restaurant_meta mirror)`);
+      delete payload[missing];
     }
-
-    return true;
+    return false;
   } catch (err) {
     console.error('[Supabase] saveUserData exception:', err);
     return false;
@@ -287,15 +281,16 @@ export async function saveHomeMeals(userId: string, homeMeals: HomeMeal[]): Prom
   } catch (err) { console.warn('[Supabase] saveHomeMeals exception:', err); return false; }
 }
 
-export async function saveChats(userId: string, chats: Conversation[], chatsRead: Record<string, number>): Promise<boolean> {
+export async function saveCustomOrder(userId: string, customOrder: string[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
     await ensureRow(userId);
     const { error } = await supabase
       .from('user_app_data')
-      .update({ chats, chats_read: chatsRead, updated_at: new Date().toISOString() })
+      .update({ custom_order: customOrder, updated_at: new Date().toISOString() })
       .eq('user_id', userId);
-    if (error) { console.warn('[Supabase] saveChats error (column may not exist yet):', error.message); return false; }
+    if (error) { console.warn('[Supabase] saveCustomOrder error (column may not exist yet):', error.message); return false; }
     return true;
-  } catch (err) { console.warn('[Supabase] saveChats exception:', err); return false; }
+  } catch (err) { console.warn('[Supabase] saveCustomOrder exception:', err); return false; }
 }
+

@@ -129,7 +129,7 @@ export const RatingModal: React.FC = () => {
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const totalFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
     if (totalFiles.length === 0) return;
     const newPhotos: PhotoItem[] = [];
     let loaded = 0;

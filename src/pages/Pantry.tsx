@@ -5,6 +5,8 @@ import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersH
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
+import { MAPBOX_TOKEN } from '../lib/keys';
+import { processPhoto } from '../lib/images';
 import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -1541,33 +1543,14 @@ const AddHotelBreakfastModal: React.FC<{
     setPage('main');
   };
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = document.createElement('img');
-        img.onload = () => {
-          const max = 800;
-          let w = img.width, h = img.height;
-          if (w > max || h > max) { const r = Math.min(max / w, max / h); w *= r; h *= r; }
-          const c = document.createElement('canvas'); c.width = w; c.height = h;
-          c.getContext('2d')!.drawImage(img, 0, 0, w, h);
-          resolve(c.toDataURL('image/jpeg', 0.6));
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    const files = (Array.from(e.target.files || []) as File[]).filter((f) => f.type.startsWith('image/'));
     const newPhotos: PhotoItem[] = [];
     for (const file of files.slice(0, 8 - photos.length)) {
       try {
-        const compressed = await compressImage(file);
-        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
-      } catch {}
+        const url = await processPhoto(file);
+        newPhotos.push({ url, caption: '', isFavorite: false });
+      } catch { /* skip undecodable */ }
     }
     setPhotos((prev) => [...prev, ...newPhotos]);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1594,6 +1577,7 @@ const AddHotelBreakfastModal: React.FC<{
       photos,
       listIds: [listId],
       friendIds: [],
+      createdAt: Date.now(),
     });
     addToList(listId, selectedHotel.id);
     cacheRestaurantMeta({ id: selectedHotel.id, name: selectedHotel.name, image: selectedHotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: selectedHotel.address || '' });
@@ -4090,8 +4074,6 @@ const CreateTripSheet: React.FC<{
   const [locResults, setLocResults] = useState<{ id: string; name: string; lat: number; lng: number }[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const locDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'].join('');
 
   useEffect(() => {
     if (open) {
@@ -6829,7 +6811,7 @@ export const Pantry: React.FC = () => {
     if (isHoursFilterActive(hoursFilter)) result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurantId]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurantId]?.lng)));
 
     if (sortBy === 'custom') {
-      const orderMap = new Map(customOrder.map((id, i) => [id, i]));
+      const orderMap = new Map<string, number>(customOrder.map((id, i) => [id, i]));
       result.sort((a, b) => {
         const ai = orderMap.get(a.restaurantId) ?? Infinity;
         const bi = orderMap.get(b.restaurantId) ?? Infinity;

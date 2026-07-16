@@ -53,7 +53,8 @@ import {
 import type { ReelRestaurantSnapshot } from '../lib/supabase-reels';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, type PlaceDetails } from '../lib/places';
 import { isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
-import { MAPBOX_TOKEN, getTodayHours } from '../pages/useRestaurantDetail';
+import { getTodayHours } from '../pages/useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
 

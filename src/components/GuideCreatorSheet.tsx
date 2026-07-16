@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
 import { searchCities, type HomeLocation } from './HomeLocationBar';
 import { cn } from '../lib/utils';
+import { processPhoto } from '../lib/images';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type CustomList, type RestaurantRating, type Recipe as ListRecipe } from '../contexts/ListsContext';
 import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext';
@@ -185,33 +186,6 @@ const DEFAULT_TAG_SUGGESTIONS = [
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 /** Compress a File to a base64 JPEG (max 1200px, 0.7 quality). */
-function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      const img = document.createElement('img');
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxSize = 1200;
-        let { width, height } = img;
-        if (width > maxSize || height > maxSize) {
-          if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-          else { width = (width / height) * maxSize; height = maxSize; }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.onerror = () => reject(new Error('Image load failed'));
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 /* ── Small shared pieces ─────────────────────────────────────────── */
 
 /** Uppercase micro-label above a field. */
@@ -1627,8 +1601,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const b64 = await compressImage(file);
-      setCoverPhoto(b64);
+      const url = await processPhoto(file, { maxDim: 1200, quality: 0.7 });
+      setCoverPhoto(url);
     } catch (err) {
       console.warn('[Guide] cover compress failed', err);
       showToast("Couldn't read that image");

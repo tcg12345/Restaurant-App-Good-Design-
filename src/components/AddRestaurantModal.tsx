@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
+import { processPhoto } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { settleScores } from '../lib/settleScores';
@@ -186,44 +187,18 @@ export const AddRestaurantModal: React.FC = () => {
 
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
 
-  // Compress image to max 800px and JPEG quality 0.6
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = document.createElement('img');
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxSize = 800;
-          let { width, height } = img;
-          if (width > maxSize || height > maxSize) {
-            if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-            else { width = (width / height) * maxSize; height = maxSize; }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.6));
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const totalFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
     if (totalFiles.length === 0) return;
 
     const newPhotos: PhotoItem[] = [];
     for (const file of totalFiles) {
       try {
-        const compressed = await compressImage(file);
-        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
-      } catch { /* skip failed photos */ }
+        const url = await processPhoto(file);
+        newPhotos.push({ url, caption: '', isFavorite: false });
+      } catch { /* skip undecodable photos (e.g. HEIC on a browser that can't decode it) */ }
     }
     setPhotos((prev) => {
       const updated = [...prev, ...newPhotos];

@@ -22,6 +22,10 @@ export interface CommunityRating {
   lng: number | null;
   photo_url: string;
   created_at: string;
+  /** Last-updated timestamp. Present on the row (getUserRatings /
+   *  getExpertRatings order by it); optional here for older callers that
+   *  build CommunityRating objects without it. */
+  updated_at?: string;
 }
 
 export interface CommunityPhoto {
@@ -618,38 +622,45 @@ export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
   } catch { return []; }
 }
 
-/** Get a user's wishlist items from user_app_data */
+/** Get a user's wishlist items.
+ *
+ *  user_app_data is owner-only under RLS (migration 013); cross-user reads
+ *  go through the SECURITY DEFINER RPCs from migration 036, which return
+ *  only public-safe fields and nothing at all when the target profile is
+ *  private and the caller isn't an accepted follower. */
 export async function getUserWishlist(userId: string): Promise<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
-    const { data, error } = await supabase.from('user_app_data')
-      .select('wishlist').eq('user_id', userId).single();
-    if (error || !data) return [];
-    return ((data.wishlist as any[]) || []).map((w: any) => ({
+    const { data, error } = await supabase.rpc('get_public_wishlist', { target: userId });
+    if (error || !Array.isArray(data)) return [];
+    return (data as any[]).map((w: any) => ({
       restaurantId: w.restaurantId, name: w.name, cuisine: w.cuisine || '',
       price: w.price || '', address: w.address || '', notes: w.notes || '',
     }));
   } catch { return []; }
 }
 
-/** Get a user's lists from user_app_data (includes wishlist as first item) */
+/** Get a user's lists (includes wishlist as first item). Same RPC-backed
+ *  visibility rules as getUserWishlist. */
 export async function getUserLists(userId: string): Promise<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
-    const { data, error } = await supabase.from('user_app_data')
-      .select('lists, wishlist').eq('user_id', userId).single();
-    if (error || !data) return [];
+    const [listsRes, wishRes] = await Promise.all([
+      supabase.rpc('get_public_lists', { target: userId }),
+      supabase.rpc('get_public_wishlist', { target: userId }),
+    ]);
+    if (listsRes.error && wishRes.error) return [];
 
     const result: { id: string; name: string; emoji: string; restaurantIds: string[] }[] = [];
 
     // Wishlist always first
-    const wishlistItems = (data.wishlist as any[]) || [];
+    const wishlistItems = (!wishRes.error && Array.isArray(wishRes.data)) ? (wishRes.data as any[]) : [];
     if (wishlistItems.length > 0) {
       result.push({ id: '__wishlist__', name: 'Wishlist', emoji: '🔖', restaurantIds: wishlistItems.map((w: any) => w.restaurantId) });
     }
 
     // Then regular lists
-    const lists = (data.lists as any[]) || [];
+    const lists = (!listsRes.error && Array.isArray(listsRes.data)) ? (listsRes.data as any[]) : [];
     lists.forEach((l: any) => {
       result.push({ id: l.id, name: l.name, emoji: l.emoji, restaurantIds: l.restaurantIds || [] });
     });
@@ -1006,7 +1017,14 @@ export async function addFriend(userId: string, friendId: string): Promise<boole
   return sendFriendRequest(userId, friendId);
 }
 
-/** Remove a friend */
+/**
+ * Unfollow: remove MY outgoing edge to `friendId` (I stop following them).
+ * The graph is directional (see the follow-friend model), so this is
+ * deliberately one-directional — it must NOT touch `friendId→userId` (their
+ * follow of me is their edge; unfollowing someone can't silently strip them
+ * of me as a follower). To revoke a follower's access, use removeFollower.
+ * RLS: permitted by the `user_id` DELETE policy (migration 002).
+ */
 export async function removeFriend(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
@@ -1015,6 +1033,24 @@ export async function removeFriend(userId: string, friendId: string): Promise<bo
     if (error) { console.error('[Friends] removeFriend error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] removeFriend exception:', err); return false; }
+}
+
+/**
+ * Remove a FOLLOWER: delete the `followerId→userId` edge so `followerId` no
+ * longer follows `userId`. This is how a (private) account revokes an approved
+ * follower's access — after this they fail canViewProfile for the private
+ * account and their activity feed drops the ex-followee. Requires the
+ * `friend_id` DELETE policy (migration 040): the row is owned by the follower
+ * as `user_id`, and `userId` is the `friend_id` side.
+ */
+export async function removeFollower(userId: string, followerId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !followerId) return false;
+  try {
+    const { error } = await supabase.from('user_friends')
+      .delete().eq('user_id', followerId).eq('friend_id', userId);
+    if (error) { console.error('[Friends] removeFollower error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] removeFollower exception:', err); return false; }
 }
 
 /** Search users by email (for adding friends) */
@@ -1054,81 +1090,34 @@ export interface FriendHomeMeal extends HomeMeal {
   userId: string;
 }
 
-// Pulls home meals from both the dedicated home_meals column AND the
-// restaurant_meta.__home_meals__ fallback that ListsContext writes to when
-// the dedicated column is missing. Meals are de-duplicated by id.
-const mergeHomeMealSources = (row: Record<string, unknown>): HomeMeal[] => {
-  const primary = Array.isArray(row.home_meals) ? (row.home_meals as HomeMeal[]) : [];
-  const meta = (row.restaurant_meta && typeof row.restaurant_meta === 'object' && !Array.isArray(row.restaurant_meta))
-    ? (row.restaurant_meta as Record<string, unknown>)
-    : {};
-  const fallback = Array.isArray((meta as Record<string, unknown>).__home_meals__)
-    ? ((meta as Record<string, unknown>).__home_meals__ as HomeMeal[])
-    : [];
-  // Deletion tombstones: ListsContext records removed meal ids here. Without
-  // honoring them, a meal the owner deleted still lives on in one of the two
-  // sources above and keeps showing to friends. Drop tombstoned ids.
-  const deleted = Array.isArray((meta as Record<string, unknown>).__deleted_meals__)
-    ? new Set((meta as Record<string, unknown>).__deleted_meals__ as string[])
-    : new Set<string>();
-  const byId = new Map<string, HomeMeal>();
-  // Prefer primary column entries (most likely fresher if both exist).
-  for (const m of fallback) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
-  for (const m of primary) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
-  return Array.from(byId.values());
-};
+// Home meals are read through the SECURITY DEFINER RPCs from migration 036:
+// user_app_data is owner-only under RLS (013), and the RPCs return only
+// meals with isPublic=true from users the caller may view (public profile,
+// self, or accepted follow edge). Merging of the dedicated home_meals
+// column with the restaurant_meta.__home_meals__ fallback and the
+// __deleted_meals__ tombstones now happens server-side.
 
 export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<FriendHomeMeal[]> {
   if (!supabaseConfigured || friendIds.length === 0) return [];
   try {
-    // Pull ONLY the home-meals array + delete tombstones out of the
-    // restaurant_meta JSON blob (PostgREST json-path select) in a single
-    // request. Previously this issued two round trips — a first select on a
-    // `home_meals` column that doesn't exist on the live schema (always 400s),
-    // then a retry that pulled the ENTIRE restaurant_meta column (every cached
-    // restaurant's metadata, ~35%+ larger than just the meals). This is the
-    // dominant cost of the Discover "Recipes for you" rail.
-    const { data, error } = await supabase.from('user_app_data')
-      .select('user_id, meals:restaurant_meta->__home_meals__, deleted:restaurant_meta->__deleted_meals__')
-      .in('user_id', friendIds);
+    const { data, error } = await supabase.rpc('get_friends_public_home_meals', { friend_ids: friendIds });
     if (error) { console.warn('[Friends] getPublicHomeMeals error:', error.message); return []; }
     const result: FriendHomeMeal[] = [];
-    for (const row of (data || []) as Array<{ user_id: string; meals: unknown; deleted: unknown }>) {
-      const meals = Array.isArray(row.meals) ? (row.meals as HomeMeal[]) : [];
-      const deleted = new Set(Array.isArray(row.deleted) ? (row.deleted as string[]) : []);
-      // De-dupe by id and drop tombstoned meals, then keep only public ones.
-      const byId = new Map<string, HomeMeal>();
-      for (const m of meals) if (m && m.id && !deleted.has(m.id)) byId.set(m.id, m);
-      for (const meal of byId.values()) {
-        if (meal.isPublic) result.push({ ...meal, userId: row.user_id });
-      }
+    for (const row of (data || []) as Array<{ user_id: string; meal: HomeMeal }>) {
+      if (row.meal && row.meal.id) result.push({ ...row.meal, userId: row.user_id });
     }
     result.sort((a, b) => b.createdAt - a.createdAt);
     return result;
   } catch (err) { console.error('[Friends] getPublicHomeMeals exception:', err); return []; }
 }
 
-/** Fetch a single user's public home meal by id, honoring both the dedicated
- *  home_meals column and the restaurant_meta.__home_meals__ fallback. Returns
- *  null when the meal is missing or not marked public. */
+/** Fetch a single user's public home meal by id. Returns null when the meal
+ *  is missing, not marked public, or the owner isn't viewable by the caller. */
 export async function getPublicHomeMealById(userId: string, mealId: string): Promise<FriendHomeMeal | null> {
   if (!supabaseConfigured || !userId || !mealId) return null;
   try {
-    let { data, error } = await supabase.from('user_app_data')
-      .select('home_meals, restaurant_meta')
-      .eq('user_id', userId)
-      .single();
-    if (error || !data) {
-      const fallback = await supabase.from('user_app_data')
-        .select('restaurant_meta')
-        .eq('user_id', userId)
-        .single();
-      data = fallback.data as typeof data;
-      error = fallback.error;
-    }
-    if (error || !data) return null;
-    const meals = mergeHomeMealSources(data as Record<string, unknown>);
-    const match = meals.find((m) => m.id === mealId && m.isPublic);
+    const meals = await getUserPublicHomeMeals(userId);
+    const match = meals.find((m) => m.id === mealId);
     return match ? { ...match, userId } : null;
   } catch (err) {
     console.warn('[Community] getPublicHomeMealById exception:', err);
@@ -1140,70 +1129,41 @@ export async function getPublicHomeMealById(userId: string, mealId: string): Pro
 export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
-    let { data, error } = await supabase.from('user_app_data')
-      .select('home_meals, restaurant_meta')
-      .eq('user_id', userId)
-      .single();
-    if (error || !data) {
-      const fallback = await supabase.from('user_app_data')
-        .select('restaurant_meta')
-        .eq('user_id', userId)
-        .single();
-      data = fallback.data as typeof data;
-      error = fallback.error;
-    }
-    if (error || !data) return [];
-    const meals = mergeHomeMealSources(data as Record<string, unknown>);
-    return meals.filter((m) => m.isPublic).sort((a, b) => b.createdAt - a.createdAt);
+    const { data, error } = await supabase.rpc('get_public_home_meals', { target: userId });
+    if (error || !Array.isArray(data)) return [];
+    return (data as HomeMeal[]).filter((m) => m && m.id).sort((a, b) => b.createdAt - a.createdAt);
   } catch (err) { console.error('[Community] getUserPublicHomeMeals exception:', err); return []; }
 }
 
-/** Fetch public home meals across the entire platform — every user
- *  who has saved at least one home meal. Used by the AI assistant's
- *  search_community_recipes tool so it can surface recipes from
- *  people the user doesn't follow yet. Scans up to `userScanLimit`
- *  rows of user_app_data; results are deduped by meal id and capped
- *  at `mealLimit`. Excludes the given userId (the asker's own meals
- *  are already in their RECIPES section).
+/** Fetch public home meals across the entire platform — every user the
+ *  caller may view (public profiles + accepted follows). Used by the AI
+ *  assistant's search_community_recipes tool and the Explore recipe
+ *  surfaces. Results are deduped by meal id server-side and capped at
+ *  `mealLimit`. Excludes the given userId (the asker's own meals are
+ *  already in their RECIPES section). `userScanLimit` is obsolete — the
+ *  RPC scans set-based — and kept only for call-site compatibility.
  */
 export async function getAllPublicHomeMeals(
   excludeUserId: string,
   opts: { userScanLimit?: number; mealLimit?: number } = {},
 ): Promise<FriendHomeMeal[]> {
   if (!supabaseConfigured) return [];
-  const userScanLimit = opts.userScanLimit ?? 200;
   const mealLimit = opts.mealLimit ?? 60;
   try {
-    let q = supabase.from('user_app_data')
-      .select('user_id, home_meals, restaurant_meta')
-      .limit(userScanLimit);
-    if (excludeUserId) q = q.neq('user_id', excludeUserId);
-    let { data, error } = await q;
+    const { data, error } = await supabase.rpc('get_all_public_home_meals', {
+      exclude_user: excludeUserId || null,
+      meal_limit: mealLimit,
+    });
     if (error) {
-      // Schema without the dedicated column — retry with the fallback shape.
-      let fb = supabase.from('user_app_data')
-        .select('user_id, restaurant_meta')
-        .limit(userScanLimit);
-      if (excludeUserId) fb = fb.neq('user_id', excludeUserId);
-      const fallback = await fb;
-      data = fallback.data as typeof data;
-      error = fallback.error;
-    }
-    if (error || !data) {
-      if (error) console.warn('[Community] getAllPublicHomeMeals error:', error.message);
+      console.warn('[Community] getAllPublicHomeMeals error:', error.message);
       return [];
     }
     const out: FriendHomeMeal[] = [];
-    for (const row of data) {
-      const meals = mergeHomeMealSources(row as Record<string, unknown>);
-      for (const meal of meals) {
-        if (meal.isPublic) {
-          out.push({ ...meal, userId: (row as { user_id: string }).user_id });
-        }
-      }
+    for (const row of (data || []) as Array<{ user_id: string; meal: HomeMeal }>) {
+      if (row.meal && row.meal.id) out.push({ ...row.meal, userId: row.user_id });
     }
     out.sort((a, b) => b.createdAt - a.createdAt);
-    return out.slice(0, mealLimit);
+    return out;
   } catch (err) {
     console.error('[Community] getAllPublicHomeMeals exception:', err);
     return [];

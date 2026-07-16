@@ -1,11 +1,13 @@
 -- Fix overly permissive RLS policy on user_app_data and add missing indexes.
--- Run this in your Supabase SQL Editor.
+-- Run this in your Supabase SQL Editor. Safe to run multiple times.
+-- (Renamed from 013_fix_rls_and_add_indexes.sql — see supabase/README.md.)
 
 -- Migration 008 made user_app_data readable by anyone.
 -- This is too broad — private data (ratings, lists, wishlist) should only be
 -- readable by the owning user. Community/shared data lives in community_* tables.
 -- Restoring the original owner-only read policy.
 DROP POLICY IF EXISTS "Anyone can read app data" ON public.user_app_data;
+DROP POLICY IF EXISTS "Users can read own app data" ON public.user_app_data;
 CREATE POLICY "Users can read own app data"
   ON public.user_app_data FOR SELECT
   USING (auth.uid() = user_id);

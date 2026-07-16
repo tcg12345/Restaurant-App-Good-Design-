@@ -15,8 +15,7 @@ import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMi
 // @ts-ignore
 mapboxgl.workerClass = MapboxWorker;
 
-const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
-export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
+import { MAPBOX_TOKEN } from '../lib/keys';
 
 /**
  * iOS WKWebView (the Capacitor app's web view) frequently fails to render
