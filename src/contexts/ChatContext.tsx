@@ -1,49 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
-import { useLists } from './ListsContext';
-import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveChats } from '../lib/supabase-db';
-
-/** Key under which we mirror chats into the always-present restaurant_meta
- *  JSONB column — a reliable cloud fallback when the dedicated chats /
- *  chats_read columns aren't present (mirrors __home_meals__ / __trips__). */
-const META_CHATS_KEY = '__chats_v1__';
-
-/* ── Merge helpers (union local + cloud so nothing is lost on sign-in) ── */
-
-function mergeConversations(local: Conversation[], cloud: Conversation[]): Conversation[] {
-  const byId = new Map<string, Conversation>();
-  for (const c of cloud) if (c && c.id) byId.set(c.id, c);
-  for (const c of local) {
-    if (!c || !c.id) continue;
-    const existing = byId.get(c.id);
-    if (!existing) { byId.set(c.id, c); continue; }
-    // Same conversation on both sides — union messages by id.
-    const msgs = new Map<string, ChatMessage>();
-    for (const m of existing.messages || []) msgs.set(m.id, m);
-    for (const m of c.messages || []) msgs.set(m.id, m);
-    const messages = [...msgs.values()].sort((a, b) => a.timestamp - b.timestamp);
-    byId.set(c.id, {
-      ...existing,
-      ...c,
-      name: c.name || existing.name,
-      messages,
-      lastMessageAt: Math.max(
-        existing.lastMessageAt || 0,
-        c.lastMessageAt || 0,
-        messages.length ? messages[messages.length - 1].timestamp : 0,
-      ),
-      createdAt: Math.min(existing.createdAt || Date.now(), c.createdAt || Date.now()),
-    });
-  }
-  return [...byId.values()].sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-}
-
-function mergeRead(local: Record<string, number>, cloud: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = { ...cloud };
-  for (const [k, v] of Object.entries(local || {})) out[k] = Math.max(out[k] || 0, v || 0);
-  return out;
-}
+import { supabase, supabaseConfigured } from '../lib/supabase';
 
 /* ── Types ── */
 
@@ -177,8 +134,22 @@ interface ChatContextValue {
   getUnreadForConversation: (conversationId: string) => number;
 }
 
-const STORAGE_KEY = 'gourmad-chats';
-const READ_KEY = 'gourmad-chats-read';
+/* ── Persistence model ──
+ *
+ * Conversations and messages live in the shared `conversations` /
+ * `messages` / `conversation_reads` tables (migration 037) with
+ * participant-scoped RLS — messages are actually delivered to the other
+ * participants, unlike the old model that wrote the sender's own
+ * user_app_data blob. New messages arrive over a realtime subscription.
+ *
+ * localStorage is ONLY a per-user display cache so the messages screen
+ * paints instantly on reload; the server is the source of truth. The old
+ * single-player keys (gourmad-chats / gourmad-chats-read) are discarded on
+ * startup — that data was never delivered to anyone.
+ */
+
+const LEGACY_KEYS = ['gourmad-chats', 'gourmad-chats-read'];
+const cacheKey = (uid: string) => `gourmad-chats-v2:${uid}`;
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -197,105 +168,241 @@ function saveToStorage(key: string, value: unknown) {
   }
 }
 
+/* ── Row mapping ── */
+
+interface ConversationRow {
+  id: string;
+  participant_ids: string[] | null;
+  is_group: boolean | null;
+  name: string | null;
+  created_at: string | null;
+  last_message_at: string | null;
+}
+
+interface MessageRow {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  text: string | null;
+  shared_payload: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+const parseTs = (iso: string | null | undefined): number => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? t : Date.now();
+};
+
+function rowToMessage(row: MessageRow): ChatMessage {
+  const shared = (row.shared_payload && typeof row.shared_payload === 'object') ? row.shared_payload : {};
+  return {
+    id: row.id,
+    senderId: row.sender_id,
+    text: row.text || '',
+    sharedRestaurant: shared.sharedRestaurant as SharedRestaurant | undefined,
+    sharedRecipe: shared.sharedRecipe as SharedRecipe | undefined,
+    sharedReel: shared.sharedReel as SharedReel | undefined,
+    sharedPost: shared.sharedPost as SharedPost | undefined,
+    sharedGuide: shared.sharedGuide as SharedGuide | undefined,
+    timestamp: parseTs(row.created_at),
+  };
+}
+
+function rowToConversation(row: ConversationRow, messages: ChatMessage[]): Conversation {
+  return {
+    id: row.id,
+    name: row.name || undefined,
+    participantIds: row.participant_ids || [],
+    messages,
+    lastMessageAt: parseTs(row.last_message_at || row.created_at),
+    createdAt: parseTs(row.created_at),
+    isGroup: !!row.is_group,
+  };
+}
+
+const byNewestActivity = (a: Conversation, b: Conversation) => b.lastMessageAt - a.lastMessageAt;
+
+function buildSharedPayload(msg: ChatMessage): Record<string, unknown> | null {
+  const payload: Record<string, unknown> = {};
+  if (msg.sharedRestaurant) payload.sharedRestaurant = msg.sharedRestaurant;
+  if (msg.sharedRecipe) payload.sharedRecipe = msg.sharedRecipe;
+  if (msg.sharedReel) payload.sharedReel = msg.sharedReel;
+  if (msg.sharedPost) payload.sharedPost = msg.sharedPost;
+  if (msg.sharedGuide) payload.sharedGuide = msg.sharedGuide;
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  // ChatProvider is mounted inside ListsProvider, so we can mirror chats into
-  // restaurant_meta (always-present) as a reliable cloud fallback.
-  const { stashMetaKey } = useLists();
   const userId = user?.id ?? null;
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
 
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadFromStorage(STORAGE_KEY, []));
-  // Track last-read timestamps per conversation
-  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => loadFromStorage(READ_KEY, {}));
-  // True once the initial cloud merge has landed (or been skipped). Gates
-  // syncToCloud: a send/markRead on a fresh device BEFORE the merge would
-  // otherwise overwrite the cloud chat history with the near-empty local
-  // state. A ref (not state) so the callback below always sees it fresh.
-  const cloudLoadedRef = useRef(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  // Last-read timestamps per conversation (mirrors conversation_reads rows).
+  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
 
-  // Mirrors of state so the async cloud load can merge against the freshest
-  // local data without stale closures.
-  const conversationsRef = useRef(conversations);
-  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
-  const readRef = useRef(readTimestamps);
-  useEffect(() => { readRef.current = readTimestamps; }, [readTimestamps]);
+  // Which user the current state was hydrated for — gates the cache-persist
+  // effect so a user switch can never write user A's chats under B's key.
+  const hydratedForRef = useRef<string | null>(null);
+  // Conversation inserts still in flight, so sendMessage can await the row
+  // before inserting a message that references it (FK).
+  const pendingCreates = useRef(new Map<string, Promise<unknown>>());
+  // Conversations being fetched after a realtime message for an unknown id.
+  const fetchingConvs = useRef(new Set<string>());
 
-  // ── Sync to cloud helper ──
-  // Dual-write: the dedicated chats/chats_read columns (best when they exist)
-  // AND a copy inside restaurant_meta.__chats_v1__ — the latter always works,
-  // so chats persist and follow the user across devices even on schemas where
-  // the dedicated columns were never migrated.
-  const syncToCloud = useCallback((chats: Conversation[], read: Record<string, number>) => {
-    if (!userIdRef.current || !supabaseConfigured) return;
-    if (!cloudLoadedRef.current) return; // initial merge not done — local mirrors keep the change; the merge backfill pushes it
-    saveChats(userIdRef.current, chats, read);
-    stashMetaKey(META_CHATS_KEY, { chats, read });
-  }, [stashMetaKey]);
-
-  // ── Load from Supabase on sign-in: merge cloud (dedicated column OR the
-  //    restaurant_meta fallback) with local, then backfill so nothing is lost. ──
+  // ── Cache persist (display cache only — server is source of truth) ──
   useEffect(() => {
-    if (!userId || !supabaseConfigured) return;
-    let cancelled = false;
-    cloudLoadedRef.current = false; // new account's merge pending — re-gate writes
+    if (!userId || hydratedForRef.current !== userId) return;
+    saveToStorage(cacheKey(userId), { conversations, read: readTimestamps });
+  }, [conversations, readTimestamps, userId]);
 
+  // A realtime message can reference a conversation we don't know yet
+  // (a friend just started a chat with us) — fetch it plus its history.
+  const fetchConversation = useCallback(async (convId: string) => {
+    if (!supabaseConfigured || fetchingConvs.current.has(convId)) return;
+    fetchingConvs.current.add(convId);
+    try {
+      const [convRes, msgRes] = await Promise.all([
+        supabase.from('conversations').select('*').eq('id', convId).maybeSingle(),
+        supabase.from('messages').select('*').eq('conversation_id', convId).order('created_at', { ascending: true }),
+      ]);
+      const row = convRes.data as ConversationRow | null;
+      if (!row) return;
+      const conv = rowToConversation(row, ((msgRes.data || []) as MessageRow[]).map(rowToMessage));
+      setConversations((prev) => prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev].sort(byNewestActivity));
+    } catch (err) {
+      console.warn('[Chat] fetchConversation failed:', err);
+    } finally {
+      fetchingConvs.current.delete(convId);
+    }
+  }, []);
+
+  // ── Load + realtime subscription per signed-in user ──
+  useEffect(() => {
+    // The pre-037 keys held the single-player illusion (never delivered to
+    // anyone) — discard rather than migrate.
+    try { LEGACY_KEYS.forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
+
+    if (!userId) {
+      hydratedForRef.current = null;
+      setConversations([]);
+      setReadTimestamps({});
+      return;
+    }
+
+    // Instant paint from the per-user display cache.
+    const cached = loadFromStorage<{ conversations?: Conversation[]; read?: Record<string, number> } | null>(cacheKey(userId), null);
+    setConversations(Array.isArray(cached?.conversations) ? cached!.conversations! : []);
+    setReadTimestamps(cached?.read && typeof cached.read === 'object' ? cached.read : {});
+    hydratedForRef.current = userId;
+
+    if (!supabaseConfigured) return;
+
+    let cancelled = false;
     (async () => {
       try {
-        const cloud = await loadUserData(userId);
+        const { data: convRows, error: convErr } = await supabase
+          .from('conversations')
+          .select('*')
+          .contains('participant_ids', [userId])
+          .order('last_message_at', { ascending: false });
+        if (convErr) { console.warn('[Chat] load conversations failed:', convErr.message); return; }
+        const rows = (convRows || []) as ConversationRow[];
+        const ids = rows.map((r) => r.id);
+
+        const [msgRes, readRes] = await Promise.all([
+          ids.length > 0
+            ? supabase.from('messages').select('*').in('conversation_id', ids).order('created_at', { ascending: true })
+            : Promise.resolve({ data: [], error: null }),
+          supabase.from('conversation_reads').select('conversation_id, last_read_at').eq('user_id', userId),
+        ]);
         if (cancelled) return;
-        if (!cloud) { cloudLoadedRef.current = true; return; }
+        if (msgRes.error) { console.warn('[Chat] load messages failed:', msgRes.error.message); return; }
 
-        const metaFallback = (cloud.restaurantMeta as Record<string, unknown> | undefined)?.[META_CHATS_KEY] as
-          | { chats?: Conversation[]; read?: Record<string, number> }
-          | undefined;
-        const cloudChats: Conversation[] = (cloud.chats && cloud.chats.length > 0)
-          ? cloud.chats
-          : (Array.isArray(metaFallback?.chats) ? metaFallback!.chats! : []);
-        const cloudRead: Record<string, number> = (cloud.chats && cloud.chats.length > 0)
-          ? (cloud.chatsRead || {})
-          : (metaFallback?.read || cloud.chatsRead || {});
+        const msgsByConv = new Map<string, ChatMessage[]>();
+        for (const raw of (msgRes.data || []) as MessageRow[]) {
+          const list = msgsByConv.get(raw.conversation_id) || [];
+          list.push(rowToMessage(raw));
+          msgsByConv.set(raw.conversation_id, list);
+        }
+        const convs = rows.map((r) => rowToConversation(r, msgsByConv.get(r.id) || [])).sort(byNewestActivity);
 
-        const merged = mergeConversations(conversationsRef.current, cloudChats);
-        const mergedRead = mergeRead(readRef.current, cloudRead);
+        const read: Record<string, number> = {};
+        for (const r of (readRes.data || []) as Array<{ conversation_id: string; last_read_at: string }>) {
+          read[r.conversation_id] = parseTs(r.last_read_at);
+        }
 
-        setConversations(merged);
-        setReadTimestamps(mergedRead);
-        conversationsRef.current = merged;
-        readRef.current = mergedRead;
-        saveToStorage(STORAGE_KEY, merged);
-        saveToStorage(READ_KEY, mergedRead);
-        cloudLoadedRef.current = true;
-
-        // Backfill: push the union back so local-only chats reach the cloud and
-        // the __chats_v1__ fallback gets created on existing accounts.
-        syncToCloud(merged, mergedRead);
+        setConversations(convs);
+        setReadTimestamps(read);
+        saveToStorage(cacheKey(userId), { conversations: convs, read });
       } catch (err) {
-        console.warn('[Chat] Failed to load from cloud:', err);
-        if (!cancelled) cloudLoadedRef.current = true;
+        console.warn('[Chat] load failed:', err);
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [userId, syncToCloud]);
+    // Realtime: RLS scopes postgres_changes per subscriber, so this only
+    // delivers INSERTs on messages in conversations the user belongs to.
+    const channel = supabase
+      .channel(`messages-${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const row = payload.new as MessageRow;
+        if (!row?.id || !row.conversation_id) return;
+        setConversations((prev) => {
+          const idx = prev.findIndex((c) => c.id === row.conversation_id);
+          if (idx === -1) {
+            // New conversation started by someone else — pull it in.
+            void fetchConversation(row.conversation_id);
+            return prev;
+          }
+          const conv = prev[idx];
+          if (conv.messages.some((m) => m.id === row.id)) return prev; // own optimistic echo
+          const msg = rowToMessage(row);
+          const next = [...prev];
+          next[idx] = {
+            ...conv,
+            messages: [...conv.messages, msg].sort((a, b) => a.timestamp - b.timestamp),
+            lastMessageAt: Math.max(conv.lastMessageAt, msg.timestamp),
+          };
+          return next.sort(byNewestActivity);
+        });
+      })
+      .subscribe();
 
-  // Persist conversations to localStorage + cloud
-  useEffect(() => {
-    saveToStorage(STORAGE_KEY, conversations);
-  }, [conversations]);
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [userId, fetchConversation]);
 
-  useEffect(() => {
-    saveToStorage(READ_KEY, readTimestamps);
-  }, [readTimestamps]);
+  // ── Remote write helpers (optimistic local state + fire-and-forget) ──
+
+  const persistReadState = useCallback((conversationId: string, atMs: number) => {
+    const uid = userIdRef.current;
+    if (!uid || !supabaseConfigured) return;
+    void (async () => {
+      try {
+        const pending = pendingCreates.current.get(conversationId);
+        if (pending) await pending;
+        const { error } = await supabase.from('conversation_reads').upsert({
+          conversation_id: conversationId,
+          user_id: uid,
+          last_read_at: new Date(atMs).toISOString(),
+        }, { onConflict: 'conversation_id,user_id' });
+        if (error) console.warn('[Chat] persist read state failed:', error.message);
+      } catch (err) {
+        console.warn('[Chat] persist read state failed:', err);
+      }
+    })();
+  }, []);
 
   const createConversation = useCallback((participantIds: string[], name?: string): Conversation => {
-    const allParticipants = userId ? [...new Set([userId, ...participantIds])] : participantIds;
+    const allParticipants = userId ? [...new Set([userId, ...participantIds])] : [...new Set(participantIds)];
     const isGroup = allParticipants.length > 2 || !!name;
     const conv: Conversation = {
-      id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: crypto.randomUUID(),
       name: isGroup ? (name || 'Group Chat') : undefined,
       participantIds: allParticipants,
       messages: [],
@@ -303,18 +410,26 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       createdAt: Date.now(),
       isGroup,
     };
-    setConversations((prev) => {
-      const next = [conv, ...prev];
-      syncToCloud(next, readTimestamps);
-      return next;
-    });
+    setConversations((prev) => [conv, ...prev]);
+    if (userId && supabaseConfigured) {
+      const insert = supabase.from('conversations').insert({
+        id: conv.id,
+        participant_ids: allParticipants,
+        is_group: isGroup,
+        name: conv.name ?? null,
+      }).then(({ error }) => {
+        if (error) console.warn('[Chat] create conversation failed:', error.message);
+        pendingCreates.current.delete(conv.id);
+      });
+      pendingCreates.current.set(conv.id, insert);
+    }
     return conv;
-  }, [userId, syncToCloud, readTimestamps]);
+  }, [userId]);
 
   const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => {
     if (!userId) return;
     const msg: ChatMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: crypto.randomUUID(),
       senderId: userId,
       text,
       sharedRestaurant,
@@ -324,19 +439,34 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sharedGuide,
       timestamp: Date.now(),
     };
-    setConversations((prev) => {
-      const next = prev.map((c) =>
-        c.id === conversationId
-          ? { ...c, messages: [...c.messages, msg], lastMessageAt: Date.now() }
-          : c
-      );
-      const newRead = { ...readTimestamps, [conversationId]: Date.now() };
-      syncToCloud(next, newRead);
-      return next;
-    });
-    // Mark this conversation as read for sender
-    setReadTimestamps((prev) => ({ ...prev, [conversationId]: Date.now() }));
-  }, [userId, syncToCloud, readTimestamps]);
+    setConversations((prev) => prev.map((c) =>
+      c.id === conversationId
+        ? { ...c, messages: [...c.messages, msg], lastMessageAt: msg.timestamp }
+        : c
+    ).sort(byNewestActivity));
+    // Sending implies having read the conversation.
+    setReadTimestamps((prev) => ({ ...prev, [conversationId]: msg.timestamp }));
+
+    if (supabaseConfigured) {
+      void (async () => {
+        try {
+          const pending = pendingCreates.current.get(conversationId);
+          if (pending) await pending;
+          const { error } = await supabase.from('messages').insert({
+            id: msg.id,
+            conversation_id: conversationId,
+            sender_id: userId,
+            text,
+            shared_payload: buildSharedPayload(msg),
+          });
+          if (error) console.warn('[Chat] send failed:', error.message);
+        } catch (err) {
+          console.warn('[Chat] send failed:', err);
+        }
+      })();
+      persistReadState(conversationId, msg.timestamp);
+    }
+  }, [userId, persistReadState]);
 
   const getConversation = useCallback((id: string) => conversations.find((c) => c.id === id), [conversations]);
 
@@ -398,31 +528,50 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [userId, getOrCreateDirectConversation, sendMessage]);
 
   const deleteConversation = useCallback((id: string) => {
-    setConversations((prev) => {
-      const next = prev.filter((c) => c.id !== id);
-      syncToCloud(next, readTimestamps);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    setReadTimestamps((prev) => {
+      const next = { ...prev };
+      delete next[id];
       return next;
     });
-  }, [syncToCloud, readTimestamps]);
+    if (userIdRef.current && supabaseConfigured) {
+      void (async () => {
+        try {
+          const pending = pendingCreates.current.get(id);
+          if (pending) await pending;
+          const { error } = await supabase.from('conversations').delete().eq('id', id);
+          if (error) console.warn('[Chat] delete conversation failed:', error.message);
+        } catch (err) {
+          console.warn('[Chat] delete conversation failed:', err);
+        }
+      })();
+    }
+  }, []);
 
   const renameConversation = useCallback((id: string, name: string) => {
     const trimmed = name.trim();
-    setConversations((prev) => {
-      const next = prev.map((c) =>
-        c.id === id ? { ...c, name: trimmed || undefined } : c
-      );
-      syncToCloud(next, readTimestamps);
-      return next;
-    });
-  }, [syncToCloud, readTimestamps]);
+    setConversations((prev) => prev.map((c) =>
+      c.id === id ? { ...c, name: trimmed || undefined } : c
+    ));
+    if (userIdRef.current && supabaseConfigured) {
+      void (async () => {
+        try {
+          const pending = pendingCreates.current.get(id);
+          if (pending) await pending;
+          const { error } = await supabase.from('conversations').update({ name: trimmed || null }).eq('id', id);
+          if (error) console.warn('[Chat] rename conversation failed:', error.message);
+        } catch (err) {
+          console.warn('[Chat] rename conversation failed:', err);
+        }
+      })();
+    }
+  }, []);
 
   const markRead = useCallback((conversationId: string) => {
-    setReadTimestamps((prev) => {
-      const next = { ...prev, [conversationId]: Date.now() };
-      syncToCloud(conversations, next);
-      return next;
-    });
-  }, [syncToCloud, conversations]);
+    const now = Date.now();
+    setReadTimestamps((prev) => ({ ...prev, [conversationId]: now }));
+    persistReadState(conversationId, now);
+  }, [persistReadState]);
 
   const getUnreadForConversation = useCallback((conversationId: string): number => {
     if (!userId) return 0;

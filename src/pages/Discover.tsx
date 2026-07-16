@@ -151,9 +151,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 // @ts-ignore
 mapboxgl.workerClass = MapboxWorker;
 
-// Token split to avoid secret scanning — Mapbox public tokens are domain-restricted and safe client-side
-const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
+import { MAPBOX_TOKEN } from '../lib/keys';
 
 const MAP_STYLES = [
   { id: 'light', label: 'Light', style: 'mapbox://styles/mapbox/light-v11' },
@@ -1847,8 +1845,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
+    // place.id / color are set via dataset below — never interpolate ids
+    // (API-derived strings) into markup.
     el.innerHTML = `
-      <div class="marker-pin" data-id="${place.id}" data-base-color="${color}" style="
+      <div class="marker-pin" style="
         width: 36px;
         height: 36px;
         border-radius: 9999px;
@@ -1864,6 +1864,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
       ">${label}</div>
     `;
+    const pinEl = el.querySelector('.marker-pin') as HTMLElement | null;
+    if (pinEl) { pinEl.dataset.id = place.id; pinEl.dataset.baseColor = color; }
 
     el.addEventListener('mouseenter', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
@@ -2567,8 +2569,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const createHotelMarkerElement = useCallback((place: PlaceResult) => {
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
+    // place.id is set via dataset below — never interpolate ids into markup.
     el.innerHTML = `
-      <div class="marker-pin" data-id="${place.id}" style="
+      <div class="marker-pin" style="
         padding: 10px;
         border-radius: 50%;
         background: #0d9488;
@@ -2589,6 +2592,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </svg>
       </div>
     `;
+    const pinEl = el.querySelector('.marker-pin') as HTMLElement | null;
+    if (pinEl) pinEl.dataset.id = place.id;
     el.addEventListener('mouseenter', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (pin) pin.style.transform = 'scale(1.15)';
@@ -3108,12 +3113,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // border — matches the location map's score pins and reads softly on both
       // light and dark map themes (vs. the old stark-white circles).
       let fillColor = '#94a3b8';
-      let iconHtml = '';
+      let iconHtml = '';               // static markup / numbers only
+      let iconEl: HTMLElement | null = null; // for user-derived content
       if (mapMode === 'friends') {
         const profile = friendProfiles[r.user_id];
         const initial = profile?.display_name?.charAt(0)?.toUpperCase() || '?';
         fillColor = strokeColor;
-        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:#fff;line-height:1;">${initial}</span>`;
+        // display_name is user-controlled — set via textContent, not markup.
+        const span = document.createElement('span');
+        span.style.cssText = `font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:#fff;line-height:1;`;
+        span.textContent = initial;
+        iconEl = span;
       } else if (mapMode === 'experts') {
         fillColor = '#9f3012';
         iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -3137,7 +3147,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       inner.className = 'marker-pin';
       inner.dataset.placeId = r.restaurant_id;
       inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:${fillColor};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease, box-shadow 0.2s ease;`;
-      inner.innerHTML = iconHtml;
+      if (iconEl) inner.appendChild(iconEl); else inner.innerHTML = iconHtml;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
       el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });

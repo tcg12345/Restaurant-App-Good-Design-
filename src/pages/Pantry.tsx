@@ -5,6 +5,7 @@ import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersH
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -4090,8 +4091,6 @@ const CreateTripSheet: React.FC<{
   const [locResults, setLocResults] = useState<{ id: string; name: string; lat: number; lng: number }[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const locDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'].join('');
 
   useEffect(() => {
     if (open) {

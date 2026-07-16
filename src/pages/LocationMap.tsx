@@ -18,7 +18,7 @@ import { MichelinBadge } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
-import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import {
   HomeLocationBar,
   getCurrentHomeLocation,

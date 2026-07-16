@@ -26,7 +26,7 @@ import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFil
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
-import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { searchPlacesByText } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -397,20 +397,64 @@ export const UserProfile: React.FC = () => {
         const el = createRatingMarkerEl(Number(r.score) || 0);
 
         const cityState = (() => { const parts = (r.address || '').split(',').map(s => s.trim()); return parts.length >= 2 ? parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '') : parts[0] || ''; })();
-        const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
-        const scoreHtml = r.score ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${r.price}</span>` : ''}</div>` : '';
 
         const rid = r.restaurant_id;
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           if (activePopup) activePopup.remove();
-          const cbId = `mp_${Date.now()}`;
-          (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+          // Popup content is built with DOM APIs: every community_ratings
+          // field is attacker-controlled, so user strings only ever go
+          // through textContent / property setters, never into markup.
+          const content = document.createElement('div');
+          content.style.cssText = 'font-family:inherit;padding:4px 0;cursor:pointer;';
+          content.addEventListener('click', () => navigate(`/restaurant/${rid}`));
+          if (r.photo_url) {
+            const img = document.createElement('img');
+            img.src = r.photo_url;
+            img.referrerPolicy = 'no-referrer';
+            img.style.cssText = 'width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;';
+            content.appendChild(img);
+          }
+          const name = document.createElement('div');
+          name.style.cssText = 'font-size:13px;font-weight:700;margin-bottom:2px;';
+          name.textContent = r.restaurant_name;
+          content.appendChild(name);
+          if (r.cuisine) {
+            const cuisine = document.createElement('div');
+            cuisine.style.cssText = 'font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;';
+            cuisine.textContent = r.cuisine;
+            content.appendChild(cuisine);
+          }
+          if (r.score) {
+            const scoreRow = document.createElement('div');
+            scoreRow.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:2px;';
+            scoreRow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+            const scoreText = document.createElement('span');
+            scoreText.style.cssText = 'font-size:12px;font-weight:700;color:#9f3012;';
+            scoreText.textContent = Number(r.score).toFixed(1);
+            scoreRow.appendChild(scoreText);
+            if (r.price) {
+              const dot = document.createElement('span');
+              dot.style.cssText = 'color:#ccc;margin:0 2px;';
+              dot.textContent = '·';
+              scoreRow.appendChild(dot);
+              const price = document.createElement('span');
+              price.style.cssText = 'font-size:11px;color:#888;font-weight:600;';
+              price.textContent = r.price;
+              scoreRow.appendChild(price);
+            }
+            content.appendChild(scoreRow);
+          }
+          const city = document.createElement('div');
+          city.style.cssText = 'font-size:11px;color:#999;';
+          city.textContent = cityState;
+          content.appendChild(city);
+
           const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
             .setLngLat([lng, lat])
-            .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
+            .setDOMContent(content)
             .addTo(map);
-          popup.on('close', () => { activePopup = null; delete (window as any)[cbId]; });
+          popup.on('close', () => { activePopup = null; });
           activePopup = popup;
         });
 

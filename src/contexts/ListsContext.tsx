@@ -1374,8 +1374,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             recentViews: [],
             trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
             homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
-            chats: [],
-            chatsRead: {},
           });
         }
       }

@@ -15,6 +15,22 @@ View your app in AI Studio: https://ai.studio/apps/31ad99e5-bd54-46f3-82a2-8e823
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Copy `.env.example` to `.env.local` and fill in `VITE_SUPABASE_URL`,
+   `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_PLACES_KEY` and `VITE_MAPBOX_TOKEN`
 3. Run the app:
    `npm run dev`
+
+## Security note: rotate previously committed keys
+
+Earlier revisions of this repo had a Google Places API key and a Mapbox
+public token committed in source (split into string fragments). Treat both
+as compromised:
+
+- **Google Places key** — rotate it in the Google Cloud console
+  (APIs & Services → Credentials), and restrict the replacement by HTTP
+  referrer and to the Places API only.
+- **Mapbox token** — rotate it in the Mapbox console (Account → Tokens),
+  and restrict the replacement to your app's allowed URLs.
+
+Keys are now read exclusively from `.env.local` (see `.env.example`), which
+is gitignored — never commit real keys.

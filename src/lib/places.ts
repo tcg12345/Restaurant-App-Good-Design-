@@ -1,14 +1,8 @@
-// Key split to avoid secret scanning — Google Maps public keys are domain-restricted and safe client-side
-const _gk = ['AIzaSyCK5fxS', 'q7aPDRCIRbNB', '18WmxCTs9mByfZk'];
-const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
-
-// Mapbox public token (also domain-restricted). Used by the location
-// backfill below to reverse-geocode for a neighborhood — Google's
-// addressComponents only ever returns sublocality / locality / state
-// for the places we care about, so we lean on Mapbox to fill in the
-// "West Village" / "Williamsburg" tier.
-const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
-const MAPBOX_TOKEN_FOR_NEIGHBORHOOD = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
+// Mapbox is used by the location backfill below to reverse-geocode for a
+// neighborhood — Google's addressComponents only ever returns sublocality /
+// locality / state for the places we care about, so we lean on Mapbox to
+// fill in the "West Village" / "Williamsburg" tier.
+import { GOOGLE_PLACES_KEY, MAPBOX_TOKEN } from './keys';
 
 const BASE_URL = 'https://places.googleapis.com/v1';
 
@@ -1217,10 +1211,10 @@ interface BackfilledLocationData {
 const locationInflight = new Map<string, Promise<BackfilledLocationData>>();
 
 async function fetchMapboxNeighborhood(lat: number, lng: number): Promise<string | undefined> {
-  if (!MAPBOX_TOKEN_FOR_NEIGHBORHOOD) return undefined;
+  if (!MAPBOX_TOKEN) return undefined;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
   try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN_FOR_NEIGHBORHOOD}&types=neighborhood&limit=1`;
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=neighborhood&limit=1`;
     const res = await fetch(url);
     if (!res.ok) return undefined;
     const data = await res.json();

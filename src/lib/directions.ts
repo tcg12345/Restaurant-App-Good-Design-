@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
+import { MAPBOX_TOKEN } from './keys';
 
 interface Coord {
   lat: number;
