@@ -720,6 +720,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Any explicit mode change exits focus-only view so the user can see
     // the full set of markers for that mode.
     setIsFocusOnly(false);
+    // A typed-location search bias belongs to the search the user set it up
+    // for — don't let it leak into a different map mode.
+    setSearchLocationBias(null);
     // Reset rating filters when switching modes
     setRatingSortBy('recent');
     setScoreRange([0, 10]);
@@ -835,7 +838,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
-  const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
+  // Where text searches are anchored + restricted after the user picks a
+  // location in the location-search box. Carries the place name so the UI
+  // can show a dismissible "near X" chip. Cleared by any user pan/zoom,
+  // "Search this area", a map-mode change, or dismissing the chip —
+  // otherwise every later text search would stay locked to a stale spot.
+  const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number; name: string } | null>(null);
 
   // Distance anchor: where every card / detail measures from.
   // - When the user types a location in the location-search box, we lock the
@@ -2207,6 +2215,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setSelectedPlace(null);
     setSelectedMarker(null);
     setReferenceLocation(null);
+    setSearchLocationBias(null);
     setPlaces(plain);
     tabDataCache.discoverPlaces = plain;
     syncMarkers(plain);
@@ -2339,6 +2348,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // is null/undefined on programmatic ones.
       const userInitiated = !!(e as { originalEvent?: unknown })?.originalEvent;
       if (!userInitiated) return;
+      // The user moved the map themselves — the typed-location search bias
+      // no longer reflects where they're looking, so drop it. (Programmatic
+      // moves, like the flyTo right after picking a location, keep it.)
+      setSearchLocationBias(null);
       const c = map.getCenter();
       setMapCenter({ lat: c.lat, lng: c.lng });
       const ref = referenceLocationRef.current;
@@ -2376,6 +2389,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       isMarkerSelectedRef.current = false;
       setSelectedMarker(null);
       setSelectedPlace(null);
+      // A drag is always a human gesture — drop the typed-location search
+      // bias right away (moveend also clears it, but only once the
+      // gesture settles).
+      setSearchLocationBias(null);
     };
     map.on('click', clearPopup);
     map.on('dragstart', clearOnDrag);
@@ -2528,7 +2545,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setLocationQuery('');
     setLocationResults([]);
     setLocationSearchOpen(false);
-    setSearchLocationBias({ lat, lng });
+    setSearchLocationBias({ lat, lng, name });
     // Lock the distance anchor to the typed location so card distances are
     // measured from where the user actually searched, not the map centre.
     // Also seed mapCenter to the same point so that — should the anchor
@@ -3786,6 +3803,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </button>
             )}
           </div>
+          {searchLocationBias && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setSearchLocationBias(null)}
+                className="inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1 rounded-full bg-primary/[0.08] text-primary text-[11px] font-bold hover:bg-primary/[0.14] transition-colors"
+                aria-label={`Stop searching near ${searchLocationBias.name}`}
+                title="Searches are limited to this area — tap to clear"
+              >
+                <MapPin size={10} />
+                near {searchLocationBias.name.split(',')[0]}
+                <X size={10} />
+              </button>
+            </div>
+          )}
         </motion.div>
 
         <AnimatePresence initial={false}>
@@ -3861,7 +3893,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   {mapMode === 'discover' && !panelTextQ && !isSearching && (
                     <button
                       type="button"
-                      onClick={() => { setReferenceLocation(null); fetchNearby(); }}
+                      onClick={() => { setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
                       className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-primary hover:text-primary/80 transition-colors"
                     >
                       <RefreshCw size={12} /> Search this area
@@ -4041,7 +4073,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
+            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
             className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
@@ -5165,6 +5197,23 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Active typed-location search bias — dismissible "near X" chip so
+              the restriction on text searches is visible and clearable. */}
+          {searchLocationBias && (
+            <div className="pt-2.5">
+              <button
+                type="button"
+                onClick={() => setSearchLocationBias(null)}
+                className="inline-flex items-center gap-1.5 pl-3 pr-2.5 py-1.5 rounded-full bg-primary/[0.08] text-primary text-xs font-bold hover:bg-primary/[0.14] transition-colors"
+                aria-label={`Stop searching near ${searchLocationBias.name}`}
+              >
+                <MapPin size={11} />
+                near {searchLocationBias.name.split(',')[0]}
+                <X size={11} />
+              </button>
+            </div>
+          )}
 
           {/* Friend/list dropdowns removed — all filtering now in filter sheet */}
         </div>
