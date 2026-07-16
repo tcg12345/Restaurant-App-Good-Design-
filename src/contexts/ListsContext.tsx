@@ -941,8 +941,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
-  const isPublicRef = useRef(authProfile?.is_public ?? true);
-  isPublicRef.current = authProfile?.is_public ?? true;
+  // Default to FALSE (private) while the profile is still loading or absent:
+  // treating unknown visibility as public let a private user's photos get
+  // published to the world-readable community_photos table during sign-in
+  // (before the profile resolved). Every publishCommunityPhotos call is gated
+  // on this ref, so an unknown/private account never publishes photos. Flips
+  // to the real value once authProfile loads. (community_photos RLS in
+  // migration 046 also enforces this server-side.)
+  const isPublicRef = useRef(authProfile?.is_public ?? false);
+  isPublicRef.current = authProfile?.is_public ?? false;
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
@@ -1305,6 +1312,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
+            // Only republish photos for accounts KNOWN to be public. While the
+            // auth profile is still loading, isPublicRef is false (see its
+            // declaration), so a private — or not-yet-resolved — account never
+            // publishes photos to the world-readable gallery during sign-in.
             if (r.photos && r.photos.length > 0 && isPublicRef.current) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
             } else if (!r.photos || r.photos.length === 0) {

@@ -159,15 +159,30 @@ export const UserProfile: React.FC = () => {
 
       const isAuthed = !!userId;
 
+      // Resolve visibility BEFORE fetching any profile content. A private
+      // account's ratings / lists / wishlist / meals / photos must never be
+      // fetched for a viewer who can't see them — otherwise the private lock
+      // screen only hides data that's already been downloaded (and is sitting
+      // in the network response). The server enforces this too (community_*
+      // RLS + the profile RPCs, migrations 036/046); skipping the requests
+      // means a blocked viewer's network tab shows zero of B's data.
+      // canViewProfile returns true immediately for public accounts (no query).
+      const viewable = isAuthed ? await canViewProfile(userId!, p) : !!p.is_public;
+      if (cancelled) return;
+      setCanView(viewable);
+
       const fSnapshot: Partial<typeof profileCache[string]> = {
         profile: p,
         ratings: [], photos: [], lists: [], wishlistItems: [],
         publicHomeMeals: [], guides: [], followers: 0, following: 0,
-        canView: !isAuthed && !!p.is_public, isFollowing: false,
+        canView: viewable, isFollowing: false,
         followSent: false, theyFollowMe: false,
       };
       const promises: Promise<void>[] = [];
 
+      // Follower / following counts + my relationship to them drive the header
+      // and the follow button — shown even on the private lock screen, so they
+      // are fetched regardless of `viewable`.
       promises.push(getFollowCounts(p.user_id).then((counts) => {
         if (cancelled) return;
         const c = counts || { followers: 0, following: 0 };
@@ -177,48 +192,7 @@ export const UserProfile: React.FC = () => {
         fSnapshot.following = c.following || 0;
       }));
 
-      promises.push(getUserRatings(p.user_id).then((ratings) => {
-        if (cancelled) return;
-        const r = (ratings || []) as CommunityRating[];
-        setUserRatings(r);
-        fSnapshot.ratings = r;
-      }));
-
-      promises.push(getUserLists(p.user_id).then((lists) => {
-        if (cancelled) return;
-        const l = ((lists || []) as any[]).filter((x: any) => x.restaurantIds?.length > 0);
-        setUserLists(l);
-        fSnapshot.lists = l;
-      }));
-
-      promises.push(getUserWishlist(p.user_id).then((wishlist) => {
-        if (cancelled) return;
-        const w = (wishlist || []) as typeof userWishlistItems;
-        setUserWishlistItems(w);
-        fSnapshot.wishlistItems = w;
-      }));
-
-      promises.push(getUserPublicHomeMeals(p.user_id).then((meals) => {
-        if (cancelled) return;
-        const m = (meals || []) as HomeMeal[];
-        setPublicHomeMeals(m);
-        fSnapshot.publicHomeMeals = m;
-      }));
-
-      promises.push(getMyGuides(p.user_id).then((guides) => {
-        if (cancelled) return;
-        const g = (guides || []).filter(isPublicGuide);
-        setPublicGuides(g);
-        fSnapshot.guides = g;
-      }));
-
       if (isAuthed) {
-        promises.push(canViewProfile(userId!, p).then((viewable) => {
-          if (cancelled) return;
-          const v = !!viewable;
-          setCanView(v);
-          fSnapshot.canView = v;
-        }));
         promises.push(getFriendshipStatus(userId!, p.user_id).then((st) => {
           if (cancelled) return;
           const following = st.iFollow === 'accepted';
@@ -231,13 +205,45 @@ export const UserProfile: React.FC = () => {
           fSnapshot.followSent = sent;
           fSnapshot.theyFollowMe = followsMe;
         }));
-        promises.push(getUserPhotos(p.user_id).then((photos) => {
+      }
+
+      // Private profile content — only when the viewer is allowed to see it.
+      if (viewable) {
+        promises.push(getUserRatings(p.user_id).then((ratings) => {
           if (cancelled) return;
-          const f = (photos || []) as CommunityPhoto[];
-          setUserPhotos(f);
-          fSnapshot.photos = f;
+          const r = (ratings || []) as CommunityRating[];
+          setUserRatings(r);
+          fSnapshot.ratings = r;
         }));
-      } else if (p.is_public) {
+
+        promises.push(getUserLists(p.user_id).then((lists) => {
+          if (cancelled) return;
+          const l = ((lists || []) as any[]).filter((x: any) => x.restaurantIds?.length > 0);
+          setUserLists(l);
+          fSnapshot.lists = l;
+        }));
+
+        promises.push(getUserWishlist(p.user_id).then((wishlist) => {
+          if (cancelled) return;
+          const w = (wishlist || []) as typeof userWishlistItems;
+          setUserWishlistItems(w);
+          fSnapshot.wishlistItems = w;
+        }));
+
+        promises.push(getUserPublicHomeMeals(p.user_id).then((meals) => {
+          if (cancelled) return;
+          const m = (meals || []) as HomeMeal[];
+          setPublicHomeMeals(m);
+          fSnapshot.publicHomeMeals = m;
+        }));
+
+        promises.push(getMyGuides(p.user_id).then((guides) => {
+          if (cancelled) return;
+          const g = (guides || []).filter(isPublicGuide);
+          setPublicGuides(g);
+          fSnapshot.guides = g;
+        }));
+
         promises.push(getUserPhotos(p.user_id).then((photos) => {
           if (cancelled) return;
           const f = (photos || []) as CommunityPhoto[];
