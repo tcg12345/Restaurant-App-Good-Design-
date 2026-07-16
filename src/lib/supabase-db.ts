@@ -20,6 +20,9 @@ export interface UserAppData {
   recentViews: unknown[];
   trips: Trip[];
   homeMeals: HomeMeal[];
+  /** Manual drag-order of rated restaurant ids. Dedicated column as of
+   *  migration 038 — was previously stashed in restaurant_meta.__custom_order__. */
+  customOrder?: string[];
 }
 
 /**
@@ -41,13 +44,14 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       // schema hasn't been migrated yet.
       let { data, error } = await supabase
         .from('user_app_data')
-        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, custom_order')
         .eq('user_id', userId)
         .single();
 
-      // Fallback without trips/home_meals if those columns don't exist yet
-      // (schema drift — their data still round-trips via the restaurant_meta
-      // __trips__/__home_meals__ mirrors that ListsContext maintains).
+      // Fallback without trips/home_meals/custom_order if those columns don't
+      // exist yet (schema drift — trips/order still round-trip via the
+      // restaurant_meta __trips__/__custom_order__ legacy mirrors that older
+      // clients wrote; home_meals via __home_meals__).
       if (error && !data && error.code !== 'PGRST116') {
         const fallback = await supabase
           .from('user_app_data')
@@ -75,6 +79,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         recentViews: asArray<unknown>(data.recent_views, []),
         trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
         homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
+        customOrder: asArray<string>((data as Record<string, unknown>).custom_order, []),
       };
     } catch (err) {
       lastError = err;
@@ -97,7 +102,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
  */
 /** Columns that may be absent on live schemas that predate their
  *  migrations. Only these may be dropped from a failed upsert. */
-const OPTIONAL_COLUMNS = ['trips', 'home_meals'];
+const OPTIONAL_COLUMNS = ['trips', 'home_meals', 'custom_order'];
 
 /** When PostgREST rejects a write because a column doesn't exist
  *  (PGRST204: "Could not find the 'X' column ..."), return that column
@@ -122,6 +127,7 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
       recent_views: data.recentViews || [],
       trips: data.trips || [],
       home_meals: data.homeMeals || [],
+      custom_order: data.customOrder || [],
       updated_at: new Date().toISOString(),
     };
 
@@ -273,5 +279,18 @@ export async function saveHomeMeals(userId: string, homeMeals: HomeMeal[]): Prom
     if (error) { console.warn('[Supabase] saveHomeMeals error (column may not exist yet):', error.message); return false; }
     return true;
   } catch (err) { console.warn('[Supabase] saveHomeMeals exception:', err); return false; }
+}
+
+export async function saveCustomOrder(userId: string, customOrder: string[]): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    await ensureRow(userId);
+    const { error } = await supabase
+      .from('user_app_data')
+      .update({ custom_order: customOrder, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (error) { console.warn('[Supabase] saveCustomOrder error (column may not exist yet):', error.message); return false; }
+    return true;
+  } catch (err) { console.warn('[Supabase] saveCustomOrder exception:', err); return false; }
 }
 
