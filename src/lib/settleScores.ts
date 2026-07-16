@@ -28,7 +28,7 @@
  */
 
 import type { RestaurantRating } from '../contexts/ListsContext';
-import { tierRange, isHotelRating, type Tier } from './headToHeadRating';
+import { tierRange, type Tier } from './headToHeadRating';
 
 /** Minimum displayable gap between adjacent tier-mates (one 0.1 grid step). */
 export const MIN_GAP = 0.1;
@@ -176,8 +176,8 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
 
 /**
  * Compute the settle for a ratings snapshot. Returns only the rows whose
- * (rounded) score actually changes. Hotels and restaurants settle as separate
- * categories; only the affected tier(s) are touched unless `allTiers` is set.
+ * (rounded) score actually changes. Only the affected tier(s) are touched
+ * unless `allTiers` is set.
  */
 export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}): SettleChange[] {
   const { justRatedId, previousScore, allTiers, explicitOrder } = opts;
@@ -186,7 +186,6 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
   if (explicitOrder) explicitOrder.forEach((id, i) => orderIndex.set(id, i));
 
   const justRated = justRatedId ? all.find((r) => r.restaurantId === justRatedId) : undefined;
-  const wantHotel = justRated ? isHotelRating(justRated.cuisine) : undefined;
 
   const tiersToSettle = new Set<Tier>();
   if (allTiers) {
@@ -213,19 +212,16 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
   };
 
   const changes: SettleChange[] = [];
-  const categories: boolean[] = allTiers ? [false, true] : [wantHotel ?? false];
-  for (const hotel of categories) {
-    for (const tier of tiersToSettle) {
-      const rows = all
-        .filter((r) => isHotelRating(r.cuisine) === hotel && tierOfScore(r.score) === tier)
-        .sort(compare)
-        .map((r) => ({ restaurantId: r.restaurantId, score: r.score }));
-      if (rows.length <= 1) continue;
-      const settled = settleTierScores(rows, tier);
-      for (let i = 0; i < rows.length; i++) {
-        if (settled[i] !== round1(rows[i].score)) {
-          changes.push({ restaurantId: rows[i].restaurantId, score: settled[i] });
-        }
+  for (const tier of tiersToSettle) {
+    const rows = all
+      .filter((r) => tierOfScore(r.score) === tier)
+      .sort(compare)
+      .map((r) => ({ restaurantId: r.restaurantId, score: r.score }));
+    if (rows.length <= 1) continue;
+    const settled = settleTierScores(rows, tier);
+    for (let i = 0; i < rows.length; i++) {
+      if (settled[i] !== round1(rows[i].score)) {
+        changes.push({ restaurantId: rows[i].restaurantId, score: settled[i] });
       }
     }
   }
@@ -262,70 +258,68 @@ export function normalizeScores(
   };
 
   const changes: SettleChange[] = [];
-  for (const hotel of [false, true]) {
-    for (const tier of ['loved', 'fine', 'disliked'] as Tier[]) {
-      const rows = all
-        .filter((r) => r.score > 0 && isHotelRating(r.cuisine) === hotel && tierOfScore(r.score) === tier)
-        .sort(compare);
-      const n = rows.length;
-      if (n <= 1) continue;
+  for (const tier of ['loved', 'fine', 'disliked'] as Tier[]) {
+    const rows = all
+      .filter((r) => r.score > 0 && tierOfScore(r.score) === tier)
+      .sort(compare);
+    const n = rows.length;
+    if (n <= 1) continue;
 
-      const { min: bandMin, max: bandMax } = tierRange(tier);
-      const W = bandMax - bandMin;
-      const s0 = rows[0].score;
-      const sLast = rows[n - 1].score;
-      const f = Math.min(1, (n - 1) / MATURITY_K);
+    const { min: bandMin, max: bandMax } = tierRange(tier);
+    const W = bandMax - bandMin;
+    const s0 = rows[0].score;
+    const sLast = rows[n - 1].score;
+    const f = Math.min(1, (n - 1) / MATURITY_K);
 
-      let out: number[];
-      if (n > bandCapacity(tier)) {
-        // More rows than 0.1 slots — uniform fill, duplicates unavoidable.
-        out = rows.map((_, i) => round1(bandMax - (i * W) / (n - 1)));
+    let out: number[];
+    if (n > bandCapacity(tier)) {
+      // More rows than 0.1 slots — uniform fill, duplicates unavoidable.
+      out = rows.map((_, i) => round1(bandMax - (i * W) / (n - 1)));
+    } else {
+      const currentSpan = Math.max(0, s0 - sLast);
+      const spanT = clamp(
+        Math.max(currentSpan, f * Math.min(W, (n - 1) * PREFERRED_GAP)),
+        (n - 1) * MIN_GAP,
+        W,
+      );
+      // Anchors: loved reaches up toward 10, disliked down toward 1 as the
+      // tier matures; fine stays centered on where the user put it.
+      let top: number;
+      if (tier === 'loved') {
+        top = clamp(bandMax - (1 - f) * (bandMax - s0), bandMin + spanT, bandMax);
+      } else if (tier === 'disliked') {
+        const bottom = clamp(bandMin + (1 - f) * (sLast - bandMin), bandMin, bandMax - spanT);
+        top = bottom + spanT;
       } else {
-        const currentSpan = Math.max(0, s0 - sLast);
-        const spanT = clamp(
-          Math.max(currentSpan, f * Math.min(W, (n - 1) * PREFERRED_GAP)),
-          (n - 1) * MIN_GAP,
-          W,
-        );
-        // Anchors: loved reaches up toward 10, disliked down toward 1 as the
-        // tier matures; fine stays centered on where the user put it.
-        let top: number;
-        if (tier === 'loved') {
-          top = clamp(bandMax - (1 - f) * (bandMax - s0), bandMin + spanT, bandMax);
-        } else if (tier === 'disliked') {
-          const bottom = clamp(bandMin + (1 - f) * (sLast - bandMin), bandMin, bandMax - spanT);
-          top = bottom + spanT;
-        } else {
-          const center = (s0 + sLast) / 2;
-          top = clamp(center + spanT / 2, bandMin + spanT, bandMax);
-        }
-
-        // Blend original relative position with uniform rank position.
-        out = rows.map((r, i) => {
-          const u = i / (n - 1);
-          const q = currentSpan > 1e-9 ? (s0 - r.score) / currentSpan : u;
-          const pos = 0.6 * q + 0.4 * u;
-          return round1(top - spanT * pos);
-        });
-        // Grid ladder: strictly descending by ≥ MIN_GAP, inside the band.
-        out[0] = clamp(out[0], bandMin, bandMax);
-        for (let i = 1; i < n; i++) {
-          out[i] = Math.min(out[i], round1(out[i - 1] - MIN_GAP));
-        }
-        if (out[n - 1] < bandMin) {
-          out[n - 1] = bandMin;
-          for (let i = n - 2; i >= 0; i--) {
-            out[i] = Math.max(out[i], round1(out[i + 1] + MIN_GAP));
-          }
-          out[0] = Math.min(out[0], bandMax);
-        }
-        out = out.map((v) => clamp(round1(v), bandMin, bandMax));
+        const center = (s0 + sLast) / 2;
+        top = clamp(center + spanT / 2, bandMin + spanT, bandMax);
       }
 
-      for (let i = 0; i < n; i++) {
-        if (out[i] !== round1(rows[i].score)) {
-          changes.push({ restaurantId: rows[i].restaurantId, score: out[i] });
+      // Blend original relative position with uniform rank position.
+      out = rows.map((r, i) => {
+        const u = i / (n - 1);
+        const q = currentSpan > 1e-9 ? (s0 - r.score) / currentSpan : u;
+        const pos = 0.6 * q + 0.4 * u;
+        return round1(top - spanT * pos);
+      });
+      // Grid ladder: strictly descending by ≥ MIN_GAP, inside the band.
+      out[0] = clamp(out[0], bandMin, bandMax);
+      for (let i = 1; i < n; i++) {
+        out[i] = Math.min(out[i], round1(out[i - 1] - MIN_GAP));
+      }
+      if (out[n - 1] < bandMin) {
+        out[n - 1] = bandMin;
+        for (let i = n - 2; i >= 0; i--) {
+          out[i] = Math.max(out[i], round1(out[i + 1] + MIN_GAP));
         }
+        out[0] = Math.min(out[0], bandMax);
+      }
+      out = out.map((v) => clamp(round1(v), bandMin, bandMax));
+    }
+
+    for (let i = 0; i < n; i++) {
+      if (out[i] !== round1(rows[i].score)) {
+        changes.push({ restaurantId: rows[i].restaurantId, score: out[i] });
       }
     }
   }

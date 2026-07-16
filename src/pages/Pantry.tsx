@@ -15,13 +15,13 @@ import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
-import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
+import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -33,7 +33,6 @@ import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFil
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
@@ -85,7 +84,7 @@ function isSavedFromOtherUser(meal: HomeMeal): boolean {
 }
 
 /* ── Preset list suggestions ── */
-interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
+interface PresetList { name: string; emoji: string; category: string; type?: 'home-cooking'; }
 
 const PRESET_LISTS: PresetList[] = [
   { name: 'Best Date Night Spots', emoji: '🕯️', category: 'Occasion & Vibe' },
@@ -98,8 +97,6 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Cozy & Intimate', emoji: '🪵', category: 'Occasion & Vibe' },
   { name: 'Live Music & Dining', emoji: '🎵', category: 'Occasion & Vibe' },
   { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
-  { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
-  { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location', type: 'hotel-breakfast' },
   { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
   { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
   { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },
@@ -721,17 +718,15 @@ const RestaurantRow: React.FC<{
   const meta = restaurantMeta[restaurantId];
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   // Michelin override: starred restaurants show the Guide's cuisine + price
-  // (and a star marker). Falls back to the saved values otherwise. Skip hotels.
+  // (and a star marker). Falls back to the saved values otherwise.
   const mich = useMichelinMatch(
-    cuisine === 'Hotel Breakfast' ? '' : name,
+    name,
     meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
   );
   const location = address || meta?.address
     ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
     : '';
-  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
-  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
-  const metaTop = [cuisineLabel, showPrice ? mich.price : ''].filter(Boolean).join('  ·  ');
+  const metaTop = [mich.cuisine, mich.price].filter(Boolean).join('  ·  ');
 
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
@@ -959,7 +954,7 @@ const WishlistRow: React.FC<{
   useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && wlMeta?.hours !== undefined);
   const fullAddr = address || wlMeta?.address || '';
   const mich = useMichelinMatch(
-    cuisine === 'Hotel Breakfast' ? '' : name,
+    name,
     wlMeta?.lat, wlMeta?.lng, fullAddr, cuisine, price,
   );
   const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
@@ -991,7 +986,7 @@ const WishlistRow: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <p className="text-[12.5px] text-on-surface/55 font-medium mt-0.5">
-            {cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine}{cuisine !== 'Hotel Breakfast' && mich.price ? ` · ${mich.price}` : ''}
+            {mich.cuisine}{mich.price ? ` · ${mich.price}` : ''}
           </p>
           {location && (
             <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
@@ -1036,11 +1031,11 @@ const WishlistGridCard: React.FC<{
   const { restaurantMeta } = useLists();
   const meta = restaurantMeta[restaurantId];
   const mich = useMichelinMatch(
-    cuisine === 'Hotel Breakfast' ? '' : name,
+    name,
     meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
   );
-  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
-  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
+  const cuisineLabel = mich.cuisine;
+  const showPrice = !!mich.price;
 
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
@@ -1166,11 +1161,11 @@ const RestaurantGridCard: React.FC<{
   // re-hydrated from cloud where the rating may not include an address.
   const meta = restaurantMeta[restaurantId];
   const mich = useMichelinMatch(
-    cuisine === 'Hotel Breakfast' ? '' : name,
+    name,
     meta?.lat, meta?.lng, address || meta?.address, cuisine, price,
   );
-  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : mich.cuisine;
-  const showPrice = cuisine !== 'Hotel Breakfast' && !!mich.price;
+  const cuisineLabel = mich.cuisine;
+  const showPrice = !!mich.price;
   useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
@@ -1372,7 +1367,7 @@ const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | '
   );
 };
 
-/* ── Add Hotel Breakfast Modal ── */
+/* ── List overflow menu ── */
 // Shared ⋯ overflow menu used on phone list-page headers (All Rated,
 // custom list, recipe list). Click the button to toggle a small
 // outside-click-dismissable panel of actions anchored to the trigger's
@@ -1431,429 +1426,6 @@ const ListMoreMenu: React.FC<{
   );
 };
 
-type HotelPage = 'search' | 'main' | 'notes' | 'tags' | 'photos' | 'date';
-
-const HOTEL_TAGS = ['Buffet', 'Continental', 'Full English', 'Room Service', 'Restaurant', 'Rooftop', 'Pool Side', 'Included', 'Extra Charge', 'Fresh Juice', 'Coffee', 'Pastries', 'Made to Order', 'Vegan Options'];
-
-const HotelSubPage: React.FC<{
-  children: React.ReactNode; onBack: () => void; title: string; rightAction?: React.ReactNode;
-}> = ({ children, onBack, title, rightAction }) => (
-  <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
-    transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-    className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
-    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
-      <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
-        <ArrowLeft size={20} />
-      </button>
-      <h2 className="font-serif font-bold text-lg flex-1">{title}</h2>
-      {rightAction}
-    </div>
-    {children}
-  </motion.div>
-);
-
-const HotelBottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-    <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
-  </div>
-);
-
-const HotelDetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
-    )}>
-    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
-    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
-  </button>
-);
-
-const AddHotelBreakfastModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  listId: string;
-}> = ({ open, onClose, listId }) => {
-  const { rateRestaurant, getRating, addToList, cacheRestaurantMeta } = useLists();
-  const { phoneMode } = useSettings();
-  const [page, setPage] = useState<HotelPage>('search');
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<PlaceResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [selectedHotel, setSelectedHotel] = useState<PlaceResult | null>(null);
-  const [tagSearch, setTagSearch] = useState('');
-
-  // Rating state
-  const [score, setScore] = useState(7.0);
-  const [notes, setNotes] = useState('');
-  const [visitDate, setVisitDate] = useState(localISODate());
-  const [wouldReturn, setWouldReturn] = useState(true);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [photos, setPhotos] = useState<PhotoItem[]>([]);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setPage('search');
-      setQuery('');
-      setResults([]);
-      setSelectedHotel(null);
-      setScore(7.0);
-      setNotes('');
-      setVisitDate(localISODate());
-      setWouldReturn(true);
-      setSelectedTags([]);
-      setPhotos([]);
-      setTagSearch('');
-    }
-  }, [open]);
-
-  const handleSearch = async () => {
-    if (!query.trim()) return;
-    setSearching(true);
-    try {
-      // Bias the hotel search around the user's saved anchor location;
-      // fall back to NYC only when none is set.
-      const home = loadLastSelectedLocation();
-      const lat = home && Number.isFinite(home.lat) ? home.lat : 40.735;
-      const lng = home && Number.isFinite(home.lng) ? home.lng : -73.99;
-      const res = await searchHotels(query, lat, lng);
-      setResults(res);
-    } catch (e) {
-      console.error('Hotel search failed:', e);
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const handleSelectHotel = (hotel: PlaceResult) => {
-    setSelectedHotel(hotel);
-    const existing = getRating(hotel.id);
-    if (existing) {
-      setScore(existing.score);
-      setNotes(existing.notes);
-      setVisitDate(existing.visitDate || '');
-      setWouldReturn(existing.wouldReturn);
-      setSelectedTags(existing.tags || []);
-      setPhotos(existing.photos || []);
-    }
-    setPage('main');
-  };
-
-  const handleAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = (Array.from(e.target.files || []) as File[]).filter((f) => f.type.startsWith('image/'));
-    const newPhotos: PhotoItem[] = [];
-    for (const file of files.slice(0, 8 - photos.length)) {
-      try {
-        const url = await processPhoto(file);
-        newPhotos.push({ url, caption: '', isFavorite: false });
-      } catch { /* skip undecodable */ }
-    }
-    setPhotos((prev) => [...prev, ...newPhotos]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
-  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
-  const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
-
-  const handleSave = () => {
-    if (!selectedHotel) return;
-    rateRestaurant({
-      restaurantId: selectedHotel.id,
-      name: selectedHotel.name,
-      image: selectedHotel.photoUrl || '',
-      cuisine: 'Hotel Breakfast',
-      price: '',
-      address: selectedHotel.address || selectedHotel.fullAddress || '',
-      score,
-      notes,
-      visitDate,
-      wouldReturn,
-      tags: selectedTags,
-      photos,
-      listIds: [listId],
-      friendIds: [],
-      createdAt: Date.now(),
-    });
-    addToList(listId, selectedHotel.id);
-    cacheRestaurantMeta({ id: selectedHotel.id, name: selectedHotel.name, image: selectedHotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: selectedHotel.address || '' });
-    onClose();
-  };
-
-  const existing = selectedHotel ? getRating(selectedHotel.id) : undefined;
-  const hasNotes = notes.trim().length > 0;
-  const hasDate = visitDate.length > 0;
-  const hasTags = selectedTags.length > 0;
-  const hasPhotos = photos.length > 0;
-  const dateLabel = hasDate ? new Date(visitDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
-  const scoreClr = scoreColorLight(score);
-  const scoreBg = scoreBgGradient(score);
-  const scoreRing = scoreRingColor(score);
-  const filteredTags = tagSearch.trim() ? HOTEL_TAGS.filter((t) => t.toLowerCase().includes(tagSearch.toLowerCase())) : HOTEL_TAGS;
-
-  if (!open) return null;
-
-  const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleAddPhotos} />;
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
-          phoneMode ? "items-end" : "items-end sm:items-center")}
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ y: '100%' }}
-          animate={{ y: 0 }}
-          exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-          onClick={(e) => e.stopPropagation()}
-          className={cn("bg-surface w-full overflow-hidden flex flex-col",
-            phoneMode
-              ? "h-full rounded-none"
-              : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl")}
-        >
-          {photoInput}
-          <AnimatePresence mode="wait">
-            {/* ═══════════ SEARCH PAGE ═══════════ */}
-            {page === 'search' && (
-              <motion.div key="search" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
-                className="flex flex-col flex-1 min-h-0">
-                <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                  <div className="min-w-0">
-                    <h2 className="font-serif font-bold text-lg">Find a Hotel</h2>
-                    <p className="text-xs text-on-surface/40">Search for the hotel you stayed at</p>
-                  </div>
-                  <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
-                </div>
-
-                <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="px-5 pt-2 pb-3 flex-shrink-0">
-                  <div className="relative">
-                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/35" />
-                    <input type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Hotel name or location..." autoFocus
-                      className="w-full pl-10 pr-20 py-3.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all" />
-                    <button type="submit" disabled={searching || !query.trim()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold disabled:opacity-30 transition-opacity">
-                      {searching ? '...' : 'Search'}
-                    </button>
-                  </div>
-                </form>
-
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-                  {results.length > 0 && <p className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/30 mb-2">{results.length} results</p>}
-                  <div className="space-y-2">
-                    {results.map((hotel) => (
-                      <button key={hotel.id} onClick={() => handleSelectHotel(hotel)}
-                        className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm hover:shadow-md hover:border-primary/15 transition-all text-left group">
-                        {hotel.photoUrl ? (
-                          <img src={hotel.photoUrl} alt={hotel.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-16 h-16 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0 text-2xl">🏨</div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{hotel.name}</p>
-                          <p className="text-[11px] text-on-surface/40 truncate mt-0.5">{hotel.address}</p>
-                          {hotel.rating > 0 && (
-                            <div className="flex items-center gap-1 mt-1">
-                              <Star size={11} className="text-amber-500 fill-amber-500" />
-                              <span className="text-[10px] text-on-surface/50 font-medium">{hotel.rating}</span>
-                            </div>
-                          )}
-                        </div>
-                        <ChevronRight size={16} className="text-on-surface/15 group-hover:text-primary/40 flex-shrink-0 transition-colors" />
-                      </button>
-                    ))}
-                    {results.length === 0 && !query && !searching && (
-                      <div className="text-center py-12">
-                        <span className="text-4xl mb-3 block">🏨</span>
-                        <p className="text-sm text-on-surface/40 font-medium">Search for a hotel</p>
-                        <p className="text-xs text-on-surface/25 mt-1">Find the hotel where you had breakfast</p>
-                      </div>
-                    )}
-                    {results.length === 0 && query && !searching && (
-                      <div className="text-center py-12">
-                        <p className="text-sm text-on-surface/40">No hotels found</p>
-                        <p className="text-xs text-on-surface/25 mt-1">Try a different search term</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ═══════════ MAIN PAGE ═══════════ */}
-            {page === 'main' && (
-              <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
-                className="flex flex-col flex-1 min-h-0">
-                <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                  <div className="min-w-0">
-                    <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Breakfast'}</h2>
-                    <p className="text-xs text-on-surface/40 truncate">{selectedHotel?.name}</p>
-                  </div>
-                  <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-                  {/* Score circle */}
-                  <div className="flex flex-col items-center pt-3 sm:pt-5">
-                    <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                      <div className="text-center">
-                        <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
-                        <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
-                      </div>
-                    </div>
-                    <div className="w-full max-w-[260px] mb-1.5">
-                      <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                        className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                      <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                        <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                      </div>
-                    </div>
-                    <p className="text-xs font-medium text-on-surface/40 mb-4">
-                      {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                    </p>
-                    <div className="w-full max-w-[260px] mb-5">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you go back?</p>
-                      <div className="flex gap-2">
-                        <button onClick={() => setWouldReturn(true)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40")}>Yes!</button>
-                        <button onClick={() => setWouldReturn(false)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40")}>Nah</button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Detail buttons */}
-                  <div className="border-t border-on-surface/6 pt-3 pb-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                    <div className="space-y-2">
-                      <HotelDetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 20) + '...' : undefined} onClick={() => setPage('notes')} />
-                      <HotelDetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                      <HotelDetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                      <HotelDetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={() => setPage('photos')} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                  <button onClick={handleSave} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
-                    {existing ? 'Update Rating' : 'Save Rating'}
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ═══════════ NOTES ═══════════ */}
-            {page === 'notes' && (
-              <HotelSubPage key="notes" onBack={() => setPage('main')} title="Notes">
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                    placeholder="How was the breakfast? Any favorite dishes, standout moments?" rows={8} autoFocus
-                    className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
-                </div>
-                <HotelBottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
-              </HotelSubPage>
-            )}
-
-            {/* ═══════════ DATE ═══════════ */}
-            {page === 'date' && (
-              <HotelSubPage key="date" onBack={() => setPage('main')} title="Date Visited">
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                  <Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} />
-                </div>
-                <HotelBottomBtn label="Done" onClick={() => setPage('main')} />
-              </HotelSubPage>
-            )}
-
-            {/* ═══════════ TAGS ═══════════ */}
-            {page === 'tags' && (
-              <HotelSubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
-                <div className="px-5 pt-4 pb-2 flex-shrink-0">
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                  </div>
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-2">
-                  {filteredTags.map((tag) => {
-                    const sel = selectedTags.includes(tag);
-                    return (
-                      <button key={tag} onClick={() => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])}
-                        className={cn("w-full flex items-center gap-3 py-3 border-b border-on-surface/6 transition-colors",
-                          sel ? "text-primary" : "text-on-surface/60 hover:text-on-surface/80")}>
-                        <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
-                          sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                        )}>{sel && <Check size={12} strokeWidth={3} />}</div>
-                        <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <HotelBottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
-              </HotelSubPage>
-            )}
-
-            {/* ═══════════ PHOTOS ═══════════ */}
-            {page === 'photos' && (
-              <HotelSubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
-                <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">Add More</button>
-              }>
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchMove={(e) => e.stopPropagation()}>
-                  {photos.length === 0 ? (
-                    <div className="px-5 py-16 flex flex-col items-center justify-center text-on-surface/30">
-                      <Image size={28} className="mb-2" />
-                      <p className="text-sm font-semibold">No photos yet</p>
-                      <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-on-surface/[0.06]">
-                      {photos.map((photo, idx) => (
-                        <div key={idx} className="flex gap-3 px-5 py-4">
-                          <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
-                            <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                            <button onClick={() => removePhoto(idx)}
-                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
-                              <X size={10} className="text-white" />
-                            </button>
-                          </div>
-                          <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                            <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)}
-                              placeholder="What's this dish?"
-                              className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
-                            <button onClick={() => togglePhotoFavorite(idx)}
-                              className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
-                                photo.isFavorite ? "text-primary" : "text-on-surface/35"
-                              )}>
-                              <span className="text-on-surface/40">Mark as a favorite dish:</span>
-                              <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                              )}>
-                                {photo.isFavorite && <Star size={10} fill="white" />}
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <HotelBottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />
-              </HotelSubPage>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  );
-};
-
 /* ── List Detail View ── */
 const ListDetailView: React.FC<{
   list: CustomList;
@@ -1867,7 +1439,6 @@ const ListDetailView: React.FC<{
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
-  const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
 
   // Watch for the global rating being updated after we opened the modal for a list-specific rating
@@ -1888,7 +1459,6 @@ const ListDetailView: React.FC<{
   const isDefaultWantToCook = list.id === DEFAULT_WANT_TO_COOK_ID;
   // Both built-in recipe lists are permanent — can't be deleted/renamed.
   const isProtectedRecipeList = isDefaultWantToCook || list.id === DEFAULT_COOKED_ID;
-  const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
   // Display name used by the desktop toolbar's inline search placeholder.
@@ -2044,27 +1614,21 @@ const ListDetailView: React.FC<{
     return out;
   }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
 
-  const wishlistedRestaurantsRaw = isHotelBreakfast
-    ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
+  const wishlistedRestaurantsRaw = isWishlistView
+    // Drive the global wishlist view directly off the wishlist array so
+    // recently-toggled hearts show up immediately, in the order the user
+    // added them. The synthetic list only has wishlistIds, which loses
+    // the addedAt timestamp we need for sort.
+    ? wishlist.map((w) => ({
         id: w.restaurantId,
         info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
         wishItem: w,
       }))
-    : isWishlistView
-      // Drive the global wishlist view directly off the wishlist array so
-      // recently-toggled hearts show up immediately, in the order the user
-      // added them. The synthetic list only has wishlistIds, which loses
-      // the addedAt timestamp we need for sort.
-      ? wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast').map((w) => ({
-          id: w.restaurantId,
-          info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
-          wishItem: w,
-        }))
-      : (list.wishlistIds || []).map((id) => {
-          const info = getRestaurantInfo(id);
-          const wishItem = wishlist.find((w) => w.restaurantId === id);
-          return { id, info, wishItem };
-        }).filter(({ info }) => info);
+    : (list.wishlistIds || []).map((id) => {
+        const info = getRestaurantInfo(id);
+        const wishItem = wishlist.find((w) => w.restaurantId === id);
+        return { id, info, wishItem };
+      }).filter(({ info }) => info);
 
   // Backfill hours for every candidate in this list while the hours filter
   // is active — the filter reads cached meta, and unknown hours never hide
@@ -2083,8 +1647,7 @@ const ListDetailView: React.FC<{
   // the dropdowns only ever offer cuisines / cities the user has on
   // this list. Recipe lists skip this — they have their own filters.
   // The names are historical (they used to be wishlist-only); they now
-  // apply to any non-recipe list view (wishlist + custom restaurant +
-  // hotel-breakfast).
+  // apply to any non-recipe list view (wishlist + custom restaurant).
   const wishlistAllCuisines = useMemo(() => {
     if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
@@ -2142,7 +1705,7 @@ const ListDetailView: React.FC<{
   }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
 
   // Apply the search input on top of the filter pipeline (wishlist view
-  // only — the rated and hotel-breakfast paths already filter above).
+  // only — the rated path already filters above).
   const wishlistedRestaurantsFinal = useMemo(() => {
     if (!isWishlistView || !searchQuery.trim()) return wishlistedRestaurants;
     const q = searchQuery.toLowerCase();
@@ -2165,13 +1728,12 @@ const ListDetailView: React.FC<{
     // list as well as the cookbook. The basic AddRecipeModal remains
     // only for EDITING this list's existing legacy entries.
     if (isHomeCooking) openHomeMealModal(undefined, { targetListId: list.id });
-    else if (isHotelBreakfast) setHotelModalOpen(true);
     else setAddSheetOpen(true);
   };
 
   // ── Editorial header derivations ──────────────────────────────────
-  // The four list "kinds" each get their own accent color, eyebrow,
-  // and icon so the page title row reads as a cover for that list.
+  // Each list "kind" gets its own accent color, eyebrow, and icon so
+  // the page title row reads as a cover for that list.
   const headerVariant: {
     eyebrow: string;
     icon: React.ReactNode;
@@ -2179,11 +1741,9 @@ const ListDetailView: React.FC<{
     chipBg: string; // bg class for the icon tile
   } = isHomeCooking
     ? { eyebrow: 'Your kitchen', icon: <ChefHat size={26} className="text-emerald-600" strokeWidth={1.7} />, accent: 'text-emerald-600', chipBg: 'bg-emerald-50' }
-    : isHotelBreakfast
-      ? { eyebrow: 'Hotel mornings', icon: <Building2 size={26} className="text-amber-600" strokeWidth={1.7} />, accent: 'text-amber-600', chipBg: 'bg-amber-50' }
-      : isWishlistView
-        ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
-        : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
+    : isWishlistView
+      ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
+      : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
 
   // Distinct city count for the stats row.
   const cityCount = useMemo(() => {
@@ -2294,7 +1854,7 @@ const ListDetailView: React.FC<{
     if (isWishlistView) {
       return { total: wishlistedRestaurantsRaw.length, visible: wishlistedRestaurantsFinal.length, avg: null };
     }
-    // Custom restaurant or hotel-breakfast list — combine rated and wishlist sections.
+    // Custom restaurant list — combine rated and wishlist sections.
     const total = ratedRestaurants.length + wishlistedRestaurantsRaw.length;
     const visible = total; // no per-list filter UI yet beyond search
     const scored = ratedRestaurants
@@ -2346,7 +1906,7 @@ const ListDetailView: React.FC<{
             >
               <Plus size={15} strokeWidth={2.5} />
               <span>
-                {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
+                {isHomeCooking ? 'Add Recipe' : 'Add Rating'}
               </span>
             </button>
             <ListMoreMenu
@@ -2712,10 +2272,10 @@ const ListDetailView: React.FC<{
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
-          <p className="text-xs text-on-surface/30 mt-1">{isHotelBreakfast ? 'Rate a hotel breakfast to get started' : 'Add restaurants from your rated collection'}</p>
-          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
+          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from your rated collection</p>
+          <button onClick={() => setAddSheetOpen(true)}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
-            <Plus size={14} />{isHotelBreakfast ? 'Add Hotel Breakfast' : 'Add Restaurants'}
+            <Plus size={14} />Add Restaurants
           </button>
         </div>
       ) : (
@@ -2815,7 +2375,7 @@ const ListDetailView: React.FC<{
                       price={info?.price ?? ''}
                       address={info?.address}
                       notes={wishItem?.notes}
-                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                      onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                     />
                   ))}
                 </div>
@@ -2831,18 +2391,18 @@ const ListDetailView: React.FC<{
                       price={info?.price ?? ''}
                       address={info?.address}
                       notes={wishItem?.notes}
-                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                      onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                     />
                   ))}
                 </div>
               )}
             </div>
           )}
-          {/* The dashed "Add Restaurants" / "Add Hotel" footer that
-              used to sit here is gone — the prominent top Add button
-              in the phone header now covers that affordance, and
-              keeping a duplicate at the bottom just clutters the
-              list. Desktop never had this footer. */}
+          {/* The dashed "Add Restaurants" footer that used to sit here
+              is gone — the prominent top Add button in the phone header
+              now covers that affordance, and keeping a duplicate at the
+              bottom just clutters the list. Desktop never had this
+              footer. */}
         </div>
       )}
 
@@ -2853,7 +2413,6 @@ const ListDetailView: React.FC<{
           openAddRestaurantModal(meta);
         }}
       />
-      <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
       {!isHomeCooking && (
         <WishlistFilterSheet
           open={wishlistFilterOpen}
@@ -3106,7 +2665,7 @@ const MEAL_COLORS: Record<string, string> = {
 };
 
 /* ── Add to Night Sheet ── */
-type AddNightPage = 'select' | 'from-rated' | 'search-new' | 'hotel';
+type AddNightPage = 'select' | 'from-rated' | 'search-new';
 const MEAL_TYPES: TripRestaurant['mealType'][] = ['breakfast', 'lunch', 'drinks', 'dinner', 'snack'];
 
 const AddToNightSheet: React.FC<{
@@ -3118,12 +2677,11 @@ const AddToNightSheet: React.FC<{
   tripLng: number;
   existingRestaurantIds: Set<string>;
   ratings: RestaurantRating[];
-  tripHotels?: TripHotel[];
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   rateRestaurant: (rating: RestaurantRating) => void;
   onClose: () => void;
-}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, tripHotels = [], addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
   const { phoneMode } = useSettings();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
@@ -3132,9 +2690,6 @@ const AddToNightSheet: React.FC<{
   const [placeSearch, setPlaceSearch] = useState('');
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [placeLoading, setPlaceLoading] = useState(false);
-  const [hotelSearch, setHotelSearch] = useState('');
-  const [hotelResults, setHotelResults] = useState<PlaceResult[]>([]);
-  const [hotelLoading, setHotelLoading] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -3145,8 +2700,6 @@ const AddToNightSheet: React.FC<{
       setRatedSearch('');
       setPlaceSearch('');
       setPlaceResults([]);
-      setHotelSearch('');
-      setHotelResults([]);
       setJustAdded(null);
     }
   }, [open]);
@@ -3162,16 +2715,6 @@ const AddToNightSheet: React.FC<{
       setPlaceResults(res);
     } catch { setPlaceResults([]); }
     finally { setPlaceLoading(false); }
-  };
-
-  const handleSearchHotels = async () => {
-    if (!hotelSearch.trim()) return;
-    setHotelLoading(true);
-    try {
-      const res = await searchHotels(hotelSearch, lat, lng);
-      setHotelResults(res);
-    } catch { setHotelResults([]); }
-    finally { setHotelLoading(false); }
   };
 
   const addFromRating = (r: RestaurantRating) => {
@@ -3202,17 +2745,6 @@ const AddToNightSheet: React.FC<{
     // Open rating modal so user can rate it
     onClose();
     openAddRestaurantModal(meta);
-  };
-
-  const addHotel = (hotel: PlaceResult) => {
-    addRestaurantToTrip(tripId, {
-      restaurantId: hotel.id,
-      name: hotel.name, image: hotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: hotel.address,
-      night: nightIndex, mealType: mealType === 'dinner' ? 'breakfast' : mealType, status: 'planned',
-      reservationTime: reservationTime || undefined,
-    });
-    setJustAdded(hotel.id);
-    setTimeout(() => setJustAdded(null), 1200);
   };
 
   const filteredRatings = ratedSearch.trim()
@@ -3295,17 +2827,6 @@ const AddToNightSheet: React.FC<{
                       <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
                     </button>
                   </div>
-
-                  {/* Secondary option */}
-                  <button onClick={() => { setPage('hotel'); if (mealType === 'dinner') setMealType('breakfast'); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 bg-on-surface/[0.03] border border-on-surface/6 rounded-xl text-left hover:bg-on-surface/[0.05] transition-all">
-                    <Building2 size={16} className="text-on-surface/35 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-on-surface/60">Hotel / Hotel Breakfast</p>
-                      <p className="text-[10px] text-on-surface/30">Restaurant inside a hotel</p>
-                    </div>
-                    <ChevronRight size={14} className="text-on-surface/15 flex-shrink-0" />
-                  </button>
                 </div>
               </motion.div>
             )}
@@ -3443,147 +2964,6 @@ const AddToNightSheet: React.FC<{
                 </div>
               </motion.div>
             )}
-
-            {/* ═══ PAGE 2C: HOTEL / HOTEL BREAKFAST ═══ */}
-            {page === 'hotel' && (
-              <motion.div key="hotel" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
-                transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-                className="flex flex-col h-full">
-                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
-                  <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
-                  <h2 className="font-serif font-bold text-lg flex-1">Hotel Restaurant</h2>
-                </div>
-
-                {/* Meal type selector for hotel */}
-                <div className="px-5 pt-3 pb-2 flex-shrink-0">
-                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-                    {(['breakfast', 'lunch', 'dinner', 'snack'] as TripRestaurant['mealType'][]).map((m) => (
-                      <button key={m} onClick={() => setMealType(m)}
-                        className={cn("px-3 py-1.5 rounded-full text-xs font-semibold border-2 capitalize transition-all whitespace-nowrap",
-                          mealType === m ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/40")}>
-                        {m === 'breakfast' ? '🥐 Breakfast' : m === 'lunch' ? '🍽️ Lunch' : m === 'dinner' ? '🌙 Dinner' : '🍰 Snack'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-                  {/* Trip hotels quick-add */}
-                  {tripHotels.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Your Trip Hotels</p>
-                      <div className="space-y-1.5">
-                        {tripHotels.map((hotel) => {
-                          const hotelId = hotel.placeId || hotel.id;
-                          const alreadyAdded = existingRestaurantIds.has(hotelId);
-                          const wasJustAdded = justAdded === hotelId;
-                          return (
-                            <div key={hotel.id} className="flex items-center gap-3 py-2.5 px-3 rounded-xl bg-teal-50/50 border border-teal-200/40">
-                              {hotel.image ? (
-                                <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                              ) : (
-                                <div className="w-11 h-11 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-semibold truncate">{hotel.name}</p>
-                                <p className="text-[10px] text-on-surface/40 truncate">{hotel.address}</p>
-                                {hotel.checkIn && <p className="text-[9px] text-teal-600/70 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>}
-                              </div>
-                              <button
-                                onClick={() => {
-                                  if (alreadyAdded || wasJustAdded) return;
-                                  addRestaurantToTrip(tripId, {
-                                    restaurantId: hotelId,
-                                    name: hotel.name, image: hotel.image || '', cuisine: 'Hotel Breakfast', price: '', address: hotel.address,
-                                    night: nightIndex, mealType: mealType === 'dinner' ? 'breakfast' : mealType, status: 'planned',
-                                    reservationTime: reservationTime || undefined,
-                                  });
-                                  setJustAdded(hotelId);
-                                  setTimeout(() => setJustAdded(null), 1200);
-                                }}
-                                disabled={alreadyAdded}
-                                className={cn("w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
-                                  wasJustAdded ? "bg-green-100 text-green-600" :
-                                  alreadyAdded ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
-                                  "bg-teal-100 text-teal-600 hover:bg-teal-200")}
-                              >
-                                {wasJustAdded || alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Search for other hotels */}
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">{tripHotels.length > 0 ? 'Search Other Hotels' : 'Search Hotels'}</p>
-                  <form onSubmit={(e) => { e.preventDefault(); handleSearchHotels(); }} className="mb-3">
-                    <div className="relative">
-                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                      <input type="text" value={hotelSearch} onChange={(e) => setHotelSearch(e.target.value)} placeholder="Hotel name or location..."
-                        autoFocus={tripHotels.length === 0} className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      <button type="submit" disabled={hotelLoading || !hotelSearch.trim()}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
-                        {hotelLoading ? '...' : 'Search'}
-                      </button>
-                    </div>
-                  </form>
-
-                  {hotelLoading && (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 size={24} className="animate-spin text-primary" />
-                    </div>
-                  )}
-                  {!hotelLoading && hotelResults.length === 0 && hotelSearch && (
-                    <div className="text-center py-12">
-                      <p className="text-sm text-on-surface/40">No hotels found</p>
-                    </div>
-                  )}
-                  {!hotelLoading && hotelResults.length === 0 && !hotelSearch && tripHotels.length === 0 && (
-                    <div className="text-center py-12">
-                      <span className="text-3xl mb-2 block">🏨</span>
-                      <p className="text-sm text-on-surface/40">Search for a hotel</p>
-                    </div>
-                  )}
-                  {!hotelLoading && hotelResults.length > 0 && (
-                    <div className="space-y-1.5 pt-2">
-                      {hotelResults.map((hotel) => {
-                        const alreadyAdded = existingRestaurantIds.has(hotel.id);
-                        const wasJustAdded = justAdded === hotel.id;
-                        return (
-                          <div key={hotel.id} className="flex items-center gap-3 py-2.5">
-                            {hotel.photoUrl ? (
-                              <img src={hotel.photoUrl} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="w-11 h-11 rounded-lg bg-primary/5 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[13px] font-semibold truncate">{hotel.name}</p>
-                              <p className="text-[10px] text-on-surface/40 truncate">{hotel.address}</p>
-                            </div>
-                            <button
-                              onClick={() => !alreadyAdded && !wasJustAdded && addHotel(hotel)}
-                              disabled={alreadyAdded}
-                              className={cn("w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
-                                wasJustAdded ? "bg-green-100 text-green-600" :
-                                alreadyAdded ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
-                                "bg-primary/10 text-primary hover:bg-primary/20")}
-                            >
-                              {wasJustAdded || alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                  <button onClick={onClose} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
-                </div>
-              </motion.div>
-            )}
           </AnimatePresence>
         </motion.div>
       </motion.div>
@@ -3600,9 +2980,6 @@ const TripsTab: React.FC<{
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   updateTripRestaurant: (tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => void;
   removeRestaurantFromTrip: (tripId: string, restaurantId: string, night: number) => void;
-  addHotelToTrip: (tripId: string, hotel: TripHotel) => void;
-  updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
-  removeHotelFromTrip: (tripId: string, hotelId: string) => void;
   rateRestaurant: (rating: RestaurantRating) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
@@ -3610,7 +2987,7 @@ const TripsTab: React.FC<{
   onBack: () => void;
   autoCreate?: boolean;
   onAutoCreateHandled?: () => void;
-}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
+}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -3618,24 +2995,8 @@ const TripsTab: React.FC<{
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   const [addNightSheetOpen, setAddNightSheetOpen] = useState(false);
   const [addNightIndex, setAddNightIndex] = useState<number>(0);
-  const [hotelDiningMap, setHotelDiningMap] = useState<Record<string, HotelDining[]>>({});
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId) || null;
-
-  // Fetch hotel dining options for trip hotels
-  useEffect(() => {
-    if (!selectedTrip || selectedTrip.hotels.length === 0) { setHotelDiningMap({}); return; }
-    const fetchDining = async () => {
-      const map: Record<string, HotelDining[]> = {};
-      await Promise.all(selectedTrip.hotels.map(async (hotel) => {
-        const placeId = hotel.placeId || hotel.id;
-        const dining = await getHotelDining(placeId);
-        if (dining.length > 0) map[placeId] = dining;
-      }));
-      setHotelDiningMap(map);
-    };
-    fetchDining();
-  }, [selectedTrip?.id, selectedTrip?.hotels.length]);
 
   // Auto-open create sheet when navigating from "Plan a Trip" in the lists popup
   useEffect(() => {
@@ -3755,67 +3116,6 @@ const TripsTab: React.FC<{
             </div>
           ))}
         </div>
-
-        {/* ── Hotels ── */}
-        {selectedTrip.hotels.length > 0 && (
-          <div className="mb-7">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mb-2.5 px-1">Accommodation</p>
-            {selectedTrip.hotels.map((hotel) => {
-              const hotelPlaceId = hotel.placeId || hotel.id;
-              const diningOptions = hotelDiningMap[hotelPlaceId] || [];
-              return (
-                <div key={hotel.id} className="mb-3">
-                  <div className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm p-3.5 flex items-center gap-3">
-                    {hotel.image ? (
-                      <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-[13px] truncate">{hotel.name}</p>
-                      <p className="text-[10px] text-on-surface/35 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>
-                    </div>
-                    {hotel.confirmationNumber && (
-                      <span className="text-[9px] text-on-surface/25 font-mono flex-shrink-0">#{hotel.confirmationNumber}</span>
-                    )}
-                  </div>
-                  {/* Dining options for this hotel */}
-                  {diningOptions.length > 0 && (
-                    <div className="ml-5 mt-1.5 border-l-2 border-teal-200/50 pl-3.5">
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-teal-600/50 mb-1.5">Dining at {hotel.name.split(' ').slice(0, 3).join(' ')}</p>
-                      {diningOptions.map((d) => (
-                        <div key={d.id} className="flex items-center gap-2.5 py-1.5">
-                          <div className="w-7 h-7 rounded-md bg-teal-50 flex items-center justify-center flex-shrink-0 text-xs">
-                            {d.dining_type === 'breakfast' ? '🥐' : d.dining_type === 'bar' ? '🍸' : d.dining_type === 'room_service' ? '🛎️' : d.dining_type === 'pool_bar' ? '🏊' : d.dining_type === 'rooftop' ? '🌇' : '🍽️'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11px] font-semibold truncate">{d.restaurant_name}</p>
-                            <p className="text-[8px] text-on-surface/30 capitalize">{d.dining_type.replace('_', ' ')}</p>
-                          </div>
-                          <button
-                            onClick={() => {
-                              setAddNightIndex(0);
-                              addRestaurantToTrip(selectedTrip.id, {
-                                restaurantId: d.restaurant_place_id,
-                                name: d.restaurant_name, image: '', cuisine: d.dining_type === 'breakfast' ? 'Hotel Breakfast' : 'Hotel Restaurant',
-                                price: '', address: d.hotel_address,
-                                night: 0, mealType: d.dining_type === 'breakfast' ? 'breakfast' : d.dining_type === 'bar' || d.dining_type === 'pool_bar' || d.dining_type === 'rooftop' ? 'drinks' : 'dinner',
-                                status: 'planned',
-                              });
-                            }}
-                            className="px-2 py-1 rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-100 transition-colors flex-shrink-0"
-                          >
-                            <Plus size={12} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* ── Empty hint ── */}
         {totalRestaurants === 0 && (
@@ -3945,7 +3245,6 @@ const TripsTab: React.FC<{
           tripLng={selectedTrip.destinationLng}
           existingRestaurantIds={new Set(selectedTrip.restaurants.filter((r) => r.night === addNightIndex).map((r) => r.restaurantId))}
           ratings={ratings}
-          tripHotels={selectedTrip.hotels}
           addRestaurantToTrip={addRestaurantToTrip}
           openAddRestaurantModal={openAddRestaurantModal}
           rateRestaurant={rateRestaurant}
@@ -3970,7 +3269,7 @@ const TripsTab: React.FC<{
         <div className="text-center py-16">
           <Plane size={48} className="text-on-surface/10 mx-auto mb-4" />
           <h3 className="font-serif font-bold text-lg text-on-surface/60 mb-1">Plan Your First Trip</h3>
-          <p className="text-sm text-on-surface/30 mb-6 max-w-[240px] mx-auto">Organize restaurants by night, track hotels, and share your itinerary</p>
+          <p className="text-sm text-on-surface/30 mb-6 max-w-[240px] mx-auto">Organize restaurants by night and share your itinerary</p>
           <button onClick={() => setCreateOpen(true)}
             className="px-6 py-3 bg-primary text-white rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity">
             <Plus size={16} className="inline mr-2 -mt-0.5" />Create Trip
@@ -4063,11 +3362,6 @@ const CreateTripSheet: React.FC<{
   const [coverImage, setCoverImage] = useState('');
   const [status, setStatus] = useState<Trip['status']>('planning');
   const [calendarOpen, setCalendarOpen] = useState<'start' | 'end' | null>(null);
-  const [hotels, setHotels] = useState<TripHotel[]>([]);
-
-  // Hotel suggestions
-  const [suggestedHotels, setSuggestedHotels] = useState<PlaceResult[]>([]);
-  const [hotelsLoading, setHotelsLoading] = useState(false);
 
   // Location search
   const [locQuery, setLocQuery] = useState('');
@@ -4086,8 +3380,6 @@ const CreateTripSheet: React.FC<{
       setNotes(trip?.notes || '');
       setCoverImage(trip?.coverImage || '');
       setStatus(trip?.status || 'planning');
-      setHotels(trip?.hotels || []);
-      setSuggestedHotels([]);
       setLocQuery('');
       setLocResults([]);
       setCalendarOpen(null);
@@ -4122,38 +3414,6 @@ const CreateTripSheet: React.FC<{
     })();
   }, [destination, destLat]);
 
-  // Search for hotels near destination
-  useEffect(() => {
-    if (!destLat || !destLng || !destination) { setSuggestedHotels([]); return; }
-    // Don't search if editing an existing trip (already has hotels)
-    if (trip && trip.hotels.length > 0) return;
-    setHotelsLoading(true);
-    (async () => {
-      try {
-        const results = await searchHotels('hotels', destLat, destLng);
-        setSuggestedHotels(results.slice(0, 6));
-      } catch { setSuggestedHotels([]); }
-      finally { setHotelsLoading(false); }
-    })();
-  }, [destLat, destLng, destination]);
-
-  const addSuggestedHotel = (place: PlaceResult) => {
-    if (hotels.some((h) => h.placeId === place.id)) return;
-    setHotels((prev) => [...prev, {
-      id: crypto.randomUUID(),
-      name: place.name,
-      address: place.fullAddress || place.address,
-      checkIn: startDate,
-      checkOut: endDate,
-      image: place.photoUrl || undefined,
-      placeId: place.id,
-    }]);
-  };
-
-  const removeSuggestedHotel = (hotelId: string) => {
-    setHotels((prev) => prev.filter((h) => h.id !== hotelId));
-  };
-
   const handleSave = () => {
     if (!name.trim() || !startDate || !endDate) return;
     onSave({
@@ -4164,7 +3424,6 @@ const CreateTripSheet: React.FC<{
       startDate,
       endDate,
       coverImage: coverImage || undefined,
-      hotels,
       restaurants: trip?.restaurants || [],
       notes: notes || undefined,
       status,
@@ -4318,64 +3577,6 @@ const CreateTripSheet: React.FC<{
                     <X size={12} />
                   </button>
                 </div>
-              </div>
-            )}
-
-            {/* Suggested Hotels */}
-            {destination && destLat > 0 && (
-              <div className="mb-4">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-1.5 block">Hotels</label>
-                {/* Already added hotels */}
-                {hotels.length > 0 && (
-                  <div className="space-y-1.5 mb-3">
-                    {hotels.map((h) => (
-                      <div key={h.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-teal-50/50 border border-teal-200/40">
-                        {h.image ? (
-                          <img src={h.image} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 text-sm">🏨</div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">{h.name}</p>
-                          <p className="text-[9px] text-on-surface/35 truncate">{h.address}</p>
-                        </div>
-                        <button onClick={() => removeSuggestedHotel(h.id)} className="p-1 text-on-surface/20 hover:text-red-400 transition-colors flex-shrink-0">
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* Suggestions */}
-                {hotelsLoading && (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 size={18} className="animate-spin text-teal-500" />
-                    <span className="text-xs text-on-surface/35 ml-2">Finding hotels nearby...</span>
-                  </div>
-                )}
-                {!hotelsLoading && suggestedHotels.length > 0 && (
-                  <div className="space-y-1.5">
-                    {suggestedHotels.filter((s) => !hotels.some((h) => h.placeId === s.id)).map((place) => (
-                      <button key={place.id} onClick={() => addSuggestedHotel(place)}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-on-surface/8 bg-white hover:border-teal-300 transition-all text-left">
-                        {place.photoUrl ? (
-                          <img src={place.photoUrl} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-sm">🏨</div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">{place.name}</p>
-                          <p className="text-[9px] text-on-surface/35 truncate">{place.address}</p>
-                          {place.rating > 0 && <p className="text-[8px] text-on-surface/25 mt-0.5">★ {place.rating.toFixed(1)}</p>}
-                        </div>
-                        <Plus size={14} className="text-teal-500 flex-shrink-0" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {!hotelsLoading && suggestedHotels.length === 0 && hotels.length === 0 && (
-                  <p className="text-[11px] text-on-surface/25 text-center py-3">No hotel suggestions available</p>
-                )}
               </div>
             )}
 
@@ -6654,7 +5855,6 @@ export const Pantry: React.FC = () => {
     getListsForRestaurant,
     trips, createTrip, updateTrip, deleteTrip,
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
-    addHotelToTrip, updateHotel, removeHotelFromTrip,
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
@@ -6786,8 +5986,8 @@ export const Pantry: React.FC = () => {
 
   // Filter and sort rated restaurants
   const filteredRatings = useMemo(() => {
-    // Exclude special list ratings (e.g. hotel breakfasts) from the main list
-    let result = ratings.filter((r) => r.cuisine !== 'Hotel Breakfast');
+    // Copy before the in-place sorts below so the context array is never mutated.
+    let result = [...ratings];
 
     if (mainSearchQuery.trim()) {
       const q = mainSearchQuery.toLowerCase();
@@ -6834,8 +6034,8 @@ export const Pantry: React.FC = () => {
     setCustomOrder(fullOrder);
   }, [filteredRatings, customOrder, setCustomOrder]);
 
-  const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
-  const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
+  const regularRatingsCount = ratings.length;
+  const regularWishlist = wishlist;
 
   const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -6843,7 +6043,7 @@ export const Pantry: React.FC = () => {
   // Seed custom order from current sort if empty when switching to custom
   const handleSortBy = useCallback((v: typeof sortBy) => {
     if (v === 'custom' && customOrder.length === 0) {
-      const sorted = [...ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')].sort((a, b) => b.score - a.score);
+      const sorted = [...ratings].sort((a, b) => b.score - a.score);
       setCustomOrder(sorted.map((r) => r.restaurantId));
     }
     setSortBy(v);
@@ -7242,9 +6442,6 @@ export const Pantry: React.FC = () => {
             addRestaurantToTrip={addRestaurantToTrip}
             updateTripRestaurant={updateTripRestaurant}
             removeRestaurantFromTrip={removeRestaurantFromTrip}
-            addHotelToTrip={addHotelToTrip}
-            updateHotel={updateHotel}
-            removeHotelFromTrip={removeHotelFromTrip}
             rateRestaurant={rateRestaurant}
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
@@ -7263,8 +6460,7 @@ export const Pantry: React.FC = () => {
           <PhonePantryHome
             lists={lists}
             ratedCount={regularRatingsCount}
-            ratedTopScores={ratings
-              .filter((r) => r.cuisine !== 'Hotel Breakfast')
+            ratedTopScores={[...ratings]
               .map((r) => r.score)
               .sort((a, b) => b - a)
               .slice(0, 3)}
@@ -7701,7 +6897,7 @@ export const Pantry: React.FC = () => {
           ? 'Pick rated places or search for a new one…'
           : 'Search for a restaurant…'}
         ratedRestaurants={searchPopupMode === 'add-to-list'
-          ? ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')
+          ? ratings
           : undefined}
         excludeIds={searchPopupMode === 'add-to-list' && currentList
           ? new Set([

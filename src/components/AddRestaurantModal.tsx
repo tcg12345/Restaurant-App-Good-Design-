@@ -296,7 +296,7 @@ export const AddRestaurantModal: React.FC = () => {
     // H2H), force a quick H2H against just the tied ones so the new
     // rating lands in the right spot relative to them.
     if (ratingMethod === 'slider' && h2hScore === null) {
-      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id, restaurant.cuisine);
+      const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id);
       if (tieBreakState) {
         setH2hState(tieBreakState);
         setRatingMethod('h2h');
@@ -363,7 +363,7 @@ export const AddRestaurantModal: React.FC = () => {
     { name: 'Best Brunch', emoji: '🥞' }, { name: 'Best Cocktails', emoji: '🍸' },
     { name: 'Michelin Star Experiences', emoji: '⭐' }, { name: 'Best Tasting Menus', emoji: '🍽️' },
     { name: 'Quick Bites', emoji: '⚡' }, { name: 'Healthy Options', emoji: '🥗' },
-    { name: 'Vacation Eats', emoji: '🏖️' }, { name: 'Hotel Restaurants', emoji: '🏨' },
+    { name: 'Vacation Eats', emoji: '🏖️' },
   ];
   const existingListNames = new Set(lists.map((l) => l.name.toLowerCase()));
   const filteredPresetLists = newListSearch.trim()

@@ -1325,65 +1325,6 @@ export async function removeExpertRecommendation(userId: string, restaurantId: s
   } catch (err) { console.error('[Expert] removeRecommendation exception:', err); return false; }
 }
 
-/* ─── Hotel Dining ─── */
-
-export type DiningType = 'breakfast' | 'restaurant' | 'bar' | 'room_service' | 'pool_bar' | 'rooftop';
-
-export interface HotelDining {
-  id: string;
-  hotel_place_id: string;
-  hotel_name: string;
-  hotel_address: string;
-  restaurant_place_id: string;
-  restaurant_name: string;
-  dining_type: DiningType;
-  added_by: string;
-  created_at: string;
-}
-
-/** Get all dining options for a hotel. */
-export async function getHotelDining(hotelPlaceId: string): Promise<HotelDining[]> {
-  if (!supabaseConfigured || !hotelPlaceId) return [];
-  try {
-    const { data, error } = await supabase.from('hotel_dining')
-      .select('*').eq('hotel_place_id', hotelPlaceId).order('created_at', { ascending: false });
-    if (error) { console.error('[HotelDining] getHotelDining error:', error); return []; }
-    return (data || []) as HotelDining[];
-  } catch (err) { console.error('[HotelDining] getHotelDining exception:', err); return []; }
-}
-
-/** Add a dining option to a hotel. */
-export async function addHotelDining(
-  userId: string,
-  data: { hotelPlaceId: string; hotelName: string; hotelAddress: string; restaurantPlaceId: string; restaurantName: string; diningType: DiningType }
-): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
-  try {
-    const { error } = await supabase.from('hotel_dining').upsert({
-      hotel_place_id: data.hotelPlaceId,
-      hotel_name: data.hotelName,
-      hotel_address: data.hotelAddress,
-      restaurant_place_id: data.restaurantPlaceId,
-      restaurant_name: data.restaurantName,
-      dining_type: data.diningType,
-      added_by: userId,
-    }, { onConflict: 'hotel_place_id,restaurant_place_id' });
-    if (error) { console.error('[HotelDining] addHotelDining error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[HotelDining] addHotelDining exception:', err); return false; }
-}
-
-/** Remove a dining option from a hotel. */
-export async function removeHotelDining(userId: string, hotelPlaceId: string, restaurantPlaceId: string): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
-  try {
-    const { error } = await supabase.from('hotel_dining')
-      .delete().eq('added_by', userId).eq('hotel_place_id', hotelPlaceId).eq('restaurant_place_id', restaurantPlaceId);
-    if (error) { console.error('[HotelDining] removeHotelDining error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[HotelDining] removeHotelDining exception:', err); return false; }
-}
-
 /* ═══════════════════════════════════════════════
    VISIT HISTORY
    ═══════════════════════════════════════════════ */

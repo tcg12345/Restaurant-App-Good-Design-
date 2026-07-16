@@ -273,18 +273,6 @@ describe('scoping: tiers and categories', () => {
     expect(fineIds.length).toBeGreaterThan(0);
   });
 
-  it('hotels and restaurants settle independently', () => {
-    const all = [
-      mk('r1', 9.0), mk('r2', 9.0),
-      mk('h1', 9.0, { cuisine: 'Hotel Breakfast' }),
-      mk('h2', 9.0, { cuisine: 'Hotel Breakfast' }),
-    ];
-    const changes = settleScores(all, { justRatedId: 'r2' });
-    expect(changes.every((c) => c.restaurantId.startsWith('r'))).toBe(true);
-    const hotelChanges = settleScores(all, { justRatedId: 'h2' });
-    expect(hotelChanges.every((c) => c.restaurantId.startsWith('h'))).toBe(true);
-  });
-
   it('note-only style calls with no justRatedId and no allTiers are no-ops', () => {
     const all = [mk('a', 9.0), mk('b', 9.0)];
     expect(settleScores(all, {})).toEqual([]);

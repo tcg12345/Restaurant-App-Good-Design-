@@ -134,7 +134,7 @@ export function mergeLists(local: CustomList[], cloud: CustomList[]): CustomList
 }
 
 export function mergeTrips(local: Trip[], cloud: Trip[]): Trip[] {
-  // Trips are edited as a unit (a trip's restaurants/hotels move together), so
+  // Trips are edited as a unit (a trip's restaurants move together), so
   // newer-wins on the whole entry is correct; no sub-array union needed.
   return mergeById(
     local as unknown as Record<string, unknown>[],

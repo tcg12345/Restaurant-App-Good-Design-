@@ -28,7 +28,7 @@ function wish(id: string, over: Partial<WishlistItem> = {}): WishlistItem {
 function trip(id: string, over: Partial<Trip> = {}): Trip {
   return {
     id, name: id, destination: '', destinationLat: 0, destinationLng: 0, startDate: '', endDate: '',
-    hotels: [], restaurants: [], status: 'planning', createdAt: 1000, ...over,
+    restaurants: [], status: 'planning', createdAt: 1000, ...over,
   };
 }
 function meal(id: string, over: Partial<HomeMeal> = {}): HomeMeal {

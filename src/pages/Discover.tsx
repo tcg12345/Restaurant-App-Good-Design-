@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
+import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -21,7 +21,7 @@ import { GuideCard } from '../components/GuideCard';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
   buildCandidateQueries,
@@ -231,12 +231,10 @@ const tabDataCache: {
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
   discoverLoaded: boolean;
-  hotelPlaces: PlaceResult[];
-  hotelsLoaded: boolean;
   friendRecipes: FriendHomeMeal[];
   recipeAuthorProfiles: Record<string, UserProfile>;
   friendRecipesLoaded: boolean;
-} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, hotelPlaces: [], hotelsLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
+} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
 
 // Module-level cache of Mapbox Directions API results. Keyed by rounded
 // origin → destination so the same anchor + restaurant pair only ever
@@ -708,11 +706,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const isFocusOnlyRef = useRef(isFocusOnly);
   isFocusOnlyRef.current = isFocusOnly;
 
-  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes'>(() => {
+  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'recipes'>(() => {
     const saved = sessionStorage.getItem('map-mode');
-    return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'hotels' || saved === 'recipes') ? saved : 'discover';
+    return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'recipes') ? saved : 'discover';
   });
-  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes') => {
+  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'recipes') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
     // An explicit tab switch ends any AI-chat map takeover.
@@ -730,13 +728,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setRatingPrice(null);
     setRatingCities([]);
   };
-  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>(() => tabDataCache.hotelPlaces);
-  const [hotelsLoading, setHotelsLoading] = useState(false);
   // Recipes mode: friends' public home meals + the meal we're viewing in modal.
   const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>(() => tabDataCache.friendRecipes);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>(() => tabDataCache.recipeAuthorProfiles);
-  const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
@@ -821,11 +816,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // Shared hours filter (breakfast/lunch/dinner + open now), used by every map mode.
   const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
-
-  // Filter state — hotels
-  const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
-  const [hotelPriceFilter, setHotelPriceFilter] = useState(0);
-  const [hotelSortBy, setHotelSortBy] = useState<'popularity' | 'rating' | 'price_low'>('popularity');
 
   const [showSearchHere, setShowSearchHere] = useState(false);
   // Dismissible first-time hint that explains the map-mode tabs. State-only —
@@ -2362,7 +2352,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         }
       }
       if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
-      if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
+      if (mapModeRef.current !== 'discover') return;
       if (fetchTimeoutRef.current) { clearTimeout(fetchTimeoutRef.current); fetchTimeoutRef.current = null; }
       setShowSearchHere(true);
     });
@@ -2418,9 +2408,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update marker styles when selection changes. We have three different
-  // marker pools (discover places by id, ratings markers in a flat array,
-  // hotels), and each has its own visual language; the discover marker
+  // Update marker styles when selection changes. We have two different
+  // marker pools (discover places by id, ratings markers in a flat
+  // array), and each has its own visual language; the discover marker
   // swaps to a filled primary pin while the ratings markers keep their
   // score-coloured ring but get an extra primary glow + slight scale so
   // the picked one is obviously the active one. The map's z-index is
@@ -2582,72 +2572,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
   }, []);
 
-  // Create a hotel marker element (distinct Building2 icon, teal color)
-  const createHotelMarkerElement = useCallback((place: PlaceResult) => {
-    const el = document.createElement('div');
-    el.className = 'mapbox-custom-marker';
-    // place.id is set via dataset below — never interpolate ids into markup.
-    el.innerHTML = `
-      <div class="marker-pin" style="
-        padding: 10px;
-        border-radius: 50%;
-        background: #0d9488;
-        box-shadow: 0 4px 20px rgba(13,148,136,0.3);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transform: scale(0.4);
-        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
-      ">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
-          <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
-          <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>
-          <path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
-        </svg>
-      </div>
-    `;
-    const pinEl = el.querySelector('.marker-pin') as HTMLElement | null;
-    if (pinEl) pinEl.dataset.id = place.id;
-    el.addEventListener('mouseenter', () => {
-      const pin = el.querySelector('.marker-pin') as HTMLElement;
-      if (pin) pin.style.transform = 'scale(1.15)';
-    });
-    el.addEventListener('mouseleave', () => {
-      const pin = el.querySelector('.marker-pin') as HTMLElement;
-      if (pin) pin.style.transform = 'scale(1)';
-    });
-    return el;
-  }, []);
-
-  // Show popup for a hotel
-  const showHotelPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
-    if (popupRef.current) popupRef.current.remove();
-    popupRef.current = null;
-    setSelectedPlace(place);
-    setSheetState('peek');
-  }, []);
-
-  // Fetch hotels near current map center
-  const fetchHotels = useCallback(async () => {
-    const map = mapRef.current;
-    if (!map) return;
-    setHotelsLoading(true);
-    try {
-      const center = map.getCenter();
-      const results = await searchHotels('hotels', center.lat, center.lng);
-      setHotelPlaces(results);
-      tabDataCache.hotelPlaces = results;
-      tabDataCache.hotelsLoaded = true;
-    } catch (err) {
-      console.error('Hotel search failed:', err);
-    } finally {
-      setHotelsLoading(false);
-    }
-  }, []);
-
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
       return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
@@ -2661,11 +2585,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (mapMode === 'experts') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
-    if (mapMode === 'hotels') {
-      return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
-    }
     return 0;
-  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy, selectedMichelin, hoursFilter]);
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, selectedMichelin, hoursFilter]);
 
   // Helper: filter and sort a CommunityRating array by the active rating-mode filters
   const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
@@ -2818,25 +2739,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, [hoursWarmActive, mapMode, myRatings, wishlistRatings, friendRatings, expertRatings]);
   useWarmHoursForFilter(hoursWarmIds, hoursWarmActive);
 
-  const filteredHotelPlaces = useMemo(() => {
-    let filtered = hotelPlaces;
-    if (hotelStarFilter > 0) {
-      const minRating = hotelStarFilter === 3 ? 3.5 : hotelStarFilter === 4 ? 4.0 : 4.5;
-      filtered = filtered.filter((p) => p.rating >= minRating);
-    }
-    if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
-    if (isHoursFilterActive(hoursFilter)) {
-      filtered = filtered.filter((p) => passesHoursFilter(p.hours ?? restaurantMeta[p.id]?.hours, hoursFilter, restaurantLocalNow(p.lng || restaurantMeta[p.id]?.lng)));
-    }
-    const sorted = [...filtered];
-    switch (hotelSortBy) {
-      case 'rating': sorted.sort((a, b) => b.rating - a.rating); break;
-      case 'price_low': sorted.sort((a, b) => a.priceLevel - b.priceLevel); break;
-      case 'popularity': default: sorted.sort((a, b) => b.userRatingCount - a.userRatingCount); break;
-    }
-    return sorted;
-  }, [hotelPlaces, hotelStarFilter, hotelPriceFilter, hotelSortBy, hoursFilter, restaurantMeta]);
-
   // Extract unique cuisines and cities from ratings for filter pills
   const uniqueMyRatingCuisines = useMemo(() => [...new Set(myRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [myRatings]);
   const uniqueFriendCuisines = useMemo(() => [...new Set(friendRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [friendRatings]);
@@ -2958,14 +2860,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     })();
   }, [mapMode, expertRatings, friendRatings]);
 
-  // Fetch hotels when entering hotels mode — but only the first time in
-  // this session. Returning to the tab after navigating away reuses the
-  // cached results and skips the API call entirely.
-  useEffect(() => {
-    if (isFocusOnly) return; // focus-only view never pulls extra markers
-    if (mapMode === 'hotels' && !tabDataCache.hotelsLoaded) fetchHotels();
-  }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Fetch friends' public home meals — eagerly, not gated by the map's
   // recipes tab, because the home page "Recipes for you" rail also pulls
   // from this pool (home-cooked entries posted via the meal logger are a
@@ -3012,55 +2906,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Add/remove hotel markers
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    // Clear previous hotel markers
-    hotelMarkersRef.current.forEach((m) => m.remove());
-    hotelMarkersRef.current = [];
-
-    if (isFocusOnly) return; // focus-only view only shows the focus marker
-    if (mapMode !== 'hotels' || hotelPlaces.length === 0) return;
-
-    const bounds = new mapboxgl.LngLatBounds();
-    let hasMarkers = false;
-    let animIndex = 0;
-
-    for (const place of hotelPlaces) {
-      const el = createHotelMarkerElement(place);
-
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        setSelectedMarker(place.id);
-        isMarkerSelectedRef.current = true;
-        map.easeTo({ center: [place.lng, place.lat], duration: 500 });
-        showHotelPopup(place, map);
-      });
-
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([place.lng, place.lat])
-        .addTo(map);
-
-      hotelMarkersRef.current.push(marker);
-      bounds.extend([place.lng, place.lat]);
-      hasMarkers = true;
-
-      // Staggered fade-in
-      const delay = Math.min(animIndex * 25, 400);
-      setTimeout(() => {
-        const pin = el.querySelector('.marker-pin') as HTMLElement;
-        if (pin) { pin.style.opacity = '1'; pin.style.transform = 'scale(1)'; }
-      }, delay);
-      animIndex++;
-    }
-
-    if (hasMarkers) {
-      map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-    }
-  }, [mapMode, hotelPlaces, createHotelMarkerElement, showHotelPopup, isFocusOnly]);
-
   // Add/remove custom markers for My Ratings and Friends modes
   const customMarkersRef = useRef<mapboxgl.Marker[]>([]);
   useEffect(() => {
@@ -3078,7 +2923,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     // Focus-only view: the single focus marker was added by the map-init
     // load handler using syncMarkers, so leave it alone and skip all the
-    // ratings/hotels rendering below.
+    // ratings rendering below.
     if (isFocusOnly) return;
 
     // Hide/show discover markers based on mode
@@ -3088,13 +2933,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
       } catch {}
     });
-
-    // Hide hotel markers when not in hotels mode (their own effect manages visibility)
-    if (mapMode !== 'hotels') {
-      hotelMarkersRef.current.forEach((m) => { try { m.getElement().style.display = 'none'; } catch {} });
-    } else {
-      hotelMarkersRef.current.forEach((m) => { try { m.getElement().style.display = ''; } catch {} });
-    }
 
     // Also close any open popups
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
@@ -3106,15 +2944,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // restore the pins (un-hidden above) and the results list disagree
       // until the user manually re-searches the area.
       setPlaces(tabDataCache.discoverPlaces);
-      return;
-    }
-    if (mapMode === 'hotels') {
-      // Hotels never wrote `places`, so the shared pool kept whatever the
-      // previous mode loaded (restaurant rows from another tab or city) and
-      // anything reading it in hotels mode — the AI-chat "visible places"
-      // context, any future card navigation — iterated stale restaurants.
-      // Mirror the on-screen hotel list instead.
-      setPlaces(filteredHotelPlaces);
       return;
     }
     if (mapMode === 'recipes') {
@@ -3208,7 +3037,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (hasMarkers) {
       map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     }
-  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, filteredHotelPlaces, friendProfiles, isWishlisted, isFocusOnly]);
+  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
 
   // ── Desktop map panel: helpers, derived data, and JSX ──
   // The panel replaces the bottom-sheet pop-up on wide viewports. It owns
@@ -3253,7 +3082,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const panelMyRatings = useMemo(() => filteredMyRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredMyRatings, matchesPanelQ]);
   const panelFriendRatings = useMemo(() => filteredFriendRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredFriendRatings, matchesPanelQ]);
   const panelExpertRatings = useMemo(() => filteredExpertRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredExpertRatings, matchesPanelQ]);
-  const panelHotelPlaces = useMemo(() => filteredHotelPlaces.filter((p) => matchesPanelQ(p.name)), [filteredHotelPlaces, matchesPanelQ]);
   const panelDiscoverPlaces = useMemo(() => places.filter((p) => matchesPanelQ(p.name)), [places, matchesPanelQ]);
   const panelRecipes = useMemo(() => friendRecipes.filter((m) => matchesPanelQ(m.name || '')), [friendRecipes, matchesPanelQ]);
 
@@ -3262,7 +3090,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     : mapMode === 'myratings' ? panelMyRatings.length
     : mapMode === 'friends' ? panelFriendRatings.length
     : mapMode === 'experts' ? panelExpertRatings.length
-    : mapMode === 'hotels' ? panelHotelPlaces.length
     : mapMode === 'recipes' ? panelRecipes.length
     : 0;
 
@@ -3418,7 +3245,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';
     if (mapMode === 'friends') return activeFilterCount > 0 || panelTextQ ? 'No friend ratings match these filters.' : 'No friend ratings yet.';
     if (mapMode === 'experts') return activeFilterCount > 0 || panelTextQ ? 'No expert ratings match these filters.' : 'No expert ratings yet.';
-    if (mapMode === 'hotels') return hotelsLoading ? 'Searching hotels…' : (activeFilterCount > 0 || panelTextQ ? 'No hotels match these filters.' : 'No hotels in this area yet.');
     if (mapMode === 'recipes') return friendRecipesLoading ? 'Loading recipes…' : 'No recipes from friends yet.';
     return isSearching ? 'Searching…' : (panelTextQ ? 'No restaurants match your search.' : 'Pan the map and hit "Search this area".');
   })();
@@ -3475,21 +3301,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       cuisine, price, city, lat: p.lat, lng: p.lng,
       score: p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
       extra, restData, michHit,
-    });
-  };
-
-  const renderHotelCard = (p: PlaceResult) => {
-    const city = extractCityState(p.fullAddress || '', p.address || '');
-    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
-    const selected = selectedMarker === p.id;
-    const restData = { id: p.id, name: p.name, image: p.photoUrl || '', cuisine: 'Hotel', price, address: p.fullAddress || p.address, lat: p.lat, lng: p.lng };
-    return renderMapRow({
-      key: p.id, onClick: () => focusPanelPlace(p), selected,
-      image: p.photoUrl || undefined, name: p.name,
-      cuisine: 'Hotel', price, city, lat: p.lat, lng: p.lng,
-      score: p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
-      extra: p.userRatingCount > 0 ? <span>{p.userRatingCount.toLocaleString()} reviews</span> : undefined,
-      restData,
     });
   };
 
@@ -3945,7 +3756,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       ),
                     });
                   })}
-                  {mapMode === 'hotels' && panelHotelPlaces.map((p) => renderHotelCard(p))}
                   {mapMode === 'discover' && panelDiscoverPlaces.map((p) => renderPlaceCard(p))}
                   {mapMode === 'recipes' && panelRecipes.map((m) => renderRecipeCard(m))}
                 </div>
@@ -4084,16 +3894,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
       {/* Search this area button — floating pill, appears instantly on pan-end */}
       <AnimatePresence>
-        {showSearchHere && (mapMode === 'discover' || mapMode === 'hotels') && (
+        {showSearchHere && mapMode === 'discover' && (
           <motion.button
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
+            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
             className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow"
           >
-            <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
+            <Search size={15} className="text-primary" />
             Search this area
           </motion.button>
         )}
@@ -4277,8 +4087,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           setHoursFilter(emptyHoursFilter());
           if (mapMode === 'discover') {
             setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
-          } else if (mapMode === 'hotels') {
-            setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
           } else {
             setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setSelectedMichelin([]);
             if (mapMode === 'friends') setSelectedFriendIds(new Set());
@@ -4447,32 +4255,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </>
         )}
 
-        {/* ─── HOTELS ─── */}
-        {mapMode === 'hotels' && (
-          <>
-            <FilterSection label="Hotel star rating">
-              <Segment tone="teal">
-                {[{ v: 0, l: 'Any' }, { v: 3, l: '3★+' }, { v: 4, l: '4★+' }, { v: 5, l: '5★' }].map(({ v, l }) => (
-                  <SegmentItem key={v} active={hotelStarFilter === v} onClick={() => setHotelStarFilter(v)}>{l}</SegmentItem>
-                ))}
-              </Segment>
-            </FilterSection>
-            <FilterSection label="Price">
-              <Segment tone="teal">
-                {PRICE_LEVELS.map((p) => (
-                  <SegmentItem key={p.value} active={hotelPriceFilter === p.value} onClick={() => setHotelPriceFilter(p.value)}>{p.label}</SegmentItem>
-                ))}
-              </Segment>
-            </FilterSection>
-            <FilterSection label="Sort by">
-              <PillRow>
-                {([['popularity', 'Most Popular'], ['rating', 'Highest Rated'], ['price_low', 'Price: Low to High']] as const).map(([key, label]) => (
-                  <Pill key={key} tone="teal" active={hotelSortBy === key} onClick={() => setHotelSortBy(key as any)}>{label}</Pill>
-                ))}
-              </PillRow>
-            </FilterSection>
-          </>
-        )}
       </FilterSheetShell>
 
       {/* Selected place detail — mobile slide-up sheet that reuses the very
@@ -5286,58 +5068,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               })}
             </div>
           )}
-
-          {/* Hotels tab content */}
-          {mapMode === 'hotels' && (hotelsLoading && hotelPlaces.length === 0 ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="text-teal-600 animate-spin" />
-              <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching hotels...</span>
-            </div>
-          ) : filteredHotelPlaces.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Building2 size={32} className="text-on-surface/20 mb-3" />
-              <p className="text-sm text-on-surface/40 font-medium">{activeFilterCount > 0 ? 'No hotels match your filters' : 'No hotels found'}</p>
-              <p className="text-xs text-on-surface/30 mt-1">{activeFilterCount > 0 ? 'Try adjusting your filters' : 'Try moving the map to a different area'}</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-on-surface/[0.06]">
-              {filteredHotelPlaces.map((place) => {
-                const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
-                return (
-                  <div
-                    key={place.id}
-                    className={cn(
-                      "flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors",
-                      selectedMarker === place.id && "bg-teal-500/5"
-                    )}
-                    onClick={() => focusPanelPlace(place)}
-                  >
-                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-muted self-center relative">
-                      {place.photoUrl ? (
-                        <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center bg-teal-50">
-                          <Building2 size={20} className="text-teal-300" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
-                      <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wider mt-0.5">Hotel</p>
-                      {place.rating > 0 && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <Star size={11} className="fill-teal-600 text-teal-600" />
-                          <span className="text-xs font-bold text-teal-700">{place.rating.toFixed(1)}</span>
-                          <span className="text-[11px] text-on-surface/40 ml-0.5">({place.userRatingCount})</span>
-                        </div>
-                      )}
-                      <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
 
           {/* Recipes tab content — friends' public home meals */}
           {mapMode === 'recipes' && (

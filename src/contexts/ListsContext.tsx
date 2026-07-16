@@ -108,7 +108,7 @@ export interface CustomList {
   id: string;
   name: string;
   emoji: string;
-  type?: 'default' | 'hotel-breakfast' | 'home-cooking'; // special list types
+  type?: 'default' | 'home-cooking'; // special list types
   restaurantIds: string[];   // rated restaurants
   wishlistIds: string[];     // wishlisted restaurants
   listRatings?: Record<string, RestaurantRating>; // per-list rating overrides keyed by restaurantId
@@ -144,19 +144,6 @@ export interface TripRestaurant {
   status: 'planned' | 'completed' | 'skipped';
 }
 
-export interface TripHotel {
-  id: string;
-  name: string;
-  address: string;
-  checkIn: string;
-  checkOut: string;
-  confirmationNumber?: string;
-  starRating?: number;
-  notes?: string;
-  image?: string;
-  placeId?: string;
-}
-
 export interface Trip {
   id: string;
   name: string;
@@ -166,7 +153,6 @@ export interface Trip {
   startDate: string;
   endDate: string;
   coverImage?: string;
-  hotels: TripHotel[];
   restaurants: TripRestaurant[];
   notes?: string;
   status: 'planning' | 'active' | 'completed';
@@ -433,9 +419,6 @@ interface ListsContextValue {
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   updateTripRestaurant: (tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => void;
   removeRestaurantFromTrip: (tripId: string, restaurantId: string, night: number) => void;
-  addHotelToTrip: (tripId: string, hotel: TripHotel) => void;
-  updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
-  removeHotelFromTrip: (tripId: string, hotelId: string) => void;
 
   // Custom ranking order
   customOrder: string[];
@@ -1568,39 +1551,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncTripsToCloud]);
 
-  const addHotelToTrip = useCallback((tripId: string, hotel: TripHotel) => {
-    setTrips((prev) => {
-      const next = prev.map((t) => t.id === tripId ? { ...t, hotels: [...t.hotels, hotel] } : t);
-      saveToStorage(STORAGE_KEY_TRIPS, next);
-      syncTripsToCloud(next);
-      return next;
-    });
-  }, [syncTripsToCloud]);
-
-  const updateHotel = useCallback((tripId: string, hotelId: string, updates: Partial<TripHotel>) => {
-    setTrips((prev) => {
-      const next = prev.map((t) => t.id === tripId ? {
-        ...t,
-        hotels: t.hotels.map((h) => h.id === hotelId ? { ...h, ...updates } : h),
-      } : t);
-      saveToStorage(STORAGE_KEY_TRIPS, next);
-      syncTripsToCloud(next);
-      return next;
-    });
-  }, [syncTripsToCloud]);
-
-  const removeHotelFromTrip = useCallback((tripId: string, hotelId: string) => {
-    setTrips((prev) => {
-      const next = prev.map((t) => t.id === tripId ? {
-        ...t,
-        hotels: t.hotels.filter((h) => h.id !== hotelId),
-      } : t);
-      saveToStorage(STORAGE_KEY_TRIPS, next);
-      syncTripsToCloud(next);
-      return next;
-    });
-  }, [syncTripsToCloud]);
-
   // ── Recipe CRUD ──
   // The CRUD callbacks themselves are declared further down so they can
   // reference syncHomeMealsToCloud — recipes added to any recipe list are
@@ -2673,7 +2623,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRecipeToList, addRecipeToCookedList, removeRecipeFromCookedList, removeRecipeFromList, getListsForRecipe,
       addRecipeToCookbook, removeRecipeFromCookbook,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
-      trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
+      trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
       homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, openHomeMealModal, closeHomeMealModal,

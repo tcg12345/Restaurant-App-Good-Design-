@@ -16,11 +16,10 @@ import { useLists } from '../contexts/ListsContext';
 import { type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
+import { getProfilesByIds, type UserProfile as UP } from '../lib/supabase-community';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
-import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
@@ -92,7 +91,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
-    hotelDiningOptions, refreshHotelDining,
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
@@ -130,9 +128,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
-  const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
-  const [addDiningOpen, setAddDiningOpen] = useState(false);
-  const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
   const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
   // Which circle review is expanded (one open at a time, like the reference).
@@ -145,7 +140,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
   }, [friendsStats.ratings]);
 
   const myRating = place ? getRating(place.id) : undefined;
-  const isHotel = place ? (place.types[0] === 'hotel' || place.types[0] === 'lodging' || myRating?.cuisine === 'Hotel Breakfast') : false;
 
   useEffect(() => {
     if (!myRating?.friendIds?.length) return;
@@ -155,18 +149,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
-
-  useEffect(() => {
-    if (hotelDiningOptions.length === 0) return;
-    (async () => {
-      const ratings: Record<string, number> = {};
-      for (const d of hotelDiningOptions) {
-        const stats = await getCommunityStats(d.restaurant_place_id);
-        if (stats.avgScore > 0) ratings[d.restaurant_place_id] = stats.avgScore;
-      }
-      setDiningRatings(ratings);
-    })();
-  }, [hotelDiningOptions]);
 
   // Open the first circle review by default once friends load.
   useEffect(() => {
@@ -215,8 +197,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const ratingMeta = {
     id: place.id, name: place.name,
     image: place.photoUrl || '',
-    cuisine: isHotel ? 'Hotel Breakfast' : cuisine,
-    price: isHotel ? '' : priceStr,
+    cuisine,
+    price: priceStr,
     address: place.fullAddress || place.address,
   };
 
@@ -349,7 +331,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="absolute left-0 right-0 bottom-0 p-[38px_42px] flex items-end justify-between gap-7">
               <div className="min-w-0">
                 <div className="text-xs font-bold uppercase tracking-[0.2em] text-white/82">
-                  {isHotel ? 'Hotel' : cuisine}{!isHotel && priceStr ? ` · ${priceStr}` : ''}
+                  {cuisine}{priceStr ? ` · ${priceStr}` : ''}
                 </div>
                 <h1 className="mt-3 font-serif font-bold text-white text-[58px] leading-[0.98] tracking-[-0.03em]">
                   {place.name}
@@ -370,7 +352,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="flex items-start justify-between gap-8 pt-1">
               <div className="min-w-0">
                 <div className="text-xs font-bold uppercase tracking-[0.2em] text-on-surface/55">
-                  {isHotel ? 'Hotel' : cuisine}{!isHotel && priceStr ? ` · ${priceStr}` : ''}
+                  {cuisine}{priceStr ? ` · ${priceStr}` : ''}
                 </div>
                 <h1 className="mt-3.5 font-serif font-bold text-on-surface text-[56px] leading-none tracking-[-0.03em]">
                   {place.name}
@@ -441,7 +423,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               : 0;
             const expertCount = expertRecommendations.length;
             const hasCommunity = communityStats.totalRatings > 0;
-            const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+            const hasFriends = friendsStats.totalRatings > 0;
             const hasExperts = expertCount > 0;
             const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
@@ -473,27 +455,23 @@ export const RestaurantDetailDesktop: React.FC = () => {
             return (
               <section>
                 <div className={cn(CARD, 'overflow-hidden')}>
-                  <div className={isHotel ? 'flex' : 'grid grid-cols-3'}>
-                    <Cell label={isHotel ? 'Breakfast' : 'Everyone'}
+                  <div className="grid grid-cols-3">
+                    <Cell label="Everyone"
                       score={hasCommunity ? communityStats.avgScore : null}
                       count={communityStats.totalRatings}
                       countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
                       emptyCopy="Be the first" />
-                    {!isHotel && (
-                      <Cell label="Friends" bordered
-                        score={hasFriends ? friendsStats.avgScore : null}
-                        count={friendsStats.totalRatings}
-                        countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
-                        emptyCopy="No friends yet"
-                        onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined} />
-                    )}
-                    {!isHotel && (
-                      <Cell label="Experts" bordered
-                        score={hasExperts ? expertAvg : null}
-                        count={expertCount}
-                        countLabel={expertCount === 1 ? 'rating' : 'ratings'}
-                        emptyCopy="No verified picks" />
-                    )}
+                    <Cell label="Friends" bordered
+                      score={hasFriends ? friendsStats.avgScore : null}
+                      count={friendsStats.totalRatings}
+                      countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                      emptyCopy="No friends yet"
+                      onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined} />
+                    <Cell label="Experts" bordered
+                      score={hasExperts ? expertAvg : null}
+                      count={expertCount}
+                      countLabel={expertCount === 1 ? 'rating' : 'ratings'}
+                      emptyCopy="No verified picks" />
                   </div>
                   {hasGoogle && (
                     <div className="flex items-center gap-2.5 px-[18px] py-3.5 border-t border-on-surface/[0.06] bg-on-surface/[0.02]">
@@ -509,7 +487,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           })()}
 
           {/* ── Your circle — friend reviews accordion ── */}
-          {!isHotel && (() => {
+          {(() => {
             const ratings = friendsStats.ratings;
             const hasFriends = ratings.length > 0;
             return (
@@ -601,7 +579,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
           {/* ── Flavor profile ── */}
           {(() => {
-            if (isHotel) return null;
             const knownCuisines = ['italian','french','japanese','sushi','chinese','korean','thai','indian','mexican','mediterranean','american','seafood','steakhouse','pizza','cafe','bakery','vegan','bar & grill','breakfast','caribbean'];
             const hasKnown = place.types.some((t) => knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim()));
             if (!hasKnown) return null;
@@ -635,63 +612,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
               <section> when the place has reels, or nothing at all. ── */}
           <RestaurantFeaturedReels restaurantId={place.id} restaurantName={place.name} size="md" />
 
-          {/* ── Hotel dining ── */}
-          {isHotel && (
-            <section>
-              <div className="flex items-baseline justify-between gap-4 mb-4">
-                <h2 className={H2}>Hotel dining</h2>
-                {user?.id && (
-                  <button type="button" onClick={() => setAddDiningOpen(true)} className="text-[13px] font-bold text-primary hover:opacity-70 transition-opacity">+ Add</button>
-                )}
-              </div>
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
-                {([
-                  { value: 'all' as const, label: 'All' },
-                  { value: 'restaurant' as const, label: 'Restaurants' },
-                  { value: 'breakfast' as const, label: 'Breakfast' },
-                  { value: 'bar' as const, label: 'Bars' },
-                  { value: 'room_service' as const, label: 'Room Service' },
-                  { value: 'pool_bar' as const, label: 'Pool Bar' },
-                  { value: 'rooftop' as const, label: 'Rooftop' },
-                ] as const).map((f) => (
-                  <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                    className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0', diningFilter === f.value ? 'bg-primary text-white' : 'bg-transparent text-on-surface/55 hover:text-on-surface')}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              {hotelDiningOptions.length === 0 ? (
-                <div className={cn(CARD, 'py-10 text-center')}>
-                  <Building2 size={24} className="mx-auto text-on-surface/25 mb-2" />
-                  <p className="text-sm text-on-surface/45">No dining options added yet</p>
-                </div>
-              ) : (
-                <ul className={cn(CARD, 'divide-y divide-on-surface/[0.06] overflow-hidden')}>
-                  {hotelDiningOptions.filter((d) => diningFilter === 'all' || d.dining_type === diningFilter).map((d) => {
-                    const score = diningRatings[d.restaurant_place_id];
-                    return (
-                      <li key={d.id}>
-                        <button type="button" onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)} className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-on-surface/[0.015] transition-colors">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-serif font-bold text-base truncate">{d.restaurant_name}</h4>
-                            <p className={cn('mt-0.5 text-[11px] font-bold uppercase tracking-[0.18em]', d.dining_type === 'restaurant' ? 'text-primary/70' : d.dining_type === 'breakfast' ? 'text-amber-600' : d.dining_type === 'bar' ? 'text-violet-600' : d.dining_type === 'rooftop' ? 'text-sky-600' : 'text-on-surface/50')}>
-                              {d.dining_type.replace('_', ' ')}
-                            </p>
-                          </div>
-                          {score != null && (
-                            <div className="flex-shrink-0 w-14 h-9 rounded-md grid place-items-center" style={{ background: scoreColor(score) }}>
-                              <span className="text-sm font-bold text-white tabular-nums">{score.toFixed(1)}</span>
-                            </div>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-          )}
-
           {/* ── My rating ── */}
           {myRating && place && (() => {
             type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -700,8 +620,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             const hasTags = (myRating.tags?.length || 0) > 0;
             const hasMyPhotos = (myRating.photos?.length || 0) > 0;
             const hasDate = !!myRating.visitDate;
-            const hasPrice = !isHotel && !!myRating.price;
-            const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
+            const hasPrice = !!myRating.price;
+            const hasFriends = (myRating.friendIds?.length || 0) > 0;
             const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
 
             const FieldEdit: React.FC<{ onClick: () => void }> = ({ onClick }) => (
@@ -741,7 +661,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                               <span className="text-base font-semibold text-on-surface/40">/ 10</span>
                             </div>
                           </div>
-                          {!isHotel && (
+                          {(
                             <div className="flex-1 px-[22px] py-5 border-l border-on-surface/[0.06] flex flex-col justify-center">
                               <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Price</div>
                               <div className={cn('mt-2 font-bold text-[22px] tracking-[0.05em]', hasPrice ? 'text-on-surface' : 'text-on-surface/35 italic font-serif text-base')}>{hasPrice ? myRating.price : 'Add…'}</div>
@@ -770,7 +690,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                               </div>
                             ) : <button type="button" onClick={() => openAt('photos')} className="text-sm font-serif italic text-on-surface/35 hover:text-on-surface/60 text-left">Add photos…</button>}
                           </Row>
-                          {!isHotel && (
+                          {(
                             <Row label="With" edit={() => openAt('friends')}>
                               {hasFriends ? (
                                 <span className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/[0.08] text-primary/80">{friendNames[fid] || fid.slice(0, 8)}</span>)}</span>
@@ -995,7 +915,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-1.5">Details</div>
             <div className="flex items-center justify-between py-3 border-t border-on-surface/[0.06]">
               <span className="text-[13.5px] font-semibold text-on-surface/55">Cuisine</span>
-              <span className="text-[13.5px] font-bold text-on-surface text-right">{isHotel ? 'Hotel' : cuisine}</span>
+              <span className="text-[13.5px] font-bold text-on-surface text-right">{cuisine}</span>
             </div>
             {priceStr && (
               <div className="flex items-center justify-between py-3 border-t border-on-surface/[0.06]">
@@ -1061,10 +981,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
       {/* Unified share dialog */}
       <ShareDialog open={!!chatShareTarget} payload={chatShareTarget ? { sharedRestaurant: chatShareTarget } : null} onClose={() => setChatShareTarget(null)} />
 
-      {/* Add Hotel Dining Modal */}
-      {place && isHotel && user?.id && (
-        <AddHotelDiningModal open={addDiningOpen} onClose={() => setAddDiningOpen(false)} hotelPlaceId={place.id} hotelName={place.name} hotelAddress={place.address} userId={user.id} onSaved={refreshHotelDining} />
-      )}
     </div>
   );
 };

@@ -664,41 +664,6 @@ export async function searchPlacesByTextPaged(
   }
 }
 
-export async function searchHotels(
-  query: string,
-  lat: number,
-  lng: number,
-): Promise<PlaceResult[]> {
-  const body: Record<string, unknown> = {
-    textQuery: query || 'hotels',
-    includedType: 'hotel',
-    maxResultCount: 20,
-    locationBias: {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: 50000,
-      },
-    },
-  };
-
-  const res = await fetch(`${BASE_URL}/places:searchText`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-      'X-Goog-FieldMask': FIELDS,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    console.error('[Places] hotelSearch error:', data);
-    return [];
-  }
-  return mapPlaces(data.places || []);
-}
-
 // NOTE: `photos` is intentionally omitted — the Places Photos media
 // endpoint is separately billed and every rendered image is its own call.
 // The detail page now surfaces user-uploaded photos only; if none exist it

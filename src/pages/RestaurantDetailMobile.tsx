@@ -18,13 +18,12 @@ import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
-import { getProfilesByIds, getCommunityStats, getLikesForRatings, toggleLike, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, getLikesForRatings, toggleLike, type UserProfile as UP } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { Link } from 'react-router-dom';
-import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -88,7 +87,6 @@ export const RestaurantDetailMobile: React.FC = () => {
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
-    hotelDiningOptions, refreshHotelDining,
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
@@ -193,9 +191,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   // multi-select / auto-create-chat logic.
   const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
   const [chatSent, setChatSent] = useState(false);
-  const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
-  const [addDiningOpen, setAddDiningOpen] = useState(false);
-  const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
   const [expandedFriendId, setExpandedFriendId] = useState<string | null>(null);
   // Profile lookup for the inline friend reviews under "Your Circle"
@@ -234,8 +229,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   };
 
   const myRating = place ? getRating(place.id) : undefined;
-  // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
-  const isHotel = place ? (place.types[0] === 'hotel' || place.types[0] === 'lodging' || myRating?.cuisine === 'Hotel Breakfast') : false;
 
   // Load friend names for the "Went With" section
   useEffect(() => {
@@ -246,19 +239,6 @@ export const RestaurantDetailMobile: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
-
-  // Load community ratings for hotel dining options
-  useEffect(() => {
-    if (hotelDiningOptions.length === 0) return;
-    (async () => {
-      const ratings: Record<string, number> = {};
-      for (const d of hotelDiningOptions) {
-        const stats = await getCommunityStats(d.restaurant_place_id);
-        if (stats.avgScore > 0) ratings[d.restaurant_place_id] = stats.avgScore;
-      }
-      setDiningRatings(ratings);
-    })();
-  }, [hotelDiningOptions]);
 
   if (loading) {
     return (
@@ -298,10 +278,9 @@ export const RestaurantDetailMobile: React.FC = () => {
   });
 
   const wishMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
-  // Meta for the add/edit-rating modal — mirrors the My Rating section,
-  // forcing the Hotel-Breakfast cuisine for hotels. Used by the title
-  // re-rate / "rated" controls.
-  const ratingMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.fullAddress || place.address };
+  // Meta for the add/edit-rating modal — mirrors the My Rating section.
+  // Used by the title re-rate / "rated" controls.
+  const ratingMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
 
   // Full-bleed hairline divider (breaks out of the 18px page gutter).
   // Reused by reference; React lets us share one element instance.
@@ -507,8 +486,8 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section>
               <p className="uppercase mb-2 text-on-surface/50" style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.12em' }}>
-                {isHotel ? 'Hotel' : cuisine}
-                {!isHotel && priceStr && <>{'  ·  '}{priceStr}</>}
+                {cuisine}
+                {priceStr && <>{'  ·  '}{priceStr}</>}
               </p>
               <div className="flex items-center justify-between gap-3">
                 <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '31px', fontWeight: 600, lineHeight: 1.02, letterSpacing: '-0.01em' }}>
@@ -665,7 +644,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             : 0;
           const expertCount = expertRecommendations.length;
           const hasCommunity = communityStats.totalRatings > 0;
-          const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+          const hasFriends = friendsStats.totalRatings > 0;
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
@@ -710,13 +689,13 @@ export const RestaurantDetailMobile: React.FC = () => {
               <p className="uppercase text-on-surface/40 mb-[18px]" style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.14em' }}>Ratings</p>
               <div className="flex">
                 <Col
-                  label={isHotel ? 'Breakfast' : 'Everyone'}
+                  label="Everyone"
                   score={hasCommunity ? communityStats.avgScore : null}
                   count={communityStats.totalRatings}
                   countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
                   emptyCopy="Be the first"
                 />
-                {!isHotel && (
+                {(
                   <Col
                     label="Friends"
                     score={hasFriends ? friendsStats.avgScore : null}
@@ -726,7 +705,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined}
                   />
                 )}
-                {!isHotel && (
+                {(
                   <Col
                     label="Experts"
                     score={hasExperts ? expertAvg : null}
@@ -753,7 +732,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             quote with an accent rule, optional dish photos, and a
             like/reply/full-review action row), then the rest as compact
             expandable rows. ── */}
-        {!isHotel && (() => {
+        {(() => {
           const ratings = friendsStats.ratings;
           const hasFriends = ratings.length > 0;
           const featured = ratings[0];
@@ -927,77 +906,6 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── Hotel Dining — restaurants/bars/room service inside the hotel. ── */}
-        {isHotel && (
-          <>
-            {sep}
-            <section>
-              <div className="flex items-end justify-between mb-4">
-                <p className="section-eyebrow">Hotel Dining</p>
-                {user?.id && (
-                  <button onClick={() => setAddDiningOpen(true)} className="inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity flex-shrink-0" style={{ fontSize: '13px', fontWeight: 600 }}>
-                    <Plus size={13} /> Add
-                  </button>
-                )}
-              </div>
-
-              <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3 -mx-1 px-1">
-                {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
-                  <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                    className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0',
-                      diningFilter === f.value ? 'bg-primary text-white' : 'bg-cream-2 text-on-surface/55 hover:text-on-surface/75'
-                    )}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-
-              {hotelDiningOptions.length === 0 ? (
-                <div className="rounded-2xl bg-paper border border-line py-8 text-center">
-                  <Building2 size={22} className="mx-auto text-on-surface/20 mb-2" />
-                  <p className="text-[13px] text-on-surface/45">No dining options added yet</p>
-                </div>
-              ) : (
-                <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
-                  {hotelDiningOptions
-                    .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
-                    .map((d) => {
-                      const score = diningRatings[d.restaurant_place_id];
-                      return (
-                        <li key={d.id}>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
-                            className="w-full flex items-start justify-between gap-3 px-4 py-3.5 text-left active:bg-on-surface/[0.015] transition-colors"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <h4 className="font-serif font-bold text-[15px] truncate">{d.restaurant_name}</h4>
-                              <p className={cn(
-                                'mt-0.5 text-[10px] font-bold uppercase tracking-[0.18em]',
-                                d.dining_type === 'restaurant' ? 'text-primary/70' :
-                                  d.dining_type === 'breakfast' ? 'text-amber-600' :
-                                    d.dining_type === 'bar' ? 'text-violet-600' :
-                                      d.dining_type === 'rooftop' ? 'text-sky-600' :
-                                        'text-on-surface/50'
-                              )}>
-                                {d.dining_type.replace('_', ' ')}
-                              </p>
-                            </div>
-                            {score != null && (
-                              <div className={cn('flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center', chipBg(score))}>
-                                <span className="text-[13px] font-bold text-white tabular-nums">{score.toFixed(1)}</span>
-                              </div>
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-
         {/* ── More from {name} — reels / posts featuring this restaurant. ── */}
         <RestaurantFeaturedReels
           restaurantId={place.id}
@@ -1010,14 +918,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             expanded body opens with a Score / Price / Visited tri-panel,
             then editable Notes / Tags / Photos / companions. ── */}
         {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.fullAddress || place.address };
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
           type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
           const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const hasNotes = !!myRating.notes;
           const hasTags = (myRating.tags?.length || 0) > 0;
           const hasPhotos = (myRating.photos?.length || 0) > 0;
           const hasDate = !!myRating.visitDate;
-          const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
+          const hasFriends = (myRating.friendIds?.length || 0) > 0;
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
           const eyebrowStyle = { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em' } as const;
           return (
@@ -1059,7 +967,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                               <span className="text-ink-4" style={{ fontSize: '13px' }}> / 10</span>
                             </div>
                           </button>
-                          {!isHotel && (
+                          {(
                             <>
                               <div className="w-px bg-line" />
                               <button onClick={() => openAt('price')} className="flex-1 p-4 text-left active:opacity-70 transition-opacity">
@@ -1120,8 +1028,8 @@ export const RestaurantDetailMobile: React.FC = () => {
                             )}
                           </div>
 
-                          {/* Companions (skip for hotels) */}
-                          {!isHotel && (
+                          {/* Companions */}
+                          {(
                             <div>
                               <button onClick={() => openAt('friends')} className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity" style={eyebrowStyle}>
                                 <Users size={13} /><span>With</span><Edit3 size={11} className="text-ink-3 ml-0.5" />
@@ -1306,7 +1214,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
         {/* ── Flavor Profile — collapsible radar + ranked list. ── */}
         {(() => {
-          if (isHotel || !place) return null;
+          if (!place) return null;
           const knownCuisines = [
             'italian', 'french', 'japanese', 'sushi', 'chinese', 'korean', 'thai', 'indian',
             'mexican', 'mediterranean', 'american', 'seafood', 'steakhouse', 'pizza', 'cafe',
@@ -1510,18 +1418,6 @@ export const RestaurantDetailMobile: React.FC = () => {
         onClose={() => setChatShareTarget(null)}
       />
 
-      {/* Add Hotel Dining Modal */}
-      {place && isHotel && user?.id && (
-        <AddHotelDiningModal
-          open={addDiningOpen}
-          onClose={() => setAddDiningOpen(false)}
-          hotelPlaceId={place.id}
-          hotelName={place.name}
-          hotelAddress={place.address}
-          userId={user.id}
-          onSaved={refreshHotelDining}
-        />
-      )}
     </div>
   );
 };
