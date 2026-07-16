@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
 import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
-import mapboxgl from 'mapbox-gl';
+import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -159,9 +159,6 @@ const MAP_STYLES = [
   { id: 'satellite', label: 'Satellite', style: 'mapbox://styles/mapbox/satellite-streets-v12' },
   { id: 'streets', label: 'Streets', style: 'mapbox://styles/mapbox/streets-v12' },
 ] as const;
-
-const FILTERS: { icon: any; label: string; active: boolean }[] = [
-];
 
 type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
 
@@ -1903,8 +1900,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const newIds = new Set(newPlaces.map((p) => p.id));
     const oldIds = new Set(Object.keys(markersRef.current));
 
-    // Fade out and remove markers that are no longer in the set
-    Object.entries(markersRef.current).forEach(([id, m]) => {
+    // Fade out and remove markers that are no longer in the set. (Cast: with
+    // no @types/react-style proper typing for the JS-inferred mapboxgl default
+    // export, `mapboxgl.Marker` in type position resolves to unknown; the
+    // named MapboxMarker type from the mapbox-gl .d.ts is correct.)
+    (Object.entries(markersRef.current) as [string, MapboxMarker][]).forEach(([id, m]) => {
       if (!newIds.has(id)) {
         const pin = m.getElement().querySelector('.marker-pin') as HTMLElement;
         if (pin) {
@@ -2410,7 +2410,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // bumped too so the selected pin draws above its neighbours.
   useEffect(() => {
     // Discover-mode pin markers (id-keyed map)
-    Object.entries(markersRef.current).forEach(([id, marker]) => {
+    (Object.entries(markersRef.current) as [string, MapboxMarker][]).forEach(([id, marker]) => {
       const el = marker.getElement();
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
@@ -3065,7 +3065,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (isFocusOnly) return;
 
     // Hide/show discover markers based on mode
-    Object.values(markersRef.current).forEach((marker) => {
+    (Object.values(markersRef.current) as MapboxMarker[]).forEach((marker) => {
       try {
         const el = marker.getElement();
         if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
@@ -5069,20 +5069,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </span>
                   )}
                 </button>
-                {FILTERS.map((filter) => (
-                  <button
-                    key={filter.label}
-                    className={cn(
-                      "flex items-center gap-2 px-5 py-3 rounded-full border-2 border-on-surface/10 whitespace-nowrap flex-shrink-0 transition-colors hover:bg-muted",
-                      filter.active && "bg-primary/10 border-primary/30 text-primary"
-                    )}
-                  >
-                    <filter.icon size={16} className={filter.active ? "text-primary" : "text-on-surface/50"} />
-                    <span className="text-xs font-bold uppercase tracking-wider">{filter.label}</span>
-                    {filter.hasDropdown && <ChevronDown size={14} className="text-on-surface/40" />}
-                  </button>
-                ))}
-
                 {/* Map mode toggle buttons — active state is a filled pill so
                     the selected tab is obvious against the map background. The
                     first is a dropdown: pick My Ratings, any restaurant list,

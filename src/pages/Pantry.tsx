@@ -1577,6 +1577,7 @@ const AddHotelBreakfastModal: React.FC<{
       photos,
       listIds: [listId],
       friendIds: [],
+      createdAt: Date.now(),
     });
     addToList(listId, selectedHotel.id);
     cacheRestaurantMeta({ id: selectedHotel.id, name: selectedHotel.name, image: selectedHotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: selectedHotel.address || '' });
@@ -6810,7 +6811,7 @@ export const Pantry: React.FC = () => {
     if (isHoursFilterActive(hoursFilter)) result = result.filter((r) => passesHoursFilter(restaurantMeta[r.restaurantId]?.hours, hoursFilter, restaurantLocalNow(restaurantMeta[r.restaurantId]?.lng)));
 
     if (sortBy === 'custom') {
-      const orderMap = new Map(customOrder.map((id, i) => [id, i]));
+      const orderMap = new Map<string, number>(customOrder.map((id, i) => [id, i]));
       result.sort((a, b) => {
         const ai = orderMap.get(a.restaurantId) ?? Infinity;
         const bi = orderMap.get(b.restaurantId) ?? Infinity;

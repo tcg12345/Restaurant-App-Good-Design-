@@ -26,6 +26,7 @@
   },
   "exclude": [
     "api",
-    "supabase"
+    "supabase",
+    "promo"
   ]
 }

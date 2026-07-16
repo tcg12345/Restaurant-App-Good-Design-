@@ -1178,7 +1178,7 @@ export const Profile: React.FC = () => {
     const all = [...auto, ...custom];
 
     if (customization.order.length === 0) return all;
-    const orderIdx = new Map(customization.order.map((k, i) => [k, i]));
+    const orderIdx = new Map<string, number>(customization.order.map((k, i) => [k, i]));
     return [...all].sort((a, b) => {
       const ai = orderIdx.get(topListKey(a));
       const bi = orderIdx.get(topListKey(b));

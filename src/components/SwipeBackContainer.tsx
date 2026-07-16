@@ -124,9 +124,15 @@ function clonePageNode(node: HTMLElement): HTMLElement {
   return clone;
 }
 
+type LeaveSnapshotProps = { navKey: number; snapshotable: boolean; getNode: () => HTMLElement | null };
+
 /** Clones the live page into the store *before* React mutates the DOM. */
-class LeaveSnapshot extends React.Component<{ navKey: number; snapshotable: boolean; getNode: () => HTMLElement | null }> {
-  getSnapshotBeforeUpdate(prev: Readonly<{ navKey: number; snapshotable: boolean }>) {
+class LeaveSnapshot extends React.Component<LeaveSnapshotProps, {}, null> {
+  // This repo has no @types/react, so React.Component is inferred from JS and
+  // drops `this.props` on a subclass that defines getSnapshotBeforeUpdate.
+  // Assert the field (no runtime effect) so the lifecycle body type-checks.
+  declare props: LeaveSnapshotProps;
+  getSnapshotBeforeUpdate(prev: Readonly<LeaveSnapshotProps>): null {
     if (prev.navKey !== this.props.navKey && prev.snapshotable) {
       const node = this.props.getNode();
       if (node) {

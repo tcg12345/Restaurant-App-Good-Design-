@@ -22,6 +22,10 @@ export interface CommunityRating {
   lng: number | null;
   photo_url: string;
   created_at: string;
+  /** Last-updated timestamp. Present on the row (getUserRatings /
+   *  getExpertRatings order by it); optional here for older callers that
+   *  build CommunityRating objects without it. */
+  updated_at?: string;
 }
 
 export interface CommunityPhoto {
