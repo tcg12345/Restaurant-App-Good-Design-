@@ -1,5 +1,7 @@
 -- ═══════════════════════════════════════════════════════
--- 015: Create recipes and recipe_reviews tables
+-- Create recipes and recipe_reviews tables
+-- Run this in your Supabase SQL Editor. Safe to run multiple times.
+-- (Renamed from 015_create_recipes_tables.sql — see supabase/README.md.)
 -- ═══════════════════════════════════════════════════════
 
 -- ── Recipes table ──

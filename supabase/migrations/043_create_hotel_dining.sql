@@ -1,15 +1,20 @@
 -- Hotel dining options: maps a hotel to its on-site or nearby dining venues.
 -- Anyone can read, authenticated users can insert/delete their own entries.
--- Run this in your Supabase SQL Editor.
+-- Run this in your Supabase SQL Editor. Safe to run multiple times.
+-- (Renamed from 014_create_hotel_dining.sql — see supabase/README.md.)
 
-CREATE TYPE public.dining_type AS ENUM (
-  'breakfast',
-  'restaurant',
-  'bar',
-  'room_service',
-  'pool_bar',
-  'rooftop'
-);
+-- CREATE TYPE has no IF NOT EXISTS — swallow the duplicate on re-run.
+DO $$ BEGIN
+  CREATE TYPE public.dining_type AS ENUM (
+    'breakfast',
+    'restaurant',
+    'bar',
+    'room_service',
+    'pool_bar',
+    'rooftop'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.hotel_dining (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

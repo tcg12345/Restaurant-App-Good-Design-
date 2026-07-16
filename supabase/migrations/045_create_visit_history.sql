@@ -1,4 +1,6 @@
--- Visit history: stores previous ratings when a user re-rates a restaurant
+-- Visit history: stores previous ratings when a user re-rates a restaurant.
+-- Run this in your Supabase SQL Editor. Safe to run multiple times.
+-- (Renamed from 015_create_visit_history.sql — see supabase/README.md.)
 CREATE TABLE IF NOT EXISTS public.visit_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -15,8 +17,11 @@ CREATE TABLE IF NOT EXISTS public.visit_history (
 
 ALTER TABLE public.visit_history ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own visit history" ON public.visit_history;
 CREATE POLICY "Users can read own visit history" ON public.visit_history FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert own visit history" ON public.visit_history;
 CREATE POLICY "Users can insert own visit history" ON public.visit_history FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own visit history" ON public.visit_history;
 CREATE POLICY "Users can delete own visit history" ON public.visit_history FOR DELETE USING (auth.uid() = user_id);
 
 CREATE INDEX IF NOT EXISTS idx_visit_history_user_restaurant ON public.visit_history(user_id, restaurant_id);
