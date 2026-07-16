@@ -1013,7 +1013,14 @@ export async function addFriend(userId: string, friendId: string): Promise<boole
   return sendFriendRequest(userId, friendId);
 }
 
-/** Remove a friend */
+/**
+ * Unfollow: remove MY outgoing edge to `friendId` (I stop following them).
+ * The graph is directional (see the follow-friend model), so this is
+ * deliberately one-directional — it must NOT touch `friendId→userId` (their
+ * follow of me is their edge; unfollowing someone can't silently strip them
+ * of me as a follower). To revoke a follower's access, use removeFollower.
+ * RLS: permitted by the `user_id` DELETE policy (migration 002).
+ */
 export async function removeFriend(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
@@ -1022,6 +1029,24 @@ export async function removeFriend(userId: string, friendId: string): Promise<bo
     if (error) { console.error('[Friends] removeFriend error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] removeFriend exception:', err); return false; }
+}
+
+/**
+ * Remove a FOLLOWER: delete the `followerId→userId` edge so `followerId` no
+ * longer follows `userId`. This is how a (private) account revokes an approved
+ * follower's access — after this they fail canViewProfile for the private
+ * account and their activity feed drops the ex-followee. Requires the
+ * `friend_id` DELETE policy (migration 040): the row is owned by the follower
+ * as `user_id`, and `userId` is the `friend_id` side.
+ */
+export async function removeFollower(userId: string, followerId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !followerId) return false;
+  try {
+    const { error } = await supabase.from('user_friends')
+      .delete().eq('user_id', followerId).eq('friend_id', userId);
+    if (error) { console.error('[Friends] removeFollower error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] removeFollower exception:', err); return false; }
 }
 
 /** Search users by email (for adding friends) */

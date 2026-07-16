@@ -448,6 +448,7 @@ export const SearchMain: React.FC = () => {
     const ok = await acceptFriendRequest(reqId);
     setPendingFollow((p) => { const n = new Set(p); n.delete(target.user_id); return n; });
     if (ok) setRelationships((prev) => ({ ...prev, [target.user_id]: 'followback' }));
+    else alert("Couldn't accept that request. Try again.");
   }, [userId, incomingReqIds, pendingFollow]);
 
   const handleSelectResult = (place: PlaceResult) => {

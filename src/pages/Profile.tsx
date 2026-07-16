@@ -15,7 +15,7 @@ import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
-import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, removeFollower, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -938,6 +938,23 @@ export const Profile: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [statPopup, user?.id]);
+
+  // Followers I'm currently removing (revoking their follow). Directional
+  // (see removeFollower): deletes their follower→me edge so a private account
+  // can cut off someone it previously approved.
+  const [removingFollower, setRemovingFollower] = useState<Set<string>>(new Set());
+  const handleRemoveFollower = React.useCallback(async (followerId: string) => {
+    if (!user?.id || removingFollower.has(followerId)) return;
+    setRemovingFollower((prev) => new Set(prev).add(followerId));
+    const ok = await removeFollower(user.id, followerId);
+    setRemovingFollower((prev) => { const n = new Set(prev); n.delete(followerId); return n; });
+    if (ok) {
+      setPopupPeople((prev) => (prev ? prev.filter((p) => p.user_id !== followerId) : prev));
+      setFollowers((f) => Math.max(0, f - 1));
+    } else {
+      alert("Couldn't remove that follower. Try again.");
+    }
+  }, [user?.id, removingFollower]);
 
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -2568,11 +2585,11 @@ export const Profile: React.FC = () => {
                 ) : (
                   <ul className="divide-y divide-on-surface/[0.06]">
                     {popupPeople.map((p) => (
-                      <li key={p.user_id}>
+                      <li key={p.user_id} className="flex items-center pr-3 hover:bg-on-surface/[0.03] transition-colors">
                         <Link
                           to={`/user/${p.username || ''}`}
                           onClick={() => setStatPopup(null)}
-                          className="flex items-center gap-3 px-5 py-3 hover:bg-on-surface/[0.03] transition-colors"
+                          className="flex items-center gap-3 px-5 py-3 flex-1 min-w-0"
                         >
                           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                             <span className="text-[13px] font-serif font-bold text-primary">
@@ -2588,8 +2605,19 @@ export const Profile: React.FC = () => {
                             </p>
                             <p className="text-[11px] text-on-surface/45 truncate mt-0.5">@{p.username || 'user'}</p>
                           </div>
-                          <ChevronRight size={14} className="text-on-surface/25 flex-shrink-0" />
                         </Link>
+                        {statPopup === 'followers' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFollower(p.user_id)}
+                            disabled={removingFollower.has(p.user_id)}
+                            className="flex-shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-full border border-on-surface/15 text-on-surface/70 hover:bg-on-surface/[0.06] disabled:opacity-50 transition-colors"
+                          >
+                            {removingFollower.has(p.user_id) ? 'Removing…' : 'Remove'}
+                          </button>
+                        ) : (
+                          <ChevronRight size={14} className="text-on-surface/25 flex-shrink-0" />
+                        )}
                       </li>
                     ))}
                   </ul>
