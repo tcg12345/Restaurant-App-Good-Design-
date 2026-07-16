@@ -56,6 +56,55 @@ async function loadMyMetaReviews(userId: string): Promise<MetaReviewMap> {
   } catch { return {}; }
 }
 
+// Cross-user meta scan. user_app_data is owner-only under RLS (migration
+// 013), so other reviewers' rows are only reachable through the SECURITY
+// DEFINER RPC from migration 037, which extracts just the requested meals'
+// entries from each user's __my_meal_reviews__.
+type MetaReviewRow = { user_id: string; meal_id: string; rating: number; notes: string; updated_at: string };
+
+async function fetchMetaReviews(mealIds: string[], scanUserIds: string[]): Promise<MetaReviewRow[]> {
+  // Non-UUID ids would 400 the whole call (the RPC param is uuid[]).
+  const scanIds = scanUserIds.filter(isUuid);
+  if (mealIds.length === 0 || scanIds.length === 0) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_meal_reviews_meta', {
+      meal_ids: mealIds,
+      scan_user_ids: scanIds,
+    });
+    if (!error && Array.isArray(data)) return data as MetaReviewRow[];
+    console.warn('[HomeMealReviews] meta RPC error, falling back to direct scan:', error?.message);
+  } catch (err) {
+    console.warn('[HomeMealReviews] meta RPC exception, falling back to direct scan:', err);
+  }
+  // Fallback for when migration 037 hasn't been run yet: the direct select
+  // returns at most the caller's own row under RLS — the old behavior.
+  try {
+    const { data, error } = await supabase.from('user_app_data')
+      .select('user_id, restaurant_meta')
+      .in('user_id', scanIds);
+    if (error || !data) return [];
+    const mealIdSet = new Set(mealIds);
+    const rows: MetaReviewRow[] = [];
+    for (const row of data) {
+      const uid = (row as { user_id: string }).user_id;
+      const meta = (row.restaurant_meta ?? {}) as Record<string, unknown>;
+      const map = (meta.__my_meal_reviews__ ?? {}) as MetaReviewMap;
+      if (typeof map !== 'object' || Array.isArray(map)) continue;
+      for (const [mealId, entry] of Object.entries(map)) {
+        if (!mealIdSet.has(mealId) || !entry || typeof entry !== 'object') continue;
+        rows.push({
+          user_id: uid,
+          meal_id: mealId,
+          rating: Number(entry.rating) || 0,
+          notes: entry.notes || '',
+          updated_at: entry.updatedAt || '',
+        });
+      }
+    }
+    return rows;
+  } catch { return []; }
+}
+
 async function saveMyMetaReview(
   userId: string,
   mealId: string,
@@ -170,8 +219,9 @@ export async function deleteHomeMealReview(
 
 /** Fetch every review for a single home meal from the table + meta fallback.
  *  Pass `scanUserIds` to also read `restaurant_meta.__my_meal_reviews__[mealId]`
- *  from those users' `user_app_data` rows — this is how reviews that were
- *  persisted via the ListsContext meta path become visible to the author. */
+ *  from those users' rows (via the migration-037 RPC — see fetchMetaReviews);
+ *  this is how reviews that were persisted via the meta path become visible
+ *  to other users. */
 export async function getHomeMealReviews(
   mealId: string,
   scanUserIds: string[] = [],
@@ -194,33 +244,21 @@ export async function getHomeMealReviews(
     }
   } catch { /* table may not exist */ }
 
-  // 2. Meta fallback — scan the provided users' restaurant_meta.
+  // 2. Meta fallback — the scan users' __my_meal_reviews__ entries for this
+  //    meal, fetched through the migration-037 RPC.
   if (scanUserIds.length > 0) {
-    try {
-      const { data, error } = await supabase.from('user_app_data')
-        .select('user_id, restaurant_meta')
-        .in('user_id', scanUserIds);
-      if (!error && data) {
-        for (const row of data) {
-          const uid = (row as { user_id: string }).user_id;
-          if (byUser.has(uid)) continue; // table entry wins
-          const meta = (row.restaurant_meta ?? {}) as Record<string, unknown>;
-          const map = (meta.__my_meal_reviews__ ?? {}) as Record<string, { rating: number; notes: string; updatedAt: string }>;
-          const entry = map[mealId];
-          if (entry) {
-            byUser.set(uid, {
-              id: `meta-${uid}-${mealId}`,
-              userId: uid,
-              mealId,
-              rating: entry.rating,
-              notes: entry.notes || '',
-              createdAt: entry.updatedAt || '',
-              updatedAt: entry.updatedAt || '',
-            });
-          }
-        }
-      }
-    } catch { /* best-effort */ }
+    for (const row of await fetchMetaReviews([mealId], scanUserIds)) {
+      if (!row.user_id || byUser.has(row.user_id)) continue; // table entry wins
+      byUser.set(row.user_id, {
+        id: `meta-${row.user_id}-${mealId}`,
+        userId: row.user_id,
+        mealId,
+        rating: Number(row.rating) || 0,
+        notes: row.notes || '',
+        createdAt: row.updated_at || '',
+        updatedAt: row.updated_at || '',
+      });
+    }
   }
 
   return Array.from(byUser.values()).sort((a, b) => {
@@ -306,26 +344,16 @@ export async function getReviewSummariesBatch(
     }
   } catch { /* table may not exist */ }
 
-  // 2. Meta fallback — scan provided users' meta for each meal.
+  // 2. Meta fallback — the scan users' __my_meal_reviews__ entries for the
+  //    requested meals, fetched through the migration-037 RPC.
   if (scanUserIds.length > 0) {
-    try {
-      const { data, error } = await supabase.from('user_app_data')
-        .select('user_id, restaurant_meta')
-        .in('user_id', scanUserIds);
-      if (!error && data) {
-        const mealIdSet = new Set(mealIds);
-        for (const row of data) {
-          const uid = (row as { user_id: string }).user_id;
-          const meta = (row.restaurant_meta ?? {}) as Record<string, unknown>;
-          const map = (meta.__my_meal_reviews__ ?? {}) as Record<string, { rating: number }>;
-          for (const [mealId, entry] of Object.entries(map)) {
-            if (!mealIdSet.has(mealId)) continue;
-            if (!perMeal[mealId]) perMeal[mealId] = new Map();
-            if (!perMeal[mealId].has(uid)) perMeal[mealId].set(uid, Number(entry.rating) || 0);
-          }
-        }
+    for (const row of await fetchMetaReviews(mealIds, scanUserIds)) {
+      if (!row.user_id || !row.meal_id) continue;
+      if (!perMeal[row.meal_id]) perMeal[row.meal_id] = new Map();
+      if (!perMeal[row.meal_id].has(row.user_id)) {
+        perMeal[row.meal_id].set(row.user_id, Number(row.rating) || 0);
       }
-    } catch { /* best-effort */ }
+    }
   }
 
   for (const [mealId, ratingMap] of Object.entries(perMeal)) {
