@@ -3108,11 +3108,28 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       setPlaces(tabDataCache.discoverPlaces);
       return;
     }
-    if (ratings.length === 0) return;
+    if (mapMode === 'hotels') {
+      // Hotels never wrote `places`, so the shared pool kept whatever the
+      // previous mode loaded (restaurant rows from another tab or city) and
+      // anything reading it in hotels mode — the AI-chat "visible places"
+      // context, any future card navigation — iterated stale restaurants.
+      // Mirror the on-screen hotel list instead.
+      setPlaces(filteredHotelPlaces);
+      return;
+    }
+    if (mapMode === 'recipes') {
+      // Recipes are meals, not map places — publish an empty pool rather
+      // than leaving the previous mode's rows behind.
+      setPlaces([]);
+      return;
+    }
 
-    // Convert ratings to PlaceResult[] for the card/swipe system
+    // Rating modes (myratings / friends / experts): always publish this
+    // mode's own rows — even an empty set — so an empty tab never leaves
+    // the previous mode's results in the shared pool.
     const ratingPlaces = ratings.map(ratingToPlace).filter(Boolean) as PlaceResult[];
     setPlaces(ratingPlaces);
+    if (ratings.length === 0) return;
 
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
@@ -3191,7 +3208,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (hasMarkers) {
       map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     }
-  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
+  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, filteredHotelPlaces, friendProfiles, isWishlisted, isFocusOnly]);
 
   // ── Desktop map panel: helpers, derived data, and JSX ──
   // The panel replaces the bottom-sheet pop-up on wide viewports. It owns
