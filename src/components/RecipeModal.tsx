@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Search, Clock, Users, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { processPhoto } from '../lib/images';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeStep } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -85,51 +86,26 @@ export const RecipeModal: React.FC = () => {
     }
   }, [recipeModalOpen, existing]);
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = document.createElement('img');
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxSize = 800;
-          let { width, height } = img;
-          if (width > maxSize || height > maxSize) {
-            if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-            else { width = (width / height) * maxSize; height = maxSize; }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.6));
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const file = Array.from(files).find((f) => f.type.startsWith('image/'));
+    const file = (Array.from(files) as File[]).find((f) => f.type.startsWith('image/'));
     if (!file) return;
-    try { setCoverPhoto(await compressImage(file)); } catch { /* skip */ }
+    try { setCoverPhoto(await processPhoto(file)); } catch { /* skip undecodable */ }
     e.target.value = '';
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const totalFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
     if (totalFiles.length === 0) return;
     const newPhotos: PhotoItem[] = [];
     for (const file of totalFiles) {
       try {
-        const compressed = await compressImage(file);
-        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
-      } catch { /* skip */ }
+        const url = await processPhoto(file);
+        newPhotos.push({ url, caption: '', isFavorite: false });
+      } catch { /* skip undecodable */ }
     }
     setPhotos((prev) => {
       const updated = [...prev, ...newPhotos];

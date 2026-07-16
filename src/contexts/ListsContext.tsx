@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
+import { MAX_INLINE_PHOTO_BYTES } from '../lib/images';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -1401,17 +1402,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
-      // Strip large base64 photos before syncing to avoid payload size issues.
-      // NEVER truncate: a sliced data-URL is an undecodable image that would
-      // sync back down on the next boot and permanently replace the user's
-      // intact local photo. Drop it instead (same semantics as stripDataUrls).
-      const stripped = data.map((r) => ({
-        ...r,
-        photos: r.photos.map((p) => ({
-          ...p,
-          url: p.url.length > 100000 && p.url.startsWith('data:') ? '' : p.url,
-        })),
-      }));
+      // Photos now upload to Storage and are stored as short URLs (see
+      // src/lib/images.ts), so oversized inline base64 should be rare. As a
+      // safety net, DROP (skip) any remaining data: URL over the limit —
+      // never slice it (a sliced base64 is an undecodable image that would
+      // sync back down and permanently replace the intact local photo) and
+      // never blank it to '' (that leaves a broken empty PhotoItem). Http(s)
+      // Storage URLs are always kept regardless of length.
+      const stripped = data.map((r) => {
+        const kept = r.photos.filter((p) => !(p.url.startsWith('data:') && p.url.length > MAX_INLINE_PHOTO_BYTES));
+        if (kept.length !== r.photos.length) {
+          console.warn(`[Lists] Dropped ${r.photos.length - kept.length} oversized inline photo(s) for "${r.name}" before cloud sync (upload to Storage instead).`);
+        }
+        return kept.length === r.photos.length ? r : { ...r, photos: kept };
+      });
       saveRatings(userIdRef.current, stripped);
     } else skippedBecauseLoading();
   }, []);

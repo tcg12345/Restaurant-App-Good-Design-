@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { processPhoto, processDataUrl } from '../../lib/images';
 import { useSettings } from '../../contexts/SettingsContext';
 import type { HomeMeal, RecipeIngredient } from '../../contexts/ListsContext';
 import type { IngredientEdit } from '../../lib/build-recipe-client';
@@ -52,38 +53,6 @@ interface RecipeDraftSheetProps {
  *  800px and re-encode as JPEG@0.6. Shared by uploaded cover photos and
  *  AI-generated ones so both are stored at the same modest size — matches
  *  the AddHomeMealModal compression pipeline. */
-function compressDataUrl(src: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = document.createElement('img');
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const maxSize = 800;
-      let { width, height } = img;
-      if (width > maxSize || height > maxSize) {
-        if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-        else { width = (width / height) * maxSize; height = maxSize; }
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { reject(new Error('canvas 2d unavailable')); return; }
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.6));
-    };
-    img.onerror = () => reject(new Error('image decode failed'));
-    img.src = src;
-  });
-}
-
-/** Read a picked File and compress it via `compressDataUrl`. */
-function compressImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(compressDataUrl(reader.result as string));
-    reader.onerror = () => reject(new Error('file read failed'));
-    reader.readAsDataURL(file);
-  });
-}
 
 /** Full read-only preview of an AI-built recipe draft. Footer carries
  *  Publish (commits to homeMeals via createHomeMeal), Edit (opens the
@@ -239,7 +208,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
       const res = await onGenerateImage();
       if (res.ok && res.dataUrl) {
         try {
-          onCoverPhotoChange(await compressDataUrl(res.dataUrl));
+          onCoverPhotoChange(await processDataUrl(res.dataUrl));
         } catch {
           // Compression failed (decode error) — keep the full-size image
           // rather than dropping the user's generated photo.
@@ -278,8 +247,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
     if (!file || !file.type.startsWith('image/')) return;
     setUploadingCover(true);
     try {
-      const compressed = await compressImage(file);
-      onCoverPhotoChange(compressed);
+      onCoverPhotoChange(await processPhoto(file));
     } catch {
       // Compression failed (huge file, decode error). Leave the cover
       // untouched; user can retry. No noisy alert — the placeholder

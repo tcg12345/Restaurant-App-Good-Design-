@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { processPhoto } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type Recipe, type RecipeIngredient, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -107,41 +108,11 @@ export const AddRecipeModal: React.FC = () => {
     }
   }, [addRecipeModalOpen, existing]);
 
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      // Settle on failure too — an undecodable file (corrupt image, raw
-      // HEIC from the Files app) otherwise leaves callers awaiting forever.
-      reader.onerror = () => reject(new Error('read failed'));
-      reader.onload = () => {
-        const img = document.createElement('img');
-        img.onerror = () => reject(new Error('decode failed'));
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxSize = 800;
-          let { width, height } = img;
-          if (width > maxSize || height > maxSize) {
-            if (width > height) { height = (height / width) * maxSize; width = maxSize; }
-            else { width = (width / height) * maxSize; height = maxSize; }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.6));
-        };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
     try {
-      const compressed = await compressImage(file);
-      setCoverPhoto(compressed);
+      setCoverPhoto(await processPhoto(file));
     } catch { /* undecodable file — leave the cover unchanged */ }
     e.target.value = '';
   };
@@ -149,13 +120,13 @@ export const AddRecipeModal: React.FC = () => {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    const imageFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
     const newPhotos: PhotoItem[] = [];
     for (const file of imageFiles) {
       try {
-        const compressed = await compressImage(file);
-        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
-      } catch { /* skip */ }
+        const url = await processPhoto(file);
+        newPhotos.push({ url, caption: '', isFavorite: false });
+      } catch { /* skip undecodable */ }
     }
     setPhotos((prev) => [...prev, ...newPhotos]);
     e.target.value = '';
