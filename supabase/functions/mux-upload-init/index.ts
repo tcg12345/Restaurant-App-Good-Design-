@@ -6,22 +6,73 @@
 // transcoding). The Mux token id/secret live in Edge Function secrets and
 // never reach the client bundle.
 //
-// Deploy:  supabase functions deploy mux-upload-init
+// The client sends `passthrough` = the reel / post-item row id (a UUID it
+// mints up-front; the row is inserted right after this call). We bind the
+// caller's identity into the value actually sent to Mux —
+// "<callerUserId>:<rowId>" — and mux-webhook verifies that the row it is
+// about to patch belongs to that user. Without the binding, any signed-in
+// user could pass someone ELSE's reel id here and have the webhook overwrite
+// the victim's video with their own upload.
+//
+// Deploy:  supabase functions deploy mux-upload-init   (together with
+//          mux-webhook — the passthrough format is shared between them)
 // Secrets: supabase secrets set MUX_TOKEN_ID=... MUX_TOKEN_SECRET=...
 //
 // `verify_jwt = false` (see config.toml) so the CORS preflight isn't 401'd;
 // we verify the caller's Supabase JWT ourselves via requireUser.
 
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
 
 const MUX_TOKEN_ID = Deno.env.get('MUX_TOKEN_ID');
 const MUX_TOKEN_SECRET = Deno.env.get('MUX_TOKEN_SECRET');
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
   });
+}
+
+/**
+ * If a row with this id ALREADY exists (a re-upload), it must belong to the
+ * caller. Normally the row doesn't exist yet — the client inserts it right
+ * after this call — and that's fine: the webhook re-verifies ownership at
+ * write time, so a ticket minted against a not-yet-used id can never patch
+ * somebody else's row. Returns an error Response to send, or null to proceed.
+ */
+async function rejectForeignRow(rowId: string, callerId: string): Promise<Response | null> {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    console.error('[mux-upload-init] missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
+    return json({ error: 'Video uploads are not configured yet.' }, 500);
+  }
+  const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+  const reel = await sb.from('reels').select('user_id').eq('id', rowId).maybeSingle();
+  if (reel.error) {
+    console.error('[mux-upload-init] reels ownership lookup failed', reel.error.message);
+    return json({ error: 'Could not start the upload. Please try again.' }, 500);
+  }
+  if (reel.data && reel.data.user_id !== callerId) return json({ error: 'Not your video.' }, 403);
+
+  const item = await sb.from('post_items').select('post_id').eq('id', rowId).maybeSingle();
+  if (item.error) {
+    console.error('[mux-upload-init] post_items ownership lookup failed', item.error.message);
+    return json({ error: 'Could not start the upload. Please try again.' }, 500);
+  }
+  if (item.data) {
+    const post = await sb.from('posts').select('user_id').eq('id', item.data.post_id).maybeSingle();
+    if (post.error) {
+      console.error('[mux-upload-init] posts ownership lookup failed', post.error.message);
+      return json({ error: 'Could not start the upload. Please try again.' }, 500);
+    }
+    if (!post.data || post.data.user_id !== callerId) return json({ error: 'Not your video.' }, 403);
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -38,11 +89,17 @@ Deno.serve(async (req) => {
   }
 
   let body: { passthrough?: string; corsOrigin?: string } = {};
-  try { body = await req.json(); } catch { /* body is optional */ }
+  try { body = await req.json(); } catch { /* handled by validation below */ }
   // passthrough rides along on the Mux asset and comes back on every webhook,
   // letting us tie the asset to this exact reel row race-free.
-  const passthrough = String(body.passthrough || '').slice(0, 255);
+  const rowId = String(body.passthrough || '').trim();
   const corsOrigin = String(body.corsOrigin || '*').slice(0, 255);
+  if (!UUID_RE.test(rowId)) {
+    return json({ error: 'passthrough must be the video row id (a UUID).' }, 400);
+  }
+
+  const rejected = await rejectForeignRow(rowId, auth.userId);
+  if (rejected) return rejected;
 
   try {
     const basic = btoa(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`);
@@ -54,7 +111,9 @@ Deno.serve(async (req) => {
         new_asset_settings: {
           playback_policy: ['public'], // public ids to start; signed is a future option
           video_quality: 'basic',      // cheapest tier — fine for short vertical reels
-          passthrough,
+          // Owner-bound: the webhook only patches the row if it belongs to
+          // this user, so a ticket can never overwrite someone else's video.
+          passthrough: `${auth.userId}:${rowId}`,
         },
       }),
     });
