@@ -360,7 +360,7 @@ interface ListsContextValue {
   removeFromWishlist: (restaurantId: string) => void;
   /** One-tap heart toggle. Adds the restaurant to the wishlist if it
    *  isn't there yet, removes it if it is. No list-selection UI. */
-  toggleWishlist: (restaurant: RestaurantMeta) => void;
+  toggleWishlist: (restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => void;
   isWishlisted: (restaurantId: string) => boolean;
   getWishlistItem: (restaurantId: string) => WishlistItem | undefined;
 
@@ -2515,7 +2515,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // direction — the setWishlist updater runs during render, AFTER this
   // function returns, so reading from inside it left `removed` always
   // false and the toast always read "Added".
-  const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
+  // `opts.undoable` adds an Undo action to the toast — used when the AI
+  // assistant makes the change, so a prompt-injected toggle is trivially
+  // reversible. `opts.silent` suppresses the toast (used by the Undo action
+  // itself so reversing doesn't spawn another toast).
+  const toggleWishlist = useCallback((restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => {
     cacheRestaurantMeta(restaurant);
     const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
     // Removing tombstones the entry; re-adding clears it.
@@ -2560,11 +2564,22 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return next;
       });
     }
+    if (opts?.silent) return;
     showToast(isOn ? 'Removed from wishlist' : 'Added to wishlist', {
       subtitle: restaurant.name,
       variant: isOn ? 'wishlist-remove' : 'wishlist-add',
+      // Undo re-toggles through the latest closure (fresh wishlist state),
+      // silently so it doesn't chain another toast.
+      ...(opts?.undoable
+        ? { action: { label: 'Undo', onClick: () => toggleWishlistRef.current(restaurant, { silent: true }) } }
+        : {}),
     });
   }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast, tombstone, untombstone]);
+
+  // Ref to the latest toggleWishlist so a toast's Undo action (captured at
+  // show time) always reverses against current state.
+  const toggleWishlistRef = useRef(toggleWishlist);
+  useEffect(() => { toggleWishlistRef.current = toggleWishlist; }, [toggleWishlist]);
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
