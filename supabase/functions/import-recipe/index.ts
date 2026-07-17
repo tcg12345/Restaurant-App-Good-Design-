@@ -23,11 +23,12 @@
 //
 // The Anthropic API key lives as a Supabase secret (`ANTHROPIC_API_KEY`).
 //
-// SELF-CONTAINED ON PURPOSE: the auth guard and the recipe input schema
-// are inlined below (instead of imported from ../_shared) so this file
-// can be pasted as-is into the Supabase Dashboard's function editor,
-// which can't reach files outside the function's own folder. Keep the
-// inlined blocks in sync with _shared/auth.ts and _shared/recipe-spec.ts.
+// SELF-CONTAINED ON PURPOSE: the auth guard, the abuse guards (rate
+// limit + body cap), and the recipe input schema are inlined below
+// (instead of imported from ../_shared) so this file can be pasted as-is
+// into the Supabase Dashboard's function editor, which can't reach files
+// outside the function's own folder. Keep the inlined blocks in sync
+// with _shared/auth.ts, _shared/limits.ts, and _shared/recipe-spec.ts.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -59,6 +60,79 @@ async function requireUser(
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) return { response: unauthorized() };
   return { userId: data.user.id };
+}
+
+/* ── Abuse guards (inlined from _shared/limits.ts) ────────────── */
+
+// Body cap must fit MAX_IMAGES base64 photos plus JSON overhead.
+const MAX_REQUESTS_PER_HOUR = 30;
+const MAX_BODY_BYTES = 22 * 1024 * 1024;
+
+/** Count this request against the caller's hourly quota (migration
+ *  047_ai_rate_limits.sql). 429 once over; null while under. Fails open on
+ *  infrastructure errors — the caller has already passed auth. */
+async function enforceRateLimit(req: Request): Promise<Response | null> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
+    },
+  );
+  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
+    p_endpoint: 'import-recipe',
+    p_max_per_hour: MAX_REQUESTS_PER_HOUR,
+  });
+  if (error) {
+    console.error('[import-recipe] rate-limit check failed (allowing request):', error.message);
+    return null;
+  }
+  if (data === false) {
+    return new Response(
+      JSON.stringify({ error: "You've reached the hourly limit for AI requests. Please try again in a little while." }),
+      { status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
+    );
+  }
+  return null;
+}
+
+/** Read + JSON-parse the body without ever buffering more than
+ *  MAX_BODY_BYTES, so a lying Content-Length can't sneak a huge payload in. */
+async function readJsonBody<T>(req: Request): Promise<{ body: T } | { response: Response }> {
+  const tooLarge = () => ({ response: jsonError(413, 'Request body is too large.') });
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return tooLarge();
+
+  let text = '';
+  if (req.body) {
+    const reader = req.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        try { await reader.cancel(); } catch { /* stream already errored */ }
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+    const buf = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buf.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    text = new TextDecoder().decode(buf);
+  }
+
+  try {
+    return { body: JSON.parse(text) as T };
+  } catch {
+    return { response: jsonError(400, 'Invalid JSON body') };
+  }
 }
 
 /* ── Recipe input schema (inlined from _shared/recipe-spec.ts) ── */
@@ -360,16 +434,15 @@ async function handler(req: Request): Promise<Response> {
   }
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
+  const limited = await enforceRateLimit(req);
+  if (limited) return limited;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
 
-  let body: { url?: string; text?: string; images?: string[] };
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'Invalid JSON body');
-  }
+  const parsed = await readJsonBody<{ url?: string; text?: string; images?: string[] }>(req);
+  if ('response' in parsed) return parsed.response;
+  const body = parsed.body;
 
   // Build the user message for whichever source was provided.
   let content: Array<Record<string, unknown>>;

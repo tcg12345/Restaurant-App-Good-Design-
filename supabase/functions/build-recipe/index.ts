@@ -16,14 +16,13 @@
 //
 // The Anthropic API key lives as a Supabase secret (`ANTHROPIC_API_KEY`)
 // and never reaches the browser bundle.
-//
-// Mirror of api/build-recipe.ts — keep the two in sync.
 
 // Recipe quality bar + tool input schema are shared with the chat's
 // build_recipe tool (location-chat) so both paths author equally
 // calibrated recipes.
 import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -41,6 +40,14 @@ const MODEL = 'claude-opus-4-8';
 // Simple recipes stay cheap (cost scales with tokens actually produced).
 const MAX_TOKENS = 12000;
 const MAX_PROMPT_CHARS = 2000;
+
+// Abuse guards (per signed-in user; see _shared/limits.ts). Every call here
+// is a full Opus generation, so the hourly cap is tighter than the chat's —
+// but still roomy for an interactive create → refine → edit session. The body
+// cap fits the largest legit payload (a full recipe JSON + instruction) many
+// times over.
+const MAX_REQUESTS_PER_HOUR = 40;
+const MAX_BODY_BYTES = 256 * 1024;
 
 const SYSTEM_PROMPT = [
   'You are a meticulous recipe developer. Given a short description, you author ONE complete, REAL, testable recipe and return it by calling the `build_recipe` tool. You do not chat, ask questions, or add commentary — you always call the tool exactly once.',
@@ -136,6 +143,8 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
+    const limited = await enforceRateLimit(req, 'build-recipe', MAX_REQUESTS_PER_HOUR);
+    if (limited) return limited;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -144,7 +153,7 @@ async function handler(req: Request): Promise<Response> {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
 
-  let body: {
+  const parsed = await readJsonBody<{
     prompt?: string;
     difficulty?: string;
     constraints?: {
@@ -156,12 +165,9 @@ async function handler(req: Request): Promise<Response> {
     instruction?: string;
     ingredientEdit?: { action?: string; ingredient?: string; replacement?: string };
     current?: unknown;
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'Invalid JSON body');
-  }
+  }>(req, MAX_BODY_BYTES);
+  if ('response' in parsed) return parsed.response;
+  const body = parsed.body;
 
   // Three modes:
   //  • create          — { prompt, difficulty?, constraints? }

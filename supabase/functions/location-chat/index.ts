@@ -1,30 +1,16 @@
-// LocationPage AI chatbot — Vercel Edge Function.
+// LocationPage AI chatbot — Supabase Edge Function (Deno).
 //
-// Proxies the browser's chat requests to Anthropic's Messages API and
+// Proxies the app's chat requests to Anthropic's Messages API and
 // streams the response back as Server-Sent Events. The Anthropic API
-// key lives here as a Vercel environment variable (`ANTHROPIC_API_KEY`)
-// and never reaches the browser bundle.
-//
-// Deploy: set ANTHROPIC_API_KEY in Vercel Dashboard → Settings → Environment
-// Variables, then push to your linked repo (or run `vercel deploy`).
-//
-// Local dev: `npx vercel dev` runs Vite + this function together at
-// http://localhost:3000 so the frontend's relative POST to
-// /api/location-chat resolves correctly.
-//
-// Request body shape and the streaming-response wire format are
-// identical to the previous Supabase variant — the frontend client
-// is unchanged apart from the URL.
-
-// Vercel Edge runtime: standard Web APIs (fetch / Request / Response /
-// ReadableStream). Edge is the right choice for chat: faster cold
-// starts than Node serverless and native support for streaming bodies.
+// key lives as a Supabase secret (`ANTHROPIC_API_KEY`) and never
+// reaches the browser bundle. Deploy: see ../README.md.
 
 // The chat's build_recipe tool shares its quality bar + input schema with
-// the dedicated "Create with AI" modal generator (api/build-recipe.ts) so
+// the dedicated "Create with AI" modal generator (build-recipe) so
 // recipes authored in chat are just as thorough and precise.
 import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
 import { requireUser } from '../_shared/auth.ts';
+import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +24,14 @@ const MODEL_OPUS = 'claude-opus-4-8';
 const MODEL_OPUS_LEGACY = 'claude-opus-4-7';
 const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
+
+// Abuse guards (per signed-in user; see _shared/limits.ts). One chat turn can
+// be several POSTs (tool round-trips), so this cap is the most generous of the
+// AI functions. The messages cap is far above what the agentic loop produces
+// in normal use — it exists to stop deliberately padded histories.
+const MAX_REQUESTS_PER_HOUR = 120;
+const MAX_BODY_BYTES = 512 * 1024;
+const MAX_MESSAGES = 200;
 
 /** Adaptive model selector for 'auto' mode.
  *
@@ -1045,6 +1039,8 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
+    const limited = await enforceRateLimit(req, 'location-chat', MAX_REQUESTS_PER_HOUR);
+    if (limited) return limited;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -1053,14 +1049,14 @@ async function handler(req: Request): Promise<Response> {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
 
-  let body: ChatRequest;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'Invalid JSON body');
-  }
+  const parsed = await readJsonBody<ChatRequest>(req, MAX_BODY_BYTES);
+  if ('response' in parsed) return parsed.response;
+  const body = parsed.body;
   if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
     return jsonError(400, 'Missing messages[]');
+  }
+  if (body.messages.length > MAX_MESSAGES) {
+    return jsonError(400, 'This conversation is too long to continue — please start a new chat.');
   }
 
   const systemText = buildSystemPrompt(body);

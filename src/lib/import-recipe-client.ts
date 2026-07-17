@@ -1,4 +1,4 @@
-// Client for the /api/import-recipe Edge Function — the "Import" tab of
+// Client for the import-recipe Supabase Edge Function — the "Import" tab of
 // the Add Recipe modal. Sends a recipe source (a web link, pasted text,
 // or photos) and gets back one structured recipe, normalized into a
 // HomeMeal ready for the Advanced builder's Review step.

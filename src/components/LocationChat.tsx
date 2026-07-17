@@ -1200,7 +1200,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [openDraftToolUseId, patchDraftBlock]);
 
   // Refine the open draft with a free-text AI instruction from the
-  // preview sheet. Runs a stateless /api/build-recipe edit call and
+  // preview sheet. Runs a stateless build-recipe edit call and
   // patches the block in place — both the draft (so the sheet + card
   // refresh) and the rawInput (so the chat conversation round-trips
   // the latest version back to the model).

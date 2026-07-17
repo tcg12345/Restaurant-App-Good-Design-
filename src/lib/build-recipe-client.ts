@@ -1,4 +1,4 @@
-// Client for the /api/build-recipe Edge Function. Sends a single
+// Client for the build-recipe Supabase Edge Function. Sends a single
 // free-text prompt (create), an instruction + current recipe (refine),
 // or a single-ingredient remove/substitute request (which the AI may
 // decline) and gets back one fully-formed recipe object, normalized
@@ -162,7 +162,7 @@ export async function readRecipeStream(
   }
 }
 
-/** POST to /api/build-recipe and parse the response (SSE on success,
+/** POST to the build-recipe function and parse the response (SSE on success,
  *  JSON error otherwise). Shared by create + refine + ingredient edit. */
 async function postRecipe(
   payload: Record<string, unknown>,
