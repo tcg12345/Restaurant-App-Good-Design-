@@ -11,6 +11,8 @@
  * or break an upload.
  */
 
+import { captureSourceAudio, mergeCanvasAndAudio, sourceHadAudio, pickVideoMime } from './media-audio';
+
 /* ── Photos ─────────────────────────────────────────────────────────── */
 
 export interface CompressImageOptions {
@@ -63,6 +65,10 @@ export interface CompressVideoOptions {
   bitsPerSecond?: number;
   /** 0..1 progress over the (real-time) re-encode. */
   onProgress?: (fraction: number) => void;
+  /** Called when the source had audio but this engine couldn't capture it, so
+   *  the compressed copy is silent. Lets the caller warn instead of silently
+   *  dropping sound. */
+  onAudioDropped?: () => void;
 }
 
 interface VideoMeta { width: number; height: number; duration: number }
@@ -82,20 +88,6 @@ async function probeVideo(url: string): Promise<VideoMeta | null> {
   });
 }
 
-function pickVideoMime(): string | null {
-  if (typeof MediaRecorder === 'undefined') return null;
-  // Prefer MP4/H.264 (Safari can record it — plays everywhere); fall back to
-  // WebM on Chromium. If none are supported we can't re-encode → skip.
-  const candidates = [
-    'video/mp4;codecs=h264',
-    'video/mp4',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  return candidates.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
-}
-
 /**
  * Downscale + re-encode a video at a lower bitrate. Real-time (it plays the
  * clip through a canvas), so it adds roughly the clip's duration to the upload.
@@ -104,7 +96,7 @@ function pickVideoMime(): string | null {
  * browser can't record. Returns the original on any failure.
  */
 export async function compressVideo(file: File, opts: CompressVideoOptions = {}): Promise<File> {
-  const { maxDim = 1080, bitsPerSecond = 3_800_000, onProgress } = opts;
+  const { maxDim = 1080, bitsPerSecond = 3_800_000, onProgress, onAudioDropped } = opts;
   if (typeof document === 'undefined' || !file.type.startsWith('video/')) return file;
   // The editor already re-encodes (and now downscales) to WebM — don't compress
   // that a second time.
@@ -127,7 +119,7 @@ export async function compressVideo(file: File, opts: CompressVideoOptions = {})
     const w = Math.max(2, Math.round(meta.width * scale) & ~1);  // even dims for codecs
     const h = Math.max(2, Math.round(meta.height * scale) & ~1);
 
-    const blob = await encodeDownscaled(url, w, h, mimeType, bitsPerSecond, meta.duration, onProgress);
+    const blob = await encodeDownscaled(url, w, h, mimeType, bitsPerSecond, meta.duration, onProgress, onAudioDropped);
     if (!blob || blob.size >= file.size) return file; // no gain — keep original
     const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
     const base = file.name.replace(/\.[^.]+$/, '') || 'video';
@@ -148,6 +140,7 @@ async function encodeDownscaled(
   bitsPerSecond: number,
   duration: number,
   onProgress?: (f: number) => void,
+  onAudioDropped?: () => void,
 ): Promise<Blob | null> {
   const v = document.createElement('video');
   v.src = url;
@@ -165,8 +158,12 @@ async function encodeDownscaled(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  const stream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
-  if (!stream) return null;
+  const canvasStream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
+  if (!canvasStream) return null;
+  // Merge the source audio in — a canvas stream is video-only, so without this
+  // the compressed copy would be silent.
+  const audio = captureSourceAudio(v);
+  const { stream, audioAttached } = mergeCanvasAndAudio(canvasStream, audio.tracks);
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitsPerSecond });
   const chunks: BlobPart[] = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -197,7 +194,9 @@ async function encodeDownscaled(
     if (recorder.state !== 'inactive') recorder.stop();
     else resolve();
   });
-  stream.getTracks().forEach((t) => t.stop());
+  canvasStream.getTracks().forEach((t) => t.stop());
+  audio.cleanup();
+  if (!audioAttached && sourceHadAudio(v) === true) onAudioDropped?.();
   onProgress?.(1);
   return new Blob(chunks, { type: mimeType });
 }

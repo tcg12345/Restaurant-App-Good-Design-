@@ -600,7 +600,9 @@ export const AddReelModal: React.FC = () => {
             previewUrl: videoUrl,
             durationSeconds: videoDuration,
             edits: videoEdits,
-          }]);
+          }], undefined, () => showToast('Audio couldn’t be kept', {
+            subtitle: 'This device dropped sound from the edited video',
+          }));
           if (edited['reel-video']) {
             fileToUpload = edited['reel-video'];
             // Re-derive the duration from the trim window so the reel
