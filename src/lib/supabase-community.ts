@@ -393,6 +393,21 @@ export async function getProfile(userId: string): Promise<UserProfile | null> {
   } catch { return null; }
 }
 
+/**
+ * Like getProfile, but it can tell "no profile row exists" (resolves null)
+ * apart from "the fetch failed" (THROWS). Auth boot uses this: a swallowed
+ * network error used to read as "no profile", which routed an existing user
+ * back into ProfileSetup — whose save then wiped their bio and flipped a
+ * private account public.
+ */
+export async function fetchProfile(userId: string): Promise<UserProfile | null> {
+  if (!supabaseConfigured || !userId) return null;
+  const { data, error } = await supabase.from('user_profiles')
+    .select('*').eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as UserProfile | null) ?? null;
+}
+
 export async function getProfileByUsername(username: string): Promise<UserProfile | null> {
   if (!supabaseConfigured || !username.trim()) return null;
   try {

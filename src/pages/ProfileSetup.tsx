@@ -81,7 +81,11 @@ const CityAutocomplete: React.FC<{
 };
 
 export const ProfileSetup: React.FC = () => {
-  const { user, refreshProfile, signOut } = useAuth();
+  // `profile` is the user's EXISTING row (partial profiles land here too, and
+  // App.tsx guarantees the fetch settled before we render). Prefill from it
+  // and only overwrite what the user actually touches — this screen must
+  // never reset a real profile back to defaults.
+  const { user, profile, refreshProfile, signOut } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
 
   // Seed name/username from the identity provider ONCE, synchronously, so the
@@ -105,11 +109,16 @@ export const ProfileSetup: React.FC = () => {
     };
   });
 
-  const [displayName, setDisplayName] = useState(seed.name);
-  const [username, setUsername] = useState(seed.username);
-  const [homeCity, setHomeCity] = useState('');
+  // Existing row first, identity-provider seed second, defaults last.
+  const [displayName, setDisplayName] = useState(profile?.display_name || seed.name);
+  const [username, setUsername] = useState(profile?.username || seed.username);
+  const [homeCity, setHomeCity] = useState(profile?.home_city || '');
   const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(null);
-  const [isPublic, setIsPublic] = useState(true);
+  const [isPublic, setIsPublic] = useState(profile?.is_public ?? true);
+  // Only persist visibility when the user explicitly chose it here (or the
+  // account has no row yet) — otherwise an untouched default would flip an
+  // existing private account public.
+  const [visibilityTouched, setVisibilityTouched] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -120,7 +129,10 @@ export const ProfileSetup: React.FC = () => {
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
 
-  // Shared persistence (geocode the city, write the profile).
+  // Shared persistence (geocode the city, write the profile). Fields the user
+  // never touched go up as `undefined` so saveProfile leaves the existing row
+  // values alone: bio has no input on this screen (passing '' erased it), and
+  // visibility only writes when explicitly chosen or the row doesn't exist.
   const persistProfile = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
     if (!user?.id) return { ok: false };
     const cityTrim = homeCity.trim();
@@ -128,9 +140,10 @@ export const ProfileSetup: React.FC = () => {
     const homeBase = cityTrim
       ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
       : undefined;
-    const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), '', isPublic, homeBase);
+    const isPublicToSave = (visibilityTouched || !profile) ? isPublic : undefined;
+    const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), undefined, isPublicToSave, homeBase);
     return { ok: result.success, error: result.error };
-  }, [user, homeCity, homeGeo, displayName, username, isPublic]);
+  }, [user, profile, homeCity, homeGeo, displayName, username, isPublic, visibilityTouched]);
 
   /* ── Desktop split layout (original single form) ─────────────────────── */
   if (useDesktopLayout) {
@@ -218,7 +231,7 @@ export const ProfileSetup: React.FC = () => {
                 <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
                 <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
               </div>
-              <button type="button" onClick={() => setIsPublic(!isPublic)}
+              <button type="button" onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
                 aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
                 className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
                 <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
@@ -392,8 +405,8 @@ export const ProfileSetup: React.FC = () => {
                   <OB.Subtitle>You're always in control of who sees your activity.</OB.Subtitle>
                 </div>
                 <div className="flex flex-col gap-3" style={{ marginTop: 28 }}>
-                  <OB.RadioCard selected={isPublic} onClick={() => setIsPublic(true)} title="Public" description="Anyone can follow you and see your reviews." />
-                  <OB.RadioCard selected={!isPublic} onClick={() => setIsPublic(false)} title="Private" description="Only people you approve can see your activity." />
+                  <OB.RadioCard selected={isPublic} onClick={() => { setIsPublic(true); setVisibilityTouched(true); }} title="Public" description="Anyone can follow you and see your reviews." />
+                  <OB.RadioCard selected={!isPublic} onClick={() => { setIsPublic(false); setVisibilityTouched(true); }} title="Private" description="Only people you approve can see your activity." />
                 </div>
               </div>
             )}

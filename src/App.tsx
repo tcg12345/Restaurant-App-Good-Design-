@@ -151,6 +151,47 @@ const TAB_SWITCH_PATHS = new Set<string>([
   ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels', '/messages',
 ]);
 
+/** Shown when the signed-in user's profile fetch failed (network/timeout).
+ *  We genuinely don't know whether their profile row exists, so rendering
+ *  ProfileSetup here would let one flaky request re-onboard an existing user
+ *  and overwrite their real profile. Offer a retry (and sign-out) instead. */
+const ProfileLoadError: React.FC = () => {
+  const { refreshProfile, signOut } = useAuth();
+  const [retrying, setRetrying] = React.useState(false);
+  const retry = async () => {
+    setRetrying(true);
+    try { await refreshProfile(); } finally { setRetrying(false); }
+  };
+  return (
+    <div className="min-h-screen bg-surface flex items-center justify-center px-6">
+      <div className="w-full max-w-sm text-center">
+        <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 flex items-center justify-center text-primary font-serif italic text-2xl">
+          G
+        </div>
+        <h1 className="mt-5 font-serif font-bold text-2xl text-on-surface">Couldn't load your profile</h1>
+        <p className="mt-2 text-sm text-on-surface/55 leading-relaxed">
+          Check your connection and try again — your profile is safe, we just couldn't reach it.
+        </p>
+        <button
+          type="button"
+          onClick={() => void retry()}
+          disabled={retrying}
+          className="mt-6 w-full bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 disabled:opacity-60"
+        >
+          {retrying ? 'Retrying…' : 'Retry'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="mt-3 text-sm text-on-surface/45 hover:text-on-surface transition-colors"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const AppContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -178,7 +219,7 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, needsPasswordSetup } = useAuth();
+  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a
@@ -239,6 +280,26 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // Order matters here. When the profile fetch FAILED we don't know whether
+  // a row exists, so ProfileSetup must never render — completing it would
+  // overwrite the user's real profile (bio wiped, private account flipped
+  // public). Show a retry screen instead; ProfileSetup is reserved for a
+  // confirmed-missing/incomplete profile. While a fetch is still in flight
+  // (e.g. right after sign-in), hold the splash rather than flash the wizard.
+  if (isSignedIn && !profileComplete && profileError) {
+    // Checked before profileLoading so a retry keeps this screen (with its
+    // own "Retrying…" state) mounted instead of bouncing through the splash.
+    return <ProfileLoadError />;
+  }
+  if (isSignedIn && !profileComplete && profileLoading) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
+          G
+        </div>
+      </div>
+    );
+  }
   if (isSignedIn && !profileComplete) {
     return (
       <div className="min-h-screen bg-surface">

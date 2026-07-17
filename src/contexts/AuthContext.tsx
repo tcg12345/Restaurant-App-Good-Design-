@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
-import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
+import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
 import type { User, Session } from '@supabase/supabase-js';
@@ -34,6 +34,16 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   profileComplete: boolean;
+  /** True when the LAST profile fetch failed (network/timeout) — meaning we
+   *  don't actually know whether a profile row exists. App.tsx must show a
+   *  retry screen in that state, never ProfileSetup: re-onboarding an
+   *  existing user overwrites their real profile (bio wiped, private flipped
+   *  public). Cleared by any successful fetch. */
+  profileError: boolean;
+  /** True while a profile fetch is in flight AFTER initial boot (e.g. right
+   *  after sign-in). Lets App.tsx hold the splash instead of flashing
+   *  ProfileSetup before the row has arrived. */
+  profileLoading: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   /** `needsVerification` is true when Supabase created the account but
@@ -127,6 +137,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   profileComplete: false,
+  profileError: false,
+  profileLoading: false,
   loading: true,
   signIn: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
@@ -149,6 +161,8 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileError, setProfileError] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -179,11 +193,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const loadProfile = useCallback(async (userId: string) => {
+    setProfileLoading(true);
     try {
-      const p = await withTimeout(getProfile(userId), 8000, 'getProfile');
+      // fetchProfile resolves null ONLY when no profile row exists, and
+      // throws on network/timeout failure. The distinction is load-bearing:
+      // profile=null with no error routes the user into ProfileSetup, whose
+      // save overwrites the real row — so a transient failure must NEVER
+      // read as "no profile". On failure we keep whatever profile state we
+      // already had and raise profileError; App.tsx shows a retry screen.
+      const p = await withTimeout(fetchProfile(userId), 8000, 'fetchProfile');
       setProfile(p);
+      setProfileError(false);
     } catch {
-      setProfile(null);
+      setProfileError(true);
+    } finally {
+      setProfileLoading(false);
     }
     try {
       const reqs = await withTimeout(getPendingRequests(userId), 8000, 'getPendingRequests');
@@ -234,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setPendingRequestCount(0); setIsAdmin(false); }
+        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); }
       }
     );
 
@@ -382,6 +406,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
     setProfile(null);
+    setProfileError(false);
     setPendingRequestCount(0);
     setIsAdmin(false);
     markNeedsPassword(false);
@@ -432,7 +457,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
       {children}
     </AuthContext.Provider>
   );
