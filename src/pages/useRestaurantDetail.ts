@@ -4,7 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
-import { getCommunityStats, getFriendsStats, getCommunityPhotos, getHotelDining, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type HotelDining, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
+import { getCommunityStats, getFriendsStats, getCommunityPhotos, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
@@ -243,7 +243,6 @@ export function useRestaurantDetail() {
   const [photoBlobMap, setPhotoBlobMap] = useState<Record<string, string>>({});
   const [expertRecommendations, setExpertRecommendations] = useState<ExpertRecommendation[]>([]);
   const [showFriendsDetail, setShowFriendsDetail] = useState(false);
-  const [hotelDiningOptions, setHotelDiningOptions] = useState<HotelDining[]>([]);
   const [visitHistory, setVisitHistory] = useState<VisitRecord[]>([]);
 
   // Track the current user's rating for this place so we can re-fetch
@@ -328,9 +327,6 @@ export function useRestaurantDetail() {
         setVisitHistory(merged);
       }).catch(warn('visit history'));
     }
-    // Fetch hotel dining if this place looks like a hotel
-    const isHotel = place.types[0] === 'hotel' || place.types[0] === 'lodging';
-    if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions).catch(warn('hotel dining'));
   }, [place?.id, user?.id, ratingFingerprint]);
 
   // Community-supplied price fallback: when Google has no priceLevel
@@ -484,8 +480,6 @@ export function useRestaurantDetail() {
     expertRecommendations,
     showFriendsDetail,
     setShowFriendsDetail,
-    hotelDiningOptions,
-    refreshHotelDining: () => { if (place?.id) getHotelDining(place.id).then(setHotelDiningOptions); },
     visitHistory,
     visitCount: visitHistory.length,
   };

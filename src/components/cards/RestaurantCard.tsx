@@ -1,5 +1,4 @@
 import React from 'react';
-import { Building2 } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useMichelinMatch } from '../../lib/useMichelinMatch';
 import { safeImage, cn } from '../../lib/utils';
@@ -45,7 +44,6 @@ export interface RestaurantCardProps {
   distance?: string;
   location?: string;
   isWishlisted?: boolean;
-  isHotel?: boolean;
   onAdd?: () => void;
   /** Save-to-wishlist toggle (bookmark). */
   onSave?: () => void;
@@ -86,7 +84,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   distance,
   location,
   isWishlisted = false,
-  isHotel = false,
   onAdd,
   onSave,
   variant = 'photo-tile',
@@ -104,10 +101,10 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   const v = normalizeVariant(variant as RestaurantCardVariant);
 
   // Michelin override: starred / Bib Gourmand restaurants show the Guide's
-  // cuisine + price. No-op for unlisted places and hotels. The distinction mark
+  // cuisine + price. No-op for unlisted places. The distinction mark
   // itself is never shown on browsing cards.
   const matched = useMichelinMatch(
-    isHotel || rawCuisine ? '' : name,
+    rawCuisine ? '' : name,
     lat,
     lng,
     address,
@@ -121,13 +118,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   const linkAs: 'a' | 'button' | 'div' = as ?? (onClick && !to ? 'div' : 'a');
   const hasSave = !!onSave;
   const hasAdd = !!onAdd;
-
-  const hotelPill = isHotel ? (
-    <div className="inline-flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 backdrop-blur-md">
-      <Building2 size={9} className="text-white" />
-      <span className="text-[9px] font-bold uppercase tracking-wider text-white">Hotel</span>
-    </div>
-  ) : null;
 
   /* ── Hero — identical on both platforms (already immersive) ───────────── */
   if (v === 'hero') {
@@ -155,7 +145,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3" style={{ background: HERO_GRADIENT }} />
         <div className="absolute inset-x-0 top-3 z-10 flex items-start justify-between gap-2 px-3">
-          <div>{hotelPill}</div>
+          <div />
           <div className="flex items-center gap-2">
             {hasSave && <SaveButton filled={isWishlisted} onClick={onSave} />}
             {hasAdd && <AddButton onClick={onAdd} />}
@@ -165,9 +155,9 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           <div className="pointer-events-none min-w-0">
             <h3 className="line-clamp-2 font-serif text-lg font-bold leading-tight text-white drop-shadow-md">{name}</h3>
             <p className="mt-1 truncate text-xs font-medium text-white/85">
-              {isHotel ? 'Hotel' : cuisine}
-              {!isHotel && price ? <span className="mx-1.5 text-white/55">·</span> : null}
-              {!isHotel ? price : null}
+              {cuisine}
+              {price ? <span className="mx-1.5 text-white/55">·</span> : null}
+              {price}
             </p>
           </div>
           {rating ? <ScoreBadge rating={rating} size="lg" className="shadow-md shadow-black/20" /> : null}
@@ -205,7 +195,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             <h3 className={cn('truncate font-serif font-bold leading-tight', phoneMode ? 'text-[15px]' : 'text-[16px]')}>
               {name}
             </h3>
-            <CuisineLine cuisine={cuisine} price={price} isHotel={isHotel} className="mt-0.5 text-[11px]" />
+            <CuisineLine cuisine={cuisine} price={price} className="mt-0.5 text-[11px]" />
             <MetaRow items={[location, distance]} className="mt-1" />
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
@@ -227,7 +217,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   const isImmersive = tileSurface === 'photo-tile';
   const tileOverlay = (
     <>
-      {hotelPill && <div className="absolute left-2.5 top-2.5 z-10">{hotelPill}</div>}
       {(hasSave || hasAdd) && (
         <div className="absolute right-2.5 top-2.5 z-10 flex items-center gap-1.5">
           {hasSave && <SaveButton filled={isWishlisted} onClick={onSave} />}
@@ -257,7 +246,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
       />
       <div className={cn(isImmersive ? 'pt-2' : 'px-3 pb-3 pt-2.5')}>
         <h3 className="line-clamp-2 font-serif text-[15px] font-bold leading-snug text-on-surface sm:text-base">{name}</h3>
-        <CuisineLine cuisine={cuisine} price={price} isHotel={isHotel} className="mt-1" />
+        <CuisineLine cuisine={cuisine} price={price} className="mt-1" />
         <MetaRow items={[location, distance]} className="mt-0.5" />
       </div>
       {overlay}

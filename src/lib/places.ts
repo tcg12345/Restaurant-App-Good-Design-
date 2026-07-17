@@ -295,6 +295,13 @@ function sortByQuality(places: PlaceResult[]): PlaceResult[] {
   return [...places].sort((a, b) => qualityRank(b) - qualityRank(a));
 }
 
+// True for the DOMException fetch throws when its AbortSignal fires.
+// Aborted requests are expected (a newer search superseded this one), so
+// callers return quietly instead of logging them as failures.
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
 // Single nearby request — wraps the boilerplate Google v1 invocation.
 async function nearbyRequest(
   lat: number,
@@ -302,6 +309,7 @@ async function nearbyRequest(
   radius: number,
   rank: 'POPULARITY' | 'DISTANCE',
   includedTypes: string[] = ['restaurant'],
+  signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
   try {
     const res = await fetch(`${BASE_URL}/places:searchNearby`, {
@@ -322,6 +330,7 @@ async function nearbyRequest(
           },
         },
       }),
+      signal,
     });
     if (!res.ok) {
       console.error('[Places] searchNearby error:', res.status, await res.text().catch(() => ''));
@@ -330,7 +339,7 @@ async function nearbyRequest(
     const data = await res.json();
     return mapPlaces(data.places || []);
   } catch (err) {
-    console.error('[Places] searchNearby exception:', err);
+    if (!isAbortError(err)) console.error('[Places] searchNearby exception:', err);
     return [];
   }
 }
@@ -343,6 +352,7 @@ async function textRequest(
   radius: number,
   hasRestrictedLocation: boolean,
   priceLevels?: string[],
+  signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
   const locationParam = hasRestrictedLocation
     ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, radius) } }
@@ -363,6 +373,7 @@ async function textRequest(
         'X-Goog-FieldMask': FIELDS,
       },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) {
       console.error('[Places] searchText error:', res.status, await res.text().catch(() => ''));
@@ -371,7 +382,7 @@ async function textRequest(
     const data = await res.json();
     return mapPlaces(data.places || []);
   } catch (err) {
-    console.error('[Places] searchText exception:', err);
+    if (!isAbortError(err)) console.error('[Places] searchText exception:', err);
     return [];
   }
 }
@@ -383,6 +394,7 @@ export async function searchNearbyRestaurants(
   cuisineTypes: string[] = [],
   priceLevel = 0,
   locationName?: string,
+  signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
   const hasLocation = !!locationName && locationName !== 'Current Location';
   const hasFilters = priceLevel > 0 || cuisineTypes.length > 0;
@@ -390,7 +402,7 @@ export async function searchNearbyRestaurants(
   const cap = isPrecise ? PRECISE_CAP : BROAD_CAP;
 
   if (hasFilters) {
-    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel, locationName, cap, isPrecise);
+    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel, locationName, cap, isPrecise, signal);
   }
 
   if (isPrecise) {
@@ -402,9 +414,9 @@ export async function searchNearbyRestaurants(
     // includedTypes might miss (some restaurants only carry their cuisine
     // type, e.g. 'french_restaurant' without 'restaurant').
     const [byDistance, byPopularity, byText] = await Promise.all([
-      nearbyRequest(lat, lng, radiusMeters, 'DISTANCE'),
-      nearbyRequest(lat, lng, radiusMeters, 'POPULARITY'),
-      textRequest('restaurants', lat, lng, radiusMeters, hasLocation),
+      nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal),
+      nearbyRequest(lat, lng, radiusMeters, 'POPULARITY', undefined, signal),
+      textRequest('restaurants', lat, lng, radiusMeters, hasLocation, undefined, signal),
     ]);
 
     const all = [...byDistance, ...byPopularity, ...byText];
@@ -420,9 +432,9 @@ export async function searchNearbyRestaurants(
   const broadQueries = ['restaurants', 'best restaurants', 'top rated restaurants', 'popular restaurants'];
 
   const [byPopularity, byDistance, ...textResults] = await Promise.all([
-    nearbyRequest(lat, lng, radiusMeters, 'POPULARITY'),
-    nearbyRequest(lat, lng, radiusMeters, 'DISTANCE'),
-    ...broadQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation)),
+    nearbyRequest(lat, lng, radiusMeters, 'POPULARITY', undefined, signal),
+    nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal),
+    ...broadQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation, undefined, signal)),
   ]);
 
   const all = [...byPopularity, ...byDistance, ...textResults.flat()];
@@ -444,6 +456,7 @@ async function searchWithFilters(
   locationName: string | undefined,
   cap: number,
   isPrecise: boolean,
+  signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
   const hasLocation = !!locationName && locationName !== 'Current Location';
   const queries = cuisineTypes.length > 0
@@ -461,13 +474,13 @@ async function searchWithFilters(
   // genuinely respects the visible area.
   const filterRadius = Math.max(radiusMeters, 5000);
 
-  const textPromises = queries.map((q) => textRequest(q, lat, lng, filterRadius, hasLocation, priceLevels));
+  const textPromises = queries.map((q) => textRequest(q, lat, lng, filterRadius, hasLocation, priceLevels, signal));
 
   // Distance-ranked nearby supplement so a precise search returns the
   // physically nearest matches even if Google's text relevance disagrees.
   // No-op for broad searches.
   const distancePromise = isPrecise
-    ? nearbyRequest(lat, lng, radiusMeters, 'DISTANCE')
+    ? nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal)
     : Promise.resolve([] as PlaceResult[]);
 
   const [textResults, byDistance] = await Promise.all([
@@ -517,6 +530,7 @@ export async function searchPlacesByText(
   locationNameOrRadius?: string | number,
   useRestriction = false,
   radiusOverride?: number,
+  signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
   // Backward compat: 4th arg can be locationName (string) or radiusMeters (number)
   let radiusMeters = 10000;
@@ -558,10 +572,10 @@ export async function searchPlacesByText(
   // Run both searches in parallel for speed
   const [broadRes, exactRes] = await Promise.all([
     fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST', headers, body: JSON.stringify(body),
+      method: 'POST', headers, body: JSON.stringify(body), signal,
     }).then((r) => r.json()).catch(() => ({ places: [] })),
     fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST', headers, body: JSON.stringify(exactBody),
+      method: 'POST', headers, body: JSON.stringify(exactBody), signal,
     }).then((r) => r.json()).catch(() => ({ places: [] })),
   ]);
 
@@ -662,41 +676,6 @@ export async function searchPlacesByTextPaged(
     console.error('[Places] searchPlacesByTextPaged exception:', err);
     return { places: [], nextPageToken: null };
   }
-}
-
-export async function searchHotels(
-  query: string,
-  lat: number,
-  lng: number,
-): Promise<PlaceResult[]> {
-  const body: Record<string, unknown> = {
-    textQuery: query || 'hotels',
-    includedType: 'hotel',
-    maxResultCount: 20,
-    locationBias: {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: 50000,
-      },
-    },
-  };
-
-  const res = await fetch(`${BASE_URL}/places:searchText`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-      'X-Goog-FieldMask': FIELDS,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    console.error('[Places] hotelSearch error:', data);
-    return [];
-  }
-  return mapPlaces(data.places || []);
 }
 
 // NOTE: `photos` is intentionally omitted — the Places Photos media

@@ -26,7 +26,7 @@ const WARM_CAP = 50;
  * While `active`, this fetches details (deduped + cached) for every id
  * whose meta lacks hours and writes them back to the shared meta; the
  * state update re-runs the caller's filter with real data. Ids that
- * can't resolve (synthetic/hotel entries) fail once, silently, and are
+ * can't resolve (synthetic entries) fail once, silently, and are
  * not retried.
  */
 export function useWarmHoursForFilter(ids: Array<string | undefined>, active: boolean): void {

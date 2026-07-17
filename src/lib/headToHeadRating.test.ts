@@ -3,7 +3,6 @@ import type { RestaurantRating } from '../contexts/ListsContext';
 import {
   initH2H,
   initH2HTieBreak,
-  isHotelRating,
   pickComparison,
   applyChoice,
   applyTie,
@@ -365,53 +364,6 @@ describe('tie handling', () => {
     state = applyChoice(state, false);
     expect(isComplete(state)).toBe(true);
     expect(computeFinalScore(state)).toBeCloseTo(6.9, 6);
-  });
-});
-
-/* ── Hotels vs restaurants ─────────────────────────────────────────────── */
-
-describe('hotels and restaurants never compare against each other', () => {
-  it('isHotelRating recognizes the stored hotel markers', () => {
-    expect(isHotelRating('Hotel Breakfast')).toBe(true);
-    expect(isHotelRating('hotel')).toBe(true);
-    expect(isHotelRating('Italian')).toBe(false);
-    expect(isHotelRating('')).toBe(false);
-    expect(isHotelRating(undefined)).toBe(false);
-  });
-
-  const mixed = [
-    mk('rest1', 9.0, { cuisine: 'Italian' }),
-    mk('hotelA', 8.5, { cuisine: 'Hotel Breakfast' }),
-    mk('rest2', 8.0, { cuisine: 'Thai' }),
-    mk('hotelB', 7.5, { cuisine: 'Hotel' }),
-  ];
-
-  it('initH2H excludes hotels when rating a restaurant', () => {
-    const target: Target = { cuisine: 'Italian', price: '', address: '' };
-    const state = initH2H(mixed, 'loved', 'none', target);
-    expect(state.candidates.map((c) => c.restaurantId)).toEqual(['rest1', 'rest2']);
-  });
-
-  it('initH2H keeps only hotels when rating a hotel', () => {
-    const target: Target = { cuisine: 'Hotel Breakfast', price: '', address: '' };
-    const state = initH2H(mixed, 'loved', 'none', target);
-    expect(state.candidates.map((c) => c.restaurantId)).toEqual(['hotelA', 'hotelB']);
-  });
-
-  it('initH2H with no target defaults to the restaurant pool', () => {
-    const state = initH2H(mixed, 'loved', 'none');
-    expect(state.candidates.every((c) => !isHotelRating(c.cuisine))).toBe(true);
-  });
-
-  it('initH2HTieBreak excludes hotels when refining a restaurant score', () => {
-    const ratings = [
-      mk('rest1', 8.0, { cuisine: 'Italian' }),
-      mk('hotelA', 8.0, { cuisine: 'Hotel Breakfast' }),
-      mk('rest2', 9.0, { cuisine: 'Thai' }),
-    ];
-    const state = initH2HTieBreak(ratings, 8.0, 'self', 'Italian');
-    expect(state).not.toBeNull();
-    expect(state!.candidates.map((c) => c.restaurantId)).toEqual(['rest1']);
   });
 });
 

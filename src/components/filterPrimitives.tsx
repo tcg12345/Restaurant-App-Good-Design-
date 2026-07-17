@@ -51,7 +51,7 @@ export const Pill: React.FC<{
   </button>
 );
 
-/* ── Segmented control (price, total-time, hotel star/price) ── */
+/* ── Segmented control (price, total-time) ── */
 export const Segment: React.FC<{ tone?: 'teal'; children: React.ReactNode }> = ({ tone, children }) => (
   <div className={cn('fs-segment', tone === 'teal' && 'is-teal')}>{children}</div>
 );
