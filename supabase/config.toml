@@ -29,6 +29,13 @@ verify_jwt = false
 [functions.mux-upload-init]
 verify_jwt = false
 
+# Same pattern for the other browser-called Mux functions.
+[functions.mux-playback-token]
+verify_jwt = false
+
+[functions.mux-set-visibility]
+verify_jwt = false
+
 # mux-webhook is called server-to-server by Mux, which can't present a Supabase
 # JWT; it authenticates via the Mux-Signature HMAC instead.
 [functions.mux-webhook]

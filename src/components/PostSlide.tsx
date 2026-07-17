@@ -266,6 +266,7 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
     return (
       <MuxReelMedia
         playbackId={item.muxPlaybackId}
+        tokens={item.muxTokens || undefined}
         poster={item.posterUrl || undefined}
         active={postActive && itemActive}
         near={shouldRenderMedia}

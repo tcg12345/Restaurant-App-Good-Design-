@@ -1,7 +1,9 @@
-# AI Edge Functions
+# Edge Functions
 
-These power the AI features and run on Supabase (Deno), called from both the
-web and native apps at `<VITE_SUPABASE_URL>/functions/v1/<name>`:
+These run on Supabase (Deno), called from both the web and native apps at
+`<VITE_SUPABASE_URL>/functions/v1/<name>`.
+
+## AI functions
 
 | Function | Purpose | Secret used |
 |----------|---------|-------------|
@@ -46,6 +48,31 @@ supabase functions deploy build-recipe
 supabase functions deploy import-recipe
 supabase functions deploy generate-recipe-image
 ```
+
+## Video (Mux) functions
+
+| Function | Purpose | Secrets used |
+|----------|---------|--------------|
+| `mux-upload-init` | Mint a direct-upload URL (owner-bound passthrough; signed playback policy for followers-only content) | `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` (+ signing key, see below) |
+| `mux-webhook` | Record playback ids as Mux transcodes (HMAC-verified, owner-checked) | `MUX_WEBHOOK_SECRET` |
+| `mux-playback-token` | Mint short-lived playback tokens for signed assets after an owner/follower access check | `MUX_SIGNING_KEY_ID`, `MUX_SIGNING_PRIVATE_KEY` |
+| `mux-set-visibility` | Swap an asset's playback policy when a reel/post flips public ↔ followers-only | `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET` |
+
+Followers-only reels/posts use Mux's **signed playback policy** so the media
+itself is private — RLS alone only hides the DB row while the stream and
+thumbnail URLs stay publicly fetchable. Signed playback needs a Mux signing
+key (Mux dashboard → Settings → Signing Keys, or
+`POST https://api.mux.com/system/v1/signing-keys`):
+
+```bash
+supabase secrets set MUX_SIGNING_KEY_ID=... MUX_SIGNING_PRIVATE_KEY=...
+```
+
+Until those secrets exist the functions fall back to public playback (with a
+warning in the logs) so uploads never break. Rollout order: apply migrations
+`047`/`048`, deploy all the functions, set the signing key, then convert
+already-uploaded followers-only content with
+`node scripts/mux-backfill-signed-playback.mjs --apply`.
 
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected automatically — no need to
 set them. Tail logs with `supabase functions logs <name>`.

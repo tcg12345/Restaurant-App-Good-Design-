@@ -24,6 +24,7 @@ import {
   type ReelRecipeSnapshot,
   type ReelComment,
 } from '../lib/supabase-reels';
+import type { MuxPlaybackTokens } from '../lib/mux';
 
 export type { ReelKind, ReelRestaurantSnapshot, ReelRecipeSnapshot, ReelComment };
 export { REEL_MAX_DURATION_SECONDS };
@@ -41,11 +42,14 @@ export interface Reel {
   isExpert: boolean;
   videoUrl?: string;
   posterUrl?: string;
-  /** Mux public playback id — present once a Mux reel finishes transcoding. */
+  /** Mux playback id — present once a Mux reel finishes transcoding. */
   muxPlaybackId?: string;
   /** Mux lifecycle: 'processing' | 'ready' | 'errored'. Undefined = legacy
    *  Storage reel (plays from videoUrl). */
   muxStatus?: 'processing' | 'ready' | 'errored';
+  /** Viewer-scoped playback tokens — present only for signed (followers-only)
+   *  Mux reels the viewer may watch. */
+  muxTokens?: MuxPlaybackTokens;
   bgGradient: string;
   bgLabel?: string;
   caption: string;
@@ -90,6 +94,7 @@ function rowToUi(row: ReelRow): Reel {
     posterUrl: row.posterUrl || undefined,
     muxPlaybackId: row.muxPlaybackId || undefined,
     muxStatus: (row.muxStatus || undefined) as Reel['muxStatus'],
+    muxTokens: row.muxTokens || undefined,
     bgGradient: row.bgGradient || DEFAULT_BG,
     caption: row.caption,
     audioLabel: row.audioLabel,
@@ -240,7 +245,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const fresh = await cloudGetReel(reelId).catch(() => null);
       if (fresh && fresh.muxStatus === 'ready' && fresh.muxPlaybackId) {
         setReels((prev) => prev.map((r) => (r.id === reelId
-          ? { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, posterUrl: fresh.posterUrl || r.posterUrl }
+          ? { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, muxTokens: fresh.muxTokens || undefined, posterUrl: fresh.posterUrl || r.posterUrl }
           : r)));
         return;
       }
@@ -333,6 +338,12 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const ok = await cloudSetReelVisibility(reelId, isPublic);
     if (!ok && prevValue != null) {
       setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, isPublic: prevValue! } : r));
+    }
+    if (ok) {
+      // The flip swaps the Mux playback id (public ↔ signed policy) — refetch
+      // so local state picks up the new id + tokens and playback keeps working.
+      const fresh = await cloudGetReel(reelId).catch(() => null);
+      if (fresh) setReels((prev) => prev.map((r) => r.id === reelId ? rowToUi(fresh) : r));
     }
     return ok;
   }, []);

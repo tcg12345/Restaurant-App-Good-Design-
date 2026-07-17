@@ -280,6 +280,12 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!ok && prevValue != null) {
       setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, isPublic: prevValue! } : p));
     }
+    if (ok) {
+      // The flip swaps video items' Mux playback ids (public ↔ signed policy)
+      // — refetch so local state picks up the new ids + tokens.
+      const items = await cloudGetPostItems(postId).catch(() => null);
+      if (items) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, items } : p));
+    }
     return ok;
   }, []);
 

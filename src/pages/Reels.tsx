@@ -399,6 +399,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           // Mux adaptive-streaming reel — instant poster, HLS playback.
           <MuxReelMedia
             playbackId={reel.muxPlaybackId}
+            tokens={reel.muxTokens}
             poster={reel.posterUrl}
             active={active}
             near={near}
@@ -2302,8 +2303,13 @@ export const Reels: React.FC = () => {
       authorInitials: reel.authorInitials,
       isExpert: reel.isExpert,
       kind: reel.kind,
-      videoUrl: reel.videoUrl,
-      posterUrl: reel.posterUrl,
+      // Followers-only reels must not leak media URLs into the message
+      // payload — a recipient outside the author's followers would get a
+      // working video/poster link. Their card renders the gradient + caption
+      // instead, and tapping it deep-links to /r/reel-<id>, where RLS decides
+      // what the recipient can actually see.
+      videoUrl: reel.isPublic ? reel.videoUrl : undefined,
+      posterUrl: reel.isPublic ? reel.posterUrl : undefined,
       bgGradient: reel.bgGradient,
       caption: reel.caption,
       attachedTitle,
@@ -2330,7 +2336,10 @@ export const Reels: React.FC = () => {
       isExpert: post.author?.isExpert ?? false,
       caption: post.caption,
       locationLabel: post.locationLabel,
-      coverUrl: cover?.mediaUrl,
+      // Followers-only posts must not leak the cover media URL into the
+      // message payload (see buildSharedReel) — the recipient's card renders
+      // the gradient and deep-links to /r/post-<id>, gated by RLS.
+      coverUrl: post.isPublic ? cover?.mediaUrl : undefined,
       coverMediaType: cover?.mediaType,
       bgGradient: cover?.bgGradient || 'from-stone-800 to-stone-900',
       itemCount: post.items.length,

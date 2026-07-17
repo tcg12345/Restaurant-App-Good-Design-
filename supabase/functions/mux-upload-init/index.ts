@@ -23,6 +23,7 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
+import { muxSigningConfig } from '../_shared/mux.ts';
 
 const MUX_TOKEN_ID = Deno.env.get('MUX_TOKEN_ID');
 const MUX_TOKEN_SECRET = Deno.env.get('MUX_TOKEN_SECRET');
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
     return json({ error: 'Video uploads are not configured yet.' }, 500);
   }
 
-  let body: { passthrough?: string; corsOrigin?: string } = {};
+  let body: { passthrough?: string; corsOrigin?: string; isPublic?: boolean } = {};
   try { body = await req.json(); } catch { /* handled by validation below */ }
   // passthrough rides along on the Mux asset and comes back on every webhook,
   // letting us tie the asset to this exact reel row race-free.
@@ -101,6 +102,18 @@ Deno.serve(async (req) => {
   const rejected = await rejectForeignRow(rowId, auth.userId);
   if (rejected) return rejected;
 
+  // Followers-only content gets Mux's SIGNED playback policy — its stream and
+  // thumbnail URLs then require short-lived tokens (mux-playback-token), so
+  // the media itself is private, not just the DB row. Requires the signing-key
+  // secrets; without them we fall back to public playback (with a loud log)
+  // rather than mint assets nobody can play.
+  const wantsPrivate = body.isPublic === false;
+  const signingReady = muxSigningConfig() !== null;
+  if (wantsPrivate && !signingReady) {
+    console.warn('[mux-upload-init] followers-only upload but MUX_SIGNING_KEY_ID / MUX_SIGNING_PRIVATE_KEY are not set — falling back to PUBLIC playback');
+  }
+  const playbackPolicy: 'public' | 'signed' = wantsPrivate && signingReady ? 'signed' : 'public';
+
   try {
     const basic = btoa(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`);
     const muxRes = await fetch('https://api.mux.com/video/v1/uploads', {
@@ -109,7 +122,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         cors_origin: corsOrigin,
         new_asset_settings: {
-          playback_policy: ['public'], // public ids to start; signed is a future option
+          playback_policy: [playbackPolicy],
           video_quality: 'basic',      // cheapest tier — fine for short vertical reels
           // Owner-bound: the webhook only patches the row if it belongs to
           // this user, so a ticket can never overwrite someone else's video.
@@ -131,7 +144,9 @@ Deno.serve(async (req) => {
       console.error('[mux-upload-init] unexpected Mux response', JSON.stringify(payload));
       return json({ error: 'Upload service returned an unexpected response.' }, 502);
     }
-    return json({ uploadUrl, uploadId });
+    // playbackPolicy tells the client what to record on the row
+    // (mux_playback_policy), so render-time knows whether tokens are needed.
+    return json({ uploadUrl, uploadId, playbackPolicy });
   } catch (err) {
     console.error('[mux-upload-init] exception', err);
     return json({ error: 'Could not start the upload. Please try again.' }, 500);

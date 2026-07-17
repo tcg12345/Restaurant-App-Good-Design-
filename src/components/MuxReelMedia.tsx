@@ -34,6 +34,9 @@ export interface ActiveReelMedia {
  */
 interface MuxReelMediaProps {
   playbackId: string;
+  /** Signed-playback tokens for a followers-only asset (from
+   *  mux-playback-token). Omit for public assets. */
+  tokens?: { playback?: string; thumbnail?: string; storyboard?: string };
   poster?: string;
   /** This slide is the focused one — autoplay + audio target. */
   active: boolean;
@@ -55,7 +58,7 @@ interface MuxReelMediaProps {
 }
 
 export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
-  playbackId, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onUserToggle, onActiveMedia,
+  playbackId, tokens, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onUserToggle, onActiveMedia,
 }) => {
   const fit = objectFit ?? (phoneMode ? 'cover' : 'contain');
   const ref = useRef<MuxPlayerElement | null>(null);
@@ -136,6 +139,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
         <MuxPlayer
           ref={ref}
           playbackId={playbackId}
+          tokens={tokens}
           streamType="on-demand"
           // Let Mux Player autoplay (muted) once HLS is ready when this slide
           // mounts active — more reliable than calling play() before load. The
