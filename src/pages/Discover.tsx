@@ -1063,11 +1063,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
-  const [recsLoadingMore, setRecsLoadingMore] = useState(false);
+  // In-flight guard for loadMoreRecommendations. A ref (not state) so rapid
+  // successive calls can't double-fire a batch while a render is pending.
+  const recsLoadingMoreRef = useRef(false);
   const recsFetchedRef = useRef(false);
   const recsQueryCursorRef = useRef(0);
   const recsExhaustedRef = useRef(false);
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
+  // Monotonic token for the orchestrating effect's async chains — a reset
+  // (radius change, prefs hydration, refresh) can start a new chain while an
+  // older one is mid-flight, and the stale one must not clobber the results.
+  const recsRunIdRef = useRef(0);
 
   const recommendations = apiRecommendations;
 
@@ -1235,30 +1241,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 }).map((q) => q.text);
   }, [userPreferences]);
 
-  // Fetch a batch of recommendations. Home mode anchors to the selected home
-  // location and scopes Google to the picked radius; browse mode still uses
-  // the map centre and the original 50 km bias so existing map behaviour is
-  // untouched.
+  // Fetch a batch of recommendations. Recommendations are a home-page-only
+  // feature now (the map renders none), so every batch anchors to the
+  // selected home location — which resolves from GPS, then the last explicit
+  // pick, and only then the NYC fallback. No silent hardcoded coordinates.
   const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
-    if (queryStrs.length === 0) return [] as PlaceResult[];
+    if (queryStrs.length === 0 || !homeLocation) return [] as PlaceResult[];
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    let lat: number;
-    let lng: number;
-    if (mode === 'home' && homeLocation) {
-      lat = homeLocation.lat;
-      lng = homeLocation.lng;
-    } else {
-      const center = mapRef.current?.getCenter();
-      lat = center?.lat ?? 40.735;
-      lng = center?.lng ?? -73.99;
-    }
-    const radiusMeters = mode === 'home' ? recRadiusMiles * 1609.34 : 50000;
-    const locationLabel = mode === 'home' ? homeLocation?.label : undefined;
+    const { lat, lng } = homeLocation;
+    const radiusMeters = recRadiusMiles * 1609.34;
     const results = await Promise.all(
       queryStrs.map((q) =>
-        searchPlacesByText(q, lat, lng, locationLabel, /* useRestriction */ mode === 'home', radiusMeters)
+        searchPlacesByText(q, lat, lng, homeLocation.label, /* useRestriction */ true, radiusMeters)
           .catch(() => [] as PlaceResult[])
       ),
     );
@@ -1277,10 +1273,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       recsSeenIdsRef.current.add(p.id);
       return true;
     });
-    // Browse mode keeps the old "quality-filtered Google results only" path.
-    // Home mode runs the new scorer so taste profile + social signals + the
-    // radius-based distance penalty all influence final ordering.
-    if (mode !== 'home' || !homeLocation) return fresh;
+    // Run the scorer so taste profile + social signals + the radius-based
+    // distance penalty all influence final ordering.
     const target = { label: homeLocation.label, lat: homeLocation.lat, lng: homeLocation.lng };
     // Hard radius cutoff BEFORE scoring so the scorer never surfaces places
     // the user explicitly scoped away. Google's locationRestriction is
@@ -1289,7 +1283,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       haversineKm({ lat: p.lat, lng: p.lng }, { lat: homeLocation.lat, lng: homeLocation.lng }) <= recRadiusMiles * 1.60934,
     );
     return scoreCandidates(inRadius, userPreferences, recSignals, target, radiusMeters);
-  }, [myLocalRatings, myLists, recentViews, mode, homeLocation, recRadiusMiles, userPreferences, recSignals]);
+  }, [myLocalRatings, myLists, recentViews, homeLocation, recRadiusMiles, userPreferences, recSignals]);
 
   // Hard radius filter used on cached / previously-stored places, which may
   // have been built under a wider radius. Pass-through in browse mode.
@@ -1450,36 +1444,63 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     recsFetchedRef.current = false;
   }, [recRadiusMiles, mode]);
 
+  // On a fresh device the user's ratings hydrate from Supabase AFTER mount,
+  // so the first recs run only sees an empty taste profile and takes the
+  // generic branch. When the profile first becomes non-empty, drop the
+  // once-guard (and dedup state) so the orchestrating effect below re-runs
+  // its personalised path. Later preference drift is deliberately NOT a
+  // refetch trigger — the cache top-up path absorbs it without burning API
+  // budget on every new rating. Declared before the orchestrating effect so
+  // the guard is already cleared in the same commit the profile lands.
+  const prevPrefsSigRef = useRef('');
   useEffect(() => {
+    const sig = userPreferences.topCuisines.join('|');
+    const prev = prevPrefsSigRef.current;
+    prevPrefsSigRef.current = sig;
+    if (mode !== 'home') return;
+    if (prev === '' && sig !== '' && recsFetchedRef.current) {
+      recsFetchedRef.current = false;
+      recsSeenIdsRef.current = new Set();
+      recsQueryCursorRef.current = 0;
+      recsExhaustedRef.current = false;
+    }
+  }, [userPreferences.topCuisines, mode]);
+
+  useEffect(() => {
+    // Recommendations only feed the home page (the SocialFeed suggestion
+    // cards) — the map page renders none, so fetching there was pure Places
+    // spend anchored to whatever fallback coordinates were lying around.
+    if (mode !== 'home') return;
     if (recsFetchedRef.current) return;
     // Desktop home renders no Recommended rail anymore (the hero band routes
     // to the location page instead) and its feed doesn't consume suggestions,
     // so skip the whole rec pipeline there — a desktop visit spends zero
     // Places calls on data nothing renders. The guard ref stays false, so
     // shrinking the window to phone width re-runs this effect and fetches.
-    if (mode === 'home' && usingDesktopHeader) return;
-    if (mode === 'home' && !homeLocation) return;
+    if (usingDesktopHeader) return;
+    if (!homeLocation) return;
     recsFetchedRef.current = true;
+    // Run token: the hydration reset above can start a second chain while
+    // the generic fetch is still in flight — only the newest run may write
+    // results or clear the spinner.
+    const runId = ++recsRunIdRef.current;
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     setRecsLoading(true);
     setApiRecommendations([]);
 
-    // In home mode, force the queries to target the selected home city so the
-    // API doesn't return NYC results just because the user's historical
-    // topCities is "New York, NY".
-    const homeCityOverride = mode === 'home' && homeLocation
-      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
-      : null;
+    // Force the queries to target the selected home city so the API doesn't
+    // return NYC results just because the user's historical topCities is
+    // "New York, NY".
+    const homeCityOverride = homeLocation.label.split(',').slice(0, 2).join(', ').trim();
 
     const uid = userId;
-    const locKey = mode === 'home' && homeLocation
-      ? locationKey(homeLocation.lat, homeLocation.lng)
-      : null;
+    const locKey = locationKey(homeLocation.lat, homeLocation.lng);
     const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
 
     const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
+      if (recsRunIdRef.current !== runId) return; // superseded by a newer run
       // Shuffle the cached pool on every load so the user sees different
       // ordering even when nothing new was fetched. Any freshly-fetched
       // top-ups stay at the top (they're the newest / most relevant).
@@ -1498,6 +1519,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       setApiRecommendations(merged);
       setRecsLoading(false);
       applyCoverPhotos(merged, uid).then((withCovers) => {
+        if (recsRunIdRef.current !== runId) return;
         setApiRecommendations((prev) => {
           // Only overwrite if the set of ids matches — otherwise the user
           // has moved on (changed location, scrolled more queries in).
@@ -1557,20 +1579,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // cuisine/city query. It's the safety net that stops the section
       // from ever rendering empty for a valid, non-remote location.
       if (withCovers.length === 0) {
-        let fbLat: number;
-        let fbLng: number;
-        if (mode === 'home' && homeLocation) {
-          fbLat = homeLocation.lat;
-          fbLng = homeLocation.lng;
-        } else {
-          const center = mapRef.current?.getCenter();
-          fbLat = center?.lat ?? 40.735;
-          fbLng = center?.lng ?? -73.99;
-        }
-        const fbRadius = mode === 'home' ? recRadiusMiles * 1609.34 : 2000;
+        const fbLat = homeLocation.lat;
+        const fbLng = homeLocation.lng;
+        const fbRadius = recRadiusMiles * 1609.34;
         const [nearby, best] = await Promise.all([
           searchNearbyRestaurants(fbLat, fbLng, fbRadius).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation.label, true, fbRadius).catch(() => [] as PlaceResult[]),
         ]);
         const all = [...nearby, ...best];
         const seenIds = new Set<string>();
@@ -1579,6 +1593,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         withCovers = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
       }
 
+      if (recsRunIdRef.current !== runId) return; // superseded by a newer run
       const shuffled = shuffleInPlace([...withCovers]);
       setApiRecommendations(shuffled);
       setRecsLoading(false);
@@ -1593,8 +1608,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
     };
 
-    // Home mode only: try caches before hitting Google.
-    if (mode === 'home' && locKey && homeLocation) {
+    // Try caches before hitting Google.
+    if (locKey) {
       // 1. Session in-memory cache — instant.
       const sessionHit = sessionRecsCache[locKey];
       if (sessionHit && Date.now() - sessionHit.updatedAt < HOME_RECS_CACHE_TTL) {
@@ -1674,66 +1689,67 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             // hiccup, etc.), clear the loading flag and let the UI render
             // the empty state rather than spinning forever.
             console.warn('[Recs] live fetch failed:', err);
-            setRecsLoading(false);
+            if (recsRunIdRef.current === runId) setRecsLoading(false);
           }
         })();
         return;
       }
     }
 
-    // Anonymous home, or map mode — just run the live path. The .catch here
-    // mirrors the logged-in path: an unhandled rejection from runLiveFetch
-    // otherwise leaves the section stuck on the spinner.
+    // Anonymous home — just run the live path. The .catch here mirrors the
+    // logged-in path: an unhandled rejection from runLiveFetch otherwise
+    // leaves the section stuck on the spinner.
     runLiveFetch().catch((err) => {
       console.warn('[Recs] live fetch failed:', err);
-      setRecsLoading(false);
+      if (recsRunIdRef.current === runId) setRecsLoading(false);
     });
   }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce, usingDesktopHeader]);
 
-  // Load more recommendations — called when the horizontal scroll nears the
-  // end. Fetches one query at a time so the infinite scroll paces itself
-  // into smaller chunks, and writes every batch back into both caches so
-  // the user's next reload of this city already has the extended pool.
+  // Load more recommendations — called when a consumer wants to extend the
+  // pool past the initial batch. Fetches one query at a time and writes
+  // every batch back into both caches so the user's next reload of this
+  // city already has the extended pool. The in-flight guard is a REF, not
+  // state: state lags a render behind rapid successive calls (e.g. scroll
+  // handlers), which used to let batches double-fire.
   const loadMoreRecommendations = useCallback(async () => {
-    if (recsLoadingMore || recsExhaustedRef.current) return;
-    const homeCityOverride = mode === 'home' && homeLocation
-      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
-      : null;
+    if (recsLoadingMoreRef.current || recsExhaustedRef.current) return;
+    if (mode !== 'home' || !homeLocation) return;
+    const homeCityOverride = homeLocation.label.split(',').slice(0, 2).join(', ').trim();
     const queries = buildRecQueries(homeCityOverride);
     if (recsQueryCursorRef.current >= queries.length) {
       recsExhaustedRef.current = true;
       return;
     }
-    setRecsLoadingMore(true);
-    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
-    recsQueryCursorRef.current += batch.length;
-    const fresh = await fetchRecBatch(batch);
-    if (fresh.length === 0) {
-      setRecsLoadingMore(false);
-      return;
+    recsLoadingMoreRef.current = true;
+    try {
+      const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
+      recsQueryCursorRef.current += batch.length;
+      const fresh = await fetchRecBatch(batch);
+      if (fresh.length === 0) return;
+      const freshWithCovers = await applyCoverPhotos(fresh, userId);
+      setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
+      // Persist newly-surfaced places into the cache so future reloads of
+      // this city get them without another Places call.
+      if (userId) {
+        const locKey = locationKey(homeLocation.lat, homeLocation.lng);
+        const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
+        const existing = sessionRecsCache[locKey]?.places || [];
+        const mergedPool = [...existing, ...freshWithCovers]
+          .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+        sessionRecsCache[locKey] = {
+          places: mergedPool,
+          preferencesHash: prefsHash,
+          updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
+        };
+        saveHomeRecsCache(
+          userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
+          prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
+        );
+      }
+    } finally {
+      recsLoadingMoreRef.current = false;
     }
-    const freshWithCovers = await applyCoverPhotos(fresh, userId);
-    setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
-    // Persist newly-surfaced places into the cache so future reloads of this
-    // city get them without another Places call.
-    if (mode === 'home' && userId && homeLocation) {
-      const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-      const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
-      const existing = sessionRecsCache[locKey]?.places || [];
-      const mergedPool = [...existing, ...freshWithCovers]
-        .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
-      sessionRecsCache[locKey] = {
-        places: mergedPool,
-        preferencesHash: prefsHash,
-        updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
-      };
-      saveHomeRecsCache(
-        userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
-        prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
-      );
-    }
-    setRecsLoadingMore(false);
-  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+  }, [buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
