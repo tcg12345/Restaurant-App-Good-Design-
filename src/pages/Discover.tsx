@@ -827,6 +827,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [locationResults, setLocationResults] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationGeocodeAbortRef = useRef<AbortController | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
   // Where text searches are anchored + restricted after the user picks a
   // location in the location-search box. Carries the place name so the UI
@@ -1952,12 +1953,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // debounce, a slow earlier request can resolve AFTER a newer one and
   // overwrite the list, pins, and camera with stale results.
   const placesReqRef = useRef(0);
+  // Companion AbortController: the token above only discards stale
+  // RESPONSES — the superseded requests still ran to completion, burning
+  // bandwidth and Places quota. Each new search aborts the previous
+  // in-flight one so it dies on the wire instead.
+  const placesAbortRef = useRef<AbortController | null>(null);
 
   // Fetch nearby restaurants for the current map center
   const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
     const req = ++placesReqRef.current;
+    placesAbortRef.current?.abort();
+    const abort = new AbortController();
+    placesAbortRef.current = abort;
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
@@ -1984,7 +1993,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const radius = Math.min(50000, Math.max(500, Math.round(halfDiag)));
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
-      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
+      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price, undefined, abort.signal);
       let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
       sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
@@ -2093,6 +2102,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setSelectedMarker(null);
     setShowSearchHere(false);
     const req = ++placesReqRef.current;
+    placesAbortRef.current?.abort();
+    const abort = new AbortController();
+    placesAbortRef.current = abort;
     try {
       // Use location bias if a location was searched, otherwise use map center
       const searchCenter = searchLocationBias || map.getCenter();
@@ -2107,7 +2119,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const a = Math.sin(dlat/2)**2 + Math.cos(nw.lat*Math.PI/180)*Math.cos(se.lat*Math.PI/180)*Math.sin(dlng/2)**2;
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
-      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
+      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction, undefined, abort.signal);
       let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
@@ -2511,22 +2523,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setMapMode('myratings');
   }, [mode, location.state, mapReady]);
 
-  // Location geocoding (debounced)
+  // Location geocoding (debounced). The debounce alone doesn't serialize
+  // the requests — a slow geocode fired for an earlier keystroke can land
+  // AFTER the latest one, replacing fresh results with stale ones and
+  // killing the spinner while the real request is still in flight. Each
+  // run aborts the previous request, and only the live (un-aborted) one
+  // may touch results or the spinner.
   useEffect(() => {
     if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
-    if (!locationQuery.trim()) { setLocationResults([]); return; }
+    if (!locationQuery.trim()) {
+      locationGeocodeAbortRef.current?.abort();
+      setLocationResults([]);
+      setLocationLoading(false);
+      return;
+    }
     setLocationLoading(true);
     locationDebounceRef.current = setTimeout(async () => {
+      locationGeocodeAbortRef.current?.abort();
+      const abort = new AbortController();
+      locationGeocodeAbortRef.current = abort;
       try {
         const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`,
+          { signal: abort.signal },
         );
         const data = await res.json();
+        if (abort.signal.aborted) return;
         setLocationResults((data.features || []).map((f: any) => ({
           id: f.id, name: f.place_name, lat: f.center[1], lng: f.center[0],
         })));
-      } catch { setLocationResults([]); }
-      finally { setLocationLoading(false); }
+        setLocationLoading(false);
+      } catch {
+        if (abort.signal.aborted) return;
+        setLocationResults([]);
+        setLocationLoading(false);
+      }
     }, 300);
     return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
   }, [locationQuery]);
