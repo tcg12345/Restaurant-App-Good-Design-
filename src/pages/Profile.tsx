@@ -4,7 +4,7 @@ import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
-  Shield, LifeBuoy, BadgeCheck,
+  Shield, LifeBuoy, BadgeCheck, UploadCloud,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -2119,6 +2119,18 @@ export const Profile: React.FC = () => {
                             label="Verification requests"
                             hint="Review and approve applications"
                             onClick={() => { setSettingsOpen(false); navigate('/admin/verification'); }}
+                            isLast
+                          />
+                        </SettingsSection>
+                      )}
+
+                      {listsCtx.pendingPhotoUploadCount > 0 && (
+                        <SettingsSection label="Sync">
+                          <SettingsRow
+                            icon={<UploadCloud size={17} />}
+                            label={`${listsCtx.pendingPhotoUploadCount} photo${listsCtx.pendingPhotoUploadCount === 1 ? '' : 's'} waiting to upload`}
+                            hint="Kept on this device until back online — tap to retry now"
+                            onClick={listsCtx.retryPendingPhotoUploads}
                             isLast
                           />
                         </SettingsSection>

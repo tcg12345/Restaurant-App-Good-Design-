@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
-import { MAX_INLINE_PHOTO_BYTES } from '../lib/images';
+import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
+import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements } from '../lib/pendingPhotos';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -350,6 +351,14 @@ interface ListsContextValue {
    *  visit is promoted to become the current rating — so the card
    *  above always reflects the user's most recent kept visit. */
   deleteVisit: (restaurantId: string, visitId: string) => void;
+  /** Photos still stored as inline data: URLs — the Storage upload failed or
+   *  the user was offline/signed out when they were added. They render
+   *  locally but haven't reached the cloud or other devices yet; uploads are
+   *  retried automatically on foreground / connectivity regain / sign-in. */
+  pendingPhotoUploadCount: number;
+  /** Re-attempt the Storage upload for every pending inline photo now
+   *  (the settings row's "tap to retry"). Safe to call repeatedly. */
+  retryPendingPhotoUploads: () => void;
 
   // Custom lists
   lists: CustomList[];
@@ -1509,6 +1518,69 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
     else skippedBecauseLoading();
   }, []);
+
+  // ── Pending photo upload retry ──
+  // processPhoto falls back to an inline data: URL when the Storage upload
+  // fails (offline, signed out, transient error) so the photo still renders —
+  // but syncRatingsToCloud drops oversized inline URLs from the cloud payload,
+  // so without a retry that photo would live on this device forever. The
+  // queue is derived (any photo url starting with `data:` is pending — see
+  // src/lib/pendingPhotos.ts); this re-runs the upload for each and swaps the
+  // inline URL for the Storage URL, then persists + syncs the ratings so the
+  // photo finally reaches the cloud and other devices.
+  const photoRetryInFlightRef = useRef(false);
+  const retryPendingPhotoUploads = useCallback(() => {
+    if (photoRetryInFlightRef.current) return;
+    if (!supabaseConfigured || !userIdRef.current) return; // upload needs a session
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    const pending = collectPendingPhotoUploads(ratingsRef.current);
+    if (pending.length === 0) return;
+    photoRetryInFlightRef.current = true;
+    void (async () => {
+      try {
+        // Sequential, best-effort: a photo that fails again just stays inline
+        // (still in the derived queue) and the next trigger retries it.
+        const replacements = new Map<string, string>();
+        for (const item of pending) {
+          try {
+            replacements.set(item.url, await uploadPhoto(item.url));
+          } catch { /* still offline / no session — retried on the next trigger */ }
+        }
+        if (replacements.size === 0) return;
+        const { next, changedIds } = applyPhotoUrlReplacements(ratingsRef.current, replacements, Date.now());
+        if (changedIds.length === 0) return;
+        ratingsRef.current = next;
+        setRatings(next);
+        saveToStorage(STORAGE_KEY_RATINGS, next);
+        syncRatingsToCloud(next);
+        // The community gallery mirrors the current visit's photo set — swap
+        // the freshly uploaded URLs in there too (visibility gating and the
+        // deferred-publish path live inside syncCommunityPhotos).
+        for (const id of changedIds) {
+          const row = next.find((r) => r.restaurantId === id);
+          if (row) syncCommunityPhotos(id, row.photos);
+        }
+      } finally {
+        photoRetryInFlightRef.current = false;
+      }
+    })();
+  }, [syncRatingsToCloud, syncCommunityPhotos]);
+
+  // Retry triggers: boot/sign-in (cloudLoaded flips true after the load
+  // reconcile, so the scan sees the merged ratings), app foreground, and
+  // connectivity regain. Each run is cheap when nothing is pending.
+  useEffect(() => {
+    if (!cloudLoaded) return;
+    retryPendingPhotoUploads();
+    const onOnline = () => retryPendingPhotoUploads();
+    const onVisible = () => { if (document.visibilityState === 'visible') retryPendingPhotoUploads(); };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [cloudLoaded, userId, retryPendingPhotoUploads]);
 
   // Persist the unified tombstone set to localStorage (always) and the durable
   // __tombstones__ meta stash (cloud, when ready) so deletions stick locally
@@ -2719,9 +2791,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalInitialMethod(null);
   }, []);
 
+  // Derived pending-upload badge for the settings sheet — recomputed only
+  // when ratings actually change.
+  const pendingPhotoUploadCount = useMemo(() => countPendingPhotoUploads(ratings), [ratings]);
+
   return (
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
+      pendingPhotoUploadCount, retryPendingPhotoUploads,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,
