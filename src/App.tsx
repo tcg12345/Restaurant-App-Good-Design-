@@ -210,10 +210,19 @@ const AppContent: React.FC = () => {
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
+    let cancelled = false;
     void configureNativeKeyboard({
       onKeyboardChange: (open) => setKeyboardOpen(open),
-    }).then((h) => { handle = h; });
-    return () => { handle?.destroy(); };
+    }).then((h) => {
+      // Setup is async: if the effect tore down before it resolved
+      // (StrictMode does exactly this on mount), `handle` was still null in
+      // the cleanup — the first invocation's whole listener set (capture
+      // pointerdown, focusin, visualViewport ×2, Keyboard ×3) leaked and a
+      // second full set installed. Destroy a handle that arrives late.
+      if (cancelled) { h.destroy(); return; }
+      handle = h;
+    });
+    return () => { cancelled = true; handle?.destroy(); };
   }, [setKeyboardOpen]);
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
