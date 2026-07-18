@@ -537,7 +537,13 @@ const AppContent: React.FC = () => {
         onBack={() => {
           if (!backTarget) return;
           if (backTarget.kind === 'pop') navigate(-1);
-          else navigate(backTarget.to);
+          // Logical-parent "up" navigation REPLACES the current entry (iOS
+          // semantics): a plain push meant swiping back from a deep-linked
+          // /pantry?list=x pushed /pantry, so hardware back went "forward"
+          // into the sub-view just dismissed, and repeated up-navigations
+          // stacked junk history entries (polluting nav-stack's index map
+          // and snapshot keying too). nav-stack records REPLACE in place.
+          else navigate(backTarget.to, { replace: true });
         }}
         onLockTransition={setInstantNav}
       >
