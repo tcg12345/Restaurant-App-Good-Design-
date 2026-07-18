@@ -336,6 +336,10 @@ export const LocationMap: React.FC = () => {
     markersRef.current = {};
   }, []);
 
+  // Camera snapshot that survives the init effect's teardown, so a layout
+  // rebuild (see the effect's isMobile dep) resumes where the user was.
+  const savedCameraRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
+
   useEffect(() => {
     if (!containerRef.current || !MAPBOX_TOKEN) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -343,15 +347,16 @@ export const LocationMap: React.FC = () => {
     // When we mount without coords (user landed on /location/map directly,
     // no URL params), drop a sensible default so the map still renders;
     // the recentre effect will fly to the real centre as soon as the
-    // user picks one.
-    const center: [number, number] = initial.hasCoords
-      ? [initial.lng, initial.lat]
-      : [-73.99, 40.74];
+    // user picks one. A camera saved by a previous incarnation of this
+    // effect (layout-branch rebuild) wins over both.
+    const savedCam = savedCameraRef.current;
+    const center: [number, number] = savedCam?.center
+      ?? (initial.hasCoords ? [initial.lng, initial.lat] : [-73.99, 40.74]);
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: darkModeRef.current ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
       center,
-      zoom: 12,
+      zoom: savedCam?.zoom ?? 12,
       attributionControl: false,
       maxBounds: initial.hasCoords ? buildBboxBounds(initial.lat, initial.lng) : undefined,
     });
@@ -378,6 +383,12 @@ export const LocationMap: React.FC = () => {
     });
     ro.observe(containerRef.current);
     return () => {
+      // Save the camera before teardown so the rebuild (breakpoint
+      // crossing) reopens on the same view.
+      try {
+        const c = map.getCenter();
+        savedCameraRef.current = { center: [c.lng, c.lat], zoom: map.getZoom() };
+      } catch { /* map already gone */ }
       cancelAnimationFrame(rafId);
       ro.disconnect();
       clearMarkers();
@@ -385,8 +396,15 @@ export const LocationMap: React.FC = () => {
       mapRef.current = null;
       setMapReady(false);
     };
+    // Keyed on isMobile ON PURPOSE: the container div lives in a DIFFERENT
+    // JSX branch per layout (desktop vs mobile return). Crossing the 768px
+    // breakpoint (iPad rotation, window resize) unmounts the div the canvas
+    // lives in — with [] deps the map kept rendering into that detached
+    // node and the page went permanently blank. Tearing down and
+    // re-initialising into the new branch's container (camera restored
+    // above, markers re-added by the mapReady-gated effect) is the fix.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isMobile]);
 
   // Follow the app's light/dark mode — swap the Mapbox style when the
   // user toggles the theme. DOM markers survive a setStyle (Mapbox only
