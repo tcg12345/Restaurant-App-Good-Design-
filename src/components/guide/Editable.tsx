@@ -113,6 +113,16 @@ export const Editable: React.FC<EditableProps> = ({
       e.preventDefault();
       (e.currentTarget as HTMLElement).blur();
     }
+    if (multiline && e.key === 'Enter') {
+      // Insert a literal \n instead of letting the browser split the node
+      // into <div>/<br> children. Keeps the DOM a flat text run — which is
+      // what the sync effect writes back (textContent = value) — and the
+      // is-multiline pre-wrap style renders the \n as a real line break.
+      // execCommand is deprecated but universally supported and preserves
+      // the undo stack, unlike manual Range surgery.
+      e.preventDefault();
+      document.execCommand('insertText', false, '\n');
+    }
     if (
       maxLength
       && ref.current
@@ -132,7 +142,7 @@ export const Editable: React.FC<EditableProps> = ({
     spellCheck: false,
     'data-placeholder': placeholder,
     'data-style-key': styleKey,
-    className: cn('gle-editable', overrides && 'has-override', selected && 'is-selected', className),
+    className: cn('gle-editable', multiline && 'is-multiline', overrides && 'has-override', selected && 'is-selected', className),
     style: { ...baseStyle, ...computed },
     onFocus: (e: React.FocusEvent<HTMLElement>) => {
       editing.current = true;
@@ -140,7 +150,21 @@ export const Editable: React.FC<EditableProps> = ({
     },
     onBlur: (e: React.FocusEvent<HTMLElement>) => {
       editing.current = false;
-      onChange(e.currentTarget.textContent || '');
+      // Commit innerText, NOT textContent: contentEditable line breaks live
+      // as <div>/<br> structure (e.g. pasted multiline text), and
+      // textContent glues those lines into one string — which flattened
+      // every multi-line body into a single bullet on the published guide.
+      // innerText reflects the rendered breaks as \n; Enter itself inserts
+      // a literal \n (see handleKey), which innerText also round-trips.
+      const text = e.currentTarget.innerText || '';
+      if (!text.trim()) {
+        // A structurally-"empty" node reads as '\n' via innerText (a lone
+        // <br> placeholder) — commit a genuine empty string instead.
+        onChange('');
+      } else {
+        // Single-line nodes still collapse any pasted line breaks.
+        onChange(multiline ? text : text.replace(/\s*\n\s*/g, ' '));
+      }
     },
     onKeyDown: handleKey,
   } as React.HTMLAttributes<HTMLElement> & { contentEditable: boolean; ref: (n: HTMLElement | null) => void });

@@ -705,6 +705,19 @@
   white-space: pre-wrap;
   padding-left: 4px;
 }
+/* Every multiline-editable field can hold literal \n breaks typed in Live
+   Edit. Preserve them wherever the raw value renders — reader and editor —
+   so what's typed is what publishes. (List-format custom sections split on
+   the same \n into <li>s instead; see the custom-section renderer.) */
+.gle-scope .gle-hero-title,
+.gle-scope .gle-hero-sub,
+.gle-scope .gle-intro-body,
+.gle-scope .gle-entry-blurb,
+.gle-scope .gle-ib-text,
+.gle-scope .gle-cs-body,
+.gle-scope .gle-ap-bio {
+  white-space: pre-wrap;
+}
 .gle-scope .gle-cs-list {
   margin: 0;
   padding-left: 22px;
