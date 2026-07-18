@@ -140,7 +140,15 @@ export async function configureNativeKeyboard(
   document.addEventListener('focusin', onFocusIn);
   const vv = window.visualViewport;
   const syncViewportHeight = () => {
-    if (keyboardHeight > 0) return; // keyboard listeners own --app-vh while open
+    if (keyboardHeight > 0) {
+      // Rotating with the keyboard up: the old early-return froze --app-vh
+      // at the value computed at keyboardWillShow, leaving both vars wrong
+      // until a hide/show cycle. Recompute from the CURRENT window height
+      // minus the known keyboard height; iOS re-fires keyboardWillShow
+      // with the new height after rotation, which refines it again.
+      setAppVh(window.innerHeight - keyboardHeight);
+      return;
+    }
     setAppVh(vv?.height ?? window.innerHeight);
   };
   if (vv) {
@@ -153,13 +161,22 @@ export async function configureNativeKeyboard(
   const handles = await Promise.all([
     Keyboard.addListener('keyboardWillShow', (info) => {
       keyboardHeight = info?.keyboardHeight ?? 0;
+      // Only a real, bottom-docked keyboard counts as OPEN. A hardware
+      // keyboard's shortcut bar and floating/undocked iPad keyboards report
+      // ~0 height — the old unconditional onKeyboardChange(true) hid the
+      // whole bottom nav for those with nothing actually covering the
+      // screen. Zero-height frames are treated as closed instead.
       if (keyboardHeight > 0) {
         setAppVh(window.innerHeight - keyboardHeight);
         setKbHeight(keyboardHeight);
         root.classList.add('kb-open');
         revealActiveField();
+      } else {
+        root.classList.remove('kb-open');
+        setKbHeight(0);
+        setAppVh(vv?.height ?? window.innerHeight);
       }
-      options.onKeyboardChange?.(true);
+      options.onKeyboardChange?.(keyboardHeight > 0);
     }),
     Keyboard.addListener('keyboardWillHide', () => {
       keyboardHeight = 0;

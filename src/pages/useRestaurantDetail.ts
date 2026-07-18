@@ -16,26 +16,12 @@ import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMi
 mapboxgl.workerClass = MapboxWorker;
 
 import { MAPBOX_TOKEN } from '../lib/keys';
+import { useBlobPhotos } from '../lib/useBlobPhotos';
 
-/**
- * iOS WKWebView (the Capacitor app's web view) frequently fails to render
- * large base64 `data:` image URLs — they load fine in a desktop browser but
- * silently break on the phone, which is why community photos "don't show up".
- * Converting them to blob object URLs renders reliably. Returns null for
- * anything that isn't a data URL so callers can keep the original.
- */
-export async function dataUrlToBlobUrl(dataUrl: string): Promise<string | null> {
-  try {
-    if (!dataUrl.startsWith('data:')) return null;
-    // fetch() decodes the data URL natively — far faster and more memory-safe
-    // than an atob() char-by-char loop, which choked/threw on large photos
-    // (so those just vanished from the page).
-    const blob = await fetch(dataUrl).then((r) => r.blob());
-    return URL.createObjectURL(blob);
-  } catch {
-    return null;
-  }
-}
+// The base64→blob conversion + cache moved to the shared useBlobPhotos hook
+// (src/lib/useBlobPhotos.ts) so RestaurantPanel and any other community-photo
+// surface renders reliably on iOS too. Re-exported here for compatibility.
+export { dataUrlToBlobUrl } from '../lib/useBlobPhotos';
 
 export function formatReviewCount(count: number): string {
   if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
@@ -237,10 +223,8 @@ export function useRestaurantDetail() {
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
   // base64 data-URL → blob object-URL map, so the iOS web view can render
-  // them (see dataUrlToBlobUrl). Persisted in a ref so a blob still in use by
-  // the hero isn't revoked when the rest of the photos arrive.
-  const photoBlobCacheRef = useRef<Map<string, string>>(new Map());
-  const [photoBlobMap, setPhotoBlobMap] = useState<Record<string, string>>({});
+  // them (shared hook — see src/lib/useBlobPhotos.ts).
+  const photoBlobMap = useBlobPhotos(communityPhotos);
   const [expertRecommendations, setExpertRecommendations] = useState<ExpertRecommendation[]>([]);
   const [showFriendsDetail, setShowFriendsDetail] = useState(false);
   const [visitHistory, setVisitHistory] = useState<VisitRecord[]>([]);
@@ -389,42 +373,6 @@ export function useRestaurantDetail() {
     })();
     return () => { cancelled = true; };
   }, [place?.id]);
-
-  // Convert any base64 community photos to blob object URLs (iOS render fix).
-  // Blobs are cached by their source data-URL so one already shown in the hero
-  // survives the cover→full-set swap; only dropped ones are revoked.
-  useEffect(() => {
-    let cancelled = false;
-    const cache = photoBlobCacheRef.current;
-    (async () => {
-      const needed = new Set<string>();
-      for (const p of communityPhotos) {
-        if (p.url && p.url.startsWith('data:')) {
-          needed.add(p.url);
-          if (!cache.has(p.url)) {
-            const blob = await dataUrlToBlobUrl(p.url);
-            if (cancelled) { if (blob) URL.revokeObjectURL(blob); return; }
-            if (blob) {
-              cache.set(p.url, blob);
-              // Publish each as it's ready so the hero/carousel fill in
-              // progressively rather than waiting for the whole batch.
-              setPhotoBlobMap(Object.fromEntries(cache));
-            }
-          }
-        }
-      }
-      let changed = false;
-      for (const [src, url] of cache) {
-        if (!needed.has(src)) { URL.revokeObjectURL(url); cache.delete(src); changed = true; }
-      }
-      if (changed && !cancelled) setPhotoBlobMap(Object.fromEntries(cache));
-    })();
-    return () => { cancelled = true; };
-  }, [communityPhotos]);
-  useEffect(() => () => {
-    for (const url of photoBlobCacheRef.current.values()) URL.revokeObjectURL(url);
-    photoBlobCacheRef.current.clear();
-  }, []);
 
   // Merge Google Places photos with community user-uploaded photos
   const photos = useMemo(() => {

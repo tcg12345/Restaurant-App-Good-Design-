@@ -113,6 +113,16 @@ export const Editable: React.FC<EditableProps> = ({
       e.preventDefault();
       (e.currentTarget as HTMLElement).blur();
     }
+    if (multiline && e.key === 'Enter') {
+      // Insert a literal \n instead of letting the browser split the node
+      // into <div>/<br> children. Keeps the DOM a flat text run — which is
+      // what the sync effect writes back (textContent = value) — and the
+      // is-multiline pre-wrap style renders the \n as a real line break.
+      // execCommand is deprecated but universally supported and preserves
+      // the undo stack, unlike manual Range surgery.
+      e.preventDefault();
+      document.execCommand('insertText', false, '\n');
+    }
     if (
       maxLength
       && ref.current
@@ -125,6 +135,34 @@ export const Editable: React.FC<EditableProps> = ({
     }
   };
 
+  // Paste as PLAIN TEXT, clamped to the character budget. The default
+  // contentEditable paste injects whatever HTML is on the clipboard —
+  // images, styled spans, whole page fragments — corrupting the editing
+  // DOM; and since the keydown maxLength guard only sees keystrokes, an
+  // unhandled paste walks straight past every limit (1200-char sections,
+  // short subtitles). insertText keeps the DOM a flat text run, same as
+  // typing (see handleKey).
+  const handlePaste = (e: React.ClipboardEvent<HTMLElement>) => {
+    e.preventDefault();
+    let text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+    // Single-line nodes never take line breaks — collapse them to spaces
+    // (mirrors the blur commit's normalization).
+    if (!multiline) text = text.replace(/\s*\n\s*/g, ' ');
+    if (maxLength) {
+      const el = e.currentTarget;
+      // Pasting over a selection replaces it, so the budget gets that
+      // length back. Only count selections inside this node.
+      const sel = window.getSelection();
+      const replaced = sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)
+        ? sel.toString().length
+        : 0;
+      const remaining = Math.max(0, maxLength - ((el.textContent?.length || 0) - replaced));
+      text = text.slice(0, remaining);
+    }
+    if (text) document.execCommand('insertText', false, text);
+  };
+
   return React.createElement(as, {
     ref: (node: HTMLElement | null) => { ref.current = node; },
     contentEditable: true,
@@ -132,7 +170,7 @@ export const Editable: React.FC<EditableProps> = ({
     spellCheck: false,
     'data-placeholder': placeholder,
     'data-style-key': styleKey,
-    className: cn('gle-editable', overrides && 'has-override', selected && 'is-selected', className),
+    className: cn('gle-editable', multiline && 'is-multiline', overrides && 'has-override', selected && 'is-selected', className),
     style: { ...baseStyle, ...computed },
     onFocus: (e: React.FocusEvent<HTMLElement>) => {
       editing.current = true;
@@ -140,9 +178,27 @@ export const Editable: React.FC<EditableProps> = ({
     },
     onBlur: (e: React.FocusEvent<HTMLElement>) => {
       editing.current = false;
-      onChange(e.currentTarget.textContent || '');
+      // Commit innerText, NOT textContent: contentEditable line breaks live
+      // as <div>/<br> structure (e.g. pasted multiline text), and
+      // textContent glues those lines into one string — which flattened
+      // every multi-line body into a single bullet on the published guide.
+      // innerText reflects the rendered breaks as \n; Enter itself inserts
+      // a literal \n (see handleKey), which innerText also round-trips.
+      const text = e.currentTarget.innerText || '';
+      if (!text.trim()) {
+        // A structurally-"empty" node reads as '\n' via innerText (a lone
+        // <br> placeholder) — commit a genuine empty string instead.
+        onChange('');
+      } else {
+        // Single-line nodes still collapse any pasted line breaks.
+        onChange(multiline ? text : text.replace(/\s*\n\s*/g, ' '));
+      }
     },
     onKeyDown: handleKey,
+    onPaste: handlePaste,
+    // Dropping content into a contentEditable inserts raw HTML through a
+    // path onPaste never sees — block it outright rather than sanitize.
+    onDrop: (e: React.DragEvent<HTMLElement>) => e.preventDefault(),
   } as React.HTMLAttributes<HTMLElement> & { contentEditable: boolean; ref: (n: HTMLElement | null) => void });
 };
 

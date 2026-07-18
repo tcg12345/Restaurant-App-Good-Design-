@@ -135,6 +135,36 @@ export const normalizeUnit = (input: string, strict = false): string => {
   return '';
 };
 
+/* ── Unicode quantity normalization ──────────────────────────────── */
+
+/** Unicode vulgar fraction → ASCII "n/d". Recipe imports genuinely carry
+ *  these: the import edge function decodes &frac12; back to ½, and JSON-LD
+ *  recipe markup commonly uses the precomposed characters. */
+const UNICODE_FRACTION_ASCII: Record<string, string> = {
+  '½': '1/2', '⅓': '1/3', '⅔': '2/3', '¼': '1/4', '¾': '3/4',
+  '⅕': '1/5', '⅖': '2/5', '⅗': '3/5', '⅘': '4/5',
+  '⅙': '1/6', '⅚': '5/6', '⅐': '1/7', '⅛': '1/8', '⅜': '3/8',
+  '⅝': '5/8', '⅞': '7/8', '⅑': '1/9', '⅒': '1/10',
+};
+const UNICODE_FRACTION_RE = /(\d+)?\s*([½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞⅑⅒])/g;
+
+/** Rewrite a quantity token into the ASCII vocabulary every parser here
+ *  understands: precomposed vulgar fractions become "n/d" ("½" → "1/2"),
+ *  compounds keep their whole part ("1½" / "1 ½" → "1 1/2"), the unicode
+ *  fraction slash (⁄) becomes "/", and en/em dashes and the minus sign
+ *  become "-" so ranges like "2–3" parse. Text without any of those passes
+ *  through untouched. */
+export const normalizeQuantityToken = (raw: string): string => {
+  return raw
+    .replace(/[–—−]/g, '-')
+    .replace(/⁄/g, '/')
+    .replace(UNICODE_FRACTION_RE, (_, whole: string | undefined, ch: string) => {
+      const ascii = UNICODE_FRACTION_ASCII[ch];
+      return whole ? `${whole} ${ascii}` : ascii;
+    })
+    .trim();
+};
+
 /** Matches a decimal in any of these forms: "1", "1.5", "0.5", ".5", "1.".
  *  Reused by both parseAmount and parseIngredientLine. */
 export const DECIMAL_PATTERN = '(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+|\\d+)';
@@ -142,9 +172,10 @@ export const DECIMAL_PATTERN = '(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+|\\d+)';
 /** Parses "2", "1/2", "1 1/2", "0.5", "1-2" (range uses low end) into a number.
  *  Returns null for anything it can't recognize. */
 export const parseAmount = (str: string): number | null => {
-  // Normalize comma decimal separators ("0,5" → "0.5") so European-style
-  // input works without a special case.
-  const trimmed = str.trim().replace(/,/g, '.');
+  // Normalize unicode fractions/dashes first ("½" → "1/2", "1½" → "1 1/2",
+  // "2–3" → "2-3"), then comma decimal separators ("0,5" → "0.5") so
+  // European-style input works without a special case.
+  const trimmed = normalizeQuantityToken(str).replace(/,/g, '.');
   if (!trimmed) return null;
   const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (mixedMatch) {
@@ -220,8 +251,12 @@ export const displayAmount = (amount: string): string => {
 
 /** Parses a single bulk-paste line into { amount, unit, name }. */
 export const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
-  // Strip bullets, collapse whitespace, and normalize comma decimals.
-  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ').replace(/(\d),(\d)/g, '$1.$2');
+  // Strip bullets, collapse whitespace, normalize comma decimals, and
+  // rewrite unicode fractions/dashes to ASCII so "½ cup sugar" and "2–3
+  // eggs" parse instead of landing whole in the name field.
+  const line = normalizeQuantityToken(raw.trim().replace(/^[-*•·●]\s*/, ''))
+    .replace(/\s+/g, ' ')
+    .replace(/(\d),(\d)/g, '$1.$2');
   if (!line) return null;
   // Leading amount can be a mixed fraction ("1 1/2"), a fraction ("1/2"),
   // a decimal with or without a leading zero (".5", "0.5", "1.5"), a plain
@@ -237,16 +272,18 @@ export const parseIngredientLine = (raw: string): { name: string; amount: string
   if (!rest) return { name: '', amount, unit: '' };
   const words = rest.split(' ');
   // Try a two-word unit first ("fl oz", "fluid ounces"), then one-word.
-  // Matches original AddHomeMealModal behavior — fuzzy on by default;
-  // the Levenshtein thresholds in normalizeUnit are tight enough that
-  // common ingredient words don't get misread.
+  // STRICT matching only: this word is ingredient prose, not a value the
+  // user offered as a unit, and Levenshtein distance 1 on short words
+  // turns real ingredients into bogus units ("2 bay leaves" → unit "bags"
+  // name "leaves"; "2 ears corn" → "jars"). Fuzzy matching stays available
+  // where the user is explicitly typing a unit (the unit combobox).
   if (words.length >= 2) {
     const twoWord = `${words[0]} ${words[1]}`;
-    const matched = normalizeUnit(twoWord);
+    const matched = normalizeUnit(twoWord, true);
     if (matched) return { amount, unit: matched, name: words.slice(2).join(' ') };
   }
   const firstWord = words[0].replace(/[.,;:]$/, '');
-  const matched = normalizeUnit(firstWord);
+  const matched = normalizeUnit(firstWord, true);
   if (matched) return { amount, unit: matched, name: words.slice(1).join(' ') };
   return { amount, unit: '', name: rest };
 };

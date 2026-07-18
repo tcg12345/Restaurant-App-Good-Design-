@@ -22,8 +22,10 @@ import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { getRestaurantGeoBatch, saveRestaurantGeo } from '../lib/restaurant-geo';
 import {
   buildTasteProfile,
+  recPrefsHashForProfile,
   buildCandidateQueries,
   scoreCandidates,
   haversineKm,
@@ -58,7 +60,6 @@ import {
 } from '../components/HomeLocationBar';
 import {
   locationKey,
-  preferencesHash,
   getHomeRecsCache,
   saveHomeRecsCache,
   type HomeRecCacheEntry,
@@ -1075,7 +1076,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // older one is mid-flight, and the stale one must not clobber the results.
   const recsRunIdRef = useRef(0);
 
-  const recommendations = apiRecommendations;
+  // Derive the DISPLAYED ranking from the raw pool at render time instead of
+  // baking it in at fetch time. The recSignals fetch and the rec
+  // orchestrator start concurrently, and fetchRecBatch closes over whatever
+  // signals existed when it ran — the empty initial set on a fresh load —
+  // while the orchestrator's once-guard blocks any refetch when the signals
+  // land. Result: friend/expert/tag lifts were absent for the whole
+  // session. Scoring is synchronous and cheap, so re-ranking here applies
+  // the lifts the moment signals (or the taste profile) arrive, no extra
+  // Places spend. Ties keep the pool's (shuffled) order, preserving the
+  // cached-path variety.
+  const recommendations = useMemo<PlaceResult[]>(() => {
+    if (mode !== 'home' || !homeLocation || apiRecommendations.length === 0) return apiRecommendations;
+    const target = { label: homeLocation.label, lat: homeLocation.lat, lng: homeLocation.lng };
+    return scoreCandidates(apiRecommendations, userPreferences, recSignals, target, recRadiusMiles * 1609.34);
+  }, [apiRecommendations, userPreferences, recSignals, mode, homeLocation, recRadiusMiles]);
 
   // Community-supplied price fallback: when Google has no priceLevel for
   // a place (parsePriceLevel returns -1, priceLevelToString returns '')
@@ -1497,7 +1512,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const uid = userId;
     const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
+    // Canonical hash shared with gatherRecCandidates (the browser surface) —
+    // mismatched formats made each surface treat the other's cache writes as
+    // "prefs drifted" and refetch Google forever.
+    const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
 
     const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
       if (recsRunIdRef.current !== runId) return; // superseded by a newer run
@@ -1662,6 +1680,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const topUpResults = topUpQuery
               ? (await fetchRecBatch([topUpQuery])).filter((p) => !fresh.places.some((q) => q.id === p.id))
               : [];
+            // A newer run may have superseded us during the await — writing
+            // the session/DB cache now would clobber its fresher entry.
+            if (recsRunIdRef.current !== runId) return;
             const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
               .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
             // Only reset the TTL clock when the underlying preferences changed
@@ -1732,7 +1753,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // this city get them without another Places call.
       if (userId) {
         const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-        const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
+        const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
         const existing = sessionRecsCache[locKey]?.places || [];
         const mergedPool = [...existing, ...freshWithCovers]
           .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
@@ -2804,7 +2825,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (missing.length === 0) return;
 
     (async () => {
+      // Shared geocode cache first — anything anyone resolved before costs
+      // zero geocoding calls here.
+      const cachedGeo = await getRestaurantGeoBatch(missing.map((r) => r.restaurant_id));
+      const toGeocode: typeof missing = [];
       for (const r of missing) {
+        const hit = cachedGeo[r.restaurant_id];
+        if (hit) { r.lat = hit.lat; r.lng = hit.lng; }
+        else toGeocode.push(r);
+      }
+      for (const r of toGeocode) {
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(
@@ -2816,6 +2846,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const [lng, lat] = feature.center;
             r.lat = lat;
             r.lng = lng;
+            saveRestaurantGeo(r.restaurant_id, lat, lng);
+            // These are the CURRENT USER's own ratings, so patching the
+            // community row is allowed under RLS.
             publishCommunityRating(r.user_id, r.restaurant_id, {
               name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
               price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
@@ -2880,23 +2913,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             r.lng = lng;
             updatedSinceFlush++;
             scheduleFlush();
-            // Persist so subsequent loads don't need to geocode again.
-            publishCommunityRating(r.user_id, r.restaurant_id, {
-              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
-              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
-              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-              photoUrl: r.photo_url || '', lat, lng,
-            });
+            // Persist to the SHARED geo cache (any signed-in user may
+            // write it). The old republish of the rating row used the
+            // rating OWNER's id — RLS rejected every one of those writes
+            // silently, so these expert/friend ratings were re-geocoded on
+            // every mount forever.
+            saveRestaurantGeo(r.restaurant_id, lat, lng);
           }
         } catch {}
       };
 
+      // Shared cache first — one batched read replaces geocoding for
+      // anything anyone resolved before.
+      const cachedGeo = await getRestaurantGeoBatch(missing.map((r) => r.restaurant_id));
+      const toGeocode: CommunityRating[] = [];
+      for (const r of missing) {
+        const hit = cachedGeo[r.restaurant_id];
+        if (hit) {
+          r.lat = hit.lat;
+          r.lng = hit.lng;
+          updatedSinceFlush++;
+          scheduleFlush();
+        } else {
+          toGeocode.push(r);
+        }
+      }
+
       // Run with bounded concurrency.
       let idx = 0;
-      const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
-        while (idx < missing.length) {
+      const workers = Array.from({ length: Math.min(CONCURRENCY, toGeocode.length) }, async () => {
+        while (idx < toGeocode.length) {
           const i = idx++;
-          await geocodeOne(missing[i]);
+          await geocodeOne(toGeocode[i]);
         }
       });
       await Promise.all(workers);

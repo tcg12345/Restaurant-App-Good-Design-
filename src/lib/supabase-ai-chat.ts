@@ -1,6 +1,9 @@
 // Supabase persistence for the "Ask a local" AI assistant chat history.
 // Stored as a JSONB array in user_app_data.location_chat_history — one
 // row per user, same table + per-user pattern as ratings/lists/chats.
+// Deletion tombstones ride inside the same array as a sentinel element
+// (see the codec in ai-chat-history.ts) so deletions propagate across
+// devices instead of resurrecting on the next union merge.
 //
 // Both functions degrade gracefully: if Supabase isn't configured, the
 // user is signed out, or the column hasn't been migrated yet, they no-op
@@ -8,10 +11,21 @@
 // saveHomeMeals in supabase-db.ts.
 
 import { supabase, supabaseConfigured } from './supabase';
-import { boundChats, type SavedChat } from './ai-chat-history';
+import {
+  decodeCloudChatPayload,
+  encodeCloudChatPayload,
+  type AiChatCloudPayload,
+  type ChatTombstone,
+  type SavedChat,
+} from './ai-chat-history';
 
-export async function loadAiChatHistory(userId: string): Promise<SavedChat[]> {
-  if (!supabaseConfigured || !userId) return [];
+/** Returns the cloud copy, `{chats: [], tombstones: []}` for a genuinely
+ *  empty account (no row yet), or NULL when the read failed (offline,
+ *  column missing, …). Callers must treat null as "unknown" and skip any
+ *  follow-up write — pushing local over an unreadable cloud copy is how
+ *  histories get clobbered. */
+export async function loadAiChatHistory(userId: string): Promise<AiChatCloudPayload | null> {
+  if (!supabaseConfigured || !userId) return null;
   try {
     const { data, error } = await supabase
       .from('user_app_data')
@@ -19,21 +33,22 @@ export async function loadAiChatHistory(userId: string): Promise<SavedChat[]> {
       .eq('user_id', userId)
       .single();
     if (error) {
-      if (error.code === 'PGRST116') return []; // no row for this user yet
+      if (error.code === 'PGRST116') return { chats: [], tombstones: [] }; // no row for this user yet
       console.warn('[AiChat] load error (column may not exist yet):', error.message);
-      return [];
+      return null;
     }
-    const raw = (data as Record<string, unknown>)?.location_chat_history;
-    return Array.isArray(raw)
-      ? boundChats((raw as SavedChat[]).filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages)))
-      : [];
+    return decodeCloudChatPayload((data as Record<string, unknown>)?.location_chat_history);
   } catch (err) {
     console.warn('[AiChat] load exception:', err);
-    return [];
+    return null;
   }
 }
 
-export async function saveAiChatHistory(userId: string, chats: SavedChat[]): Promise<boolean> {
+export async function saveAiChatHistory(
+  userId: string,
+  chats: SavedChat[],
+  tombstones: ChatTombstone[] = [],
+): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
     // Upsert just this column — PostgREST only writes the keys we pass, so
@@ -42,7 +57,7 @@ export async function saveAiChatHistory(userId: string, chats: SavedChat[]): Pro
     const { error } = await supabase
       .from('user_app_data')
       .upsert(
-        { user_id: userId, location_chat_history: boundChats(chats), updated_at: new Date().toISOString() },
+        { user_id: userId, location_chat_history: encodeCloudChatPayload(chats, tombstones), updated_at: new Date().toISOString() },
         { onConflict: 'user_id' },
       );
     if (error) {

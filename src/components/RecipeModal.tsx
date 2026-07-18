@@ -29,7 +29,7 @@ const DIFFICULTY_COLORS: Record<Recipe['difficulty'], string> = {
 type Page = 'main' | 'ingredients' | 'steps' | 'photos' | 'tags';
 
 export const RecipeModal: React.FC = () => {
-  const { recipeModalOpen, recipeModalData, closeRecipeModal, createRecipe, updateRecipe } = useRecipes();
+  const { recipeModalOpen, recipeModalData, closeRecipeModal, createRecipe, updateRecipe, deleteRecipe } = useRecipes();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
 
@@ -59,6 +59,13 @@ export const RecipeModal: React.FC = () => {
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // In-flight guards: the save/delete buttons stay tappable through a slow
+  // network call otherwise — a double-tap on Save created two DB rows
+  // (dedupeRecipes in supabase-recipes.ts exists to paper over exactly
+  // those duplicates).
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,6 +90,9 @@ export const RecipeModal: React.FC = () => {
       setSelectedPhotoIdx(null);
       setPage('main');
       setConfirmDelete(false);
+      setSaving(false);
+      setDeleting(false);
+      setActionError(null);
     }
   }, [recipeModalOpen, existing]);
 
@@ -154,7 +164,7 @@ export const RecipeModal: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!title.trim() || !user?.id) return;
+    if (saving || !title.trim() || !user?.id) return;
     const allPhotos = [coverPhoto, ...photos.map((p) => p.url)].filter(Boolean);
     const recipeData = {
       userId: user.id,
@@ -175,17 +185,37 @@ export const RecipeModal: React.FC = () => {
       linkedMealId: existing?.linkedMealId ?? null,
     };
 
-    if (existing) {
-      await updateRecipe(existing.id, recipeData);
-    } else {
-      await createRecipe(recipeData);
+    setSaving(true);
+    setActionError(null);
+    try {
+      // Close only when the write actually landed — closing on failure
+      // silently threw the recipe away.
+      const ok = existing
+        ? await updateRecipe(existing.id, recipeData)
+        : (await createRecipe(recipeData)) !== null;
+      if (ok) {
+        closeRecipeModal();
+      } else {
+        setActionError("Couldn't save the recipe. Check your connection and try again.");
+      }
+    } finally {
+      setSaving(false);
     }
-    closeRecipeModal();
   };
 
   const handleDelete = async () => {
-    // Delete handled through context if needed
-    closeRecipeModal();
+    if (!existing || deleting) return;
+    setDeleting(true);
+    setActionError(null);
+    try {
+      if (await deleteRecipe(existing.id)) {
+        closeRecipeModal();
+      } else {
+        setActionError("Couldn't delete the recipe. Check your connection and try again.");
+      }
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const hasIngredients = ingredients.length > 0;
@@ -364,9 +394,12 @@ export const RecipeModal: React.FC = () => {
 
                   {/* Footer */}
                   <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
-                    <button onClick={handleSave} disabled={!title.trim()}
+                    {actionError && (
+                      <p className="text-xs text-red-500 font-medium text-center">{actionError}</p>
+                    )}
+                    <button onClick={handleSave} disabled={!title.trim() || saving || deleting}
                       className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">
-                      {existing ? 'Update Recipe' : 'Save Recipe'}
+                      {saving ? 'Saving…' : existing ? 'Update Recipe' : 'Save Recipe'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}
@@ -378,8 +411,10 @@ export const RecipeModal: React.FC = () => {
                       <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
                         <p className="text-xs text-red-600 font-medium">Delete this recipe?</p>
                         <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={handleDelete} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                          <button onClick={() => setConfirmDelete(false)} disabled={deleting} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white disabled:opacity-40">Cancel</button>
+                          <button onClick={handleDelete} disabled={deleting} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-60">
+                            {deleting ? 'Deleting…' : 'Delete'}
+                          </button>
                         </div>
                       </div>
                     )}

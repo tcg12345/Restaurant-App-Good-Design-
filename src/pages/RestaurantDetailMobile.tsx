@@ -217,15 +217,29 @@ export const RestaurantDetailMobile: React.FC = () => {
 
   const handleReviewLike = (ratingId: string) => {
     if (!user?.id) { requireSignIn('Sign in to like reviews'); return; }
+    const uid = user.id;
+    let wasLiked = false;
     setReviewLikes((prev) => {
       const mine = new Set(prev.mine);
       const counts = { ...prev.counts };
-      const wasLiked = mine.has(ratingId);
+      wasLiked = mine.has(ratingId);
       if (wasLiked) mine.delete(ratingId); else mine.add(ratingId);
       counts[ratingId] = Math.max(0, (counts[ratingId] || 0) + (wasLiked ? -1 : 1));
       return { counts, mine };
     });
-    void toggleLike(user.id, ratingId);
+    void toggleLike(uid, ratingId).then((res) => {
+      // Roll back when the write failed or the server didn't actually move
+      // — the fire-and-forget version let the heart drift from the DB.
+      if (!res.ok || res.liked === wasLiked) {
+        setReviewLikes((prev) => {
+          const mine = new Set(prev.mine);
+          const counts = { ...prev.counts };
+          if (wasLiked) mine.add(ratingId); else mine.delete(ratingId);
+          counts[ratingId] = Math.max(0, (counts[ratingId] || 0) + (wasLiked ? 1 : -1));
+          return { counts, mine };
+        });
+      }
+    });
   };
 
   const myRating = place ? getRating(place.id) : undefined;

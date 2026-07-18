@@ -125,7 +125,12 @@ export const FriendReviewDetail: React.FC = () => {
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikeCount((c) => Math.max(0, c + (wasLiked ? -1 : 1)));
-    await toggleLike(userId, rating.id);
+    const res = await toggleLike(userId, rating.id);
+    // Roll back when the write failed or the server didn't actually move.
+    if (!res.ok || res.liked === wasLiked) {
+      setLiked(wasLiked);
+      setLikeCount((c) => Math.max(0, c + (wasLiked ? 1 : -1)));
+    }
   };
 
   const handleToggleComments = useCallback(async () => {

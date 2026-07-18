@@ -298,6 +298,12 @@
   color: rgba(30,27,26,0.35);
   pointer-events: none;
 }
+/* Multiline editables hold literal \n characters (Enter inserts one; the
+   commit reads innerText) — pre-wrap makes them render as line breaks
+   while typing, so the editor shows exactly what will publish. */
+.gle-overlay .gle-editable.is-multiline {
+  white-space: pre-wrap;
+}
 /* Read-only editable — selectable for styling, not for typing. */
 .gle-overlay .gle-editable.is-readonly {
   cursor: pointer;

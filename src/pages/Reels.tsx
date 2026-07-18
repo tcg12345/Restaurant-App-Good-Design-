@@ -409,22 +409,52 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             onUserToggle={(nowPaused) => triggerFlash(nowPaused ? 'pause' : 'play')}
             onActiveMedia={onActiveVideoChange}
           />
-        ) : reel.muxStatus === 'processing' ? (
-          // Just uploaded — Mux is still transcoding. Show the captured frame
-          // (author's session) under a processing spinner until it's ready.
-          <div className="absolute inset-0 bg-black">
-            {reel.posterUrl && (
-              <img
-                src={reel.posterUrl}
-                alt=""
-                className={cn('absolute inset-0 w-full h-full', phoneMode ? 'object-cover' : 'object-contain')}
-              />
-            )}
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
-              <div className="w-9 h-9 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-              <span className="text-white/80 text-xs font-medium tracking-wide">Processing video…</span>
-            </div>
-          </div>
+        ) : reel.muxStatus === 'processing' || reel.muxStatus === 'errored' ? (
+          // Just uploaded — Mux is still transcoding — OR the upload died
+          // (webhook marked it errored, the hourly reaper caught a stuck
+          // row, or it's been "processing" implausibly long because the app
+          // was killed mid-upload before either could run). Genuine
+          // transcodes finish in well under an hour, so past that we stop
+          // pretending and let the owner discard the ghost.
+          (() => {
+            const stuck = reel.muxStatus === 'errored'
+              || (Date.now() - reel.createdAt) > 60 * 60 * 1000;
+            return (
+              <div className="absolute inset-0 bg-black">
+                {reel.posterUrl && (
+                  <img
+                    src={reel.posterUrl}
+                    alt=""
+                    className={cn('absolute inset-0 w-full h-full', phoneMode ? 'object-cover' : 'object-contain')}
+                  />
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
+                  {stuck ? (
+                    <>
+                      <span className="text-white/85 text-sm font-semibold">Upload didn&rsquo;t finish</span>
+                      <span className="text-white/55 text-xs text-center px-8">
+                        {isMine ? 'This video never reached the server.' : 'This video isn’t available.'}
+                      </span>
+                      {isMine && (
+                        <button
+                          type="button"
+                          onClick={onDelete}
+                          className="mt-1 px-4 py-2 rounded-full bg-white/15 hover:bg-white/25 text-white text-xs font-semibold transition-colors"
+                        >
+                          Discard
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-9 h-9 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                      <span className="text-white/80 text-xs font-medium tracking-wide">Processing video…</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()
         ) : reel.videoUrl ? (
           <>
             {/* Flat neutral backing while the reel loads. The <video> and

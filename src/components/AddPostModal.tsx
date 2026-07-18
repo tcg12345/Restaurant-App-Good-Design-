@@ -141,6 +141,14 @@ function mediaRowSub(item: { file?: File; mediaType: PostMediaType; durationSeco
   return [ext, size].filter(Boolean).join(' · ') || 'Photo';
 }
 
+/** Release the blob: previews we created via URL.createObjectURL. Edit-mode
+ *  tiles carry signed https URLs — those pass through untouched. */
+function revokeItemPreviews(list: WorkingItem[]): void {
+  for (const it of list) {
+    if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
+  }
+}
+
 /* ── Step machine type ───────────────────────────────────────────────── */
 
 type Step = 1 | 2 | 3 | 4;
@@ -165,6 +173,11 @@ export const AddPostModal: React.FC = () => {
   const goToStep = (next: Step) => setStep(next);
 
   const [items, setItems] = useState<WorkingItem[]>([]);
+  // Latest items for the cleanup paths that can't read state directly: the
+  // unmount effect's [] closure, and the open-reset effect, which must
+  // revoke the PREVIOUS session's previews before replacing them.
+  const itemsRef = useRef<WorkingItem[]>([]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [postCaption, setPostCaption] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
@@ -181,6 +194,9 @@ export const AddPostModal: React.FC = () => {
   const [audio, setAudio] = useState('Original audio');
   const [isPublic, setIsPublic] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // In-flight media uploads — lets the close button double as Cancel while
+  // a create upload runs (abort → createPost tears the whole post down).
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState(0);
   const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -222,6 +238,12 @@ export const AddPostModal: React.FC = () => {
   // form, with the strip showing the existing media as read-only tiles.
   useEffect(() => {
     if (!addPostModalOpen) return;
+    // This component never unmounts (only the open subtree does), so the
+    // PREVIOUS session's items are still sitting in state right now —
+    // release their blob previews before the seed/clear below drops the
+    // last references. Without this, every compose session leaked its
+    // object URLs (up to ten apiece) for the life of the page.
+    revokeItemPreviews(itemsRef.current);
     if (editingPost) {
       const seeded: WorkingItem[] = editingPost.items.map((it) => ({
         key: `existing-${it.id}`,
@@ -317,17 +339,12 @@ export const AddPostModal: React.FC = () => {
     if (it.mediaType === 'photo' && editTab === 'trim') setEditTab('crop');
   }, [activeKey, items, editTab]);
 
-  // Revoke object URLs on unmount. Existing items in edit mode use a
-  // signed URL (https://…) — those don't need revoking, so we only call
-  // revokeObjectURL on blob: URLs we created ourselves.
-  useEffect(() => {
-    return () => {
-      for (const it of items) {
-        if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Revoke object URLs on unmount, reading the LIVE items via the ref —
+  // the old [] closure captured the initial empty array, so even if this
+  // ever unmounted it revoked nothing. (In practice the real cleanup work
+  // happens in the open-reset effect and resetForCreate above/below; this
+  // is the backstop for an actual teardown.)
+  useEffect(() => () => revokeItemPreviews(itemsRef.current), []);
 
   // On phone, auto-open the OS picker the first time step 1 mounts so
   // the user lands on the camera roll without an extra tap. Same
@@ -893,6 +910,8 @@ export const AddPostModal: React.FC = () => {
           recipe: it.recipe,
         };
       });
+      const controller = new AbortController();
+      uploadAbortRef.current = controller;
       const post = await createPost({
         caption: postCaption.trim(),
         // Only use the actual picked location — free-text typing without
@@ -902,6 +921,7 @@ export const AddPostModal: React.FC = () => {
         isPublic,
         items: newItems,
         onProgress: (n) => setProgress(n),
+        signal: controller.signal,
       });
       if (!post) throw new Error("Couldn't create the post — try again.");
       // Hold the modal open on the animated success screen with
@@ -909,13 +929,23 @@ export const AddPostModal: React.FC = () => {
       setProgress(1);
       setSharedPost({ id: post.id });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
-      setErrorMsg(msg);
-      setProgress(0);
+      if ((err as { name?: string })?.name === 'AbortError') {
+        // User tapped Cancel — createPost already tore the post down.
+        showToast('Upload cancelled');
+        setProgress(0);
+      } else {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        setErrorMsg(msg);
+        setProgress(0);
+      }
     } finally {
+      uploadAbortRef.current = null;
       setSubmitting(false);
     }
   };
+
+  // Abort the in-flight media uploads (the close button's Cancel role).
+  const cancelUpload = () => uploadAbortRef.current?.abort();
 
   const activeItem = items.find((it) => it.key === activeKey) ?? items[0] ?? null;
   const activeIdx = activeItem ? items.findIndex((it) => it.key === activeItem.key) : -1;
@@ -924,9 +954,7 @@ export const AddPostModal: React.FC = () => {
 
   // "Create another" from the success overlay — back to a fresh step 1.
   const resetForCreate = () => {
-    for (const it of items) {
-      if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
-    }
+    revokeItemPreviews(items);
     setItems([]);
     setActiveKey(null);
     setPostCaption('');
@@ -1216,13 +1244,15 @@ export const AddPostModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  if (submitting) return;
+                  // While a create upload runs this doubles as Cancel —
+                  // aborts the uploads; createPost tears the post down.
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
                   if (step > (isEditing ? 3 : 1) && !sharedPost) goToStep((step - 1) as Step);
                   else closeAddPostModal();
                 }}
-                disabled={submitting}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
+                aria-label={submitting && !isEditing ? 'Cancel upload' : step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
               >
                 {step > (isEditing ? 3 : 1) && !sharedPost ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </button>
@@ -1857,10 +1887,14 @@ export const AddPostModal: React.FC = () => {
             <div className="h-[60px] flex-shrink-0 border-b border-on-surface/[0.07] flex items-center px-3.5 relative">
               <button
                 type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
+                onClick={() => {
+                  // Doubles as Cancel while a create upload is in flight.
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
+                  closeAddPostModal();
+                }}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label="Close"
+                aria-label={submitting && !isEditing ? 'Cancel upload' : 'Close'}
               >
                 <X size={17} />
               </button>

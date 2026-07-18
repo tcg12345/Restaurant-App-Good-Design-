@@ -560,23 +560,43 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     };
   }, [profiles]);
 
+  // Monotonic load sequence: a user switch or fast remount starts a new
+  // load, and any still-in-flight older load must not overwrite the newer
+  // state with its stale response.
+  const loadSeqRef = useRef(0);
+
   const loadFeed = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
+    const fresh = () => loadSeqRef.current === seq;
     if (!userId) { setLoading(false); return; }
     setLoading(true);
     const friends = await getFriends(userId);
-    if (friends.length === 0) { setLoading(false); return; }
+    if (!fresh()) return;
+    if (friends.length === 0) {
+      // CLEAR rather than early-return with stale state — after unfollowing
+      // everyone (or on a fresh account) the feed must show empty, not the
+      // previous session's items.
+      setFriendIds(new Set());
+      setActivity([]);
+      setHomeMeals([]);
+      setPosts([]);
+      setLoading(false);
+      return;
+    }
 
     const friendIdsArr = friends.map((f) => f.friend_id);
     const friendIdSet = new Set(friendIdsArr);
     setFriendIds(friendIdSet);
-    const [act, meals, allPosts] = await Promise.all([
+    const [act, meals, friendPosts] = await Promise.all([
       getFriendActivity(friendIdsArr, 500),
       getFriendsPublicHomeMeals(friendIdsArr),
-      // Pull the public-post feed and filter to friends only — RLS already
-      // limits the row set to public + accepted-followers, so this keeps
-      // the Friend Activity feed scoped to people you actually follow.
-      listPosts({ viewerId: userId, limit: 100 }),
+      // Filter to friends SERVER-SIDE. The old global fetch (limit 100)
+      // + client filter silently dropped friends' posts once the platform
+      // had more than 100 recent public posts — the limit now applies to
+      // the friend set itself.
+      listPosts({ viewerId: userId, limit: 100, userIds: friendIdsArr }),
     ]);
+    if (!fresh()) return;
     setActivity(act);
     setHomeMeals(meals);
     // Real likes + comment counts for the cooking-feed recipe cards.
@@ -584,6 +604,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       const mealIds = meals.map((m) => m.id);
       void Promise.all([getRecipeLikes(userId, mealIds), getRecipeCommentCounts(mealIds)])
         .then(([likeData, commentCounts]) => {
+          if (!fresh()) return;
           setMealLikeCounts(likeData.likes);
           setMealLikedByMe(likeData.userLiked);
           setMealCommentCounts(commentCounts);
@@ -591,7 +612,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     }
     // listPosts resolves null when the fetch failed; keep whatever the
     // feed already showed rather than wiping it to a false empty state.
-    if (allPosts) setPosts(allPosts.filter((p) => friendIdSet.has(p.userId)));
+    if (friendPosts) setPosts(friendPosts);
 
     // Collect all user IDs from both sources
     const allUserIds = new Set<string>();
@@ -605,6 +626,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         ratingIds.length > 0 ? getLikesForRatings(userId, ratingIds) : Promise.resolve({ likes: {} as Record<string, number>, userLiked: new Set<string>() }),
         ratingIds.length > 0 ? getCommentCounts(ratingIds) : Promise.resolve({} as Record<string, number>),
       ]);
+      if (!fresh()) return;
       setProfiles(profs);
       setLikes(likesData.likes);
       setUserLiked(likesData.userLiked);
@@ -617,7 +639,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (meals.length > 0) {
       const scanIds = [userId, ...friendIdsArr];
       getReviewSummariesBatch(meals.map((m) => m.id), scanIds)
-        .then(setMealRatingSummaries)
+        .then((s) => { if (fresh()) setMealRatingSummaries(s); })
         .catch(() => {});
     }
     setLoading(false);
@@ -701,10 +723,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = userLiked.has(ratingId);
     setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
     setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
-    const ok = await toggleLike(userId, ratingId);
-    if (!ok) {
-      // Offline / failed write: roll the heart and count back so the UI
-      // doesn't drift from the server.
+    const res = await toggleLike(userId, ratingId);
+    // Reconcile to the server's actual resulting state: roll back on a
+    // failed write (offline / RLS) AND when the server ended up where we
+    // started (e.g. a concurrent duplicate insert) — either way the
+    // optimistic flip didn't stick.
+    if (!res.ok || res.liked === wasLiked) {
       setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.add(ratingId) : next.delete(ratingId); return next; });
       setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? 1 : -1)) }));
     }

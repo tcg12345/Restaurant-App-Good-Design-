@@ -729,6 +729,13 @@ export const LocationPage: React.FC = () => {
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // One failed Google call used to wedge the loading flags forever (no
+  // try/finally anywhere on the fetch paths): the initial spinner never
+  // cleared and Load More died disabled. loadError drives a visible
+  // "Couldn't load — retry" affordance instead; retryToken re-arms the
+  // initial-batch effect.
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [exhausted, setExhausted] = useState(false);
 
   // ── Search & filters ──────────────────────────────────────────────────
@@ -893,6 +900,7 @@ export const LocationPage: React.FC = () => {
       return;
     }
     let cancelled = false;
+    setLoadError(false);
 
     // ── Search path ───────────────────────────────────────────────────
     // Any typed search bypasses the per-city cache entirely: caching
@@ -906,10 +914,19 @@ export const LocationPage: React.FC = () => {
       setExhausted(cursorsRef.current.length === 0);
       setInitialLoading(true);
       (async () => {
-        const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
-        if (cancelled) return;
-        setPlacesPool(fresh);
-        setInitialLoading(false);
+        try {
+          const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
+          if (cancelled) return;
+          setPlacesPool(fresh);
+        } catch (err) {
+          if (cancelled) return;
+          console.warn('[Location] search batch failed:', err);
+          setLoadError(true);
+        } finally {
+          // ALWAYS clear the spinner — a rejected Google call used to leave
+          // "Searching…" up forever with no way out.
+          if (!cancelled) setInitialLoading(false);
+        }
       })();
       return () => { cancelled = true; };
     }
@@ -945,23 +962,30 @@ export const LocationPage: React.FC = () => {
     setInitialLoading(!hadPartialCache);
 
     (async () => {
-      const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
-      if (cancelled) return;
-      // Merge the fresh batch onto whatever we rehydrated from cache so we
-      // don't nuke a working list when the fresh call fails or returns
-      // nothing new (e.g. offline / rate limited).
-      setPlacesPool((prev) => {
-        const byId = new Map<string, PlaceResult>();
-        for (const p of prev) byId.set(p.id, p);
-        for (const p of fresh) if (!byId.has(p.id)) byId.set(p.id, p);
-        return Array.from(byId.values());
-      });
-      setInitialLoading(false);
+      try {
+        const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
+        if (cancelled) return;
+        // Merge the fresh batch onto whatever we rehydrated from cache so we
+        // don't nuke a working list when the fresh call fails or returns
+        // nothing new (e.g. offline / rate limited).
+        setPlacesPool((prev) => {
+          const byId = new Map<string, PlaceResult>();
+          for (const p of prev) byId.set(p.id, p);
+          for (const p of fresh) if (!byId.has(p.id)) byId.set(p.id, p);
+          return Array.from(byId.values());
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('[Location] initial batch failed:', err);
+        setLoadError(true);
+      } finally {
+        if (!cancelled) setInitialLoading(false);
+      }
     })();
     return () => { cancelled = true; };
     // `fetchBatch` already closes over lat/lng/city so listing it once is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey, debouncedSearch]);
+  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey, debouncedSearch, retryToken]);
 
   // Persist the pool back to cache every time it changes (initial batch,
   // load-more appends, etc.) so the next visit to this city can skip the
@@ -993,6 +1017,8 @@ export const LocationPage: React.FC = () => {
     // appending nothing. Skip the fetch and let the list end naturally.
     if (friendsOnly || expertsOnly) return;
     setLoadingMore(true);
+    setLoadError(false);
+    try {
     // Keep paging until we've gathered roughly LOAD_MORE_TARGET fresh
     // uniques or every cursor is drained. fetchBatch already dedupes
     // against `seenIdsRef`, so as the pool grows each batch returns
@@ -1018,7 +1044,14 @@ export const LocationPage: React.FC = () => {
         return merged;
       });
     }
-    setLoadingMore(false);
+    } catch (err) {
+      console.warn('[Location] load more failed:', err);
+      setLoadError(true);
+    } finally {
+      // Without this, one rejected page left loadingMore stuck true and
+      // the button permanently disabled.
+      setLoadingMore(false);
+    }
   }, [loadingMore, exhausted, initialLoading, fetchBatch, friendsOnly, expertsOnly]);
 
   // Cuisine-filter backfill. The initial cursor pool is built from
@@ -1397,8 +1430,14 @@ export const LocationPage: React.FC = () => {
   // "Use current location" — same flow as Map.tsx: geolocate, reverse-geocode
   // to a human label, then feed it back through the regular change handler.
   const handleUseCurrent = useCallback(async (): Promise<void> => {
-    const loc = await getCurrentHomeLocation();
-    handleLocationChange(loc);
+    // Permission denied / no GPS rejects — swallow instead of emitting an
+    // unhandled rejection (the user just stays on the current location).
+    try {
+      const loc = await getCurrentHomeLocation();
+      handleLocationChange(loc);
+    } catch (err) {
+      console.warn('[Location] use-current-location failed:', err);
+    }
   }, [handleLocationChange]);
 
   /* ── Redesign-only local state ───────────────────────────────────────────── */
@@ -3010,6 +3049,20 @@ export const LocationPage: React.FC = () => {
               <Loader2 size={18} className="animate-spin" style={{ display: 'inline-block', verticalAlign: '-3px', marginRight: 8 }} />
               {debouncedSearch ? `Searching "${debouncedSearch}"…` : `Finding restaurants in ${cityDisplay}…`}
             </div>
+          ) : loadError && visible.length === 0 ? (
+            <div className="lp-empty">
+              <strong>Couldn&rsquo;t load restaurants</strong>
+              Check your connection, then try again.
+              <div className="lp-load-more-wrap">
+                <button
+                  type="button"
+                  className="lp-load-more"
+                  onClick={() => setRetryToken((t) => t + 1)}
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
           ) : visible.length === 0 ? (
             <div className="lp-empty">
               <strong>Nothing here yet</strong>
@@ -3053,6 +3106,8 @@ export const LocationPage: React.FC = () => {
                         <Loader2 size={16} className="animate-spin" />
                         Loading…
                       </>
+                    ) : loadError ? (
+                      <>Couldn&rsquo;t load — try again</>
                     ) : (
                       <>Load more restaurants</>
                     )}

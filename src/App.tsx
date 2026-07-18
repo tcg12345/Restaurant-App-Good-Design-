@@ -210,10 +210,19 @@ const AppContent: React.FC = () => {
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
+    let cancelled = false;
     void configureNativeKeyboard({
       onKeyboardChange: (open) => setKeyboardOpen(open),
-    }).then((h) => { handle = h; });
-    return () => { handle?.destroy(); };
+    }).then((h) => {
+      // Setup is async: if the effect tore down before it resolved
+      // (StrictMode does exactly this on mount), `handle` was still null in
+      // the cleanup — the first invocation's whole listener set (capture
+      // pointerdown, focusin, visualViewport ×2, Keyboard ×3) leaked and a
+      // second full set installed. Destroy a handle that arrives late.
+      if (cancelled) { h.destroy(); return; }
+      handle = h;
+    });
+    return () => { cancelled = true; handle?.destroy(); };
   }, [setKeyboardOpen]);
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
@@ -537,7 +546,13 @@ const AppContent: React.FC = () => {
         onBack={() => {
           if (!backTarget) return;
           if (backTarget.kind === 'pop') navigate(-1);
-          else navigate(backTarget.to);
+          // Logical-parent "up" navigation REPLACES the current entry (iOS
+          // semantics): a plain push meant swiping back from a deep-linked
+          // /pantry?list=x pushed /pantry, so hardware back went "forward"
+          // into the sub-view just dismissed, and repeated up-navigations
+          // stacked junk history entries (polluting nav-stack's index map
+          // and snapshot keying too). nav-stack records REPLACE in place.
+          else navigate(backTarget.to, { replace: true });
         }}
         onLockTransition={setInstantNav}
       >

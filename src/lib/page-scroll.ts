@@ -37,15 +37,17 @@ export function getPageScroll(): number {
   return sc ? sc.scrollTop : window.scrollY;
 }
 
-export function setPageScroll(y: number): void {
-  const sc = getPrimaryScroller();
+export function setPageScroll(y: number, root?: ParentNode): void {
+  const sc = getPrimaryScroller(root ?? document);
   if (sc) sc.scrollTop = y;
   else window.scrollTo(0, y);
 }
 
-/** Max scroll offset of the current primary scroller (for restore retries). */
-export function maxPageScroll(): number {
-  const sc = getPrimaryScroller();
+/** Max scroll offset of the current primary scroller (for restore retries).
+ *  Pass `root` to measure inside a specific route wrapper — an unscoped scan
+ *  during a transition can pick the EXITING page's scroller. */
+export function maxPageScroll(root?: ParentNode): number {
+  const sc = getPrimaryScroller(root ?? document);
   if (sc) return sc.scrollHeight - sc.clientHeight;
   return document.documentElement.scrollHeight - window.innerHeight;
 }

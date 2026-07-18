@@ -143,6 +143,9 @@ export const AddReelModal: React.FC = () => {
   const [restaurantSearch, setRestaurantSearch] = useState('');
   const [recipeSearch, setRecipeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // In-flight Mux upload — lets the close button double as Cancel while a
+  // create upload runs (abort → createReel rolls the row back).
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
@@ -617,6 +620,8 @@ export const AddReelModal: React.FC = () => {
       }
       const bgGradient = pickFromPool(BG_GRADIENT_POOL, fileToUpload.name + user.id);
       const att = buildAttachment();
+      const controller = new AbortController();
+      uploadAbortRef.current = controller;
       const reel = await postReel({
         file: fileToUpload, kind,
         caption: caption.trim(),
@@ -627,6 +632,7 @@ export const AddReelModal: React.FC = () => {
         isPublic,
         restaurant: att.restaurant, recipe: att.recipe,
         onProgress: (n) => setProgress(n),
+        signal: controller.signal,
       });
       if (!reel) throw new Error("Couldn't create the reel — try again.");
       if (phoneMode) {
@@ -637,13 +643,23 @@ export const AddReelModal: React.FC = () => {
         closeAddReelModal();
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
-      setErrorMsg(msg);
-      setProgress(0);
+      if ((err as { name?: string })?.name === 'AbortError') {
+        // User tapped Cancel — createReel already rolled the row back.
+        showToast('Upload cancelled');
+        setProgress(0);
+      } else {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        setErrorMsg(msg);
+        setProgress(0);
+      }
     } finally {
+      uploadAbortRef.current = null;
       setSubmitting(false);
     }
   };
+
+  // Abort the in-flight Mux upload (Share step's Cancel affordance).
+  const cancelUpload = () => uploadAbortRef.current?.abort();
 
   // ── Step variants for the slide animation ──
   const stepVariants = {
@@ -771,15 +787,17 @@ export const AddReelModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  if (submitting) return;
+                  // While a create upload runs, this doubles as Cancel —
+                  // aborts the Mux PUT; createReel rolls the row back.
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
                   if (step > 1 && !isEditing && !sharedReel) goToStep((step - 1) as Step);
                   else closeAddReelModal();
                 }}
-                disabled={submitting}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={step > 1 && !isEditing && !sharedReel ? 'Back' : 'Close'}
+                aria-label={submitting && !isEditing ? 'Cancel upload' : step > 1 && !isEditing && !sharedReel ? 'Back' : 'Close'}
               >
-                {step > 1 && !isEditing && !sharedReel ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
+                {step > 1 && !isEditing && !sharedReel && !submitting ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </button>
 
               {/* Centered title + step dots */}
@@ -1279,13 +1297,18 @@ export const AddReelModal: React.FC = () => {
           >
             {/* Header */}
             <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              {/* Close — back lives in the floating action bar now. */}
+              {/* Close — back lives in the floating action bar now. While a
+                  create upload is in flight it doubles as Cancel: aborts the
+                  Mux PUT and createReel rolls the just-inserted row back. */}
               <button
                 type="button"
-                onClick={() => { if (!submitting) closeAddReelModal(); }}
-                disabled={submitting}
+                onClick={() => {
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
+                  closeAddReelModal();
+                }}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40 flex-shrink-0"
-                aria-label="Close"
+                aria-label={submitting && !isEditing ? 'Cancel upload' : 'Close'}
               >
                 <X size={18} />
               </button>

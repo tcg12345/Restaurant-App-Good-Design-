@@ -300,6 +300,10 @@ export interface CreatePostInput {
   isPublic: boolean;
   items: NewPostItem[];
   onProgress?: (fraction: number) => void;
+  /** Cancels the media uploads (the long phase). createPost deletes the
+   *  just-inserted post (items cascade), removes any uploaded photos, and
+   *  rejects with an AbortError. */
+  signal?: AbortSignal;
 }
 
 /** Probe a video file's duration via a hidden <video>. */
@@ -451,13 +455,25 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     try {
       await uploadToMux(ticket.uploadUrl, item.file, {
         onProgress: (f) => { loadedBytes[idx] = (item.file.size || 0) * f; emitProgress(); },
+        signal: input.signal,
       });
     } catch (err) {
+      // A user cancel aborts the whole post below — don't mark items.
+      if ((err as { name?: string })?.name === 'AbortError') throw err;
       console.warn(`[Posts] mux upload failed for item ${idx + 1}:`, err);
       // Mark errored so the UI doesn't spin on a processing item forever.
       try { await supabase.from('post_items').update({ mux_status: 'errored' }).eq('id', itemIds[idx]); } catch { /* ignore */ }
     }
-  }));
+  })).catch(async (err) => {
+    // Cancelled mid-upload: tear the whole post down (items cascade off the
+    // posts row) so no ghost "processing" items outlive the cancel.
+    if ((err as { name?: string })?.name === 'AbortError') {
+      try { await supabase.from('posts').delete().eq('id', postId); } catch { /* best-effort */ }
+      await removePhotos();
+      cleanupLocal();
+    }
+    throw err;
+  });
 
   onProgress?.(1);
 
@@ -556,16 +572,46 @@ export async function backfillPostPosters(
 export async function listPosts(opts: {
   limit?: number;
   viewerId?: string | null;
+  /** Restrict to these authors SERVER-SIDE (chunk-safe). Without it, a
+   *  caller that wants a friends-only feed has to fetch the global window
+   *  and filter client-side — and once the platform has more recent public
+   *  posts than `limit`, friends' older posts silently fall outside it. */
+  userIds?: string[];
 }): Promise<PostRow[] | null> {
   if (!supabaseConfigured) return [];
-  const { limit = 50, viewerId } = opts;
+  const { limit = 50, viewerId, userIds } = opts;
+  if (userIds && userIds.length === 0) return [];
 
-  // Public feed of posts — RLS scopes the row set to public + owner +
+  // Feed of posts — RLS scopes the row set to public + owner +
   // accepted-followers. Same author-agnostic philosophy as reels.
-  const { data, error } = await supabase.from('posts')
-    .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  // PostgREST .in() lists are URL-encoded, so cap the id list per query
+  // and merge (author sets beyond a few hundred are unrealistic anyway).
+  const IN_CHUNK = 150;
+  let data: unknown[] | null = null;
+  let error: { message: string } | null = null;
+  if (userIds && userIds.length > IN_CHUNK) {
+    const merged: unknown[] = [];
+    for (let i = 0; i < userIds.length; i += IN_CHUNK) {
+      const res = await supabase.from('posts')
+        .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)')
+        .in('user_id', userIds.slice(i, i + IN_CHUNK))
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (res.error) { error = res.error; break; }
+      merged.push(...(res.data || []));
+    }
+    if (!error) {
+      merged.sort((a, b) => String((b as { created_at?: string }).created_at || '').localeCompare(String((a as { created_at?: string }).created_at || '')));
+      data = merged.slice(0, limit);
+    }
+  } else {
+    let q = supabase.from('posts')
+      .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)');
+    if (userIds) q = q.in('user_id', userIds);
+    const res = await q.order('created_at', { ascending: false }).limit(limit);
+    data = res.data;
+    error = res.error;
+  }
   if (error) {
     console.warn('[Posts] list failed:', error.message);
     return null;

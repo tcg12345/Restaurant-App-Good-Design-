@@ -5,6 +5,7 @@ import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersH
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
+import { moveWithinCustomOrder } from '../lib/customOrder';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { processPhoto } from '../lib/images';
 import { shareExternally } from '../lib/native-share';
@@ -1446,7 +1447,13 @@ const ListDetailView: React.FC<{
     const pending = pendingListRatingRef.current;
     if (!pending) return;
     const globalRating = ratings.find((r) => r.restaurantId === pending.restaurantId);
-    if (globalRating && globalRating.createdAt && globalRating.createdAt >= pending.openedAt) {
+    // Compare against updatedAt (falling back to createdAt): createdAt is
+    // "first rated" and re-rating only bumps updatedAt, so checking
+    // createdAt alone made "Create New Rating" a silent no-op for any
+    // restaurant that already had a global rating — the save landed
+    // globally but never got copied into the list's own ratings.
+    const touchedAt = globalRating ? (globalRating.updatedAt ?? globalRating.createdAt) : undefined;
+    if (globalRating && touchedAt && touchedAt >= pending.openedAt) {
       // The rating was just saved/updated — move it to list-specific storage
       setListRating(list.id, globalRating);
       pendingListRatingRef.current = null;
@@ -6024,14 +6031,14 @@ export const Pantry: React.FC = () => {
     return result;
   }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, michelinFilter, michelinReady, restaurantMeta, scoreRange, hoursFilter, sortBy, customOrder]);
 
-  // Drag-to-reorder for custom sort
+  // Drag-to-reorder for custom sort (desktop inline drag). Splices the
+  // moved id WITHIN the full saved order — the old rebuild
+  // ([...visibleIds, ...rest]) shoved every filtered-out restaurant behind
+  // the visible ones, silently rewriting the global ranking whenever a
+  // search/filter was active.
   const moveRating = useCallback((from: number, to: number) => {
-    if (from === to) return;
-    const ids = filteredRatings.map((r) => r.restaurantId);
-    const [moved] = ids.splice(from, 1);
-    ids.splice(to, 0, moved);
-    const fullOrder = [...ids, ...customOrder.filter((id) => !ids.includes(id))];
-    setCustomOrder(fullOrder);
+    const next = moveWithinCustomOrder(customOrder, filteredRatings.map((r) => r.restaurantId), from, to);
+    if (next) setCustomOrder(next);
   }, [filteredRatings, customOrder, setCustomOrder]);
 
   const regularRatingsCount = ratings.length;
@@ -6764,6 +6771,19 @@ export const Pantry: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-5">
+                {/* Custom-order reordering on phones goes through the
+                    dedicated /reorder page — the inline grip drag can't work
+                    with touch pointer capture (see the grip comment below). */}
+                {sortBy === 'custom' && phoneMode && filteredRatings.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/reorder')}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-on-surface/10 bg-on-surface/[0.03] text-xs font-semibold text-on-surface/60 hover:bg-on-surface/[0.06] transition-colors"
+                  >
+                    <ArrowUpDown size={14} />
+                    Reorder ratings
+                  </button>
+                )}
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
                   <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
@@ -6797,22 +6817,31 @@ export const Pantry: React.FC = () => {
                                   <span className="text-xs font-bold text-on-surface/35">#{idx + 1}</span>
                                 )}
                               </div>
-                              <button
-                                className="touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
-                                onPointerDown={() => setDragIdx(idx)}
-                                onPointerUp={() => {
-                                  if (dragIdx !== null && dragIdx !== idx) moveRating(dragIdx, idx);
-                                  setDragIdx(null);
-                                }}
-                                onPointerEnter={() => {
-                                  if (dragIdx !== null && dragIdx !== idx) {
-                                    moveRating(dragIdx, idx);
-                                    setDragIdx(idx);
-                                  }
-                                }}
-                              >
-                                <GripVertical size={16} />
-                              </button>
+                              {/* Inline grip is DESKTOP-ONLY: it relies on
+                                  pointerenter firing on sibling rows mid-drag,
+                                  and touch pointers get implicit pointer
+                                  capture — pointerenter never fires, so the
+                                  drag did nothing on phones. Phone mode shows
+                                  a "Reorder ratings" button above the list
+                                  that opens /reorder (real touch drag). */}
+                              {!phoneMode && (
+                                <button
+                                  className="touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
+                                  onPointerDown={() => setDragIdx(idx)}
+                                  onPointerUp={() => {
+                                    if (dragIdx !== null && dragIdx !== idx) moveRating(dragIdx, idx);
+                                    setDragIdx(null);
+                                  }}
+                                  onPointerEnter={() => {
+                                    if (dragIdx !== null && dragIdx !== idx) {
+                                      moveRating(dragIdx, idx);
+                                      setDragIdx(idx);
+                                    }
+                                  }}
+                                >
+                                  <GripVertical size={16} />
+                                </button>
+                              )}
                             </>
                           )}
                           <div className="flex-1 min-w-0">

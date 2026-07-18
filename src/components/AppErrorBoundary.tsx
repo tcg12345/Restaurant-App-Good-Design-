@@ -1,4 +1,5 @@
 import React from 'react';
+import { reportClientError } from '../lib/error-reporting';
 
 /**
  * Root crash screen + global error hooks.
@@ -6,16 +7,14 @@ import React from 'react';
  * Three layers, all funneling into the same branded fallback so the app
  * never shows a blank white webview or a raw error string:
  *   1. <AppErrorBoundary> catches React render/lifecycle errors.
- *   2. window 'error' (uncaught synchronous errors outside React's render
- *      path) flips the mounted boundary to the fallback.
+ *   2. window 'error' (uncaught errors outside React's render path) is
+ *      logged + reported; it only paints the fallback when React never
+ *      mounted (benign noise like ResizeObserver-loop is filtered).
  *   3. If a crash happens before React mounts at all, a minimal DOM
  *      version of the same fallback is painted straight into #root.
  */
 
-/** Lets the global 'error' listener flip the mounted boundary. */
-let showBoundaryFallback: (() => void) | null = null;
-
-const AppErrorFallback: React.FC = () => (
+const AppErrorFallback: React.FC<{ onTryAgain: () => void }> = ({ onTryAgain }) => (
   <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-5 px-8 text-center">
     <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl">
       G
@@ -23,15 +22,24 @@ const AppErrorFallback: React.FC = () => (
     <div className="space-y-1.5">
       <p className="font-serif text-xl text-on-surface">Something went wrong</p>
       <p className="text-sm text-on-surface/60 max-w-[280px]">
-        An unexpected error occurred. Reload to pick up where you left off.
+        An unexpected error occurred. You can try again, or reload to pick up
+        where you left off.
       </p>
     </div>
-    <button
-      onClick={() => window.location.reload()}
-      className="mt-1 px-7 py-2.5 rounded-full bg-primary text-white text-sm font-medium transition-transform active:scale-[0.97]"
-    >
-      Reload
-    </button>
+    <div className="flex items-center gap-3">
+      <button
+        onClick={onTryAgain}
+        className="mt-1 px-7 py-2.5 rounded-full bg-primary text-white text-sm font-medium transition-transform active:scale-[0.97]"
+      >
+        Try again
+      </button>
+      <button
+        onClick={() => window.location.reload()}
+        className="mt-1 px-6 py-2.5 rounded-full border border-on-surface/15 text-on-surface/70 text-sm font-medium transition-transform active:scale-[0.97]"
+      >
+        Reload
+      </button>
+    </div>
   </div>
 );
 
@@ -52,19 +60,28 @@ export class AppErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error: unknown, info: { componentStack?: string }) {
-    console.error('[app] render error:', error, info.componentStack);
+    reportClientError('render', error, info.componentStack);
   }
 
+  // Clear the fallback when the user navigates (hardware/browser back or a
+  // link from outside the crashed subtree) — a render error in one page
+  // shouldn't dead-end the whole session behind a reload.
+  private resetOnNav = () => {
+    if ((this.state as BoundaryState).hasError) this.setState({ hasError: false });
+  };
+
   componentDidMount() {
-    showBoundaryFallback = () => this.setState({ hasError: true });
+    window.addEventListener('popstate', this.resetOnNav);
   }
 
   componentWillUnmount() {
-    showBoundaryFallback = null;
+    window.removeEventListener('popstate', this.resetOnNav);
   }
 
   render() {
-    if ((this.state as BoundaryState).hasError) return <AppErrorFallback />;
+    if ((this.state as BoundaryState).hasError) {
+      return <AppErrorFallback onTryAgain={() => this.setState({ hasError: false })} />;
+    }
     return this.props.children;
   }
 }
@@ -96,12 +113,26 @@ function renderDetachedFallback() {
 
 export function installGlobalErrorHandlers() {
   window.addEventListener('error', (event) => {
-    console.error('[app] uncaught error:', event.error ?? event.message);
-    if (showBoundaryFallback) {
-      showBoundaryFallback();
-    } else {
-      renderDetachedFallback();
+    const msg = String(event.message || '');
+    // Benign by spec: browsers fire this when a ResizeObserver's callbacks
+    // can't all deliver within one frame (the app uses ResizeObserver in
+    // several places, e.g. DraggableSheet). Nothing is wrong — swallowing
+    // it silently is the documented handling.
+    if (/ResizeObserver loop/i.test(msg)) return;
+    // Opaque cross-origin "Script error." carries zero information and the
+    // app demonstrably survives it — log-only.
+    if (msg === 'Script error.' || msg === 'Script error') {
+      console.warn('[app] opaque cross-origin script error');
+      return;
     }
+    reportClientError('uncaught', event.error ?? event.message);
+    // While React is mounted it stays interactive after an async window
+    // error — treat it like an unhandled rejection (log + report) rather
+    // than nuking the whole session with the crash screen. The full-screen
+    // fallback is reserved for genuine React render errors (the boundary's
+    // componentDidCatch) and for crashes BEFORE React mounts, which the
+    // detached fallback below covers (it no-ops once #root has content).
+    renderDetachedFallback();
   });
 
   window.addEventListener('unhandledrejection', (event) => {

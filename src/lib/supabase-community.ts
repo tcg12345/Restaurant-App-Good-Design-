@@ -603,10 +603,24 @@ export async function followPublicAccount(userId: string, targetId: string): Pro
   } catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
 }
 
-/** Get follower and following counts */
+/** Get follower and following counts.
+ *
+ *  Goes through the SECURITY DEFINER RPC from migration 052: the
+ *  user_friends SELECT policy only exposes rows involving the CALLER and
+ *  RLS filters before counting, so direct count queries returned 0-or-1
+ *  for everyone else's profile (and ~0 for every expert). The RPC counts
+ *  server-side and returns only the aggregates. */
 export async function getFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
   if (!supabaseConfigured || !userId) return { followers: 0, following: 0 };
   try {
+    const { data, error } = await supabase.rpc('get_follow_counts', { target: userId });
+    if (!error && data) {
+      const row = (Array.isArray(data) ? data[0] : data) as { followers?: unknown; following?: unknown } | undefined;
+      if (row) return { followers: Number(row.followers) || 0, following: Number(row.following) || 0 };
+    }
+    if (error) console.warn('[Community] get_follow_counts RPC failed (migration 052 applied?) — falling back to RLS-limited counts:', error.message);
+    // Fallback for projects without migration 052 — only accurate for the
+    // caller's own id (RLS hides everyone else's edges).
     const [{ count: following }, { count: followers }] = await Promise.all([
       supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'accepted'),
       supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId).eq('status', 'accepted'),
@@ -773,18 +787,45 @@ export interface ActivityComment {
   profile?: UserProfile;
 }
 
-export async function toggleLike(userId: string, ratingId: string): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
+export interface ToggleLikeResult {
+  ok: boolean;
+  /** The state the like is actually in server-side after this call (best
+   *  known state on failure). Callers reconcile their optimistic UI to it. */
+  liked: boolean;
+}
+
+/** Select-then-write toggle. Each write's { error } is checked explicitly —
+ *  supabase-js does NOT throw for RLS/constraint failures, so the old
+ *  version returned true even when the write silently failed, which made
+ *  every caller's rollback dead code and let fast double-taps drift the
+ *  heart from server state. */
+export async function toggleLike(userId: string, ratingId: string): Promise<ToggleLikeResult> {
+  if (!supabaseConfigured || !userId) return { ok: false, liked: false };
   try {
-    const { data } = await supabase.from('activity_likes')
-      .select('id').eq('user_id', userId).eq('rating_id', ratingId).single();
-    if (data) {
-      await supabase.from('activity_likes').delete().eq('id', data.id);
-    } else {
-      await supabase.from('activity_likes').insert({ user_id: userId, rating_id: ratingId });
+    const { data, error: selectError } = await supabase.from('activity_likes')
+      .select('id').eq('user_id', userId).eq('rating_id', ratingId).maybeSingle();
+    if (selectError) {
+      console.warn('[Community] toggleLike select failed:', selectError.message);
+      return { ok: false, liked: false };
     }
-    return true;
-  } catch { return false; }
+    if (data) {
+      const { error } = await supabase.from('activity_likes').delete().eq('id', data.id);
+      if (error) {
+        console.warn('[Community] toggleLike delete failed:', error.message);
+        return { ok: false, liked: true }; // row survived — still liked
+      }
+      return { ok: true, liked: false };
+    }
+    const { error } = await supabase.from('activity_likes').insert({ user_id: userId, rating_id: ratingId });
+    if (error) {
+      // 23505: a concurrent insert (double-tap racing this one) already
+      // created the row — the like exists, which is what we wanted.
+      if (error.code === '23505') return { ok: true, liked: true };
+      console.warn('[Community] toggleLike insert failed:', error.message);
+      return { ok: false, liked: false };
+    }
+    return { ok: true, liked: true };
+  } catch { return { ok: false, liked: false }; }
 }
 
 export async function getLikeCount(ratingId: string): Promise<number> {
@@ -978,12 +1019,23 @@ export async function getSentRequestIds(userId: string): Promise<string[]> {
   } catch (err) { console.error('[Friends] getSentRequestIds exception:', err); return []; }
 }
 
-/** Send a friend request (status = 'pending') */
+/** Send a friend request (status = 'pending').
+ *
+ *  UPSERT, not INSERT: a declined request leaves its row in place under
+ *  UNIQUE(user_id, friend_id), so a plain insert hit 23505 forever once
+ *  the target had declined — every retry showed "Couldn't send that
+ *  request." The upsert flips the surviving row back to 'pending'
+ *  (requester-side UPDATE policy from migration 053). An existing
+ *  'accepted' edge is left alone so an errant call can't downgrade an
+ *  established follow back to pending. */
 export async function sendFriendRequest(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
   try {
+    const { data: existing } = await supabase.from('user_friends')
+      .select('status').eq('user_id', userId).eq('friend_id', friendId).maybeSingle();
+    if ((existing as { status?: string } | null)?.status === 'accepted') return true; // already following
     const { error } = await supabase.from('user_friends')
-      .insert({ user_id: userId, friend_id: friendId, status: 'pending' });
+      .upsert({ user_id: userId, friend_id: friendId, status: 'pending' }, { onConflict: 'user_id,friend_id' });
     if (error) { console.error('[Friends] sendRequest error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }

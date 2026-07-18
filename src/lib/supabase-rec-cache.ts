@@ -34,6 +34,26 @@ export function preferencesHash(cuisines: string[], prices: number[]): string {
   return `${topCuisines}|${topPrices}`;
 }
 
+/**
+ * THE canonical fingerprint for a home_rec_cache entry. Every surface that
+ * reads or writes the shared (user_id, location_key) row MUST build its
+ * hash through this function: Discover's home rail and the recommendations
+ * browser used to append different suffixes to preferencesHash ('|r=…' vs
+ * '|r=…|v3:…'), so each surface saw the other's writes as "prefs drifted"
+ * and refetched — perpetual cache thrash burning Places quota. The price
+ * tier fingerprint comes in as a string so this module doesn't depend on
+ * the scoring engine (use recPrefsHashForProfile from recommendations.ts,
+ * which supplies it).
+ */
+export function recPrefsHash(
+  cuisines: string[],
+  prices: number[],
+  radiusMeters: number,
+  priceTierFingerprint: string,
+): string {
+  return `${preferencesHash(cuisines, prices)}|r=${Math.round(radiusMeters)}|v3:${priceTierFingerprint}`;
+}
+
 /** Fetch the cached recommendations for this user + location, if any. */
 export async function getHomeRecsCache(
   userId: string,

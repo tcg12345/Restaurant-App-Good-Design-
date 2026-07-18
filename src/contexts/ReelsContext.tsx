@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
+import { createToggleQueue } from '../lib/toggle-queue';
 import {
   listReels,
   createReel as cloudCreateReel,
@@ -137,6 +138,9 @@ interface ReelsContextValue {
     restaurant?: ReelRestaurantSnapshot;
     recipe?: ReelRecipeSnapshot;
     onProgress?: (n: number) => void;
+    /** Cancels the Mux upload — the just-inserted row is rolled back and
+     *  the promise rejects with an AbortError. */
+    signal?: AbortSignal;
   }) => Promise<Reel | null>;
 
   toggleLike: (reelId: string) => Promise<void>;
@@ -270,6 +274,11 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ui;
   }, [pollReelReady]);
 
+  // Serializes like/save requests per reel: a second tap queues behind the
+  // in-flight one (INSERT and DELETE can never race), and a tap whose
+  // desired state the server already confirmed sends nothing.
+  const toggleQueueRef = useRef(createToggleQueue());
+
   const toggleLike = useCallback(async (reelId: string) => {
     const me = userIdRef.current;
     if (!me) { requireSignIn('Sign in to like'); return; }
@@ -280,12 +289,14 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return { ...r, liked: nextLiked, likes: r.likes + (nextLiked ? 1 : -1) };
     }));
     if (nextLiked == null) return;
-    const ok = await cloudSetLike(reelId, me, nextLiked);
-    if (!ok) {
-      // Roll back optimistic update.
+    const desired = nextLiked;
+    const outcome = await toggleQueueRef.current.run(`like:${reelId}`, desired, () => cloudSetLike(reelId, me, desired));
+    if (outcome === 'failed') {
+      // Roll back ONLY while the UI still shows this failed optimistic
+      // state — the old unconditional flip clobbered any newer toggle.
       setReels((prev) => prev.map((r) => {
-        if (r.id !== reelId) return r;
-        return { ...r, liked: !nextLiked, likes: r.likes + (nextLiked ? -1 : 1) };
+        if (r.id !== reelId || r.liked !== desired) return r;
+        return { ...r, liked: !desired, likes: r.likes + (desired ? -1 : 1) };
       }));
     }
   }, []);
@@ -300,11 +311,12 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return { ...r, saved: nextSaved, saves: r.saves + (nextSaved ? 1 : -1) };
     }));
     if (nextSaved == null) return;
-    const ok = await cloudSetSave(reelId, me, nextSaved);
-    if (!ok) {
+    const desired = nextSaved;
+    const outcome = await toggleQueueRef.current.run(`save:${reelId}`, desired, () => cloudSetSave(reelId, me, desired));
+    if (outcome === 'failed') {
       setReels((prev) => prev.map((r) => {
-        if (r.id !== reelId) return r;
-        return { ...r, saved: !nextSaved, saves: r.saves + (nextSaved ? -1 : 1) };
+        if (r.id !== reelId || r.saved !== desired) return r;
+        return { ...r, saved: !desired, saves: r.saves + (desired ? -1 : 1) };
       }));
     }
   }, []);

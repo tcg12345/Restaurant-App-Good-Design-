@@ -56,6 +56,7 @@ import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
 import { refineRecipe, editRecipeIngredient, type IngredientEdit, type IngredientEditResult } from '../lib/build-recipe-client';
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
+import { uploadPhoto } from '../lib/images';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
 
@@ -847,9 +848,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   // History-feature handlers.
   const handleNewChat = useCallback(() => {
+    // Flush BEFORE wiping: the auto-save is debounced ~600ms, and once
+    // messages go empty its effect early-returns (cleanup already cleared
+    // the pending timer) while flushSave itself no-ops on an empty
+    // messagesRef — so an answer that just finished streaming would be
+    // silently lost. flushSave reads from refs, which still hold the
+    // pre-wipe conversation at this point.
+    flushSave();
     abortRef.current?.abort();
-    // The auto-save effect already snapshotted any messages we had
-    // here, so it's safe to wipe local state.
     setMessages([]);
     setChatPlaces({});
     setChatKnownUsers({});
@@ -857,9 +863,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setError(null);
     setView('chat');
     setStreaming(false);
-  }, []);
+  }, [flushSave]);
 
   const handleSelectChat = useCallback((chat: SavedChat) => {
+    // Same as handleNewChat: persist the outgoing conversation before
+    // replacing it, or its last ~600ms of activity never gets saved.
+    flushSave();
     abortRef.current?.abort();
     setMessages(chat.messages);
     setChatPlaces(chat.chatPlaces || {});
@@ -870,7 +879,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setError(null);
     setStreaming(false);
     setView('chat');
-  }, []);
+  }, [flushSave]);
 
   const handleDeleteChat = useCallback((id: string) => {
     deleteChat(id);
@@ -1189,7 +1198,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleCoverPhotoChange = useCallback((dataUrl: string | null) => {
     if (!openDraftToolUseId) return;
-    patchDraftBlock(openDraftToolUseId, (b) => ({
+    const toolUseId = openDraftToolUseId;
+    patchDraftBlock(toolUseId, (b) => ({
       ...b,
       draft: {
         ...b.draft,
@@ -1199,6 +1209,29 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           : (b.draft.photos || []).filter((p) => p !== b.draft.coverPhoto),
       },
     }));
+    // The sheet uploads before calling us, so it normally hands over a short
+    // Storage URL; a data: URL means that upload FAILED (offline, signed
+    // out) and the image is riding inline. Left that way it gets persisted
+    // whole into localStorage + the cloud JSONB row — one image is hundreds
+    // of KB, enough to trip persistSavedChats' quota fallback and silently
+    // evict the oldest chats. The image is applied above regardless (it must
+    // render now); here we retry the upload and swap the inline payload for
+    // the URL once it lands. Anything that stays inline past this (still
+    // offline) is caught by the saved-history migration in
+    // AiChatHistoryContext.
+    if (!dataUrl || !dataUrl.startsWith('data:')) return;
+    void uploadPhoto(dataUrl)
+      .then((storedUrl) => {
+        patchDraftBlock(toolUseId, (b) => ({
+          ...b,
+          draft: {
+            ...b.draft,
+            coverPhoto: b.draft.coverPhoto === dataUrl ? storedUrl : b.draft.coverPhoto,
+            photos: ((b.draft.photos || []) as unknown as string[]).map((p) => (p === dataUrl ? storedUrl : p)) as never,
+          },
+        }));
+      })
+      .catch(() => { /* still offline / signed out — migration retries later */ });
   }, [openDraftToolUseId, patchDraftBlock]);
 
   // Refine the open draft with a free-text AI instruction from the
@@ -1308,7 +1341,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
   }, [homeMeals, draftEditMarkers, messages, patchDraftBlock]);
 
-  const sendTurn = useCallback(async (userText: string) => {
+  // `historyOverride` replaces the closure `messages` as the wire history
+  // for this turn. handleRetry needs it: it trims the failed user turn out
+  // of state, but that slice isn't visible here until the next render — the
+  // closure still ends with the original user turn, so building baseHistory
+  // from it would put the question on the wire twice in a row (which the
+  // API's role-alternation rules can reject — a 400 on the exact flow retry
+  // exists to recover from).
+  const sendTurn = useCallback(async (userText: string, historyOverride?: UiMessage[]) => {
     setError(null);
     setStreaming(true);
     const trimmedUser = userText.trim();
@@ -1326,7 +1366,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // saved chats, aborted streams, or other state hiccups. The UI
     // state itself stays untouched (so the user keeps seeing their
     // cards); only the wire payload is cleaned.
-    const cleanedMessages = sanitizeForAnthropic(messages);
+    const cleanedMessages = sanitizeForAnthropic(historyOverride ?? messages);
     const baseHistory: AnthropicMessage[] = cleanedMessages.map((m) => ({
       role: m.role,
       content: uiBlocksToAnthropicContent(m.blocks),
@@ -2109,10 +2149,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     if (!lastUser) return;
     const text = lastUser.blocks.find((b): b is { type: 'text'; text: string } => b.type === 'text')?.text;
     if (!text) return;
-    // Trim back to before that user message so we re-send cleanly.
+    // Trim back to before that user message so we re-send cleanly. Pass the
+    // sliced history to sendTurn explicitly — its closure still holds the
+    // pre-slice messages (ending with this same user turn), and sendTurn
+    // appends the turn again itself.
     const idx = messages.lastIndexOf(lastUser);
-    setMessages(messages.slice(0, idx));
-    void sendTurn(text);
+    const sliced = messages.slice(0, idx);
+    setMessages(sliced);
+    void sendTurn(text, sliced);
   }, [messages, sendTurn]);
 
   return (

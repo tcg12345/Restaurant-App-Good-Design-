@@ -30,7 +30,7 @@ interface RecipesContextValue {
   myRecipes: Recipe[];
   createRecipe: (recipe: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Recipe | null>;
   updateRecipe: (id: string, updates: Partial<Omit<Recipe, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>) => Promise<boolean>;
-  deleteRecipe: (id: string) => Promise<void>;
+  deleteRecipe: (id: string) => Promise<boolean>;
   getRecipe: (id: string) => Recipe | undefined;
   refreshMyRecipes: () => Promise<void>;
 
@@ -179,13 +179,18 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     return ok;
   }, []);
 
-  const deleteRecipe = useCallback(async (id: string): Promise<void> => {
-    await dbDeleteRecipe(id);
+  const deleteRecipe = useCallback(async (id: string): Promise<boolean> => {
+    // Only drop the local copy when the DB row actually went away —
+    // otherwise the recipe silently resurrects on the next refresh and
+    // the caller can't tell the user the delete failed.
+    const ok = await dbDeleteRecipe(id);
+    if (!ok) return false;
     setMyRecipes((prev) => {
       const next = prev.filter((r) => r.id !== id);
       saveToStorage(STORAGE_KEY_MY_RECIPES, next);
       return next;
     });
+    return true;
   }, []);
 
   const getRecipe = useCallback((id: string): Recipe | undefined => {

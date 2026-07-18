@@ -163,6 +163,15 @@ Deno.serve(async (req) => {
       const assetId = String(data.id || '');
       if (passthrough) await updateOwnedRow(passthrough.owner, passthrough.rowId, { mux_status: 'errored' });
       else await updateBoth('mux_asset_id', assetId, { mux_status: 'errored' });
+    } else if (type === 'video.upload.cancelled' || type === 'video.upload.errored') {
+      // Upload-level failures: the asset never materializes, so
+      // video.asset.errored will never fire for these rows — without this
+      // branch an interrupted upload (app killed mid-PUT, Mux timing the
+      // upload out) leaves mux_status='processing' forever. Here data.id
+      // is the UPLOAD id.
+      const uploadId = String(data.id || '');
+      if (passthrough) await updateOwnedRow(passthrough.owner, passthrough.rowId, { mux_status: 'errored' });
+      else if (uploadId) await updateBoth('mux_upload_id', uploadId, { mux_status: 'errored' });
     }
     // Other event types are acknowledged and ignored.
   } catch (err) {

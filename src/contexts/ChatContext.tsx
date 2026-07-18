@@ -93,6 +93,11 @@ export interface ChatMessage {
   sharedPost?: SharedPost;
   sharedGuide?: SharedGuide;
   timestamp: number;
+  /** Delivery status for the viewer's OWN outgoing messages. Undefined =
+   *  incoming / loaded from the server (i.e. definitely delivered). A
+   *  'failed' message stays visible with a tap-to-retry affordance instead
+   *  of silently pretending it sent. */
+  status?: 'sending' | 'sent' | 'failed';
 }
 
 export interface Conversation {
@@ -129,6 +134,8 @@ interface ChatContextValue {
   findDirectConversation: (friendId: string) => Conversation | undefined;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, name: string) => void;
+  /** Re-attempt delivery of a message that failed to send. */
+  retryMessage: (conversationId: string, messageId: string) => void;
   markRead: (conversationId: string) => void;
   unreadCount: number;
   getUnreadForConversation: (conversationId: string) => number;
@@ -177,6 +184,9 @@ interface ConversationRow {
   name: string | null;
   created_at: string | null;
   last_message_at: string | null;
+  /** Users who "deleted" the conversation for themselves (migration 051).
+   *  Absent on projects that haven't applied it yet. */
+  hidden_by?: string[] | null;
 }
 
 interface MessageRow {
@@ -241,6 +251,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   userIdRef.current = userId;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  // Mirror for callbacks that need the freshest list without re-binding
+  // (retryMessage, markRead's server-timestamp clamp).
+  const conversationsRef = useRef<Conversation[]>([]);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
   // Last-read timestamps per conversation (mirrors conversation_reads rows).
   const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
 
@@ -271,6 +285,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ]);
       const row = convRes.data as ConversationRow | null;
       if (!row) return;
+      // New activity in a conversation the user had hidden un-hides it —
+      // like un-archiving: a fresh message should resurface the thread on
+      // every device, not just this session.
+      const uid = userIdRef.current;
+      if (uid && (row.hidden_by || []).includes(uid)) {
+        void supabase.rpc('set_conversation_hidden', { conv: convId, hide: false })
+          .then(({ error }) => { if (error) console.warn('[Chat] unhide failed:', error.message); });
+      }
       const conv = rowToConversation(row, ((msgRes.data || []) as MessageRow[]).map(rowToMessage));
       setConversations((prev) => prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev].sort(byNewestActivity));
     } catch (err) {
@@ -293,9 +315,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    // Instant paint from the per-user display cache.
+    // Instant paint from the per-user display cache. A message cached as
+    // 'sending' can't still be in flight after a reload — surface it as
+    // failed so the retry affordance appears instead of an eternal spinner.
     const cached = loadFromStorage<{ conversations?: Conversation[]; read?: Record<string, number> } | null>(cacheKey(userId), null);
-    setConversations(Array.isArray(cached?.conversations) ? cached!.conversations! : []);
+    const cachedConvs = (Array.isArray(cached?.conversations) ? cached!.conversations! : []).map((c) => ({
+      ...c,
+      messages: (c.messages || []).map((m) => (m.status === 'sending' ? { ...m, status: 'failed' as const } : m)),
+    }));
+    setConversations(cachedConvs);
     setReadTimestamps(cached?.read && typeof cached.read === 'object' ? cached.read : {});
     hydratedForRef.current = userId;
 
@@ -310,7 +338,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           .contains('participant_ids', [userId])
           .order('last_message_at', { ascending: false });
         if (convErr) { console.warn('[Chat] load conversations failed:', convErr.message); return; }
-        const rows = (convRows || []) as ConversationRow[];
+        // Skip conversations this user "deleted" (per-user hide, migration
+        // 051) — the row survives for the other participants.
+        const rows = ((convRows || []) as ConversationRow[])
+          .filter((r) => !(r.hidden_by || []).includes(userId));
         const ids = rows.map((r) => r.id);
 
         const [msgRes, readRes] = await Promise.all([
@@ -369,6 +400,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return next.sort(byNewestActivity);
         });
       })
+      // Renames + per-user hides sync live: without these, a participant
+      // who "deleted" a group kept seeing it (and sending into it) until
+      // reload. RLS scopes both events to conversations the user is in.
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
+        const row = payload.new as ConversationRow;
+        if (!row?.id) return;
+        const meHidden = !!userId && (row.hidden_by || []).includes(userId);
+        setConversations((prev) => {
+          if (meHidden) return prev.filter((c) => c.id !== row.id);
+          return prev.map((c) => (c.id === row.id
+            ? { ...c, name: row.name || undefined, participantIds: row.participant_ids || c.participantIds }
+            : c));
+        });
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
+        const old = payload.old as { id?: string } | null;
+        if (!old?.id) return;
+        setConversations((prev) => prev.filter((c) => c.id !== old.id));
+      })
       .subscribe();
 
     return () => {
@@ -426,6 +476,59 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return conv;
   }, [userId]);
 
+  /** Patch one message in place (status/timestamp reconcile) and keep the
+   *  conversation's ordering + lastMessageAt consistent. */
+  const patchMessage = useCallback((conversationId: string, messageId: string, patch: Partial<ChatMessage>) => {
+    setConversations((prev) => prev.map((c) => {
+      if (c.id !== conversationId) return c;
+      const messages = c.messages
+        .map((m) => (m.id === messageId ? { ...m, ...patch } : m))
+        .sort((a, b) => a.timestamp - b.timestamp);
+      const lastMessageAt = messages.reduce((mx, m) => Math.max(mx, m.timestamp), c.createdAt);
+      return { ...c, messages, lastMessageAt };
+    }).sort(byNewestActivity));
+  }, []);
+
+  /** Insert `msg` server-side and reconcile its status + timestamp. Awaits
+   *  the write (no more fire-and-forget): a message rejected by RLS or the
+   *  network flips to 'failed' with a retry affordance instead of sitting
+   *  in local state showing "Sent" while the recipient never gets it. On
+   *  success the optimistic client timestamp is replaced by the row's
+   *  server created_at, so unread math never compares clocks across
+   *  machines. */
+  const deliverMessage = useCallback((conversationId: string, msg: ChatMessage) => {
+    const uid = userIdRef.current;
+    if (!uid || !supabaseConfigured) return;
+    void (async () => {
+      try {
+        const pending = pendingCreates.current.get(conversationId);
+        if (pending) await pending;
+        const { data, error } = await supabase.from('messages').insert({
+          id: msg.id,
+          conversation_id: conversationId,
+          sender_id: uid,
+          text: msg.text,
+          shared_payload: buildSharedPayload(msg),
+        }).select('created_at').single();
+        if (error) {
+          // 23505 = this exact message already landed (a retry racing the
+          // original) — that's delivered, not failed.
+          if (error.code === '23505') { patchMessage(conversationId, msg.id, { status: 'sent' }); return; }
+          console.warn('[Chat] send failed:', error.message);
+          patchMessage(conversationId, msg.id, { status: 'failed' });
+          return;
+        }
+        patchMessage(conversationId, msg.id, {
+          status: 'sent',
+          timestamp: parseTs((data as { created_at: string | null } | null)?.created_at),
+        });
+      } catch (err) {
+        console.warn('[Chat] send failed:', err);
+        patchMessage(conversationId, msg.id, { status: 'failed' });
+      }
+    })();
+  }, [patchMessage]);
+
   const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => {
     if (!userId) return;
     const msg: ChatMessage = {
@@ -438,6 +541,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sharedPost,
       sharedGuide,
       timestamp: Date.now(),
+      status: supabaseConfigured ? 'sending' : 'sent',
     };
     setConversations((prev) => prev.map((c) =>
       c.id === conversationId
@@ -448,25 +552,18 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setReadTimestamps((prev) => ({ ...prev, [conversationId]: msg.timestamp }));
 
     if (supabaseConfigured) {
-      void (async () => {
-        try {
-          const pending = pendingCreates.current.get(conversationId);
-          if (pending) await pending;
-          const { error } = await supabase.from('messages').insert({
-            id: msg.id,
-            conversation_id: conversationId,
-            sender_id: userId,
-            text,
-            shared_payload: buildSharedPayload(msg),
-          });
-          if (error) console.warn('[Chat] send failed:', error.message);
-        } catch (err) {
-          console.warn('[Chat] send failed:', err);
-        }
-      })();
+      deliverMessage(conversationId, msg);
       persistReadState(conversationId, msg.timestamp);
     }
-  }, [userId, persistReadState]);
+  }, [userId, deliverMessage, persistReadState]);
+
+  const retryMessage = useCallback((conversationId: string, messageId: string) => {
+    const conv = conversationsRef.current.find((c) => c.id === conversationId);
+    const msg = conv?.messages.find((m) => m.id === messageId);
+    if (!msg || msg.status !== 'failed') return;
+    patchMessage(conversationId, messageId, { status: 'sending' });
+    deliverMessage(conversationId, { ...msg, status: 'sending' });
+  }, [deliverMessage, patchMessage]);
 
   const getConversation = useCallback((id: string) => conversations.find((c) => c.id === id), [conversations]);
 
@@ -539,10 +636,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         try {
           const pending = pendingCreates.current.get(id);
           if (pending) await pending;
-          const { error } = await supabase.from('conversations').delete().eq('id', id);
-          if (error) console.warn('[Chat] delete conversation failed:', error.message);
+          // Per-user HIDE, not a row delete: the old version deleted the
+          // conversations row (messages cascade), so any member of a group
+          // chat erased history for every participant. The row now
+          // survives; migration 051's RPC appends this user to hidden_by
+          // atomically, and other participants are untouched.
+          const { error } = await supabase.rpc('set_conversation_hidden', { conv: id, hide: true });
+          if (error) console.warn('[Chat] hide conversation failed:', error.message);
         } catch (err) {
-          console.warn('[Chat] delete conversation failed:', err);
+          console.warn('[Chat] hide conversation failed:', err);
         }
       })();
     }
@@ -568,7 +670,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const markRead = useCallback((conversationId: string) => {
-    const now = Date.now();
+    // Clamp to the newest message's (server-derived) timestamp: read marks
+    // compare against message created_at values from the SERVER, so a
+    // client clock running behind would leave just-received messages
+    // "unread" forever if we stored bare Date.now().
+    const conv = conversationsRef.current.find((c) => c.id === conversationId);
+    const now = Math.max(Date.now(), conv?.lastMessageAt ?? 0);
     setReadTimestamps((prev) => ({ ...prev, [conversationId]: now }));
     persistReadState(conversationId, now);
   }, [persistReadState]);
@@ -592,7 +699,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <ChatContext.Provider value={{
       conversations, createConversation, sendMessage, getConversation,
       findDirectConversation, getOrCreateDirectConversation, shareToTargets,
-      deleteConversation, renameConversation, markRead,
+      deleteConversation, renameConversation, retryMessage, markRead,
       unreadCount, getUnreadForConversation,
     }}>
       {children}

@@ -12,6 +12,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, type LucideIcon } from 'lucide-react';
 import { cn } from './utils';
+import { normalizeQuantityToken } from './ingredient-parsing';
 import { useRecipes } from '../contexts/RecipesContext';
 
 /** Formats a minute total as a short "X hr Y min" string. */
@@ -49,12 +50,13 @@ export const getMealCoverUrl = (
 };
 
 /**
- * Parses an ingredient amount string ("2", "1/2", "1 1/2", "0.5") into a
- * number. Returns null when the string isn't a recognisable quantity (e.g.
- * "a pinch"); callers fall back to leaving the original string alone.
+ * Parses an ingredient amount string ("2", "1/2", "1 1/2", "0.5", "½",
+ * "1½") into a number. Returns null when the string isn't a recognisable
+ * quantity (e.g. "a pinch"); callers fall back to leaving the original
+ * string alone.
  */
 export const parseQuantity = (str: string): number | null => {
-  const trimmed = str.trim();
+  const trimmed = normalizeQuantityToken(str.trim());
   if (!trimmed) return null;
   const mixed = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (mixed) {
@@ -94,11 +96,21 @@ export const formatQuantity = (value: number): string => {
 };
 
 /**
- * Scales an ingredient amount string by a ratio. Non-numeric amounts are
- * passed through unchanged so values like "pinch" survive.
+ * Scales an ingredient amount string by a ratio. Ranges scale both
+ * endpoints and re-render as a range ("2-3" ×2 → "4-6"). Non-numeric
+ * amounts are passed through unchanged so values like "pinch" survive.
  */
 export const scaleQuantity = (raw: string, ratio: number): string => {
-  const parsed = parseQuantity(raw);
+  const trimmed = normalizeQuantityToken(raw.trim());
+  const range = trimmed.match(/^(.+?)\s*-\s*(.+)$/);
+  if (range) {
+    const lo = parseQuantity(range[1]);
+    const hi = parseQuantity(range[2]);
+    if (lo !== null && hi !== null) {
+      return `${formatQuantity(lo * ratio)}-${formatQuantity(hi * ratio)}`;
+    }
+  }
+  const parsed = parseQuantity(trimmed);
   if (parsed === null) return raw;
   return formatQuantity(parsed * ratio);
 };
