@@ -96,6 +96,11 @@ export interface Recipe {
   score: number;            // 0–10 rating
   isPrivate: boolean;
   createdAt: number;
+  /** Last-edited timestamp (Date.now()). Stamped by every mutator that edits
+   *  this recipe so the multi-device merge (mergeUserData) keeps the newer
+   *  copy; absent on entries created before it existed (merge falls back to
+   *  createdAt). */
+  updatedAt?: number;
   /** When this recipe was saved from another user's recipe, who
    *  originally authored it. Drives the "by @author" byline on cards.
    *  Unset for the user's own recipes. */
@@ -114,6 +119,9 @@ export interface CustomList {
   listRatings?: Record<string, RestaurantRating>; // per-list rating overrides keyed by restaurantId
   recipes?: Recipe[];        // home-cooking recipes
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Stamped on scalar edits
+   *  (rename) and listRatings edits so the newer list wins the merge. */
+  updatedAt?: number;
 }
 
 export interface WishlistItem {
@@ -126,6 +134,10 @@ export interface WishlistItem {
   notes: string;
   listIds: string[];         // which lists this wishlist item belongs to
   addedAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Stamped on note edits so a
+   *  note changed offline wins the merge (addedAt alone would tie the cloud
+   *  copy and lose). */
+  updatedAt?: number;
 }
 
 export interface TripRestaurant {
@@ -157,6 +169,9 @@ export interface Trip {
   notes?: string;
   status: 'planning' | 'active' | 'completed';
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Trips merge as a whole
+   *  entity (newer wins), so every trip edit stamps this. */
+  updatedAt?: number;
 }
 
 export interface HomeMealDish {
@@ -234,6 +249,9 @@ export interface HomeMeal {
   dishes: HomeMealDish[];
   isPublic: boolean;
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Home meals merge as a whole
+   *  entity (newer wins), so every edit stamps this. */
+  updatedAt?: number;
   coverPhoto?: string;
   prepTime?: number;
   cookTime?: number;
@@ -1552,7 +1570,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateTrip = useCallback((id: string, updates: Partial<Trip>) => {
     setTrips((prev) => {
-      const next = prev.map((t) => t.id === id ? { ...t, ...updates } : t);
+      // Stamp updatedAt so this edit wins the multi-device merge (trips merge
+      // as a whole entity — an unstamped edit would tie the stale cloud copy
+      // and lose).
+      const next = prev.map((t) => t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
       return next;
@@ -1571,7 +1592,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const addRestaurantToTrip = useCallback((tripId: string, restaurant: TripRestaurant) => {
     setTrips((prev) => {
-      const next = prev.map((t) => t.id === tripId ? { ...t, restaurants: [...t.restaurants, restaurant] } : t);
+      const next = prev.map((t) => t.id === tripId ? { ...t, restaurants: [...t.restaurants, restaurant], updatedAt: Date.now() } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
       return next;
@@ -1585,6 +1606,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         restaurants: t.restaurants.map((r) =>
           r.restaurantId === restaurantId && r.night === night ? { ...r, ...updates } : r
         ),
+        updatedAt: Date.now(),
       } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
@@ -1597,6 +1619,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = prev.map((t) => t.id === tripId ? {
         ...t,
         restaurants: t.restaurants.filter((r) => !(r.restaurantId === restaurantId && r.night === night)),
+        updatedAt: Date.now(),
       } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
@@ -1689,9 +1712,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateRecipe = useCallback((listId: string, recipeId: string, updates: Partial<Recipe>) => {
     setLists((prev) => {
+      const now = Date.now();
       const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).map((r) => {
         if (r.id !== recipeId) return r;
-        const merged = { ...r, ...updates };
+        const merged = { ...r, ...updates, updatedAt: now };
         // Public (isPrivate=false) requires a cover photo.
         if (!merged.isPrivate && !merged.coverPhoto) merged.isPrivate = true;
         return merged;
@@ -1702,9 +1726,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
     setHomeMeals((prev) => {
       if (!prev.some((m) => m.id === recipeId)) return prev;
+      const now = Date.now();
       const next = prev.map((m) => {
         if (m.id !== recipeId) return m;
-        const merged = { ...m, ...recipeUpdatesToHomeMeal(updates) };
+        const merged = { ...m, ...recipeUpdatesToHomeMeal(updates), updatedAt: now };
         if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
         return merged;
       });
@@ -1861,9 +1886,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
     setHomeMeals((prev) => {
+      const now = Date.now();
       const next = prev.map((m) => {
         if (m.id !== id) return m;
-        const merged = { ...m, ...updates };
+        // Stamp updatedAt so an offline edit wins the merge (home meals merge
+        // whole-entity newer-wins).
+        const merged = { ...m, ...updates, updatedAt: now };
         // A recipe can only be public if it has a cover photo.
         if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
         return merged;
@@ -2363,7 +2391,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const renameList = useCallback((id: string, name: string, emoji: string) => {
     if (id === DEFAULT_WANT_TO_COOK_ID || id === DEFAULT_COOKED_ID) return;
     setLists((prev) => {
-      const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
+      // Stamp updatedAt so a rename made offline wins the merge (list scalar
+      // fields merge newer-wins; without a stamp the rename ties the stale
+      // cloud name and loses).
+      const next = prev.map((l) => l.id === id ? { ...l, name, emoji, updatedAt: Date.now() } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
@@ -2487,11 +2518,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const setListRating = useCallback((listId: string, rating: RestaurantRating) => {
     setLists((prev) => {
+      const now = Date.now();
       const next = prev.map((l) => {
         if (l.id !== listId) return l;
-        const listRatings = { ...(l.listRatings || {}), [rating.restaurantId]: rating };
+        // Stamp both the rating and the LIST: the merge picks a list's
+        // listRatings map by the LIST's updatedAt (whole-map), so the edit only
+        // survives if this list wins.
+        const listRatings = { ...(l.listRatings || {}), [rating.restaurantId]: { ...rating, updatedAt: now } };
         const restaurantIds = l.restaurantIds.includes(rating.restaurantId) ? l.restaurantIds : [...l.restaurantIds, rating.restaurantId];
-        return { ...l, listRatings, restaurantIds };
+        return { ...l, listRatings, restaurantIds, updatedAt: now };
       });
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
@@ -2508,11 +2543,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Wishlist
   const addToWishlist = useCallback((item: WishlistItem) => {
     untombstone('wishlist', item.restaurantId);
+    // Stamp updatedAt: this is the note-edit path (an existing item is replaced
+    // with edited notes/listIds), and addedAt alone would tie the stale cloud
+    // copy in the merge and lose the edit.
+    const stamped: WishlistItem = { ...item, updatedAt: Date.now() };
     setWishlist((prev) => {
-      const existing = prev.find((w) => w.restaurantId === item.restaurantId);
+      const existing = prev.find((w) => w.restaurantId === stamped.restaurantId);
       const next = existing
-        ? prev.map((w) => w.restaurantId === item.restaurantId ? item : w)
-        : [item, ...prev];
+        ? prev.map((w) => w.restaurantId === stamped.restaurantId ? stamped : w)
+        : [stamped, ...prev];
       saveToStorage(STORAGE_KEY_WISHLIST, next);
       syncWishlistToCloud(next);
       return next;
