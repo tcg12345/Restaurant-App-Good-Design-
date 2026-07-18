@@ -141,6 +141,14 @@ function mediaRowSub(item: { file?: File; mediaType: PostMediaType; durationSeco
   return [ext, size].filter(Boolean).join(' · ') || 'Photo';
 }
 
+/** Release the blob: previews we created via URL.createObjectURL. Edit-mode
+ *  tiles carry signed https URLs — those pass through untouched. */
+function revokeItemPreviews(list: WorkingItem[]): void {
+  for (const it of list) {
+    if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
+  }
+}
+
 /* ── Step machine type ───────────────────────────────────────────────── */
 
 type Step = 1 | 2 | 3 | 4;
@@ -165,6 +173,11 @@ export const AddPostModal: React.FC = () => {
   const goToStep = (next: Step) => setStep(next);
 
   const [items, setItems] = useState<WorkingItem[]>([]);
+  // Latest items for the cleanup paths that can't read state directly: the
+  // unmount effect's [] closure, and the open-reset effect, which must
+  // revoke the PREVIOUS session's previews before replacing them.
+  const itemsRef = useRef<WorkingItem[]>([]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [postCaption, setPostCaption] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
@@ -222,6 +235,12 @@ export const AddPostModal: React.FC = () => {
   // form, with the strip showing the existing media as read-only tiles.
   useEffect(() => {
     if (!addPostModalOpen) return;
+    // This component never unmounts (only the open subtree does), so the
+    // PREVIOUS session's items are still sitting in state right now —
+    // release their blob previews before the seed/clear below drops the
+    // last references. Without this, every compose session leaked its
+    // object URLs (up to ten apiece) for the life of the page.
+    revokeItemPreviews(itemsRef.current);
     if (editingPost) {
       const seeded: WorkingItem[] = editingPost.items.map((it) => ({
         key: `existing-${it.id}`,
@@ -317,17 +336,12 @@ export const AddPostModal: React.FC = () => {
     if (it.mediaType === 'photo' && editTab === 'trim') setEditTab('crop');
   }, [activeKey, items, editTab]);
 
-  // Revoke object URLs on unmount. Existing items in edit mode use a
-  // signed URL (https://…) — those don't need revoking, so we only call
-  // revokeObjectURL on blob: URLs we created ourselves.
-  useEffect(() => {
-    return () => {
-      for (const it of items) {
-        if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Revoke object URLs on unmount, reading the LIVE items via the ref —
+  // the old [] closure captured the initial empty array, so even if this
+  // ever unmounted it revoked nothing. (In practice the real cleanup work
+  // happens in the open-reset effect and resetForCreate above/below; this
+  // is the backstop for an actual teardown.)
+  useEffect(() => () => revokeItemPreviews(itemsRef.current), []);
 
   // On phone, auto-open the OS picker the first time step 1 mounts so
   // the user lands on the camera roll without an extra tap. Same
@@ -924,9 +938,7 @@ export const AddPostModal: React.FC = () => {
 
   // "Create another" from the success overlay — back to a fresh step 1.
   const resetForCreate = () => {
-    for (const it of items) {
-      if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
-    }
+    revokeItemPreviews(items);
     setItems([]);
     setActiveKey(null);
     setPostCaption('');
