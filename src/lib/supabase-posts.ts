@@ -15,7 +15,7 @@ import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
 import { captureVideoPoster, posterPathFor } from './video-poster';
 import { compressImage } from './media-compress';
 import { backfillPosters } from './poster-backfill';
-import { requestMuxUpload, uploadToMux, muxPosterUrl } from './mux';
+import { requestMuxUpload, uploadToMux, muxPosterUrl, fetchMuxTokens, type MuxPlaybackTokens, type MuxUploadTicket } from './mux';
 
 const BUCKET = 'post-media';
 export const POST_MAX_ITEMS = 15;
@@ -67,10 +67,15 @@ export interface PostItemRow {
   mediaUrl: string;
   /** Signed URL for a video item's poster thumbnail, '' when none exists. */
   posterUrl: string;
-  /** Mux public playback id once a video item finishes transcoding, '' else. */
+  /** Mux playback id once a video item finishes transcoding, '' else. */
   muxPlaybackId: string;
   /** '' for legacy/Storage items; 'processing' | 'ready' | 'errored' for Mux. */
   muxStatus: string;
+  /** 'public' | 'signed' — signed (followers-only) playback needs muxTokens. */
+  muxPlaybackPolicy: string;
+  /** Viewer-scoped playback tokens for a signed asset; null when public,
+   *  unavailable, or the viewer isn't allowed. */
+  muxTokens: MuxPlaybackTokens | null;
   caption: string;
   attachedKind: PostAttachedKind | null;
   restaurant: PostRestaurantSnapshot | null;
@@ -233,6 +238,9 @@ const rowToItem = (row: Record<string, unknown>): PostItemRow => ({
   posterUrl: '', // filled in after signing the derived poster path
   muxPlaybackId: String(row.mux_playback_id || ''),
   muxStatus: String(row.mux_status || ''),
+  // Pre-migration-048 rows default to 'public' — every asset back then was.
+  muxPlaybackPolicy: String(row.mux_playback_policy || 'public'),
+  muxTokens: null,
   caption: String(row.caption || ''),
   attachedKind: (row.attached_kind as PostAttachedKind | null) || null,
   restaurant: (row.restaurant_data as PostRestaurantSnapshot | null) || null,
@@ -346,7 +354,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
   };
 
   const photoPaths: (string | null)[] = items.map(() => null);
-  const muxTickets: ({ uploadUrl: string; uploadId: string } | null)[] = items.map(() => null);
+  const muxTickets: (MuxUploadTicket | null)[] = items.map(() => null);
   const localPosters: (string | null)[] = items.map(() => null);
   const cleanupLocal = () => localPosters.forEach((u) => { if (u) URL.revokeObjectURL(u); });
   const removePhotos = async () => {
@@ -371,7 +379,9 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
         });
         photoPaths[idx] = path;
       } else {
-        muxTickets[idx] = await requestMuxUpload({ passthrough: itemIds[idx] });
+        // Followers-only posts ask for the SIGNED playback policy so the
+        // video itself is private, not just the DB rows.
+        muxTickets[idx] = await requestMuxUpload({ passthrough: itemIds[idx], isPublic });
         const posterBlob = await captureVideoPoster(item.file).catch(() => null);
         if (posterBlob) localPosters[idx] = URL.createObjectURL(posterBlob);
       }
@@ -398,7 +408,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
 
   // Insert items BEFORE the Mux byte upload, so a webhook that fires the instant
   // Mux finishes always has a row to update.
-  const itemRows = items.map((item, idx) => ({
+  const itemRows: Array<Record<string, unknown>> = items.map((item, idx) => ({
     id: itemIds[idx],
     post_id: postId,
     position: idx,
@@ -406,6 +416,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     media_path: item.mediaType === 'photo' ? photoPaths[idx] : null,
     mux_upload_id: item.mediaType === 'video' ? muxTickets[idx]?.uploadId ?? null : null,
     mux_status: item.mediaType === 'video' ? 'processing' : null,
+    mux_playback_policy: (item.mediaType === 'video' && muxTickets[idx]?.playbackPolicy) || 'public',
     caption: item.caption,
     attached_kind: item.attachedKind,
     restaurant_id: item.restaurant?.id ?? null,
@@ -415,7 +426,14 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     duration_seconds: item.durationSeconds ?? null,
     bg_gradient: item.bgGradient,
   }));
-  const { error: itemsError } = await supabase.from('post_items').insert(itemRows);
+  let itemsInsert = await supabase.from('post_items').insert(itemRows);
+  // Migration-tolerance: a project without migration 048 lacks
+  // mux_playback_policy — strip it and retry before the harder mux_* check.
+  if (itemsInsert.error && itemsInsert.error.code === 'PGRST204' && /mux_playback_policy/i.test(itemsInsert.error.message || '')) {
+    for (const row of itemRows) delete row.mux_playback_policy;
+    itemsInsert = await supabase.from('post_items').insert(itemRows);
+  }
+  const itemsError = itemsInsert.error;
   if (itemsError) {
     await supabase.from('posts').delete().eq('id', postId);
     await removePhotos();
@@ -481,16 +499,27 @@ async function decoratePostItems(items: PostItemRow[]): Promise<void> {
   const legacy = items.filter((it) => it.mediaPath && !it.muxPlaybackId);
   const photoPaths = legacy.filter((it) => it.mediaType === 'photo').map((it) => it.mediaPath);
   const posterPaths = legacy.filter((it) => it.mediaType === 'video').map((it) => posterPathFor(it.mediaPath));
-  const [signed, signedPhotos, signedPosters] = await Promise.all([
+  const signedMux = items.filter((it) => it.muxPlaybackId && it.muxPlaybackPolicy === 'signed');
+  const [signed, signedPhotos, signedPosters, muxTokens] = await Promise.all([
     signMediaPaths(legacy.map((it) => it.mediaPath)),
     signMediaPaths(photoPaths, PHOTO_DISPLAY_TRANSFORM),
     signMediaPaths(posterPaths),
+    signedMux.length
+      ? fetchMuxTokens(signedMux.map((it) => ({ kind: 'post_item' as const, id: it.id })))
+      : Promise.resolve(new Map<string, MuxPlaybackTokens>()),
   ]);
   for (const it of items) {
     if (it.muxPlaybackId) {
       // Mux video item: HLS playback by id (no stored media_url) + Mux poster.
+      // Signed (followers-only) items carry viewer-scoped tokens; one the
+      // token function refused renders posterless and unplayable.
       it.mediaUrl = '';
-      it.posterUrl = muxPosterUrl(it.muxPlaybackId);
+      if (it.muxPlaybackPolicy === 'signed') {
+        it.muxTokens = muxTokens.get(it.id) ?? null;
+        it.posterUrl = it.muxTokens ? muxPosterUrl(it.muxPlaybackId, { token: it.muxTokens.thumbnail }) : '';
+      } else {
+        it.posterUrl = muxPosterUrl(it.muxPlaybackId);
+      }
     } else {
       // Photos prefer the small display variant; everything (incl. a photo whose
       // transform failed) falls back to the plain signed URL.
@@ -629,6 +658,15 @@ export async function setPostVisibility(postId: string, isPublic: boolean): Prom
       console.warn('[Posts] setVisibility failed:', error.message);
     }
     return false;
+  }
+  // Align every video item's Mux playback policy with the new visibility —
+  // RLS only hides the DB rows; the old public stream URLs would keep working
+  // otherwise. Playback ids change in the swap, so callers should refetch the
+  // post's items after this resolves.
+  try {
+    await supabase.functions.invoke('mux-set-visibility', { body: { kind: 'post', id: postId } });
+  } catch (err) {
+    console.warn('[Posts] mux playback-policy sync failed:', err);
   }
   return true;
 }

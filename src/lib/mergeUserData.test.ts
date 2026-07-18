@@ -83,10 +83,19 @@ describe('mergeById', () => {
     expect(mergeById(local, cloud, getId)[0].v).toBe('local-edited');
   });
 
-  it('cloud wins ties (both timestamps equal) — stable server preference', () => {
+  it('local wins exact-timestamp ties — the device in the user\'s hand is authoritative', () => {
     const local = [{ id: 'X', createdAt: 100, v: 'local' }];
     const cloud = [{ id: 'X', createdAt: 100, v: 'cloud' }];
-    expect(mergeById(local, cloud, getId)[0].v).toBe('cloud');
+    expect(mergeById(local, cloud, getId)[0].v).toBe('local');
+  });
+
+  it('an offline edit that stamped updatedAt beats an un-stamped stale cloud copy', () => {
+    // The entity predates updatedAt, so both sides carry only the shared
+    // createdAt — until the local device edits it and stamps updatedAt. That
+    // stamp must let the edit win (the H1 data-loss fix).
+    const local = [{ id: 'X', createdAt: 1000, updatedAt: 1000_005, v: 'edited-offline' }];
+    const cloud = [{ id: 'X', createdAt: 1000, v: 'stale-cloud' }];
+    expect(mergeById(local, cloud, getId)[0].v).toBe('edited-offline');
   });
 
   it('skips entries with no id', () => {
@@ -217,6 +226,20 @@ describe('mergeTrips', () => {
     expect(merged.map((t) => t.id).sort()).toEqual(['t1', 't2', 't3']);
     expect(merged.find((t) => t.id === 't1')!.name).toBe('new');
   });
+
+  it('a trip note edited offline (updatedAt stamped) survives over the stale cloud copy', () => {
+    // The H1 verify scenario: same createdAt on both sides; the local device
+    // edited the note and stamped updatedAt, so the edit must win.
+    const local = [trip('t1', { notes: 'edited offline', createdAt: 1000, updatedAt: 2000 } as Partial<Trip>)];
+    const cloud = [trip('t1', { notes: 'stale', createdAt: 1000 })];
+    expect(mergeTrips(local, cloud)[0].notes).toBe('edited offline');
+  });
+
+  it('equal timestamps break toward the local trip', () => {
+    const local = [trip('t1', { notes: 'local', createdAt: 1000 })];
+    const cloud = [trip('t1', { notes: 'cloud', createdAt: 1000 })];
+    expect(mergeTrips(local, cloud)[0].notes).toBe('local');
+  });
 });
 
 describe('mergeHomeMeals', () => {
@@ -226,5 +249,11 @@ describe('mergeHomeMeals', () => {
     const merged = mergeHomeMeals(local, cloud);
     expect(merged.map((m) => m.id).sort()).toEqual(['m1', 'm2', 'm3']);
     expect(merged.find((m) => m.id === 'm1')!.name).toBe('edited');
+  });
+
+  it('an offline home-meal edit (updatedAt stamped) wins over the same-createdAt cloud copy', () => {
+    const local = [meal('m1', { name: 'edited offline', createdAt: 1000, updatedAt: 1500 } as Partial<HomeMeal>)];
+    const cloud = [meal('m1', { name: 'stale', createdAt: 1000 })];
+    expect(mergeHomeMeals(local, cloud)[0].name).toBe('edited offline');
   });
 });

@@ -551,14 +551,22 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setEmail(trimmed);
     setSubmitting(true);
     const exists = await checkEmailExists(trimmed);
-    if (exists) {
+    if (exists === 'yes') {
       setSubmitting(false);
       setStep('password');
       return;
     }
-    // New account: verify the email FIRST (6-digit code), then choose a
-    // password. signInWithOtp always sends the code — no dependency on the
-    // project's "Confirm email" setting.
+    if (exists === 'unknown') {
+      // The lookup failed — we do NOT know if this email is registered.
+      // Assuming "new" here would run the signup OTP flow on an existing
+      // account and reset its password, so stop and let the user retry.
+      setSubmitting(false);
+      setError("We couldn't check that email just now — please try again.");
+      return;
+    }
+    // Confirmed new account ('no'): verify the email FIRST (6-digit code),
+    // then choose a password. signInWithOtp always sends the code — no
+    // dependency on the project's "Confirm email" setting.
     const { error: sendErr } = await startEmailSignup(trimmed);
     setSubmitting(false);
     if (sendErr) { setError(sendErr); return; }
@@ -619,15 +627,19 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setError('');
     if (code.length !== 6) { setError('Enter the 6-digit code from your email'); return; }
     setSubmitting(true);
-    const { error: err } = await verifyEmailCode(email, code, verifyFor === 'signup');
+    const { error: err, passwordSetupNeeded } = await verifyEmailCode(email, code, verifyFor === 'signup');
     if (err) {
       setError(/expired|invalid|token/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
-    } else if (verifyFor === 'signup') {
-      // Verified — the session exists; now choose the password.
+    } else if (verifyFor === 'signup' && passwordSetupNeeded !== false) {
+      // Verified and the account has no password yet — choose one. When the
+      // account already had a password (passwordSetupNeeded === false), we
+      // skip this: the session has landed and onAuthStateChange swaps to the
+      // app, instead of overwriting the returning user's password.
       setPassword('');
       setStep('setpassword');
     }
-    // 'unconfirmed': the session lands and onAuthStateChange swaps to the app.
+    // 'unconfirmed' (or an already-passworded signup): the session lands and
+    // onAuthStateChange swaps to the app.
     setSubmitting(false);
   }, [email, code, verifyFor, verifyEmailCode]);
 

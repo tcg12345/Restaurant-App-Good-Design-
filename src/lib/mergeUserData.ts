@@ -71,7 +71,11 @@ export function mergeById<T extends Record<string, unknown>>(
       result.set(id, l);
       continue;
     }
-    const winner = tsOf(l) > tsOf(existing) ? l : existing;
+    // Break EXACT-timestamp ties toward LOCAL (the device in the user's hand).
+    // An edit to an entity that never got an updatedAt stamp carries only the
+    // shared createdAt, so it ties the stale cloud copy — favouring local keeps
+    // that edit instead of silently reverting it.
+    const winner = tsOf(l) >= tsOf(existing) ? l : existing;
     const loser = winner === l ? existing : l;
     result.set(id, combine ? combine(winner, loser) : winner);
   }

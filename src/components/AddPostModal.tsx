@@ -867,7 +867,9 @@ export const AddPostModal: React.FC = () => {
             previewUrl: it.previewUrl,
             durationSeconds: it.durationSeconds,
             edits: it.edits,
-          })));
+          })), undefined, () => showToast('Audio couldn’t be kept', {
+            subtitle: 'This device dropped sound from an edited video',
+          }));
         } finally {
           setFinalizingEdits(false);
         }

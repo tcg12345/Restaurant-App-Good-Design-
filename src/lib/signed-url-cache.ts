@@ -74,3 +74,17 @@ export function putCachedSignedUrl(bucket: string, path: string, url: string, tt
   MEM.set(keyOf(bucket, path, variant), { url, expiresAt: Date.now() + ttlSeconds * 1000 });
   scheduleSave();
 }
+
+/** Drop every cached signed URL — both the in-memory map and the persisted
+ *  copy. Called on sign-out / account switch: these URLs point into PRIVATE
+ *  reel/post buckets and stay valid for their full TTL, so they must not
+ *  survive a change of identity on the device. */
+export function clearSignedUrlCache(): void {
+  MEM.clear();
+  hydrated = false; // let a later session re-hydrate from a fresh write
+  try { localStorage.removeItem(LS_KEY); } catch { /* storage unavailable */ }
+}
+
+/** The localStorage key backing this cache, so clearLocalAppData can list it
+ *  among the keys it purges. */
+export const SIGNED_URL_CACHE_LS_KEY = LS_KEY;

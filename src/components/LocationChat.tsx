@@ -38,6 +38,8 @@ import {
   CUISINE_TYPES,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { isAllowedAppPath } from '../lib/app-routes';
+import { ugc, ugcSanitize, UGC_MAX_BIO, UGC_MAX_NAME, UGC_MAX_TITLE, UGC_MAX_NOTE, UGC_MAX_HANDLE } from '../lib/ugc';
 import type { RestaurantMeta, HomeMeal } from '../contexts/ListsContext';
 import type { Recipe } from '../contexts/RecipesContext';
 import type { ScoredPlace } from '../lib/recommendations';
@@ -1200,7 +1202,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [openDraftToolUseId, patchDraftBlock]);
 
   // Refine the open draft with a free-text AI instruction from the
-  // preview sheet. Runs a stateless /api/build-recipe edit call and
+  // preview sheet. Runs a stateless build-recipe edit call and
   // patches the block in place — both the draft (so the sheet + card
   // refresh) and the rawInput (so the chat conversation round-trips
   // the latest version back to the model).
@@ -1577,9 +1579,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   });
                   const lines = hits.slice(0, 5).map((h, i) => {
                     const flag = h.isExpert ? ' [expert]' : '';
-                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
-                      .filter(Boolean)
-                      .join(' · ');
+                    const bits = [
+                      ugc(h.displayName || h.username, UGC_MAX_NAME),
+                      h.username ? `@${ugcSanitize(h.username, UGC_MAX_HANDLE)}` : null,
+                      h.homeCity ? ugc(h.homeCity, UGC_MAX_NAME) : null,
+                      h.bio ? ugc(h.bio, UGC_MAX_BIO) : null,
+                    ].filter(Boolean).join(' · ');
                     return `${i + 1}. ${bits}${flag}`;
                   }).join('\n');
                   content = `Found ${hits.length} user(s) matching "${query}":\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
@@ -1609,9 +1614,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   const lines = hits.map((h, i) => {
                     const role = h.isExpert ? 'expert' : h.isFriend ? 'friend' : 'community';
                     const score = typeof h.score === 'number' ? `${h.score.toFixed(1)}/10` : '—';
-                    const handle = h.username ? `@${h.username}` : '';
-                    const noteSnippet = h.notes ? ` "${h.notes.slice(0, 60).trim()}${h.notes.length > 60 ? '…' : ''}"` : '';
-                    return `${i + 1}. ${h.displayName || h.username} ${handle ? `(${handle})` : ''} — ${role} — ${score}${noteSnippet}`;
+                    const handle = h.username ? `@${ugcSanitize(h.username, UGC_MAX_HANDLE)}` : '';
+                    const noteSnippet = h.notes ? ` ${ugc(h.notes, UGC_MAX_NOTE)}` : '';
+                    return `${i + 1}. ${ugc(h.displayName || h.username, UGC_MAX_NAME)} ${handle ? `(${handle})` : ''} — ${role} — ${score}${noteSnippet}`;
                   }).join('\n');
                   content = `${hits.length} member${hits.length === 1 ? '' : 's'} of the user's circle rated this restaurant:\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
                 }
@@ -1644,7 +1649,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     const price = priceLevelToString(p.priceLevel);
                     const score = p.rating > 0 ? `${(p.rating * 2).toFixed(1)}/10` : '';
                     const meta = [cuisine, price, score].filter(Boolean).join(' · ');
-                    return `${i + 1}. ${p.name}  (id: ${p.id})  ${meta}`;
+                    return `${i + 1}. ${ugc(p.name, UGC_MAX_NAME)}  (id: ${p.id})  ${meta}`;
                   }).join('\n');
                   content = `Search for "${query}" returned ${Math.min(found.length, 10)} matches:\n${lines}\n\nRecommend any of these via recommend_restaurants — their cards will render even though they're outside the user's current filters.`;
                 }
@@ -1679,7 +1684,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   });
                   const lines = hits.map((h, i) => {
                     const meta = [h.michelinDistinction, h.cuisineText, h.priceText].filter(Boolean).join(' · ');
-                    return `${i + 1}. ${h.name}  (id: ${h.id})  ${meta}`;
+                    return `${i + 1}. ${ugc(h.name, UGC_MAX_NAME)}  (id: ${h.id})  ${meta}`;
                   }).join('\n');
                   content = `Michelin Guide dataset returned ${hits.length} restaurant(s):\n${lines}\n\nThis is the complete, authoritative list — present ALL of them to the user (don't trim) and render cards via recommend_restaurants using these ids. Their distinction is shown above; state it accurately. Only use web_search if you need extra detail not in this data.`;
                 }
@@ -1724,15 +1729,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   const lines = hits.slice(0, 10).map((h, i) => {
                     const totalMin = (h.prepTimeMinutes || 0) + (h.cookTimeMinutes || 0);
                     const meta = [
-                      h.cuisine,
+                      h.cuisine ? ugc(h.cuisine, UGC_MAX_NAME) : null,
                       totalMin > 0 ? `${totalMin} min` : null,
                       h.difficulty,
                       h.authorIsFriend ? '[friend]' : h.authorIsExpert ? '[verified]' : null,
                     ].filter(Boolean).join(' · ');
                     const byline = h.authorUsername
-                      ? ` — by ${h.authorDisplayName || h.authorUsername} (@${h.authorUsername})`
+                      ? ` — by ${ugc(h.authorDisplayName || h.authorUsername, UGC_MAX_NAME)} (@${ugcSanitize(h.authorUsername, UGC_MAX_HANDLE)})`
                       : '';
-                    return `${i + 1}. ${h.title}  (id: ${h.id})  ${meta}${byline}`;
+                    return `${i + 1}. ${ugc(h.title, UGC_MAX_TITLE)}  (id: ${h.id})  ${meta}${byline}`;
                   }).join('\n');
                   content = `Community recipes matched (${hits.length}):\n${lines}\n\nRecommend any of these via recommend_recipes — the cards will render with the author's name. You can also mention authors by username; names auto-link.`;
                 }
@@ -1763,9 +1768,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     return next;
                   });
                   const lines = hits.slice(0, 8).map((h, i) => {
-                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
-                      .filter(Boolean)
-                      .join(' · ');
+                    const bits = [
+                      ugc(h.displayName || h.username, UGC_MAX_NAME),
+                      h.username ? `@${ugcSanitize(h.username, UGC_MAX_HANDLE)}` : null,
+                      h.homeCity ? ugc(h.homeCity, UGC_MAX_NAME) : null,
+                      h.bio ? ugc(h.bio, UGC_MAX_BIO) : null,
+                    ].filter(Boolean).join(' · ');
                     return `${i + 1}. ${bits}`;
                   }).join('\n');
                   content = `Found ${hits.length} expert(s):\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles. If the user wants the full list, suggest navigate({ path: '/experts' }).`;
@@ -1778,8 +1786,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             const input = (tu.input || {}) as { path?: string; label?: string };
             const path = (input.path || '').trim();
             const label = (input.label || '').trim();
-            if (!path || !path.startsWith('/')) {
-              content = `navigate requires an absolute path beginning with '/'. Got: "${path}".`;
+            if (!isAllowedAppPath(path)) {
+              // Whitelist against the real route table — not just a '/' prefix
+              // — so injected content can't steer the user off-app or to a
+              // made-up route.
+              content = `navigate refused: "${path}" is not a known in-app page. Use one of the documented routes.`;
             } else if (!onNavigate) {
               content = 'navigate is not wired up in this context.';
             } else {

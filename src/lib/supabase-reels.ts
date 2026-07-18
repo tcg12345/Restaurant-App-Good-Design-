@@ -12,7 +12,7 @@ import { supabase, supabaseConfigured } from './supabase';
 import { getCachedSignedUrl, putCachedSignedUrl } from './signed-url-cache';
 import { captureVideoPoster, posterPathFor } from './video-poster';
 import { backfillPosters } from './poster-backfill';
-import { requestMuxUpload, uploadToMux, muxPosterUrl } from './mux';
+import { requestMuxUpload, uploadToMux, muxPosterUrl, fetchMuxTokens, type MuxPlaybackTokens } from './mux';
 
 const BUCKET = 'reels-videos';
 export const REEL_MAX_DURATION_SECONDS = 60;
@@ -62,10 +62,15 @@ export interface ReelRow {
   videoUrl: string;
   /** Signed URL for the stored poster thumbnail, '' when none exists. */
   posterUrl: string;
-  /** Mux public playback id once transcoded, '' for legacy/Storage reels. */
+  /** Mux playback id once transcoded, '' for legacy/Storage reels. */
   muxPlaybackId: string;
   /** '' for legacy Storage reels; 'processing' | 'ready' | 'errored' for Mux. */
   muxStatus: string;
+  /** 'public' | 'signed' — signed (followers-only) playback needs muxTokens. */
+  muxPlaybackPolicy: string;
+  /** Viewer-scoped playback tokens for a signed asset; null when the asset is
+   *  public, tokens couldn't be minted, or the viewer isn't allowed. */
+  muxTokens: MuxPlaybackTokens | null;
   caption: string;
   audioLabel: string;
   locationLabel: string;
@@ -116,6 +121,10 @@ const rowToReel = (
     posterUrl: '', // filled in after signing the derived poster path
     muxPlaybackId: String(row.mux_playback_id || ''),
     muxStatus: String(row.mux_status || ''),
+    // Rows from before migration 048 have no policy column; every asset back
+    // then was created public, so that's the correct default.
+    muxPlaybackPolicy: String(row.mux_playback_policy || 'public'),
+    muxTokens: null,
     caption: String(row.caption || ''),
     audioLabel: String(row.audio_label || 'Original audio'),
     locationLabel: String(row.location_label || ''),
@@ -135,6 +144,27 @@ const rowToReel = (
     createdAt: String(row.created_at || ''),
   };
 };
+
+/** Fill in Mux-backed reels' media in place: public assets get plain poster
+ *  URLs; signed (followers-only) assets get viewer-scoped playback tokens
+ *  (batched) and a tokened poster. A signed reel the token function refuses
+ *  renders posterless and unplayable — matching what RLS lets us see. */
+async function applyMuxMedia(reels: ReelRow[]): Promise<void> {
+  const signedReels = reels.filter((r) => r.muxPlaybackId && r.muxPlaybackPolicy === 'signed');
+  const tokens = signedReels.length
+    ? await fetchMuxTokens(signedReels.map((r) => ({ kind: 'reel' as const, id: r.id })))
+    : new Map<string, MuxPlaybackTokens>();
+  for (const r of reels) {
+    if (!r.muxPlaybackId) continue;
+    r.videoUrl = '';
+    if (r.muxPlaybackPolicy === 'signed') {
+      r.muxTokens = tokens.get(r.id) ?? null;
+      r.posterUrl = r.muxTokens ? muxPosterUrl(r.muxPlaybackId, { token: r.muxTokens.thumbnail }) : '';
+    } else {
+      r.posterUrl = muxPosterUrl(r.muxPlaybackId);
+    }
+  }
+}
 
 /* ── Author hydration (looks up user_profiles) ──────────────────────── */
 
@@ -248,7 +278,9 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   onProgress?.(0.06);
   let ticket;
   try {
-    ticket = await requestMuxUpload({ passthrough: reelId });
+    // Followers-only reels ask for the SIGNED playback policy so the media
+    // itself is private, not just the DB row.
+    ticket = await requestMuxUpload({ passthrough: reelId, isPublic });
   } catch (err) {
     if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
     console.error('[Reels] mux upload init failed:', err);
@@ -265,6 +297,7 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
     video_url: '',
     mux_upload_id: ticket.uploadId,
     mux_status: 'processing',
+    mux_playback_policy: ticket.playbackPolicy,
     caption,
     audio_label: audioLabel,
     location_label: locationLabel,
@@ -280,7 +313,12 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
 
   let insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
   // Migration-tolerance: strip optional columns and retry if a project hasn't
-  // applied migration 020 (is_public) / 025 (location_label) yet.
+  // applied migration 020 (is_public) / 025 (location_label) / 048
+  // (mux_playback_policy) yet.
+  if (insertResult.error && insertResult.error.code === 'PGRST204' && /mux_playback_policy/i.test(insertResult.error.message || '')) {
+    delete insertPayload.mux_playback_policy;
+    insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
+  }
   if (insertResult.error && insertResult.error.code === 'PGRST204' && /is_public/i.test(insertResult.error.message || '')) {
     delete insertPayload.is_public;
     insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
@@ -334,7 +372,7 @@ export async function getReel(reelId: string): Promise<ReelRow | null> {
   if (error || !data) return null;
   const reel = rowToReel(data as Record<string, unknown>, new Set(), new Set());
   if (reel.muxPlaybackId) {
-    reel.posterUrl = muxPosterUrl(reel.muxPlaybackId);
+    await applyMuxMedia([reel]);
   } else if (reel.videoPath) {
     const [signed, signedPoster] = await Promise.all([
       signVideoPaths([reel.videoPath]),
@@ -459,14 +497,12 @@ export async function listReels(opts: {
   ]);
   for (const r of reels) {
     r.author = authors[r.userId] ?? null;
-    if (r.muxPlaybackId) {
-      r.videoUrl = '';
-      r.posterUrl = muxPosterUrl(r.muxPlaybackId);
-    } else {
+    if (!r.muxPlaybackId) {
       r.videoUrl = signed[r.videoPath] || '';
       r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
     }
   }
+  await applyMuxMedia(reels);
   return reels;
 }
 
@@ -527,14 +563,12 @@ export async function listReelsForRestaurant(
   ]);
   for (const r of reels) {
     r.author = authors[r.userId] ?? null;
-    if (r.muxPlaybackId) {
-      r.videoUrl = '';
-      r.posterUrl = muxPosterUrl(r.muxPlaybackId);
-    } else {
+    if (!r.muxPlaybackId) {
       r.videoUrl = signed[r.videoPath] || '';
       r.posterUrl = signedPosters[posterPathFor(r.videoPath)] || '';
     }
   }
+  await applyMuxMedia(reels);
   return reels;
 }
 
@@ -602,6 +636,16 @@ export async function setReelVisibility(reelId: string, isPublic: boolean): Prom
       console.warn('[Reels] setVisibility failed:', error.message);
     }
     return false;
+  }
+  // Align the Mux playback policy with the new visibility. RLS only hides the
+  // DB row — without this the old public stream/thumbnail URLs keep working
+  // for anyone after going followers-only (and a signed asset would stay
+  // token-gated after going public). Swapping policies changes the playback
+  // id, so callers should refetch the reel after this resolves.
+  try {
+    await supabase.functions.invoke('mux-set-visibility', { body: { kind: 'reel', id: reelId } });
+  } catch (err) {
+    console.warn('[Reels] mux playback-policy sync failed:', err);
   }
   return true;
 }

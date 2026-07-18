@@ -10,6 +10,7 @@
  */
 import { supabase, supabaseConfigured } from './supabase';
 import { apiUrl, apiHeaders } from './api-base';
+import { clearSignedUrlCache, SIGNED_URL_CACHE_LS_KEY } from './signed-url-cache';
 
 /**
  * Permanently delete the signed-in user's account: storage media, every
@@ -42,23 +43,37 @@ export async function deleteAccount(): Promise<{ ok: boolean; error?: string }> 
 
 /** localStorage prefixes that hold app data. `gourmad-` covers ratings,
  *  meals, chats, drafts and prefs; `lp-chat-` is the AI assistant's
- *  saved-conversation cache. */
-const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-'];
+ *  saved-conversation cache; `gourmet-canvas-` covers recent searches. */
+const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-', 'gourmet-canvas-'];
+
+/** Exact app-data keys that don't share those prefixes. `sb-signed-urls-v1`
+ *  is the signed-URL cache: tokens into PRIVATE reel/post buckets, valid for
+ *  their full TTL, so they must be purged on any identity change. NOTE: this
+ *  is an EXACT match, never an `sb-` prefix — the Supabase auth session lives
+ *  under `sb-<ref>-auth-token` and must survive (guardDeviceAccount relies on
+ *  it to reload as the new user). */
+const APP_STORAGE_KEYS = [SIGNED_URL_CACHE_LS_KEY];
 
 /**
  * Drop every app-owned localStorage key (ratings cache, home meals,
- * chats, AI conversations, recents, drafts…). Called after a successful
- * account deletion — and by AuthContext when a different user signs in
- * on this device — so no personal data leaks across accounts or
- * lingers on the hardware.
+ * chats, AI conversations, recents, drafts, signed-URL cache…). Called on
+ * sign-out, when entering guest mode, after account deletion, and by
+ * AuthContext when a different user signs in on this device — so no personal
+ * data leaks across accounts or lingers on the hardware.
  */
 export function clearLocalAppData(): void {
   try {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && APP_STORAGE_PREFIXES.some((p) => key.startsWith(p))) doomed.push(key);
+      if (key && (APP_STORAGE_PREFIXES.some((p) => key.startsWith(p)) || APP_STORAGE_KEYS.includes(key))) {
+        doomed.push(key);
+      }
     }
     doomed.forEach((k) => localStorage.removeItem(k));
   } catch { /* storage unavailable — nothing to clear */ }
+  // Also drop the signed-URL cache's IN-MEMORY map: sign-out doesn't reload
+  // the page, so the JS heap would otherwise keep serving the prior user's
+  // private-bucket URLs.
+  clearSignedUrlCache();
 }

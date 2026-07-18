@@ -1,4 +1,4 @@
-// Client for the /api/generate-recipe-image Edge Function. Sends a compact
+// Client for the generate-recipe-image Supabase Edge Function. Sends a compact
 // view of a recipe and gets back a single AI-generated hero photo of the
 // finished dish, normalized into a JPEG data-URL ready to drop into the
 // cover-photo plumbing (onCoverPhotoChange) — exactly like an upload.

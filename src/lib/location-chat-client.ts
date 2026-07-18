@@ -1,9 +1,9 @@
 // Frontend streaming client for the LocationPage AI chatbot.
 //
-// Calls the Vercel Edge Function at /api/location-chat via direct
-// fetch (same-origin in production; `vercel dev` proxies it locally)
-// and parses Anthropic's standard Server-Sent Events into a more
-// ergonomic local event union.
+// Calls the location-chat Supabase Edge Function via direct fetch
+// (absolute URL from api-base.ts, same for web and native) and parses
+// Anthropic's standard Server-Sent Events into a more ergonomic local
+// event union.
 
 import { apiUrl, apiHeaders } from './api-base';
 

@@ -2,8 +2,6 @@
 // AI recipe paths so they produce equally calibrated, precise recipes:
 //   • build-recipe/index.ts  — the "Create with AI" Add-Recipe modal generator
 //   • location-chat/index.ts — the "Ask a local" chat's build_recipe tool
-//
-// Mirror of api/_recipe-spec.ts — keep the two in sync.
 
 export const CUISINE_HINT =
   'Afghan, African, American, Argentinian, Australian, Austrian, BBQ, Bakery, Belgian, Brazilian, British, Cajun, Caribbean, Chinese, Cuban, Dessert, Ethiopian, Filipino, French, Fusion, German, Greek, Hawaiian, Indian, Indonesian, Irish, Israeli, Italian, Jamaican, Japanese, Korean, Latin American, Lebanese, Malaysian, Mediterranean, Mexican, Middle Eastern, Moroccan, Nordic, Pakistani, Peruvian, Polish, Portuguese, Russian, Scandinavian, Seafood, Soul Food, Southern, Spanish, Sri Lankan, Swedish, Tex-Mex, Thai, Turkish, Ukrainian, Vegan, Vegetarian, Vietnamese';

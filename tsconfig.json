@@ -25,7 +25,6 @@
     "noEmit": true
   },
   "exclude": [
-    "api",
     "supabase",
     "promo"
   ]

@@ -155,9 +155,14 @@ const friendHomeMealToRecipe = (m: FriendHomeMeal): Recipe => ({
 /**
  * Inverse of friendHomeMealToRecipe, for saving: shape a browsed public
  * recipe as a HomeMeal so it can live on the "Want to Cook" pantry list.
- * The original author is stamped so cards show "by @author" on the copy.
+ *
+ * When saving SOMEONE ELSE's recipe (`isOwn` false), the copy lands PRIVATE
+ * (isPublic:false) and carries the original author's attribution — publishing
+ * a duplicate under your name leaked other users' recipes into friends'
+ * feeds/pickers. Only your own recipe re-saves itself public and without a
+ * sourceAuthor stamp (which is what marks a copy as "from elsewhere").
  */
-const publicRecipeToHomeMeal = (r: Recipe, author?: UserProfile): HomeMeal => ({
+const publicRecipeToHomeMeal = (r: Recipe, isOwn: boolean, author?: UserProfile): HomeMeal => ({
   id: r.id,
   name: r.title,
   date: (r.createdAt || new Date().toISOString()).slice(0, 10),
@@ -167,7 +172,7 @@ const publicRecipeToHomeMeal = (r: Recipe, author?: UserProfile): HomeMeal => ({
   photos: (r.photos || []).map((url) => ({ url, caption: '', isFavorite: false })),
   tags: r.tags || [],
   dishes: [],
-  isPublic: true,
+  isPublic: isOwn,
   createdAt: Date.parse(r.createdAt) || Date.now(),
   coverPhoto: r.photos?.[0] || undefined,
   prepTime: r.prepTimeMinutes ?? undefined,
@@ -179,9 +184,11 @@ const publicRecipeToHomeMeal = (r: Recipe, author?: UserProfile): HomeMeal => ({
   cuisine: r.cuisine || undefined,
   ingredients: r.ingredients || [],
   steps: (r.steps || []).map((st) => st.text),
-  sourceAuthorId: r.userId,
-  sourceAuthorName: author?.display_name || author?.username || undefined,
-  sourceAuthorUsername: author?.username || undefined,
+  ...(isOwn ? {} : {
+    sourceAuthorId: r.userId,
+    sourceAuthorName: author?.display_name || author?.username || undefined,
+    sourceAuthorUsername: author?.username || undefined,
+  }),
 });
 
 const sourceLabelOf = (s: SourceFilter): string =>
@@ -327,7 +334,7 @@ export const RecipesForYou: React.FC = () => {
     const r = recipes.find((x) => x.id === id);
     if (!r) return;
     const isOwn = !!user?.id && r.userId === user.id;
-    addRecipeToList(DEFAULT_WANT_TO_COOK_ID, publicRecipeToHomeMeal(r, isOwn ? undefined : authors[r.userId]));
+    addRecipeToList(DEFAULT_WANT_TO_COOK_ID, publicRecipeToHomeMeal(r, isOwn, isOwn ? undefined : authors[r.userId]));
   }, [isSignedIn, requireSignIn, savedIds, recipes, user?.id, authors, addRecipeToList, removeRecipeFromList]);
 
   // ── Derived: source classifier per recipe ──

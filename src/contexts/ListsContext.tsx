@@ -96,6 +96,11 @@ export interface Recipe {
   score: number;            // 0–10 rating
   isPrivate: boolean;
   createdAt: number;
+  /** Last-edited timestamp (Date.now()). Stamped by every mutator that edits
+   *  this recipe so the multi-device merge (mergeUserData) keeps the newer
+   *  copy; absent on entries created before it existed (merge falls back to
+   *  createdAt). */
+  updatedAt?: number;
   /** When this recipe was saved from another user's recipe, who
    *  originally authored it. Drives the "by @author" byline on cards.
    *  Unset for the user's own recipes. */
@@ -114,6 +119,9 @@ export interface CustomList {
   listRatings?: Record<string, RestaurantRating>; // per-list rating overrides keyed by restaurantId
   recipes?: Recipe[];        // home-cooking recipes
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Stamped on scalar edits
+   *  (rename) and listRatings edits so the newer list wins the merge. */
+  updatedAt?: number;
 }
 
 export interface WishlistItem {
@@ -126,6 +134,10 @@ export interface WishlistItem {
   notes: string;
   listIds: string[];         // which lists this wishlist item belongs to
   addedAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Stamped on note edits so a
+   *  note changed offline wins the merge (addedAt alone would tie the cloud
+   *  copy and lose). */
+  updatedAt?: number;
 }
 
 export interface TripRestaurant {
@@ -157,6 +169,9 @@ export interface Trip {
   notes?: string;
   status: 'planning' | 'active' | 'completed';
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Trips merge as a whole
+   *  entity (newer wins), so every trip edit stamps this. */
+  updatedAt?: number;
 }
 
 export interface HomeMealDish {
@@ -234,6 +249,9 @@ export interface HomeMeal {
   dishes: HomeMealDish[];
   isPublic: boolean;
   createdAt: number;
+  /** Last-edited timestamp; see Recipe.updatedAt. Home meals merge as a whole
+   *  entity (newer wins), so every edit stamps this. */
+  updatedAt?: number;
   coverPhoto?: string;
   prepTime?: number;
   cookTime?: number;
@@ -360,7 +378,7 @@ interface ListsContextValue {
   removeFromWishlist: (restaurantId: string) => void;
   /** One-tap heart toggle. Adds the restaurant to the wishlist if it
    *  isn't there yet, removes it if it is. No list-selection UI. */
-  toggleWishlist: (restaurant: RestaurantMeta) => void;
+  toggleWishlist: (restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => void;
   isWishlisted: (restaurantId: string) => boolean;
   getWishlistItem: (restaurantId: string) => WishlistItem | undefined;
 
@@ -761,7 +779,11 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
     photos: r.photos ?? [],
     tags: r.tags ?? [],
     dishes: [],
-    isPublic: !r.isPrivate,
+    // A sourceAuthorId means this is a copy of someone else's recipe (it's only
+    // ever stamped on saves from another user). Such a copy is ALWAYS private
+    // until the saver explicitly publishes it — never inherit the original's
+    // public flag, which would republish it under the saver's name.
+    isPublic: r.sourceAuthorId ? false : !r.isPrivate,
     createdAt: r.createdAt || Date.now(),
     coverPhoto: r.coverPhoto,
     prepTime: r.prepTime,
@@ -933,12 +955,69 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // migration 046 also enforces this server-side.)
   const isPublicRef = useRef(authProfile?.is_public ?? false);
   isPublicRef.current = authProfile?.is_public ?? false;
+  // Whether isPublicRef is AUTHORITATIVE: false while the auth profile is
+  // still loading. The distinction matters — "unknown" must never be treated
+  // as "private, so clear the gallery" (that deleted a public user's
+  // published photos when they rated right after sign-in).
+  const isPublicKnownRef = useRef(!!authProfile);
+  isPublicKnownRef.current = !!authProfile;
+  // Photo publishes deferred because visibility was unknown at save time,
+  // keyed by restaurantId (latest photo set wins). Flushed once the profile
+  // lands; dropped on sign-out/user switch.
+  const pendingPhotoPublishRef = useRef<Map<string, PhotoItem[]>>(new Map());
+
+  /** Reconcile the community gallery for one restaurant with `photos`.
+   *
+   *  - No photos → the user removed them (or the visit has none): clear the
+   *    published rows. Safe regardless of visibility.
+   *  - Photos + account KNOWN public → publish.
+   *  - Photos + account KNOWN private → leave the table alone; migration
+   *    046's RLS already hides any historical rows from non-followers.
+   *  - Photos + visibility UNKNOWN (profile still loading) → defer: queue the
+   *    publish for when the profile lands. Never delete on "unknown" — that
+   *    branch is what silently wiped a public user's existing gallery.
+   */
+  const syncCommunityPhotos = useCallback((restaurantId: string, photos: PhotoItem[] | undefined) => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    if (!photos || photos.length === 0) {
+      pendingPhotoPublishRef.current.delete(restaurantId);
+      removeCommunityPhotos(uid, restaurantId);
+      return;
+    }
+    if (!isPublicKnownRef.current) {
+      pendingPhotoPublishRef.current.set(restaurantId, photos);
+      return;
+    }
+    pendingPhotoPublishRef.current.delete(restaurantId);
+    if (isPublicRef.current) {
+      publishCommunityPhotos(uid, restaurantId, photos).catch(() => {
+        console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
+      });
+    }
+  }, []);
+
+  // Flush deferred publishes once the profile resolves. Private accounts just
+  // drop the queue (nothing was published, nothing needs deleting).
+  useEffect(() => {
+    if (!authProfile || !userIdRef.current) return;
+    const pending = pendingPhotoPublishRef.current;
+    if (pending.size === 0) return;
+    const entries = [...pending.entries()];
+    pending.clear();
+    if (!isPublicRef.current) return;
+    for (const [restaurantId, photos] of entries) {
+      publishCommunityPhotos(userIdRef.current, restaurantId, photos).catch(() => {});
+    }
+  }, [authProfile]);
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
     // Block all cloud writes until THIS user's data has been loaded once.
     cloudReadyRef.current = false;
     dirtyDuringLoadRef.current = false;
+    // Deferred photo publishes belong to the previous identity — drop them.
+    pendingPhotoPublishRef.current.clear();
     if (!userId || !supabaseConfigured) {
       if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
       return;
@@ -1295,20 +1374,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
-            // Only republish photos for accounts KNOWN to be public. While the
-            // auth profile is still loading, isPublicRef is false (see its
-            // declaration), so a private — or not-yet-resolved — account never
-            // publishes photos to the world-readable gallery during sign-in.
-            if (r.photos && r.photos.length > 0 && isPublicRef.current) {
-              publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
-            } else if (!r.photos || r.photos.length === 0) {
-              // Self-heal: clear gallery rows for ratings whose photos were
-              // removed before reconciliation existed (or on another
-              // device). Deliberately NOT keyed on isPublic here — the
-              // profile may not be loaded yet at boot, and removing
-              // photo-less ratings' rows is safe regardless.
-              removeCommunityPhotos(userId, r.restaurantId);
-            }
+            // Reconcile each rating's gallery: publish when known public,
+            // clear when there are no photos, and — crucially — DEFER (not
+            // delete) when the profile hasn't resolved yet, so a public
+            // user's existing photos republish once visibility is known
+            // instead of vanishing during sign-in.
+            syncCommunityPhotos(r.restaurantId, r.photos);
           }
         }
       } else {
@@ -1499,7 +1570,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateTrip = useCallback((id: string, updates: Partial<Trip>) => {
     setTrips((prev) => {
-      const next = prev.map((t) => t.id === id ? { ...t, ...updates } : t);
+      // Stamp updatedAt so this edit wins the multi-device merge (trips merge
+      // as a whole entity — an unstamped edit would tie the stale cloud copy
+      // and lose).
+      const next = prev.map((t) => t.id === id ? { ...t, ...updates, updatedAt: Date.now() } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
       return next;
@@ -1518,7 +1592,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const addRestaurantToTrip = useCallback((tripId: string, restaurant: TripRestaurant) => {
     setTrips((prev) => {
-      const next = prev.map((t) => t.id === tripId ? { ...t, restaurants: [...t.restaurants, restaurant] } : t);
+      const next = prev.map((t) => t.id === tripId ? { ...t, restaurants: [...t.restaurants, restaurant], updatedAt: Date.now() } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
       return next;
@@ -1532,6 +1606,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         restaurants: t.restaurants.map((r) =>
           r.restaurantId === restaurantId && r.night === night ? { ...r, ...updates } : r
         ),
+        updatedAt: Date.now(),
       } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
@@ -1544,6 +1619,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = prev.map((t) => t.id === tripId ? {
         ...t,
         restaurants: t.restaurants.filter((r) => !(r.restaurantId === restaurantId && r.night === night)),
+        updatedAt: Date.now(),
       } : t);
       saveToStorage(STORAGE_KEY_TRIPS, next);
       syncTripsToCloud(next);
@@ -1636,9 +1712,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateRecipe = useCallback((listId: string, recipeId: string, updates: Partial<Recipe>) => {
     setLists((prev) => {
+      const now = Date.now();
       const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).map((r) => {
         if (r.id !== recipeId) return r;
-        const merged = { ...r, ...updates };
+        const merged = { ...r, ...updates, updatedAt: now };
         // Public (isPrivate=false) requires a cover photo.
         if (!merged.isPrivate && !merged.coverPhoto) merged.isPrivate = true;
         return merged;
@@ -1649,9 +1726,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
     setHomeMeals((prev) => {
       if (!prev.some((m) => m.id === recipeId)) return prev;
+      const now = Date.now();
       const next = prev.map((m) => {
         if (m.id !== recipeId) return m;
-        const merged = { ...m, ...recipeUpdatesToHomeMeal(updates) };
+        const merged = { ...m, ...recipeUpdatesToHomeMeal(updates), updatedAt: now };
         if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
         return merged;
       });
@@ -1808,9 +1886,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
     setHomeMeals((prev) => {
+      const now = Date.now();
       const next = prev.map((m) => {
         if (m.id !== id) return m;
-        const merged = { ...m, ...updates };
+        // Stamp updatedAt so an offline edit wins the merge (home meals merge
+        // whole-entity newer-wins).
+        const merged = { ...m, ...updates, updatedAt: now };
         // A recipe can only be public if it has a cover photo.
         if (merged.isPublic && !merged.coverPhoto) merged.isPublic = false;
         return merged;
@@ -2067,18 +2148,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const row = next.find((r) => r.restaurantId === c.restaurantId);
         if (row) publishRatingRow(userIdRef.current, row);
       }
-      // Reconcile the community gallery with this save: publish the
-      // current photo set when the account is public; otherwise (photos
-      // removed, or account private) clear any previously published rows.
-      // Skipping the clear was how removed photos lived on forever on
-      // restaurant pages.
-      if (rating.photos && rating.photos.length > 0 && isPublicRef.current) {
-        publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
-          console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
-        });
-      } else {
-        removeCommunityPhotos(userIdRef.current, rating.restaurantId);
-      }
+      // Reconcile the community gallery with this save. Removal happens ONLY
+      // when the photo set is empty (an intentional removal); a save made
+      // before the profile resolves defers the publish rather than deleting
+      // — the old "else remove" branch wiped a public user's existing gallery
+      // when they rated right after sign-in (isPublicRef still false).
+      syncCommunityPhotos(rating.restaurantId, rating.photos);
     }
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
@@ -2173,6 +2248,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     clearLocalVisitHistory(restaurantId);
     syncVisitHistoryToCloud();
     if (userIdRef.current) {
+      // Drop any deferred publish first so it can't republish this gallery
+      // after we clear it.
+      pendingPhotoPublishRef.current.delete(restaurantId);
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
       deleteAllVisitRecordsForRestaurant(userIdRef.current, restaurantId).catch(() => {
@@ -2260,11 +2338,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // The promoted visit's photo set replaces the deleted visit's in
         // the community gallery (or clears it if the promoted visit has
         // no photos) — the gallery must always mirror the *current* visit.
-        if (p.photos && p.photos.length > 0 && isPublicRef.current) {
-          publishCommunityPhotos(userIdRef.current, restaurantId, p.photos).catch(() => {});
-        } else {
-          removeCommunityPhotos(userIdRef.current, restaurantId);
-        }
+        // Same decoupling as rateRestaurant: only an empty set removes;
+        // unknown visibility defers rather than deleting.
+        syncCommunityPhotos(restaurantId, p.photos);
       }
       return;
     }
@@ -2315,7 +2391,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const renameList = useCallback((id: string, name: string, emoji: string) => {
     if (id === DEFAULT_WANT_TO_COOK_ID || id === DEFAULT_COOKED_ID) return;
     setLists((prev) => {
-      const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
+      // Stamp updatedAt so a rename made offline wins the merge (list scalar
+      // fields merge newer-wins; without a stamp the rename ties the stale
+      // cloud name and loses).
+      const next = prev.map((l) => l.id === id ? { ...l, name, emoji, updatedAt: Date.now() } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
@@ -2439,11 +2518,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const setListRating = useCallback((listId: string, rating: RestaurantRating) => {
     setLists((prev) => {
+      const now = Date.now();
       const next = prev.map((l) => {
         if (l.id !== listId) return l;
-        const listRatings = { ...(l.listRatings || {}), [rating.restaurantId]: rating };
+        // Stamp both the rating and the LIST: the merge picks a list's
+        // listRatings map by the LIST's updatedAt (whole-map), so the edit only
+        // survives if this list wins.
+        const listRatings = { ...(l.listRatings || {}), [rating.restaurantId]: { ...rating, updatedAt: now } };
         const restaurantIds = l.restaurantIds.includes(rating.restaurantId) ? l.restaurantIds : [...l.restaurantIds, rating.restaurantId];
-        return { ...l, listRatings, restaurantIds };
+        return { ...l, listRatings, restaurantIds, updatedAt: now };
       });
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
@@ -2460,11 +2543,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Wishlist
   const addToWishlist = useCallback((item: WishlistItem) => {
     untombstone('wishlist', item.restaurantId);
+    // Stamp updatedAt: this is the note-edit path (an existing item is replaced
+    // with edited notes/listIds), and addedAt alone would tie the stale cloud
+    // copy in the merge and lose the edit.
+    const stamped: WishlistItem = { ...item, updatedAt: Date.now() };
     setWishlist((prev) => {
-      const existing = prev.find((w) => w.restaurantId === item.restaurantId);
+      const existing = prev.find((w) => w.restaurantId === stamped.restaurantId);
       const next = existing
-        ? prev.map((w) => w.restaurantId === item.restaurantId ? item : w)
-        : [item, ...prev];
+        ? prev.map((w) => w.restaurantId === stamped.restaurantId ? stamped : w)
+        : [stamped, ...prev];
       saveToStorage(STORAGE_KEY_WISHLIST, next);
       syncWishlistToCloud(next);
       return next;
@@ -2515,7 +2602,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // direction — the setWishlist updater runs during render, AFTER this
   // function returns, so reading from inside it left `removed` always
   // false and the toast always read "Added".
-  const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
+  // `opts.undoable` adds an Undo action to the toast — used when the AI
+  // assistant makes the change, so a prompt-injected toggle is trivially
+  // reversible. `opts.silent` suppresses the toast (used by the Undo action
+  // itself so reversing doesn't spawn another toast).
+  const toggleWishlist = useCallback((restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => {
     cacheRestaurantMeta(restaurant);
     const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
     // Removing tombstones the entry; re-adding clears it.
@@ -2560,11 +2651,22 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return next;
       });
     }
+    if (opts?.silent) return;
     showToast(isOn ? 'Removed from wishlist' : 'Added to wishlist', {
       subtitle: restaurant.name,
       variant: isOn ? 'wishlist-remove' : 'wishlist-add',
+      // Undo re-toggles through the latest closure (fresh wishlist state),
+      // silently so it doesn't chain another toast.
+      ...(opts?.undoable
+        ? { action: { label: 'Undo', onClick: () => toggleWishlistRef.current(restaurant, { silent: true }) } }
+        : {}),
     });
   }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast, tombstone, untombstone]);
+
+  // Ref to the latest toggleWishlist so a toast's Undo action (captured at
+  // show time) always reverses against current state.
+  const toggleWishlistRef = useRef(toggleWishlist);
+  useEffect(() => { toggleWishlistRef.current = toggleWishlist; }, [toggleWishlist]);
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {

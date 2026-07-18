@@ -22,6 +22,7 @@ import {
   Type, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Plus, Trash2, Thermometer, Aperture,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { captureSourceAudio, mergeCanvasAndAudio, sourceHadAudio, pickVideoMime } from '../lib/media-audio';
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 
@@ -316,7 +317,11 @@ async function applyPhotoEdits(item: EditableItem): Promise<File> {
 
 /* ── Video apply (MediaRecorder) ─────────────────────────────────────── */
 
-async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => void): Promise<File> {
+async function applyVideoEdits(
+  item: EditableItem,
+  onProgress?: (n: number) => void,
+  onAudioDropped?: () => void,
+): Promise<File> {
   // Bring up an off-screen video element pointed at the source. We
   // need to seek to the trim start and play through to the trim end
   // while a canvas + MediaRecorder captures the cropped, colour-graded
@@ -352,21 +357,19 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
   v.currentTime = start;
   await new Promise<void>((resolve) => { v.onseeked = () => resolve(); });
 
-  const stream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
-  if (!stream) throw new Error('Canvas capture not supported in this browser.');
+  const canvasStream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
+  if (!canvasStream) throw new Error('Canvas capture not supported in this browser.');
 
-  // Prefer MP4/H.264 — it's the ONLY thing iOS WKWebView's MediaRecorder
-  // supports (the old WebM-only list threw NotSupportedError there, and the
-  // caller's catch silently uploaded the unedited original). Mirrors
-  // pickVideoMime in lib/media-compress.
-  const preferredMimes = [
-    'video/mp4;codecs=h264',
-    'video/mp4',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  const mimeType = preferredMimes.find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m));
+  // Merge the source's AUDIO in — a canvas stream is video-only, so without
+  // this every edited clip would upload silent. captureStream() ignores the
+  // element's `muted` flag (that only gates the speaker), so the recorded
+  // audio is intact even though playback below is muted for autoplay.
+  const audio = captureSourceAudio(v);
+  const { stream, audioAttached } = mergeCanvasAndAudio(canvasStream, audio.tracks);
+
+  // AAC/Opus-audio mime variants first so the recorder actually muxes audio;
+  // MP4/H.264 also happens to be the only thing iOS WKWebView records.
+  const mimeType = pickVideoMime();
   if (!mimeType) throw new Error('Video re-encoding not supported in this browser.');
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
   const chunks: BlobPart[] = [];
@@ -427,7 +430,14 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
   });
 
   await stopRecorder();
-  stream.getTracks().forEach((t) => t.stop());
+  canvasStream.getTracks().forEach((t) => t.stop());
+  audio.cleanup();
+
+  // If we couldn't attach audio but the source actually had some (checked
+  // after playthrough, when webkitAudioDecodedByteCount is populated), tell
+  // the caller so it can warn the user instead of silently dropping sound.
+  if (!audioAttached && sourceHadAudio(v) === true) onAudioDropped?.();
+
   const blob = new Blob(chunks, { type: mimeType });
   const baseName = (item.file?.name ?? 'video').replace(/\.[a-z0-9]+$/i, '') || 'video';
   const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
@@ -445,6 +455,7 @@ async function applyVideoEdits(item: EditableItem, onProgress?: (n: number) => v
 export async function applyAllEdits(
   items: EditableItem[],
   onProgress?: (fraction: number) => void,
+  onAudioDropped?: () => void,
 ): Promise<Record<string, File>> {
   const out: Record<string, File> = {};
   const work = items.filter((it) => isEdited(it.edits, it.durationSeconds) && !!it.file && it.previewUrl.startsWith('blob:'));
@@ -452,13 +463,20 @@ export async function applyAllEdits(
     onProgress?.(1);
     return out;
   }
+  // Warn at most once per apply-all run even if several clips drop audio.
+  let audioWarned = false;
+  const notifyAudioDropped = () => {
+    if (audioWarned) return;
+    audioWarned = true;
+    onAudioDropped?.();
+  };
   for (let i = 0; i < work.length; i++) {
     const it = work[i];
     try {
       if (it.mediaType === 'photo') {
         out[it.key] = await applyPhotoEdits(it);
       } else {
-        out[it.key] = await applyVideoEdits(it, (n) => onProgress?.((i + n) / work.length));
+        out[it.key] = await applyVideoEdits(it, (n) => onProgress?.((i + n) / work.length), notifyAudioDropped);
       }
     } catch (err) {
       console.warn('[MediaEditor] failed to apply edits for', it.key, err);

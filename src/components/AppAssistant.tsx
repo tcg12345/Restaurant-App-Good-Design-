@@ -28,6 +28,8 @@ import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useAssistantContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { searchPlacesByTextPaged } from '../lib/places';
+import { isAllowedAppPath } from '../lib/app-routes';
+import { ugc, UGC_MAX_NAME } from '../lib/ugc';
 import { michelinNearby, michelinByName, michelinToPlaceResult, michelinDistinctionLabel, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
 import type { MichelinChatHit } from './LocationChat';
 import { geocodePlace } from './HomeLocationBar';
@@ -824,6 +826,11 @@ export const AppAssistant: React.FC = () => {
 
   /* ── Action handlers ───────────────────────────────────────── */
   const handleNavigate = useCallback((path: string): ActionResult => {
+    // Defense in depth: even though LocationChat already whitelists the path,
+    // re-check here so no assistant-driven navigation escapes the route table.
+    if (!isAllowedAppPath(path)) {
+      return { ok: false, detail: `"${path}" is not a navigable in-app page.` };
+    }
     navigate(path);
     return { ok: true };
   }, [navigate]);
@@ -841,7 +848,7 @@ export const AppAssistant: React.FC = () => {
       return { ok: false, detail: "I couldn't resolve that restaurant id. Try search_restaurants first to fetch a real Google place id." };
     }
     lists.openAddRestaurantModal(meta);
-    return { ok: true, detail: `Now rating ${meta.name}.` };
+    return { ok: true, detail: `Now rating ${ugc(meta.name, UGC_MAX_NAME)}.` };
   }, [lists, pageContext]);
 
   const handleOpenAddRestaurantModal = useCallback((restaurantId: string, initialPage?: string): ActionResult => {
@@ -850,7 +857,7 @@ export const AppAssistant: React.FC = () => {
       return { ok: false, detail: "I couldn't resolve that restaurant id. Try search_restaurants first." };
     }
     lists.openAddRestaurantModal(meta, initialPage);
-    return { ok: true, detail: `Add Restaurant flow open for ${meta.name}.` };
+    return { ok: true, detail: `Add Restaurant flow open for ${ugc(meta.name, UGC_MAX_NAME)}.` };
   }, [lists, pageContext]);
 
   const handleOpenAddToListModal = useCallback((restaurantId: string): ActionResult => {
@@ -862,7 +869,7 @@ export const AppAssistant: React.FC = () => {
       return { ok: true, detail: 'Opened the Add-to-List picker (resolving restaurant details).' };
     }
     lists.openAddToListModal(restaurantId, meta);
-    return { ok: true, detail: `Add-to-list picker open for ${meta.name}.` };
+    return { ok: true, detail: `Add-to-list picker open for ${ugc(meta.name, UGC_MAX_NAME)}.` };
   }, [lists, pageContext]);
 
   const handleToggleWishlist = useCallback((restaurantId: string): ActionResult => {
@@ -871,12 +878,14 @@ export const AppAssistant: React.FC = () => {
       return { ok: false, detail: "I couldn't resolve that restaurant id. Try search_restaurants first." };
     }
     const wasOn = lists.isWishlisted(restaurantId);
-    lists.toggleWishlist(meta);
+    // Assistant-driven change: show an undoable toast so a prompt-injected
+    // toggle is always visible to the user and reversible in one tap.
+    lists.toggleWishlist(meta, { undoable: true });
     return {
       ok: true,
       detail: wasOn
-        ? `Removed ${meta.name} from your wishlist.`
-        : `Added ${meta.name} to your wishlist.`,
+        ? `Removed ${ugc(meta.name, UGC_MAX_NAME)} from your wishlist.`
+        : `Added ${ugc(meta.name, UGC_MAX_NAME)} to your wishlist.`,
     };
   }, [lists, pageContext]);
 

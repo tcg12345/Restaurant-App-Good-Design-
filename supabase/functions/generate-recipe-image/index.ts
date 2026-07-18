@@ -1,4 +1,4 @@
-// AI Recipe Hero Image Generator — Vercel Edge Function.
+// AI Recipe Hero Image Generator — Supabase Edge Function (Deno).
 //
 // Generates a realistic, appetizing photo of a recipe's FINISHED dish for
 // use as its cover photo. Takes the recipe's own knowledge (name, summary,
@@ -18,10 +18,11 @@
 //           `data: {"b64_json": "..."}` (success) or
 //           `data: {"error": "..."}` (failure) event.
 //
-// The OpenAI API key lives here as a Vercel environment variable
-// (`OPENAI_API_KEY`) and never reaches the browser bundle.
+// The OpenAI API key lives as a Supabase secret (`OPENAI_API_KEY`) and
+// never reaches the browser bundle.
 
 import { requireUser } from '../_shared/auth.ts';
+import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,6 +37,12 @@ const QUALITY = 'auto';
 const OUTPUT_FORMAT = 'jpeg';
 const MAX_INGREDIENTS = 10;
 const MAX_PROMPT_CHARS = 2000;
+
+// Abuse guards (per signed-in user; see _shared/limits.ts). Image mints are
+// the priciest per-request call, so this is the tightest hourly cap. The
+// request is just a handful of recipe text fields, so the body cap is small.
+const MAX_REQUESTS_PER_HOUR = 20;
+const MAX_BODY_BYTES = 128 * 1024;
 // Cap heartbeats so a hung upstream can't keep the function alive forever.
 const HEARTBEAT_MS = 5000;
 
@@ -107,6 +114,8 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
+    const limited = await enforceRateLimit(req, 'generate-recipe-image', MAX_REQUESTS_PER_HOUR);
+    if (limited) return limited;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -115,12 +124,9 @@ async function handler(req: Request): Promise<Response> {
     return jsonError(500, 'OPENAI_API_KEY is not configured on the function');
   }
 
-  let body: { recipe?: RecipeImageInput };
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'Invalid JSON body');
-  }
+  const parsed = await readJsonBody<{ recipe?: RecipeImageInput }>(req, MAX_BODY_BYTES);
+  if ('response' in parsed) return parsed.response;
+  const body = parsed.body;
 
   const recipe = body.recipe;
   if (!recipe || !(recipe.name || '').trim()) {

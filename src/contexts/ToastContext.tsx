@@ -6,15 +6,24 @@ import { useSettings } from './SettingsContext';
 
 export type ToastVariant = 'wishlist-add' | 'wishlist-remove' | 'rated' | 'rating-updated' | 'success';
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: number;
   message: string;
   subtitle?: string;
   variant: ToastVariant;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
-  showToast: (message: string, opts?: { subtitle?: string; variant?: ToastVariant }) => void;
+  showToast: (
+    message: string,
+    opts?: { subtitle?: string; variant?: ToastVariant; action?: ToastAction; durationMs?: number },
+  ) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -26,6 +35,8 @@ export function useToast() {
 }
 
 const TOAST_DURATION_MS = 2200;
+// Toasts with an action (e.g. Undo) linger longer so there's time to tap it.
+const TOAST_ACTION_DURATION_MS = 6000;
 
 export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [toast, setToast] = useState<Toast | null>(null);
@@ -47,11 +58,13 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       message,
       subtitle: opts?.subtitle,
       variant: opts?.variant ?? 'success',
+      action: opts?.action,
     });
+    const duration = opts?.durationMs ?? (opts?.action ? TOAST_ACTION_DURATION_MS : TOAST_DURATION_MS);
     timerRef.current = window.setTimeout(() => {
       setToast(null);
       timerRef.current = null;
-    }, TOAST_DURATION_MS);
+    }, duration);
   }, []);
 
   useEffect(() => () => {
@@ -124,6 +137,19 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   </p>
                 )}
               </div>
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toast.action?.onClick();
+                    dismiss();
+                  }}
+                  className="ml-1 flex-shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold text-amber-300 hover:text-amber-200 hover:bg-white/10 transition-colors"
+                >
+                  {toast.action.label}
+                </button>
+              )}
             </div>
           </motion.div>
         )}

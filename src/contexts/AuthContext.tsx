@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
-import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
+import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
 import type { User, Session } from '@supabase/supabase-js';
@@ -34,6 +34,16 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   profileComplete: boolean;
+  /** True when the LAST profile fetch failed (network/timeout) — meaning we
+   *  don't actually know whether a profile row exists. App.tsx must show a
+   *  retry screen in that state, never ProfileSetup: re-onboarding an
+   *  existing user overwrites their real profile (bio wiped, private flipped
+   *  public). Cleared by any successful fetch. */
+  profileError: boolean;
+  /** True while a profile fetch is in flight AFTER initial boot (e.g. right
+   *  after sign-in). Lets App.tsx hold the splash instead of flashing
+   *  ProfileSetup before the row has arrived. */
+  profileLoading: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   /** `needsVerification` is true when Supabase created the account but
@@ -50,7 +60,7 @@ interface AuthContextType {
    *  on the verify-first signup path so the app keeps showing the
    *  choose-password screen (needsPasswordSetup) instead of jumping
    *  straight into profile setup. */
-  verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null }>;
+  verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
   /** True while a verified-by-code signup still needs its password chosen.
@@ -72,11 +82,12 @@ interface AuthContextType {
    *  reviewer). Drives the admin-only settings entry + /admin/verification;
    *  real enforcement is server-side (RLS + RPC checks). */
   isAdmin: boolean;
-  /** Probe whether an email is already registered. Returns `true` when
-   *  Supabase reports the address exists, `false` when it doesn't (or
-   *  the check can't be performed). Used by the desktop sign-in to
-   *  branch between "Welcome back" and "Create account". */
-  checkEmailExists: (email: string) => Promise<boolean>;
+  /** Probe whether an email is already registered. Tri-state on purpose:
+   *  'yes' / 'no' when the check succeeds, and 'unknown' when it fails
+   *  (RPC error / timeout). Callers MUST treat 'unknown' as "couldn't tell,
+   *  ask the user to retry" — assuming "new user" on failure railroads a
+   *  returning user into the signup flow, which then resets their password. */
+  checkEmailExists: (email: string) => Promise<'yes' | 'no' | 'unknown'>;
 }
 
 /** Which user this device's localStorage caches belong to. */
@@ -127,6 +138,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   profileComplete: false,
+  profileError: false,
+  profileLoading: false,
   loading: true,
   signIn: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
@@ -141,7 +154,7 @@ const AuthContext = createContext<AuthContextType>({
   pendingRequestCount: 0,
   refreshPendingRequests: async () => {},
   isAdmin: false,
-  checkEmailExists: async () => false,
+  checkEmailExists: async () => 'unknown',
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -149,6 +162,8 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileError, setProfileError] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -167,6 +182,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const continueAsGuest = useCallback(() => {
+    // Purge any app data a previous signed-in user left on this device BEFORE
+    // raising the guest flag (clearLocalAppData drops gourmad-* keys, which
+    // includes GUEST_MODE_KEY — so clear first, then set it), so a guest never
+    // sees the prior account's ratings / meals / cached private-bucket URLs.
+    clearLocalAppData();
     try { localStorage.setItem(GUEST_MODE_KEY, '1'); } catch { /* storage unavailable */ }
     setIsGuest(true);
   }, []);
@@ -179,11 +199,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const loadProfile = useCallback(async (userId: string) => {
+    setProfileLoading(true);
     try {
-      const p = await withTimeout(getProfile(userId), 8000, 'getProfile');
+      // fetchProfile resolves null ONLY when no profile row exists, and
+      // throws on network/timeout failure. The distinction is load-bearing:
+      // profile=null with no error routes the user into ProfileSetup, whose
+      // save overwrites the real row — so a transient failure must NEVER
+      // read as "no profile". On failure we keep whatever profile state we
+      // already had and raise profileError; App.tsx shows a retry screen.
+      const p = await withTimeout(fetchProfile(userId), 8000, 'fetchProfile');
       setProfile(p);
+      setProfileError(false);
     } catch {
-      setProfile(null);
+      setProfileError(true);
+    } finally {
+      setProfileLoading(false);
     }
     try {
       const reqs = await withTimeout(getPendingRequests(userId), 8000, 'getPendingRequests');
@@ -234,7 +264,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setPendingRequestCount(0); setIsAdmin(false); }
+        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); }
       }
     );
 
@@ -296,6 +326,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // After an OTP verification the caller may need to know whether the
+  // just-signed-in account already has a password (has_password RPC,
+  // migration 049), so the email-first signup path doesn't force a
+  // choose-password screen — which would RESET a returning user's password —
+  // onto an account that already has one. Fails SAFE: on any RPC error we
+  // return true ("assume it has a password") so we never overwrite silently.
+  const accountHasPassword = useCallback(async (): Promise<boolean> => {
+    if (!supabaseConfigured) return true;
+    try {
+      const { data, error } = await withTimeout(
+        Promise.resolve(supabase.rpc('has_password')),
+        8000,
+        'has_password',
+      );
+      if (error) return true;
+      return data !== false;
+    } catch {
+      return true;
+    }
+  }, []);
+
   const verifyEmailCode = useCallback(async (email: string, code: string, expectPasswordSetup = false) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     // Raise the flag BEFORE the session lands: onAuthStateChange fires inside
@@ -313,13 +364,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 'signup' for accounts created via the legacy password-first path.
       let { error } = await attempt('email');
       if (error) ({ error } = await attempt('signup'));
-      if (error && expectPasswordSetup) markNeedsPassword(false);
-      return { error: error?.message ?? null };
+      if (error) {
+        if (expectPasswordSetup) markNeedsPassword(false);
+        return { error: error.message };
+      }
+      // Verified — the session now exists. On the signup path we assumed a
+      // NEW (passwordless) account. If it actually already has a password
+      // (checkEmailExists returned a false 'no', or the accounts raced), do
+      // NOT force a password reset: clear the flag and sign in normally.
+      if (expectPasswordSetup) {
+        const hasPassword = await accountHasPassword();
+        if (hasPassword) {
+          markNeedsPassword(false);
+          return { error: null, passwordSetupNeeded: false };
+        }
+        return { error: null, passwordSetupNeeded: true };
+      }
+      return { error: null };
     } catch {
       if (expectPasswordSetup) markNeedsPassword(false);
       return { error: 'Verification took too long. Check your connection and try again.' };
     }
-  }, [markNeedsPassword]);
+  }, [markNeedsPassword, accountHasPassword]);
 
   const completePasswordSetup = useCallback(async (password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -381,11 +447,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
-    setProfile(null);
-    setPendingRequestCount(0);
-    setIsAdmin(false);
     markNeedsPassword(false);
     clearGuest();
+    // End the session's data footprint on this device: React state alone isn't
+    // enough — the data providers sit ABOVE the auth gate, so they stay mounted
+    // (still holding the prior user's ratings/meals in memory), and localStorage
+    // + the signed-URL cache would otherwise persist. Purge storage, then hard
+    // reload so the whole tree re-inits from a clean slate on the Auth screen —
+    // the same clean-identity technique guardDeviceAccount uses on an account
+    // switch. (supabase.auth.signOut already cleared the session, so the reload
+    // comes back signed-out.)
+    clearLocalAppData();
+    try {
+      window.location.reload();
+      return;
+    } catch { /* no window (SSR/tests) — fall back to clearing React state */ }
+    setProfile(null);
+    setProfileError(false);
+    setPendingRequestCount(0);
+    setIsAdmin(false);
   }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
@@ -408,31 +488,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // type their password on the next step. The OTP email is a known
   // side effect; replace this with a backend RPC / edge function when
   // you want to suppress the email.
-  const checkEmailExists = useCallback(async (email: string): Promise<boolean> => {
-    if (!supabaseConfigured) return false;
+  const checkEmailExists = useCallback(async (email: string): Promise<'yes' | 'no' | 'unknown'> => {
+    if (!supabaseConfigured) return 'unknown';
     try {
-      // Read auth.users via the email_exists() function (migration 032). Unlike
-      // the old signInWithOtp probe this sends NO email and isn't rate-limited,
-      // so a returning user is reliably routed to the sign-in screen.
+      // Read auth.users via the email_exists() function (migration 032/049).
+      // Sends NO email; rate-limited server-side per IP. A failure is reported
+      // as 'unknown' — NOT 'no' — so the caller can ask the user to retry
+      // instead of dropping a returning user into the signup+password flow.
       const { data, error } = await withTimeout(
         Promise.resolve(supabase.rpc('email_exists', { check_email: email.trim() })),
         8000,
         'checkEmailExists',
       );
-      if (error) return false; // function missing / failed — the sign-up step recovers
-      return data === true;
+      if (error) return 'unknown';
+      return data === true ? 'yes' : 'no';
     } catch {
-      // Timed out or threw — assume the email isn't on file. If the user does
-      // have an account, the sign-up step detects "already registered" and
-      // routes them to sign in (see Auth.handleSignUp).
-      return false;
+      return 'unknown';
     }
   }, []);
 
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
       {children}
     </AuthContext.Provider>
   );

@@ -5,9 +5,15 @@
 // onto the matching reel row using the service-role key (no user session is
 // involved, so this bypasses RLS by design).
 //
-// Correlation is by `passthrough` — we set it to the reel's own id at
-// upload-init time, so every event maps straight to a row by primary key,
-// race-free. mux_upload_id / mux_asset_id are kept as fallbacks.
+// Correlation is by `passthrough` — mux-upload-init sets it to
+// "<ownerUserId>:<rowId>", so every event maps straight to a row by primary
+// key, race-free — and because we hold the service-role key, we verify the
+// row actually belongs to that user before patching it. Without the check, a
+// malicious user could mint a ticket carrying a VICTIM's reel id and have
+// this webhook overwrite the victim's published video with their upload.
+// mux_upload_id / mux_asset_id are kept as fallbacks; those lookups are
+// ownership-safe by construction, since RLS means only a row's owner could
+// have recorded the upload id on it.
 //
 // Deploy:  supabase functions deploy mux-webhook
 // Secret:  supabase secrets set MUX_WEBHOOK_SECRET=...   (the signing secret
@@ -56,6 +62,20 @@ async function verifyMuxSignature(payload: string, header: string, secret: strin
   return timingSafeEqual(hex, v1);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Parse the "<ownerUserId>:<rowId>" passthrough mux-upload-init mints.
+ *  Anything else (including the legacy bare row id) parses to null, which
+ *  drops the event to the ownership-safe upload/asset-id fallback path. */
+function parsePassthrough(raw: string): { owner: string; rowId: string } | null {
+  const idx = raw.indexOf(':');
+  if (idx < 0) return null;
+  const owner = raw.slice(0, idx);
+  const rowId = raw.slice(idx + 1);
+  if (!UUID_RE.test(owner) || !UUID_RE.test(rowId)) return null;
+  return { owner, rowId };
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
@@ -78,9 +98,9 @@ Deno.serve(async (req) => {
   }
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
-  // Updates target the row by passthrough (reel id) when present, else by the
-  // upload/asset id we stored earlier.
-  const passthrough = typeof data.passthrough === 'string' ? data.passthrough : '';
+  // Updates target the row by passthrough ("<ownerUserId>:<rowId>") when
+  // present and well-formed, else by the upload/asset id we stored earlier.
+  const passthrough = parsePassthrough(typeof data.passthrough === 'string' ? data.passthrough : '');
 
   // A Mux asset belongs to either a reel or a post video item. Both tables
   // carry the same mux_* columns, and ids/upload-ids/asset-ids are unique, so
@@ -91,6 +111,30 @@ Deno.serve(async (req) => {
       const { error } = await sb.from(table).update(patch).eq(col, val);
       if (error) console.error(`[mux-webhook] ${table} update failed`, error.message);
     }
+  };
+
+  // Patch the row named by passthrough ONLY if it belongs to the user who
+  // minted the upload ticket. The service-role key bypasses RLS, so this
+  // check is the only thing standing between a forged/mismatched ticket and
+  // someone else's published video.
+  const updateOwnedRow = async (owner: string, rowId: string, patch: Record<string, unknown>) => {
+    // Reels carry their owner directly — enforce it in the WHERE clause.
+    const reel = await sb.from('reels').update(patch).eq('id', rowId).eq('user_id', owner).select('id');
+    if (reel.error) console.error('[mux-webhook] reels update failed', reel.error.message);
+    else if ((reel.data?.length ?? 0) > 0) return;
+
+    // A post video item's owner lives on the parent post — resolve it first.
+    const item = await sb.from('post_items').select('post_id').eq('id', rowId).maybeSingle();
+    if (item.error) { console.error('[mux-webhook] post_items lookup failed', item.error.message); return; }
+    if (!item.data) { console.warn(`[mux-webhook] no owned row ${rowId} for user ${owner} — ignoring`); return; }
+    const post = await sb.from('posts').select('user_id').eq('id', item.data.post_id).maybeSingle();
+    if (post.error) { console.error('[mux-webhook] posts lookup failed', post.error.message); return; }
+    if (!post.data || post.data.user_id !== owner) {
+      console.warn(`[mux-webhook] passthrough owner mismatch on post_item ${rowId} — ignoring`);
+      return;
+    }
+    const upd = await sb.from('post_items').update(patch).eq('id', rowId);
+    if (upd.error) console.error('[mux-webhook] post_items update failed', upd.error.message);
   };
 
   try {
@@ -110,12 +154,14 @@ Deno.serve(async (req) => {
         mux_playback_id: playbackId,
       };
       if (duration != null) patch.duration_seconds = duration;
-      // Prefer passthrough (the reel/item id) — race-free; else fall back to asset id.
-      if (passthrough) await updateBoth('id', passthrough, patch);
+      // Prefer passthrough (owner-verified, race-free); else fall back to the
+      // asset id (covers legacy tickets minted before passthrough carried the
+      // owner — safe because only the row's owner could have recorded it).
+      if (passthrough) await updateOwnedRow(passthrough.owner, passthrough.rowId, patch);
       else await updateBoth('mux_asset_id', assetId, patch);
     } else if (type === 'video.asset.errored') {
       const assetId = String(data.id || '');
-      if (passthrough) await updateBoth('id', passthrough, { mux_status: 'errored' });
+      if (passthrough) await updateOwnedRow(passthrough.owner, passthrough.rowId, { mux_status: 'errored' });
       else await updateBoth('mux_asset_id', assetId, { mux_status: 'errored' });
     }
     // Other event types are acknowledged and ignored.
