@@ -56,6 +56,13 @@ export const ScrollRestoration: FC = () => {
         // Replaying scroll onto the swipe-back reveal's page clone fires real
         // scroll events — those are the destination's offset, not this page's.
         if (t.closest('[data-swipe-reveal]')) return;
+        // Scroll events fired inside an EXITING route wrapper during a
+        // transition belong to the dying page — the history index has
+        // already moved, so stamping them would clobber the DESTINATION's
+        // saved offset. Only accept inner-scroller events from the wrapper
+        // matching the current path.
+        const stack = t.closest<HTMLElement>('[data-route-stack]');
+        if (stack && stack.getAttribute('data-route-stack') !== window.location.pathname) return;
         y = t.scrollTop;
       }
       if (y == null) return;
@@ -78,15 +85,25 @@ export const ScrollRestoration: FC = () => {
     // inner scrollers mount at the top on their own.
     if (navType !== 'POP') { window.scrollTo(0, 0); return; }
     const target = positions.get(histIdx()) ?? 0;
-    if (target <= 0) { setPageScroll(0); return; }
-    // The destination remounts and fills in progressively. Wait briefly for it
-    // to be tall enough, then jump once. If it never gets there in time (a lazy
-    // / virtualized feed scrolled deep), leave it at the top — never worse than
-    // before, and no jarring auto-scroll. (A fully seamless back needs the page
-    // to stay mounted; this is best-effort restoration.)
+    const destPath = location.pathname;
+    // With AnimatePresence mode="wait" the DESTINATION isn't mounted when
+    // this effect runs — the exiting page still owns the DOM, so an
+    // unscoped getPrimaryScroller() picked the DYING page's scroller: the
+    // first apply() saw a satisfiable maxPageScroll, wrote the offset into
+    // the exiting page, and stopped, leaving the incoming page at 0. Wait
+    // for the wrapper carrying the destination's own pathname (the same
+    // handshake SwipeBackContainer uses) and scope every read/write to it.
+    // The retry loop doubles as the "page still filling in" wait as before.
     let timer = 0, tries = 0;
     const apply = () => {
-      if (maxPageScroll() >= target - 1) { setPageScroll(target); return; }
+      const wrapper = document.querySelector<HTMLElement>(`[data-route-stack="${CSS.escape(destPath)}"]`);
+      if (wrapper) {
+        if (target <= 0) { setPageScroll(0, wrapper); return; }
+        if (maxPageScroll(wrapper) >= target - 1) { setPageScroll(target, wrapper); return; }
+      }
+      // If the wrapper never appears (a non-stack destination) or never gets
+      // tall enough (lazy feed scrolled deep), leave the page at the top —
+      // never worse than before, and no jarring auto-scroll.
       if (tries++ < 12) timer = window.setTimeout(apply, 90);
     };
     apply();
