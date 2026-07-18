@@ -8,19 +8,35 @@
 // and deployments, not just this browser's localStorage.
 //
 // Persistence mirrors ListsContext: localStorage is the always-on cache
-// (instant, offline-safe); Supabase is the cross-device sync layer, loaded
-// + merged on sign-in and written debounced on change.
+// (instant, offline-safe); Supabase is the cross-device sync layer.
+//
+// Sync model: every cloud sync is READ-MERGE-WRITE, not a blind overwrite —
+// pull the cloud copy, union it with local (tombstones suppress deleted
+// ids), commit the merge locally, and push only when something actually
+// differs. Two live devices therefore converge instead of last-writer-wins
+// clobbering each other's whole history, and a chat deleted on one device
+// stays deleted everywhere (the tombstone outlives the other device's
+// stale copy). Syncs run on sign-in, debounced after every change, and on
+// returning to the foreground (throttled); the tab-hide/unmount flush is
+// the one blind write — at teardown, finishing the write beats reading
+// first, and any clobber it causes is healed by the next merged sync.
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import {
   loadSavedChats,
   persistSavedChats,
+  loadChatTombstones,
+  persistChatTombstones,
   mergeChats,
+  mergeTombstones,
   boundChats,
+  sameChatSet,
+  sameTombstoneSet,
   buildGeneratedRecipeChat,
   CHAT_USER_KEY,
   type SavedChat,
+  type ChatTombstone,
 } from '../lib/ai-chat-history';
 import { loadAiChatHistory, saveAiChatHistory } from '../lib/supabase-ai-chat';
 import type { HomeMeal } from './ListsContext';
@@ -43,6 +59,9 @@ interface AiChatHistoryValue {
 const AiChatHistoryContext = createContext<AiChatHistoryValue | null>(null);
 
 const CLOUD_SAVE_DEBOUNCE_MS = 800;
+/** Minimum gap between foreground-return pulls, so tab-switch-happy desktop
+ *  use doesn't hammer the row. */
+const FOREGROUND_PULL_MIN_MS = 60_000;
 
 export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -55,11 +74,23 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
   const savedChatsRef = useRef(savedChats);
   useEffect(() => { savedChatsRef.current = savedChats; }, [savedChats]);
 
+  // Deletion tombstones — plain ref (never rendered), lazily hydrated from
+  // localStorage once. Kept in lockstep with the persisted copy.
+  const tombstonesLoadedRef = useRef(false);
+  const tombstonesRef = useRef<ChatTombstone[]>([]);
+  if (!tombstonesLoadedRef.current) {
+    tombstonesLoadedRef.current = true;
+    tombstonesRef.current = loadChatTombstones();
+  }
+
   const userIdRef = useRef<string | null>(null);
   // Gates cloud writes until the initial cloud load + merge has run, so we
   // never clobber a device's cloud history with a half-loaded local set.
   const cloudReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncInFlightRef = useRef(false);
+  const syncQueuedRef = useRef(false);
+  const lastPullAtRef = useRef(0);
 
   // Update state + localStorage together, always bounded + newest-first.
   const commit = useCallback((updater: (prev: SavedChat[]) => SavedChat[]) => {
@@ -87,6 +118,13 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [commit]);
 
   const deleteChat = useCallback((id: string) => {
+    // Tombstone BEFORE dropping the chat: the merge is a union, so without
+    // a tombstone the cloud's (or another device's) copy would resurrect
+    // the chat on the very next sync. A later upsert of the same id stamps
+    // a fresh updatedAt, which outranks the tombstone in mergeChats — so
+    // deliberately continuing a conversation still works.
+    tombstonesRef.current = mergeTombstones(tombstonesRef.current, [{ id, deletedAt: Date.now() }]);
+    persistChatTombstones(tombstonesRef.current);
     commit((prev) => prev.filter((c) => c.id !== id));
   }, [commit]);
 
@@ -97,15 +135,56 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
     [commit],
   );
 
+  // One read-merge-write sync cycle. Pull the cloud copy, fold it into
+  // local (tombstone union first, then the tombstone-aware chat merge),
+  // commit locally when the merge changed anything, and push back only when
+  // the cloud copy differs from the merge. Serialized: a request that lands
+  // mid-cycle queues one follow-up cycle rather than racing it. A failed
+  // READ aborts the cycle without writing — pushing local over an
+  // unreadable cloud copy is exactly the clobbering this replaces.
+  const syncWithCloud = useCallback(async () => {
+    if (syncInFlightRef.current) { syncQueuedRef.current = true; return; }
+    syncInFlightRef.current = true;
+    try {
+      do {
+        syncQueuedRef.current = false;
+        const uid = userIdRef.current;
+        if (!uid || !cloudReadyRef.current) return;
+        const cloud = await loadAiChatHistory(uid);
+        if (userIdRef.current !== uid) return; // account changed mid-flight
+        if (cloud === null) return; // cloud unreadable — retry on the next trigger
+        lastPullAtRef.current = Date.now();
+        const tombstones = mergeTombstones(tombstonesRef.current, cloud.tombstones);
+        if (!sameTombstoneSet(tombstones, tombstonesRef.current)) {
+          tombstonesRef.current = tombstones;
+          persistChatTombstones(tombstones);
+        }
+        const merged = mergeChats(savedChatsRef.current, cloud.chats, tombstones);
+        if (!sameChatSet(merged, savedChatsRef.current)) {
+          savedChatsRef.current = merged;
+          setSavedChatsState(merged);
+          persistSavedChats(merged);
+        }
+        if (!sameChatSet(merged, cloud.chats) || !sameTombstoneSet(tombstones, cloud.tombstones)) {
+          await saveAiChatHistory(uid, merged, tombstones);
+        }
+      } while (syncQueuedRef.current);
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  }, []);
+
   // Push the current chats to the cloud for `uid` NOW, cancelling any pending
   // debounce. Called on sign-out / account-switch, tab-hide, and unmount so a
   // chat made in the last debounce window still syncs instead of being lost
-  // with the timer. No-ops before the initial hydrate (cloudReadyRef) so we
-  // never clobber the cloud with a half-loaded set.
+  // with the timer. This is the one BLIND write: at teardown a read-then-write
+  // would often complete neither, and any clobber is healed by the next
+  // read-merge-write sync. No-ops before the initial hydrate (cloudReadyRef)
+  // so we never clobber the cloud with a half-loaded set.
   const flushCloudSave = useCallback((uid: string | null) => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
     if (!uid || !cloudReadyRef.current) return;
-    saveAiChatHistory(uid, savedChatsRef.current);
+    saveAiChatHistory(uid, savedChatsRef.current, tombstonesRef.current);
   }, []);
 
   // On sign-out / account switch, flush the PREVIOUS user's latest chats to
@@ -135,51 +214,77 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
       localStorage.setItem(CHAT_USER_KEY, userId);
     } catch { /* ignore storage errors */ }
 
-    // Drop the previous account's chats from the UI immediately.
-    if (accountSwitched) { setSavedChatsState([]); savedChatsRef.current = []; }
+    // Drop the previous account's chats AND tombstones from this device.
+    if (accountSwitched) {
+      setSavedChatsState([]);
+      savedChatsRef.current = [];
+      tombstonesRef.current = [];
+      persistChatTombstones([]);
+    }
 
     (async () => {
       const cloud = await loadAiChatHistory(userId);
       if (cancelled || userIdRef.current !== userId) return;
+      if (cloud === null) {
+        // Read failed (offline / column missing). Go ready WITHOUT pushing:
+        // later sync cycles read-merge-write, so nothing local is lost and
+        // an unreadable cloud copy is never overwritten blind.
+        cloudReadyRef.current = true;
+        return;
+      }
+      lastPullAtRef.current = Date.now();
+      const tombstones = mergeTombstones(tombstonesRef.current, cloud.tombstones);
+      tombstonesRef.current = tombstones;
+      persistChatTombstones(tombstones);
       const base = accountSwitched ? [] : savedChatsRef.current;
-      const merged = mergeChats(base, cloud);
+      const merged = mergeChats(base, cloud.chats, tombstones);
       setSavedChatsState(merged);
       persistSavedChats(merged);
       savedChatsRef.current = merged;
       cloudReadyRef.current = true;
-      // Push merged back so local-only chats land in the cloud too.
-      saveAiChatHistory(userId, merged);
+      // Push back only when the merge differs from the cloud copy (local-only
+      // chats, suppressed deletions, fresh tombstones).
+      if (!sameChatSet(merged, cloud.chats) || !sameTombstoneSet(tombstones, cloud.tombstones)) {
+        saveAiChatHistory(userId, merged, tombstones);
+      }
     })();
 
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Debounced cloud write on every change once hydrated.
+  // Debounced sync on every change once hydrated. The cycle's own state
+  // commit re-triggers this effect, but the follow-up cycle finds nothing
+  // changed and writes nothing — it settles after one extra read.
   useEffect(() => {
     if (!userId || !cloudReadyRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      if (userIdRef.current) saveAiChatHistory(userIdRef.current, savedChatsRef.current);
-    }, CLOUD_SAVE_DEBOUNCE_MS);
+    saveTimerRef.current = setTimeout(() => { void syncWithCloud(); }, CLOUD_SAVE_DEBOUNCE_MS);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [savedChats, userId]);
+  }, [savedChats, userId, syncWithCloud]);
 
   // Flush on tab-hide / background / close and on unmount, so a chat made
   // right before leaving the app still reaches the cloud rather than dying
   // with the pending debounce timer. visibilitychange fires reliably on
-  // mobile backgrounding and most desktop tab closes.
+  // mobile backgrounding and most desktop tab closes. Returning to the
+  // foreground instead PULLS (throttled): another device may have been the
+  // active one meanwhile, and sign-in was previously the only time we read.
   useEffect(() => {
-    const onHide = () => {
-      if (document.visibilityState === 'hidden') flushCloudSave(userIdRef.current);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushCloudSave(userIdRef.current);
+      } else if (Date.now() - lastPullAtRef.current > FOREGROUND_PULL_MIN_MS) {
+        void syncWithCloud();
+      }
     };
-    document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('pagehide', onHide);
+    const onPageHide = () => flushCloudSave(userIdRef.current);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
-      document.removeEventListener('visibilitychange', onHide);
-      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
       flushCloudSave(userIdRef.current);
     };
-  }, [flushCloudSave]);
+  }, [flushCloudSave, syncWithCloud]);
 
   return (
     <AiChatHistoryContext.Provider value={{ savedChats, upsertChat, deleteChat, addGeneratedRecipeChat }}>
