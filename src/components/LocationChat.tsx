@@ -847,9 +847,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   // History-feature handlers.
   const handleNewChat = useCallback(() => {
+    // Flush BEFORE wiping: the auto-save is debounced ~600ms, and once
+    // messages go empty its effect early-returns (cleanup already cleared
+    // the pending timer) while flushSave itself no-ops on an empty
+    // messagesRef — so an answer that just finished streaming would be
+    // silently lost. flushSave reads from refs, which still hold the
+    // pre-wipe conversation at this point.
+    flushSave();
     abortRef.current?.abort();
-    // The auto-save effect already snapshotted any messages we had
-    // here, so it's safe to wipe local state.
     setMessages([]);
     setChatPlaces({});
     setChatKnownUsers({});
@@ -857,9 +862,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setError(null);
     setView('chat');
     setStreaming(false);
-  }, []);
+  }, [flushSave]);
 
   const handleSelectChat = useCallback((chat: SavedChat) => {
+    // Same as handleNewChat: persist the outgoing conversation before
+    // replacing it, or its last ~600ms of activity never gets saved.
+    flushSave();
     abortRef.current?.abort();
     setMessages(chat.messages);
     setChatPlaces(chat.chatPlaces || {});
@@ -870,7 +878,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setError(null);
     setStreaming(false);
     setView('chat');
-  }, []);
+  }, [flushSave]);
 
   const handleDeleteChat = useCallback((id: string) => {
     deleteChat(id);
