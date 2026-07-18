@@ -7,10 +7,12 @@ import {defineConfig} from 'vite';
 export default defineConfig(({mode}) => {
   return {
     plugins: [react(), tailwindcss()],
-    // Strip console.* and debugger statements from production builds only —
-    // dev and vitest keep them for debugging.
+    // Strip noisy console.log/debug and debugger statements from production
+    // builds only — console.error/warn SURVIVE so field crashes leave
+    // diagnostics (dropping 'console' wholesale compiled out even
+    // componentDidCatch's report). Dev and vitest keep everything.
     ...(mode === 'production'
-      ? {esbuild: {drop: ['console', 'debugger'] as Array<'console' | 'debugger'>}}
+      ? {esbuild: {pure: ['console.log', 'console.debug'], drop: ['debugger'] as Array<'debugger'>}}
       : {}),
     test: {
       environment: 'node',
