@@ -8,7 +8,8 @@ import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
 import { safeImage, localISODate } from '../lib/utils';
-import { settleScores, applySettleChanges, type SettleChange } from '../lib/settleScores';
+import { applySettleChanges, type SettleChange } from '../lib/settleScores';
+import { applyRatingSave } from '../lib/applyRatingSave';
 
 /* ── Types ── */
 
@@ -897,6 +898,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => migrateHomeMeals(loadFromStorage(STORAGE_KEY_HOME_MEALS, [])));
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  // Always-fresh mirrors of `ratings`/`wishlist` for rateRestaurant. Reading
+  // the render closure there loses same-tick saves: two rateRestaurant calls
+  // in one tick (bulk import, fast double-save) would both derive from the
+  // same stale array and the second would silently drop the first — from
+  // state, localStorage, AND the cloud payload. rateRestaurant assigns
+  // ratingsRef eagerly when it commits, so the next same-tick call builds on
+  // it; the render-time assignments below re-sync both refs to committed
+  // truth after React processes the queue.
+  const ratingsRef = useRef(ratings);
+  ratingsRef.current = ratings;
+  const wishlistRef = useRef(wishlist);
+  wishlistRef.current = wishlist;
   // True only after a cloud load FAILED (timeout/network). While set, we must
   // not push the full home-meals array to the cloud — the in-memory set may be
   // incomplete and would clobber the stored recipes. localStorage keeps the
@@ -2013,21 +2026,26 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Re-rating a previously-deleted restaurant clears its tombstone so it
     // isn't filtered straight back out on the next load.
     untombstone('restaurants', rating.restaurantId);
-    // Capture previous-state context for the toast: was this restaurant
-    // already rated? Read from the closure ratings (committed state) since
-    // the setRatings updater below runs during render — by then it's too
-    // late to know the prior value.
-    const wasRated = ratings.some((r) => r.restaurantId === rating.restaurantId);
+    // Derive the save from the freshest ratings we know about — ratingsRef,
+    // not the render closure. Same-tick saves (bulk import, fast double-save)
+    // each assign the ref before returning, so every call builds on the one
+    // before it instead of deriving from the same pre-save snapshot and
+    // silently dropping the earlier save. All side effects (persistence,
+    // cloud mirror, publish, toast) stay OUT of the setRatings updater —
+    // updaters run during render and StrictMode invokes them twice.
+    const prevRatings = ratingsRef.current;
+    const { next, existing: existingForArchive, settledSelf, otherChanged } = applyRatingSave(
+      prevRatings,
+      rating,
+      { now: Date.now(), settleOrder: options?.settleOrder },
+    );
+    const wasRated = existingForArchive !== undefined;
     // Only archive the existing rating when this is genuinely a new visit.
     // Skipping this on edits is what stops "Update Current" from creating a
-    // phantom history entry every time the user tweaks a note or a tag. Done
-    // OUTSIDE the setRatings updater (using the committed `ratings` closure, the
-    // same source `wasRated` reads) so the localStorage blob is updated before
-    // we mirror it to the cloud, and so we don't run side effects in a render
-    // updater. The write goes to localStorage (synchronous, survives reloads),
-    // the durable user_app_data stash (cross-device, always works), AND the
-    // best-effort visit_history table (a no-op where the table is absent).
-    const existingForArchive = ratings.find((r) => r.restaurantId === rating.restaurantId);
+    // phantom history entry every time the user tweaks a note or a tag. The
+    // write goes to localStorage (synchronous, survives reloads), the durable
+    // user_app_data stash (cross-device, always works), AND the best-effort
+    // visit_history table (a no-op where the table is absent).
     if (existingForArchive && isNewVisit) {
       appendLocalVisitRecord(existingForArchive.restaurantId, {
         score: existingForArchive.score,
@@ -2056,38 +2074,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
       }
     }
-    // Beli-style settle: a score-changing save may shift tier-mates so the
-    // ranked order gets breathing room (crowding fix). Computed from the
-    // committed `ratings` closure — the same source `wasRated` reads — so the
-    // settled array is available to the publish + toast below. Note-only
-    // edits keep the score identical and must NOT settle (drift guard).
-    const scoreChanged = !existingForArchive || existingForArchive.score !== rating.score;
-    // Stamp updatedAt now so this save wins the multi-device merge over any
-    // stale copy of the same rating on another device.
-    const now = Date.now();
-    const stampedRating: RestaurantRating = { ...rating, updatedAt: now };
-    const baseNext = [stampedRating, ...ratings.filter((r) => r.restaurantId !== rating.restaurantId)];
-    const settleChanges: SettleChange[] = scoreChanged
-      ? settleScores(baseNext, {
-          justRatedId: rating.restaurantId,
-          previousScore: existingForArchive ? existingForArchive.score : undefined,
-          // Head-to-head saves carry the search's exact placement so the
-          // settle can't invert an order the comparisons already decided.
-          explicitOrder: options?.settleOrder,
-        })
-      : [];
-    // Every row the settle moved (plus the rated row) is a modification —
-    // bump updatedAt on each so their new scores survive a merge too.
-    const changedIds = new Set<string>([rating.restaurantId, ...settleChanges.map((c) => c.restaurantId)]);
-    const next = applySettleChanges(baseNext, settleChanges)
-      .map((r) => (changedIds.has(r.restaurantId) ? { ...r, updatedAt: now } : r));
-    const settledSelf = next.find((r) => r.restaurantId === rating.restaurantId) ?? rating;
-    const otherChanged = settleChanges.filter((c) => c.restaurantId !== rating.restaurantId);
-    setRatings(() => {
-      saveToStorage(STORAGE_KEY_RATINGS, next);
-      syncRatingsToCloud(next);
-      return next;
-    });
+    // Commit. The eager ref assignment is what serializes a same-tick
+    // follow-up save (it reads `next` instead of a stale snapshot); the
+    // render-time sync re-aligns the ref with committed state afterwards.
+    ratingsRef.current = next;
+    setRatings(next);
+    saveToStorage(STORAGE_KEY_RATINGS, next);
+    syncRatingsToCloud(next);
     // Update lists to include this restaurant in selected lists
     if (rating.listIds && rating.listIds.length > 0) {
       setLists((prev) => {
@@ -2120,9 +2113,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // list's want-to-try (wishlistIds) section. The listIds block above may
     // have just added the restaurant to those lists' RATED section, so this
     // reads as "moved from want-to-try to been".
-    const wasWishlisted = wishlist.some((w) => w.restaurantId === rating.restaurantId);
+    const wasWishlisted = wishlistRef.current.some((w) => w.restaurantId === rating.restaurantId);
     if (wasWishlisted) {
       tombstone('wishlist', rating.restaurantId);
+      // Eagerly drop it from the mirror so a second same-tick save of this
+      // restaurant doesn't tombstone + toast "removed from wishlist" again.
+      // The state update stays a functional updater: bulk import queues
+      // addToWishlist calls in the same tick, and a direct set from the ref
+      // would clobber them. Render-time sync re-aligns the ref afterwards.
+      wishlistRef.current = wishlistRef.current.filter((w) => w.restaurantId !== rating.restaurantId);
       setWishlist((prev) => {
         const nextW = prev.filter((w) => w.restaurantId !== rating.restaurantId);
         saveToStorage(STORAGE_KEY_WISHLIST, nextW);
@@ -2162,7 +2161,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [ratings, wishlist, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
