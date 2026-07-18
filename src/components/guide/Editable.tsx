@@ -291,7 +291,9 @@ export const EditableImage: React.FC<EditableImageProps> = ({
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') { commit(); setOpen(false); }
-                if (e.key === 'Escape') setOpen(false);
+                // Claim the Esc so the editor's window-level close doesn't
+                // also fire — one press closes only this popover.
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
               }}
               autoFocus
             />
@@ -395,13 +397,15 @@ export const EditableChips: React.FC<EditableChipsProps> = ({
 
   return (
     <div className="gle-chips">
-      {values.map((v) => (
-        <span key={v} className={chipClass}>
+      {/* Key by index+value and remove by INDEX — duplicate values used to
+          collide as React keys and removing one deleted every copy. */}
+      {values.map((v, i) => (
+        <span key={`${i}:${v}`} className={chipClass}>
           <span>{v}</span>
           <button
             type="button"
             className="gle-chip-x"
-            onClick={() => onChange(values.filter((x) => x !== v))}
+            onClick={() => onChange(values.filter((_, idx) => idx !== i))}
             aria-label={`Remove ${v}`}
           >
             <X size={10} />
@@ -417,7 +421,7 @@ export const EditableChips: React.FC<EditableChipsProps> = ({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commit();
-              if (e.key === 'Escape') { setDraft(''); setAdding(false); }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(''); setAdding(false); }
             }}
             onBlur={commit}
             placeholder={placeholder}

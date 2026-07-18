@@ -73,8 +73,12 @@ export async function readRecipeStream(
   // JSON accumulated per tool name. Anthropic streams one content block
   // at a time: content_block_start names the tool, then input_json_delta
   // events carry its input. Track which block is open so each fragment
-  // lands in the right buffer.
-  const toolJson: Record<string, string> = {};
+  // lands in the right buffer. A model can emit the SAME tool more than
+  // once in one message (a self-correcting retry) — concatenating the
+  // blocks produced `{...}{...}` that failed to parse, so we keep the
+  // LAST COMPLETE block per name (in-progress buffer resets per block).
+  const toolJson: Record<string, string> = {};      // last complete block per tool
+  const toolJsonOpen: Record<string, string> = {};  // in-progress block buffers
   let openTool = '';
   let stopReason: string | undefined;
   let streamError: string | undefined;
@@ -112,11 +116,12 @@ export async function readRecipeStream(
 
         if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
           openTool = event.content_block.name || 'build_recipe';
-          if (!(openTool in toolJson)) toolJson[openTool] = '';
+          toolJsonOpen[openTool] = '';
         } else if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
           const name = openTool || 'build_recipe';
-          toolJson[name] = (toolJson[name] ?? '') + (event.delta.partial_json ?? '');
+          toolJsonOpen[name] = (toolJsonOpen[name] ?? '') + (event.delta.partial_json ?? '');
         } else if (event.type === 'content_block_stop') {
+          if (openTool) toolJson[openTool] = toolJsonOpen[openTool] ?? '';
           openTool = '';
         } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
           stopReason = event.delta.stop_reason;
@@ -134,17 +139,19 @@ export async function readRecipeStream(
 
   if (streamError) return { error: streamError };
 
-  // The model declined the change — surface its reason verbatim.
-  if (toolJson['decline_change']) {
+  // The model declined the change — surface its reason verbatim. Fall back
+  // to the in-progress buffer when the block never closed (truncation).
+  const declineJson = toolJson['decline_change'] || toolJsonOpen['decline_change'];
+  if (declineJson) {
     try {
-      const parsed = JSON.parse(toolJson['decline_change']) as { reason?: string };
+      const parsed = JSON.parse(declineJson) as { reason?: string };
       return { declineReason: (parsed.reason || '').trim() || "That change would compromise the recipe, so I left it as is." };
     } catch {
       return { declineReason: "That change would compromise the recipe, so I left it as is." };
     }
   }
 
-  const recipeJson = toolJson['build_recipe'] ?? '';
+  const recipeJson = toolJson['build_recipe'] || toolJsonOpen['build_recipe'] || '';
   const truncated = stopReason === 'max_tokens';
   if (truncated && !recipeJson) {
     return { error: 'The recipe was too long to finish. Try a slightly simpler request.' };

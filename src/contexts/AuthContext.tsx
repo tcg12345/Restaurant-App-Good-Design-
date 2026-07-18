@@ -82,6 +82,11 @@ interface AuthContextType {
    *  reviewer). Drives the admin-only settings entry + /admin/verification;
    *  real enforcement is server-side (RLS + RPC checks). */
   isAdmin: boolean;
+  /** Tri-state admin check: 'unknown' until the allowlist probe resolves
+   *  (it runs AFTER profile load, up to ~8 s on slow networks), then
+   *  true/false. Admin-gated pages must show a spinner while 'unknown' —
+   *  gating on !isAdmin alone flashed "not available" at real admins. */
+  adminChecked: boolean | 'unknown';
   /** Probe whether an email is already registered. Tri-state on purpose:
    *  'yes' / 'no' when the check succeeds, and 'unknown' when it fails
    *  (RPC error / timeout). Callers MUST treat 'unknown' as "couldn't tell,
@@ -154,6 +159,7 @@ const AuthContext = createContext<AuthContextType>({
   pendingRequestCount: 0,
   refreshPendingRequests: async () => {},
   isAdmin: false,
+  adminChecked: 'unknown',
   checkEmailExists: async () => 'unknown',
 });
 
@@ -167,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState<boolean | 'unknown'>('unknown');
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState<boolean>(() => {
     try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === '1'; } catch { return false; }
   });
@@ -222,15 +229,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPendingRequestCount(0);
     }
     try {
-      setIsAdmin(await withTimeout(isAppAdmin(), 8000, 'isAppAdmin'));
+      const admin = await withTimeout(isAppAdmin(), 8000, 'isAppAdmin');
+      setIsAdmin(admin);
+      setAdminChecked(admin);
     } catch {
+      // The probe itself failed (timeout) — resolve to false so gated pages
+      // don't spin forever, but only after the full timeout, never a flash.
       setIsAdmin(false);
+      setAdminChecked(false);
     }
   }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) {
       setLoading(false);
+      setAdminChecked(false);
       return;
     }
 
@@ -264,7 +277,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (u && guardDeviceAccount(u.id)) return;
         setUser(u);
         if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); }
+        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); setAdminChecked(false); }
       }
     );
 
@@ -466,6 +479,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfileError(false);
     setPendingRequestCount(0);
     setIsAdmin(false);
+    setAdminChecked(false);
   }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
@@ -510,7 +524,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
       {children}
     </AuthContext.Provider>
   );

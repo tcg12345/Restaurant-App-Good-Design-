@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
-import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, saveGuide, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
+import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, setGuidePublished, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
@@ -171,23 +171,11 @@ export const GuideDetail: React.FC = () => {
 
   const onUnpublish = async () => {
     if (!guide || !user?.id || !isOwner) return;
-    const updated = await saveGuide(user.id, {
-      id: guide.id,
-      type: guide.type,
-      title: guide.title,
-      subtitle: guide.subtitle,
-      intro: guide.intro,
-      city: guide.city ?? null,
-      coverPhoto: guide.coverPhoto,
-      tags: guide.tags,
-      visibility: guide.visibility,
-      isPublished: false,
-      includePhotos: guide.includePhotos,
-      entries: guide.entries,
-      theme: guide.theme,
-    });
-    if (updated) {
-      setGuide(updated);
+    // Column-scoped flip — re-saving the whole guide from this page's
+    // (possibly stale) snapshot used to clobber newer edits.
+    const ok = await setGuidePublished(guide.id, false);
+    if (ok) {
+      setGuide({ ...guide, isPublished: false });
       showToast('Guide unpublished');
     } else {
       showToast("Couldn't unpublish");

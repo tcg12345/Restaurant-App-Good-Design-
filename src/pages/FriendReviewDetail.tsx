@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -70,6 +70,8 @@ export const FriendReviewDetail: React.FC = () => {
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [newComment, setNewComment] = useState('');
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const commentSubmittingRef = useRef(false);
 
   const [heroIdx, setHeroIdx] = useState(0);
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -150,15 +152,28 @@ export const FriendReviewDetail: React.FC = () => {
   }, [rating, commentsOpen]);
 
   const handleAddComment = async () => {
-    if (!userId || !rating || !newComment.trim()) return;
-    const ok = await addComment(userId, rating.id, newComment.trim());
-    if (ok) {
-      setNewComment('');
-      setCommentCount((c) => c + 1);
-      const cmts = await getComments(rating.id);
-      setComments(cmts);
-      const ids = [...new Set(cmts.map((c) => c.user_id))];
-      setCommentProfiles(await getProfilesByIds(ids));
+    const text = newComment.trim();
+    // The ref is the double-post guard — Enter fires per keypress, and two
+    // Enters during the awaited insert used to post the same comment twice.
+    if (!userId || !rating || !text || commentSubmittingRef.current) return;
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
+    // Clear optimistically so the box feels instant; restore on failure.
+    setNewComment('');
+    try {
+      const ok = await addComment(userId, rating.id, text);
+      if (ok) {
+        setCommentCount((c) => c + 1);
+        const cmts = await getComments(rating.id);
+        setComments(cmts);
+        const ids = [...new Set(cmts.map((c) => c.user_id))];
+        setCommentProfiles(await getProfilesByIds(ids));
+      } else {
+        setNewComment(text);
+      }
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
@@ -429,30 +444,40 @@ export const FriendReviewDetail: React.FC = () => {
                 <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
               ) : comments.length === 0 ? (
                 <p className="text-xs text-on-surface/40 py-1">No comments yet — be the first!</p>
-              ) : (
-                <div className="space-y-3">
-                  {comments.map((c) => {
-                    const cColor = avatarColor(c.user_id);
-                    const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
-                    return (
-                      <div key={c.id} className="flex gap-2.5">
-                        <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
-                          <span className={cn("text-[11px] font-serif font-bold", cColor.text)}>{cInitial}</span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] leading-relaxed">
-                            <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
-                              {commentProfiles[c.user_id]?.display_name || 'User'}
-                            </Link>{' '}
-                            <span className="text-on-surface/65">{c.text}</span>
-                          </p>
-                          <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
-                        </div>
+              ) : (() => {
+                // Thread replies under their parent (same grouping as
+                // SocialFeed) — rendering the array flat surfaced replies as
+                // context-free top-level comments.
+                const topLevel = comments.filter((c) => !c.parent_id);
+                const repliesByParent: Record<string, typeof comments> = {};
+                comments.forEach((c) => {
+                  if (c.parent_id) (repliesByParent[c.parent_id] ||= []).push(c);
+                });
+                const renderRow = (c: (typeof comments)[number], isReply: boolean) => {
+                  const cColor = avatarColor(c.user_id);
+                  const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
+                  return (
+                    <div key={c.id} className={cn('flex gap-2.5', isReply && 'ml-9')}>
+                      <div className={cn('rounded-full flex items-center justify-center flex-shrink-0 mt-0.5', isReply ? 'w-6 h-6' : 'w-7 h-7', cColor.bg)}>
+                        <span className={cn('font-serif font-bold', isReply ? 'text-[10px]' : 'text-[11px]', cColor.text)}>{cInitial}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] leading-relaxed">
+                          <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
+                            {commentProfiles[c.user_id]?.display_name || 'User'}
+                          </Link>{' '}
+                          <span className="text-on-surface/65">{c.text}</span>
+                        </p>
+                        <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
+                        {!isReply && (repliesByParent[c.id] || []).map((reply) => (
+                          <div key={reply.id} className="mt-2.5">{renderRow(reply, true)}</div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                };
+                return <div className="space-y-3">{topLevel.map((c) => renderRow(c, false))}</div>;
+              })()}
               <div className="flex gap-2 pt-2">
                 <input
                   type="text"
@@ -460,11 +485,11 @@ export const FriendReviewDetail: React.FC = () => {
                   onChange={(e) => setNewComment(e.target.value)}
                   placeholder="Write a comment..."
                   className="flex-1 bg-on-surface/5 rounded-full py-2.5 px-4 text-[13px] focus:outline-none focus:bg-on-surface/[0.08] transition-colors"
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(); }}
                 />
                 <button
                   onClick={handleAddComment}
-                  disabled={!newComment.trim()}
+                  disabled={!newComment.trim() || commentSubmitting}
                   aria-label="Post comment"
                   className="w-11 h-11 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
                 >

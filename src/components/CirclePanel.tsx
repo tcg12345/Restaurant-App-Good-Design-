@@ -17,7 +17,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getFriends, getProfilesByIds, getFriendActivity, getExpertProfiles,
-  getUserRatings, getFollowCounts, followPublicAccount, removeFriend,
+  getExpertStats, followPublicAccount, removeFriend,
   getPendingRequests, acceptFriendRequest, declineFriendRequest,
   getFollowerIds, getSentRequestIds, sendFriendRequest, searchUsersByUsername,
   type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating,
@@ -172,17 +172,13 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       if (cancelled) return;
       setExperts(profiles);
       if (profiles.length > 0) {
-        const results = await Promise.all(profiles.map(async (p) => {
-          const [ratings, counts] = await Promise.all([
-            getUserRatings(p.user_id),
-            getFollowCounts(p.user_id),
-          ]);
-          return { id: p.user_id, ratingCount: ratings.length, followers: counts.followers };
-        }));
+        // One batched RPC — the per-expert getUserRatings/getFollowCounts
+        // loop was 3 requests per expert just to display two counts.
+        const stats = await getExpertStats(profiles.map((p) => p.user_id));
         if (cancelled) return;
         const rc: Record<string, number> = {};
         const fc: Record<string, number> = {};
-        results.forEach((r) => { rc[r.id] = r.ratingCount; fc[r.id] = r.followers; });
+        for (const [id, s] of Object.entries(stats)) { rc[id] = s.ratingCount; fc[id] = s.followerCount; }
         setExpertRatingCounts(rc);
         setExpertFollowerCounts(fc);
       }

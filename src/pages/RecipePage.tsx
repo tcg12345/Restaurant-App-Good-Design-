@@ -65,6 +65,23 @@ const hashToHue = (s: string): number => {
   return h;
 };
 
+// Reviews persist as one `notes` string. Titled reviews are marked with an
+// invisible sentinel (U+2063) before the headline — the old bare
+// "title\n\nbody" convention promoted the first PARAGRAPH of any title-less
+// review with a paragraph break into a bold fake headline. Unmarked notes
+// (including all pre-marker reviews) render entirely as body: no fabricated
+// headlines, worst case an old explicit title reads as its first paragraph.
+const REVIEW_TITLE_MARK = '⁣';
+const packReviewNotes = (title: string, body: string): string =>
+  title ? `${REVIEW_TITLE_MARK}${title}\n\n${body}` : body;
+const unpackReviewNotes = (notes: string): { title: string; body: string } => {
+  if (!notes.startsWith(REVIEW_TITLE_MARK)) return { title: '', body: notes };
+  const rest = notes.slice(REVIEW_TITLE_MARK.length);
+  const splitIdx = rest.indexOf('\n\n');
+  if (splitIdx <= 0) return { title: '', body: rest };
+  return { title: rest.slice(0, splitIdx).trim(), body: rest.slice(splitIdx + 2).trim() };
+};
+
 // Quantity formatter — supports common fractions (¼, ½, ¾, ⅓, ⅔, ⅛)
 // so the ingredient list reads like a cookbook rather than dumping "0.5 cups".
 // Keyed by frac.toFixed(3) — the same normalization used at lookup time.
@@ -1021,7 +1038,7 @@ export const RecipePage: React.FC = () => {
       if (data.source === 'recipe') {
         const saved = await upsertFormalReview(currentUserId, data.id, {
           rating,
-          notes: title ? `${title}\n\n${body}` : body,
+          notes: packReviewNotes(title, body),
           photo: '',
         });
         if (saved) {
@@ -1035,7 +1052,7 @@ export const RecipePage: React.FC = () => {
           });
         }
       } else {
-        const notes = title ? `${title}\n\n${body}` : body;
+        const notes = packReviewNotes(title, body);
         // The meta mirror rides the stash param — upsertHomeMealReview
         // writes __my_meal_reviews__ through stashMetaKey itself, so the
         // shared restaurant_meta column is only ever written by ListsContext.
@@ -2323,10 +2340,7 @@ const ReviewCard: React.FC<{
   const date = review.createdAt
     ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'just now';
-  // The headline/body separator we wrote when submitting was "\n\n".
-  const splitIdx = review.notes.indexOf('\n\n');
-  const reviewTitle = splitIdx > 0 ? review.notes.slice(0, splitIdx).trim() : '';
-  const reviewBody = splitIdx > 0 ? review.notes.slice(splitIdx + 2).trim() : review.notes;
+  const { title: reviewTitle, body: reviewBody } = unpackReviewNotes(review.notes);
   return (
     <article className={cn('rd-review', isMine && 'rd-review-mine')}>
       {isMine && <div className="rd-review-mine-badge">Your review</div>}
@@ -3032,8 +3046,7 @@ const MobileReviewCard: React.FC<{
   const date = review.createdAt
     ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'just now';
-  const splitIdx = review.notes.indexOf('\n\n');
-  const reviewBody = splitIdx > 0 ? review.notes.slice(splitIdx + 2).trim() : review.notes;
+  const { body: reviewBody } = unpackReviewNotes(review.notes);
   return (
     <article className={cn('rdm-review', isMine && 'rdm-review-mine')}>
       {isMine && <div className="rdm-review-mine-badge">Your review</div>}

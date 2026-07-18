@@ -29,7 +29,7 @@ const TABS: { key: VerificationStatus; label: string }[] = [
 ];
 
 export const AdminVerification: React.FC = () => {
-  const { isAdmin, loading: authLoading } = useAuth();
+  const { isAdmin, adminChecked, loading: authLoading } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -81,7 +81,18 @@ export const AdminVerification: React.FC = () => {
     }
   };
 
-  if (!authLoading && !isAdmin) {
+  // The allowlist probe resolves asynchronously AFTER the profile loads —
+  // gating on !isAdmin alone flashed this screen at genuine admins on slow
+  // networks. Spin while 'unknown'; not-found only when definitively false.
+  if (authLoading || adminChecked === 'unknown') {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <Loader2 size={22} className="text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 text-center">
         <p className="text-sm font-medium text-on-surface/50">This page isn't available.</p>

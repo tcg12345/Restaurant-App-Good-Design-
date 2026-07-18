@@ -469,6 +469,30 @@ export async function setGuideVisibility(
   }
 }
 
+/**
+ * Flip only the published flag — a column-scoped partial update like
+ * setGuideVisibility. Unpublishing by re-saving the WHOLE guide from a
+ * page's snapshot clobbered any newer edits (entries, theme, copy) made
+ * elsewhere since that snapshot loaded.
+ */
+export async function setGuidePublished(guideId: string, isPublished: boolean): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from('guides')
+      .update({ is_published: isPublished, updated_at: new Date().toISOString() })
+      .eq('id', guideId);
+    if (error) {
+      console.error('[Supabase] setGuidePublished error:', error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[Supabase] setGuidePublished exception:', err);
+    return false;
+  }
+}
+
 /** Fetch a single guide by id. RLS enforces visibility. */
 export async function getGuideById(guideId: string): Promise<Guide | null> {
   if (!supabaseConfigured || !guideId) return null;

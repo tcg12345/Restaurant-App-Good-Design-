@@ -18,6 +18,7 @@ import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
   getFriendsPublicHomeMeals, getFollowedExpertIds, getExpertProfiles,
+  activityTimestamp, isEditedActivity,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
@@ -706,7 +707,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const feedItems: FeedItem[] = [
     ...ratingSource.map((r): FeedItem => ({
       type: 'rating', data: r,
-      sortTime: r.created_at ? new Date(r.created_at).getTime() : 0,
+      // updated_at — matching the fetch window's ordering (see M22 note on
+      // activityTimestamp); created_at here let edited rows sort stale.
+      sortTime: activityTimestamp(r) ? Date.parse(activityTimestamp(r)) : 0,
     })),
     ...mealSource.map((m): FeedItem => ({
       type: 'homeMeal', data: m,
@@ -859,26 +862,53 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setCommentProfiles(profs);
   };
 
+  // One in-flight guard shared by both composer paths — Enter fires per
+  // keypress, so double-Enter (or Enter + Send tap) during the awaited
+  // insert used to post the same comment twice.
+  const commentSubmittingRef = useRef(false);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+
   const handleAddComment = async (ratingId: string) => {
-    if (!userId || !newComment.trim()) return;
-    const ok = await addComment(userId, ratingId, newComment.trim(), null);
-    if (ok) {
-      setNewComment('');
-      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
-      await refreshComments(ratingId);
+    const text = newComment.trim();
+    if (!userId || !text || commentSubmittingRef.current) return;
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
+    // Clear optimistically so the box feels instant; restore on failure.
+    setNewComment('');
+    try {
+      const ok = await addComment(userId, ratingId, text, null);
+      if (ok) {
+        setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+        await refreshComments(ratingId);
+      } else {
+        setNewComment(text);
+      }
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
   const handleAddReply = async (ratingId: string, parentId: string) => {
-    if (!userId || !replyText.trim()) return;
-    const ok = await addComment(userId, ratingId, replyText.trim(), parentId);
-    if (ok) {
-      setReplyText('');
-      setReplyingTo(null);
-      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
-      // Expand the parent thread so the new reply is visible immediately.
-      setExpandedThreads((prev) => new Set(prev).add(parentId));
-      await refreshComments(ratingId);
+    const text = replyText.trim();
+    if (!userId || !text || commentSubmittingRef.current) return;
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
+    setReplyText('');
+    try {
+      const ok = await addComment(userId, ratingId, text, parentId);
+      if (ok) {
+        setReplyingTo(null);
+        setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+        // Expand the parent thread so the new reply is visible immediately.
+        setExpandedThreads((prev) => new Set(prev).add(parentId));
+        await refreshComments(ratingId);
+      } else {
+        setReplyText(text);
+      }
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
@@ -1424,7 +1454,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       <VerifiedBadge size={13} />
                     )}
                   </div>
-                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(r.created_at)}</p>
+                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}</p>
                 </div>
               </div>
 
@@ -1597,12 +1627,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                                   placeholder={`Reply to ${profile?.display_name || 'User'}…`}
                                   autoFocus
                                   className="flex-1 bg-on-surface/[0.04] rounded-full h-9 px-3.5 text-[12.5px] focus:outline-none focus:ring-1 focus:ring-primary/30"
-                                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddReply(r.id, c.id); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddReply(r.id, c.id); }}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleAddReply(r.id, c.id)}
-                                  disabled={!replyText.trim()}
+                                  disabled={!replyText.trim() || commentSubmitting}
                                   className="inline-flex items-center justify-center w-9 h-9 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
                                   aria-label="Post reply"
                                 >
@@ -1660,12 +1690,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                             onChange={(e) => setNewComment(e.target.value)}
                             placeholder="Add a comment…"
                             className="flex-1 bg-on-surface/[0.04] rounded-full h-10 px-4 text-[13px] focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(r.id); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(r.id); }}
                           />
                           <button
                             type="button"
                             onClick={() => handleAddComment(r.id)}
-                            disabled={!newComment.trim()}
+                            disabled={!newComment.trim() || commentSubmitting}
                             className="inline-flex items-center justify-center w-10 h-10 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
                             aria-label="Post comment"
                           >

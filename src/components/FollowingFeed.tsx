@@ -8,6 +8,8 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getAllFollowedRatings,
   getProfilesByIds,
+  activityTimestamp,
+  isEditedActivity,
   type CommunityRating,
   type UserProfile,
 } from '../lib/supabase-community';
@@ -581,7 +583,7 @@ export const FollowingFeed: React.FC = () => {
                                 <VerifiedBadge size={12} inline className="ml-1" />
                               )}
                               <span className="mx-1 text-on-surface/25">·</span>
-                              {timeAgo(r.created_at)}
+                              {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}
                             </p>
                           </div>
                         )}

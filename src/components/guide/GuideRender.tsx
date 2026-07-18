@@ -620,7 +620,19 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
               : <div className="gle-entry-img-empty">{isRestaurant ? <BookOpen size={28} /> : <ChefHat size={28} />}</div>}
             {V.entryScore && score != null && score > 0 && (
               <div className="gle-entry-photo-score">
-                <ScoreBadge rating={score} size="lg" />
+                {/* Editor mode routes through renderScore so the badge is
+                    editable — the read-only ScoreBadge left photo-layout
+                    scores untouchable in the editor. */}
+                {editor?.entryMutators
+                  ? renderScore({ value: score, onChange: (v) => set('score', v), readOnly: false })
+                  : <ScoreBadge rating={score} size="lg" />}
+              </div>
+            )}
+            {V.entryScore && score == null && editor?.entryMutators && (
+              <div className="gle-entry-photo-score">
+                <button type="button" className="gle-score-addstub" onClick={() => set('score', 8)}>
+                  ★ Add score
+                </button>
               </div>
             )}
           </div>
@@ -634,6 +646,15 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
                 {renderScore({ value: score, onChange: (v) => set('score', v), readOnly: !editor?.entryMutators })}
                 <span className="gle-of">/ 10</span>
                 <span className="gle-rule" />
+              </div>
+            )}
+            {/* Places-sourced entries arrive without a score — give the
+                editor an affordance to add one (readers see nothing). */}
+            {V.entryScore && score == null && !theme.entryShowPhoto && editor?.entryMutators && (
+              <div className="gle-score-row">
+                <button type="button" className="gle-score-addstub" onClick={() => set('score', 8)}>
+                  ★ Add score
+                </button>
               </div>
             )}
             {/* Entry name is read-only: the value comes from the

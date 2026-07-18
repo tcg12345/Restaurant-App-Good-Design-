@@ -465,7 +465,6 @@ const StepAdd: React.FC<{
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [importedListIds, setImportedListIds] = useState<Set<string>>(new Set());
   const [ratedFilter, setRatedFilter] = useState('');
   const [recipesFilter, setRecipesFilter] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -520,21 +519,32 @@ const StepAdd: React.FC<{
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [trimmedSearch, active]);
 
+  // A list reads as "imported" when EVERY one of its refIds is already an
+  // entry — derived from the entries themselves. (The old local Set
+  // unmounted with this step, so buttons reverted to "Add all" between
+  // steps while re-pressing silently no-oped on the dedupe.)
+  const listRefIds = (l: CustomList): string[] =>
+    isRecipes ? (l.recipes || []).map((r) => r.id) : (l.restaurantIds || []);
+  const isListImported = (l: CustomList): boolean => {
+    const ids = listRefIds(l);
+    return ids.length > 0 && ids.every((id) => addedRefIds.has(id));
+  };
+
   const toggleList = (l: CustomList) => {
-    const imported = importedListIds.has(l.id);
-    if (isRecipes) {
-      if (imported) onRemoveByRefIds((l.recipes || []).map((r) => r.id));
-      else if (l.recipes) onAddListRecipes(l.recipes);
+    if (isListImported(l)) {
+      // Un-import removes only entries no OTHER imported list still
+      // references — a shared refId used to vanish from both.
+      const referencedElsewhere = new Set(
+        lists
+          .filter((other) => other.id !== l.id && isListImported(other))
+          .flatMap((other) => listRefIds(other)),
+      );
+      onRemoveByRefIds(listRefIds(l).filter((id) => !referencedElsewhere.has(id)));
+    } else if (isRecipes) {
+      if (l.recipes) onAddListRecipes(l.recipes);
     } else {
-      if (imported) onRemoveByRefIds(l.restaurantIds || []);
-      else onAddRestaurantsFromList(l);
+      onAddRestaurantsFromList(l);
     }
-    setImportedListIds((prev) => {
-      const next = new Set(prev);
-      if (imported) next.delete(l.id);
-      else next.add(l.id);
-      return next;
-    });
   };
 
   const searchPill = (value: string, onChange: (v: string) => void, placeholder: string, busy?: boolean, autoFocus?: boolean) => (
@@ -637,7 +647,7 @@ const StepAdd: React.FC<{
     ) : (
       <div className="gcx-rows">
         {relevantLists.map((l) => {
-          const isImported = importedListIds.has(l.id);
+          const isImported = isListImported(l);
           const count = isRecipes ? (l.recipes?.length || 0) : l.restaurantIds.length;
           return (
             <div key={l.id} className={`gcx-list-card${isImported ? ' is-added' : ''}`}>
@@ -1350,7 +1360,32 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setBusy(false);
     setPublishedGuide(null);
     setLiveEditOpen(false);
+    // Snapshot the just-initialized content so a backdrop click can tell
+    // "untouched" from "has unsaved work" (see handleBackdropClick).
+    initialSigRef.current = JSON.stringify(initialGuide ? {
+      type: initialGuide.type, title: initialGuide.title, subtitle: initialGuide.subtitle,
+      intro: initialGuide.intro, city: initialGuide.city || '', tags: initialGuide.tags,
+      coverPhoto: initialGuide.coverPhoto, visibility: initialGuide.visibility,
+      includePhotos: initialGuide.includePhotos, entries: initialGuide.entries, theme: initialGuide.theme,
+    } : {
+      type: seed?.type || 'restaurants', title: seed?.title || '', subtitle: '', intro: '', city: '',
+      tags: [] as string[], coverPhoto: '', visibility: accountIsPublic ? 'public' : 'private',
+      includePhotos: true, entries: [] as GuideEntry[], theme: undefined,
+    });
   }, [open, initialGuide?.id]);
+
+  // Backdrop click used to call onClose() unconditionally — one stray click
+  // outside the desktop sheet silently discarded the entire unsaved guide
+  // (state re-seeds on the next open). Confirm when the content changed.
+  const initialSigRef = useRef('');
+  const handleBackdropClick = () => {
+    const currentSig = JSON.stringify({
+      type, title, subtitle, intro, city, tags, coverPhoto, visibility, includePhotos, entries, theme,
+    });
+    if (currentSig !== initialSigRef.current
+      && !window.confirm('Discard your unsaved changes to this guide?')) return;
+    onClose();
+  };
 
   // Resolve the author profile once per signed-in user — used by the
   // Live Editor's hero/author panel for sensible defaults.
@@ -1748,7 +1783,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           'fixed inset-0 bg-black/55 backdrop-blur-sm z-[120] flex justify-center',
           phoneMode ? 'items-end' : 'items-center p-6',
         )}
-        onClick={onClose}
+        onClick={handleBackdropClick}
       >
         <motion.div
           key="guide-creator-sheet"

@@ -7,6 +7,7 @@ import {
   getRecipeComments,
   addRecipeComment,
   toggleRecipeCommentLike,
+  deleteRecipeComment,
   type RecipeComment,
 } from '../lib/supabase-recipes';
 import { cn } from '../lib/utils';
@@ -106,12 +107,32 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
     await toggleRecipeCommentLike(user.id, c.id);
   }, [isSignedIn, user?.id, requireSignIn]);
 
-  const topLevel = useMemo(() => comments.filter((c) => !c.parent_id), [comments]);
+  const topLevel = useMemo(() => {
+    // Replies whose parent no longer exists (deleted before the cascade, or
+    // RLS kept another user's reply) render as TOP-LEVEL comments — hiding
+    // them made the thread show fewer comments than the count badge.
+    const ids = new Set(comments.map((c) => c.id));
+    return comments.filter((c) => !c.parent_id || !ids.has(c.parent_id));
+  }, [comments]);
   const repliesByParent = useMemo(() => {
     const map: Record<string, RecipeComment[]> = {};
     for (const c of comments) if (c.parent_id) (map[c.parent_id] ||= []).push(c);
     return map;
   }, [comments]);
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const handleDelete = useCallback(async (c: RecipeComment) => {
+    if (!user?.id || c.user_id !== user.id || deletingId) return;
+    const replyCount = (repliesByParent[c.id] || []).length;
+    const ok = window.confirm(replyCount > 0
+      ? `Delete this comment and its ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}?`
+      : 'Delete this comment?');
+    if (!ok) return;
+    setDeletingId(c.id);
+    const deleted = await deleteRecipeComment(c.id);
+    setDeletingId(null);
+    if (deleted) load();
+  }, [user?.id, deletingId, repliesByParent, load]);
 
   const nameOf = (uid: string) => profiles[uid]?.display_name || profiles[uid]?.username || 'Someone';
 
@@ -154,6 +175,16 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
               className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/70 transition-colors"
             >
               Reply
+            </button>
+          )}
+          {user?.id === c.user_id && (
+            <button
+              type="button"
+              onClick={() => handleDelete(c)}
+              disabled={deletingId === c.id}
+              className="text-[12px] font-semibold text-on-surface/45 hover:text-red-500 transition-colors disabled:opacity-50"
+            >
+              {deletingId === c.id ? 'Deleting…' : 'Delete'}
             </button>
           )}
         </div>

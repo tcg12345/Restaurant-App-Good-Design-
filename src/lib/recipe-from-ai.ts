@@ -44,14 +44,19 @@ export interface BuildRecipeInput {
   notes?: RecipeNote[];
 }
 
+/** Coerce any AI-emitted scalar to a trimmed string. Models sometimes emit
+ *  numbers where the schema says string ("name": 42) — `(42 || '').trim()`
+ *  throws and took the whole draft down with it. */
+const str = (v: unknown): string => (v == null ? '' : String(v)).trim();
+
 /** Clean one raw AI step into a RecipeStepDetail, or null if it's empty. */
 function normalizeStep(s: RecipeStepDetail | undefined): RecipeStepDetail | null {
-  if (!s || !(s.body || '').trim()) return null;
+  if (!s || !str(s.body)) return null;
   return {
-    title: s.title?.trim() || undefined,
-    body: s.body.trim(),
+    title: str(s.title) || undefined,
+    body: str(s.body),
     durationMin: typeof s.durationMin === 'number' && s.durationMin > 0 ? s.durationMin : undefined,
-    tip: s.tip?.trim() || undefined,
+    tip: str(s.tip) || undefined,
   };
 }
 
@@ -69,7 +74,7 @@ function normalizeMethod(input: BuildRecipeInput): {
     groups = input.stepGroups
       .filter((g) => g && Array.isArray(g.steps))
       .map((g) => ({
-        name: (g.name || '').trim(),
+        name: str(g.name),
         steps: g.steps.map(normalizeStep).filter((s): s is RecipeStepDetail => s !== null),
       }))
       .filter((g) => g.steps.length > 0);
@@ -102,7 +107,7 @@ function normalizeMethod(input: BuildRecipeInput): {
  *  still renders and the user can refine it. Returns `null` only when
  *  there's literally nothing to show. */
 export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | null {
-  const name = (input.name || '').trim();
+  const name = str(input.name);
   if (!name) return null;
 
   // Ingredients: prefer explicit groups; otherwise wrap a flat list
@@ -114,23 +119,23 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
       .map((g) => ({
         name: g.name || 'Ingredients',
         ingredients: g.ingredients
-          .filter((i) => i && (i.name || '').trim())
-          .map((i) => ({ name: i.name.trim(), amount: i.amount || '', unit: i.unit || '' })),
+          .filter((i) => i && str(i.name))
+          .map((i) => ({ name: str(i.name), amount: str(i.amount), unit: str(i.unit) })),
       }))
       .filter((g) => g.ingredients.length > 0);
   }
   if (groups.length === 0 && Array.isArray(input.ingredients) && input.ingredients.length > 0) {
     const flat = input.ingredients
-      .filter((i) => i && (i.name || '').trim())
-      .map((i) => ({ name: i.name.trim(), amount: i.amount || '', unit: i.unit || '' }));
+      .filter((i) => i && str(i.name))
+      .map((i) => ({ name: str(i.name), amount: str(i.amount), unit: str(i.unit) }));
     if (flat.length > 0) groups = [{ name: 'Ingredients', ingredients: flat }];
   }
   const flatIngredients: RecipeIngredient[] = groups.flatMap((g) => g.ingredients);
 
   const { stepGroups, stepDetails, steps: flatSteps } = normalizeMethod(input);
 
-  const summary = (input.summary || '').trim();
-  const introParagraph = (input.introParagraph || '').trim();
+  const summary = str(input.summary);
+  const introParagraph = str(input.introParagraph);
   const today = localISODate();
 
   return {
@@ -153,7 +158,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
     cookTime: typeof input.cookTime === 'number' && input.cookTime >= 0 ? input.cookTime : undefined,
     chillTime: typeof input.chillTime === 'number' && input.chillTime >= 0 ? input.chillTime : undefined,
     servings: typeof input.servings === 'number' && input.servings > 0 ? input.servings : undefined,
-    yieldDescription: input.yieldDescription?.trim() || undefined,
+    yieldDescription: str(input.yieldDescription) || undefined,
     ingredientGroups: groups,
     ingredients: flatIngredients,
     stepGroups: stepGroups.length > 0 ? stepGroups : undefined,
@@ -161,7 +166,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
     steps: flatSteps,
     equipment: Array.isArray(input.equipment) ? input.equipment.filter((e) => typeof e === 'string' && e.trim()) : [],
     notes: Array.isArray(input.notes)
-      ? input.notes.filter((n) => n && n.text && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
+      ? input.notes.filter((n) => n && typeof n.text === 'string' && n.text.trim() && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
       : [],
     builderVersion: 'advanced',
     createdWithAi: true,
@@ -183,19 +188,19 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
     Object.prototype.hasOwnProperty.call(input, k) && input[k] !== undefined;
 
   if (has('name')) {
-    const name = (input.name || '').trim();
+    const name = str(input.name);
     if (name) out.name = name;
   }
   if (has('summary')) {
-    const summary = (input.summary || '').trim();
+    const summary = str(input.summary);
     out.summary = summary || undefined;
     out.description = summary;
   }
   if (has('introParagraph')) {
-    out.introParagraph = (input.introParagraph || '').trim() || undefined;
+    out.introParagraph = str(input.introParagraph) || undefined;
   }
   if (has('cuisine')) {
-    const cuisine = (input.cuisine || '').trim();
+    const cuisine = str(input.cuisine);
     out.cuisine = cuisine || undefined;
   }
   if (has('course')) {
@@ -225,7 +230,7 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
       : undefined;
   }
   if (has('yieldDescription')) {
-    const yd = input.yieldDescription?.trim();
+    const yd = str(input.yieldDescription);
     out.yieldDescription = yd || undefined;
   }
 
@@ -273,7 +278,7 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
   }
   if (has('notes')) {
     out.notes = Array.isArray(input.notes)
-      ? input.notes.filter((n) => n && n.text && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
+      ? input.notes.filter((n) => n && typeof n.text === 'string' && n.text.trim() && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
       : [];
   }
 

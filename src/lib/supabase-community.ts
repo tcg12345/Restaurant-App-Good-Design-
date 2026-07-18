@@ -28,6 +28,25 @@ export interface CommunityRating {
   updated_at?: string;
 }
 
+/**
+ * The timestamp a feed row sorts and is LABELED by. Feed fetch windows
+ * order/limit by updated_at, so sorting or captioning by created_at let an
+ * edited 2-year-old review float to the top labeled "2 years ago" while
+ * genuinely new rows got evicted from the window.
+ */
+export function activityTimestamp(r: { created_at?: string; updated_at?: string }): string {
+  return r.updated_at || r.created_at || '';
+}
+
+/** True when a row was meaningfully edited after creation (> 60 s) — feeds
+ *  append an "edited" marker so the updated_at-based recency reads honestly. */
+export function isEditedActivity(r: { created_at?: string; updated_at?: string }): boolean {
+  if (!r.created_at || !r.updated_at) return false;
+  const c = Date.parse(r.created_at);
+  const u = Date.parse(r.updated_at);
+  return Number.isFinite(c) && Number.isFinite(u) && u - c > 60_000;
+}
+
 export interface CommunityPhoto {
   id: string;
   user_id: string;
@@ -627,6 +646,43 @@ export async function getFollowCounts(userId: string): Promise<{ followers: numb
     ]);
     return { followers: followers || 0, following: following || 0 };
   } catch { return { followers: 0, following: 0 }; }
+}
+
+export interface ExpertStats { ratingCount: number; followerCount: number }
+
+/**
+ * Rating + follower counts for a batch of users in ONE round-trip (RPC from
+ * migration 056). The old path was 3 requests PER expert: an unbounded
+ * `select *` just to read `.length`, plus get_follow_counts. Falls back to
+ * bounded head-count queries when the migration isn't applied.
+ */
+export async function getExpertStats(userIds: string[]): Promise<Record<string, ExpertStats>> {
+  const out: Record<string, ExpertStats> = {};
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (!supabaseConfigured || ids.length === 0) return out;
+  try {
+    const { data, error } = await supabase.rpc('get_expert_stats', { user_ids: ids });
+    if (!error && data) {
+      for (const row of data as Array<{ user_id: string; rating_count: unknown; follower_count: unknown }>) {
+        out[row.user_id] = {
+          ratingCount: Number(row.rating_count) || 0,
+          followerCount: Number(row.follower_count) || 0,
+        };
+      }
+      return out;
+    }
+    if (error) console.warn('[Community] get_expert_stats RPC failed (migration 056 applied?) — falling back to per-user counts:', error.message);
+    // Fallback: still no `select *` — head-only counts + the follow RPC.
+    const results = await Promise.all(ids.map(async (id) => {
+      const [{ count }, counts] = await Promise.all([
+        supabase.from('community_ratings').select('*', { count: 'exact', head: true }).eq('user_id', id),
+        getFollowCounts(id),
+      ]);
+      return { id, ratingCount: count || 0, followerCount: counts.followers };
+    }));
+    for (const r of results) out[r.id] = { ratingCount: r.ratingCount, followerCount: r.followerCount };
+    return out;
+  } catch { return out; }
 }
 
 /** Get all ratings by a specific user */

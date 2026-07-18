@@ -507,6 +507,22 @@
 .gle-scope .gle-rule { flex: 1; border-bottom: 1px solid var(--gle-line); margin-left: 6px; max-width: 80px; }
 .gle-scope .gle-star { color: var(--gle-accent); font-size: 13px; }
 
+/* Editor-only stub for entries without a score (Places-sourced). */
+.gle-scope .gle-score-addstub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px dashed var(--gle-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--gle-ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gle-scope .gle-score-addstub:hover { color: var(--gle-accent); border-color: var(--gle-accent); }
+
 .gle-scope .gle-entry-name {
   font-family: var(--gle-font-serif);
   font-weight: 700;

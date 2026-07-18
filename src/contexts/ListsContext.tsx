@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, type UserAppData } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
 import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements } from '../lib/pendingPhotos';
@@ -525,6 +525,44 @@ function loadLocalVisitHistory(): Record<string, LocalVisitRecord[]> {
   } catch { return {}; }
 }
 
+// ── Community-publish delta tracking ──
+// The boot-time sync used to republish EVERY rating to community_ratings on
+// every successful load — hundreds of writes per session for heavy raters,
+// each resetting the row's updated_at (which is what orders the friends
+// feed). Persist a fingerprint of what was last published per restaurant and
+// skip rows that haven't changed.
+const STORAGE_KEY_PUBLISHED_SIGS = 'gourmad-published-sigs';
+
+/** Stable fingerprint of the fields publishCommunityRating sends (plus the
+ *  photo set that syncCommunityPhotos reconciles). URLs are length+prefix
+ *  hashed so legacy inline base64 photos don't balloon the stored map. */
+function publishSignature(r: RestaurantRating): string {
+  const urlSig = (u: string | undefined | null) => { const s = u || ''; return `${s.length}:${s.slice(0, 32)}`; };
+  return JSON.stringify([
+    r.name, r.score, r.notes, r.cuisine, r.price, r.address, r.visitDate,
+    r.tags, r.wouldReturn, r.friendIds || [], urlSig(r.image),
+    (r.photos || []).map((p) => `${urlSig(p.url)}|${p.isFavorite ? 1 : 0}|${p.caption || ''}`),
+  ]);
+}
+
+function loadPublishedSigs(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PUBLISHED_SIGS);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function savePublishedSigs(sigs: Record<string, string>): void {
+  try { localStorage.setItem(STORAGE_KEY_PUBLISHED_SIGS, JSON.stringify(sigs)); } catch { /* quota */ }
+}
+
+/** Stamp one rating's published fingerprint (after a per-row publish). */
+function stampPublishedSig(r: RestaurantRating): void {
+  const sigs = loadPublishedSigs();
+  sigs[r.restaurantId] = publishSignature(r);
+  savePublishedSigs(sigs);
+}
+
 function appendLocalVisitRecord(restaurantId: string, rec: Omit<LocalVisitRecord, 'id' | 'created_at' | 'restaurantId'>) {
   try {
     const all = loadLocalVisitHistory();
@@ -919,6 +957,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   ratingsRef.current = ratings;
   const wishlistRef = useRef(wishlist);
   wishlistRef.current = wishlist;
+  // Same always-fresh mirror for restaurantMeta — commitMeta (below) computes
+  // the next blob from this ref OUTSIDE the setState updater, so persistence
+  // and cloud sync run exactly once per mutation (side effects inside
+  // updaters fire twice under StrictMode's double-invoke).
+  const restaurantMetaRef = useRef(restaurantMeta);
+  restaurantMetaRef.current = restaurantMeta;
   // True only after a cloud load FAILED (timeout/network). While set, we must
   // not push the full home-meals array to the cloud — the in-memory set may be
   // incomplete and would clobber the stored recipes. localStorage keeps the
@@ -1058,10 +1102,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_DELETED_MEALS);
       localStorage.removeItem(STORAGE_KEY_TOMBSTONES);
       localStorage.removeItem('gourmad-recent-views');
-      // Reset state to empty
+      // Reset state to empty (keep the eager meta ref in step so a
+      // same-tick commitMeta can't resurrect the old blob)
       setRatings([]);
       setLists(DEFAULT_LISTS);
       setWishlist([]);
+      restaurantMetaRef.current = {};
       setRestaurantMeta({});
       setTrips([]);
       setCustomOrderState([]);
@@ -1208,31 +1254,46 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           cloudWishlist.length !== cloudWishlistBase.length
           || cloudWishlist.some((w, i) => w !== cloudWishlistBase[i]);
 
-        // ── Restore visit history from the durable stash ──
-        // The dedicated `visit_history` table isn't present on every deployment
-        // (it errors with PGRST205), so visit records are mirrored into
-        // restaurant_meta.__visit_history__. Merge the cloud stash with this
-        // device's localStorage blob (by record id, per restaurant) and write
-        // it back to localStorage so the detail page — which seeds history from
-        // local — shows it after a reload, a new deploy, or on another device.
+        // ── Restore visit history ──
+        // Three sources, merged by record id per restaurant: the dedicated
+        // visit_history COLUMN (migration 058 — the preferred per-action
+        // write channel), the legacy restaurant_meta.__visit_history__ stash
+        // (written by older clients / pre-migration schemas), and this
+        // device's localStorage blob. The merged set is written back to
+        // localStorage so the detail page — which seeds history from local —
+        // shows it after a reload, a new deploy, or on another device.
         const rawCloudVisitHistory = (cloudMeta as Record<string, unknown>).__visit_history__;
-        const cloudVisitHistory: Record<string, LocalVisitRecord[]> =
+        const stashVisitHistory: Record<string, LocalVisitRecord[]> =
           rawCloudVisitHistory && typeof rawCloudVisitHistory === 'object' && !Array.isArray(rawCloudVisitHistory)
             ? (rawCloudVisitHistory as Record<string, LocalVisitRecord[]>)
             : {};
+        const columnVisitHistory = (cloud.visitHistory ?? {}) as Record<string, LocalVisitRecord[]>;
         const localVisitHistory = loadLocalVisitHistory();
         const mergedVisitHistory: Record<string, LocalVisitRecord[]> = {};
-        for (const rid of new Set([...Object.keys(localVisitHistory), ...Object.keys(cloudVisitHistory)])) {
+        for (const rid of new Set([
+          ...Object.keys(localVisitHistory),
+          ...Object.keys(stashVisitHistory),
+          ...Object.keys(columnVisitHistory),
+        ])) {
           const byId = new Map<string, LocalVisitRecord>();
-          for (const rec of (cloudVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
+          for (const rec of (stashVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
+          for (const rec of (columnVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
           for (const rec of (localVisitHistory[rid] || [])) if (rec && rec.id) byId.set(rec.id, rec);
           const arr = Array.from(byId.values());
           if (arr.length) mergedVisitHistory[rid] = arr;
         }
         saveToStorage(STORAGE_KEY_VISIT_HISTORY, mergedVisitHistory);
-        const cloudVHCount = Object.values(cloudVisitHistory).reduce((n, a) => n + (a?.length || 0), 0);
         const mergedVHCount = Object.values(mergedVisitHistory).reduce((n, a) => n + a.length, 0);
-        const visitHistoryStale = mergedVHCount !== cloudVHCount;
+        // Stale when the merged union has records the preferred channel (the
+        // column, falling back to the stash pre-migration) doesn't.
+        const columnVHCount = Object.values(columnVisitHistory).reduce((n, a) => n + (a?.length || 0), 0);
+        const stashVHCount = Object.values(stashVisitHistory).reduce((n, a) => n + (a?.length || 0), 0);
+        const visitHistoryStale = mergedVHCount !== Math.max(columnVHCount, stashVHCount);
+        // Backfill the dedicated column whenever the union differs from what
+        // it holds (no-op where the column doesn't exist yet).
+        if (mergedVHCount !== columnVHCount) {
+          void saveVisitHistoryColumn(userId, mergedVisitHistory as unknown as Record<string, unknown[]>);
+        }
         // Home meals recovery order:
         //   1. dedicated home_meals column (may be missing on some schemas)
         //   2. restaurant_meta.__home_meals__ fallback (always works)
@@ -1352,6 +1413,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(cloudRatings);
         setLists(ensureDefaultRecipeList(finalLists));
         setWishlist(cloudWishlist);
+        restaurantMetaRef.current = cloudMetaWithMeals;
         setRestaurantMeta(cloudMetaWithMeals);
         setTrips(cloudTrips as Trip[]);
         setCustomOrderState(cloudCustomOrder);
@@ -1387,9 +1449,17 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMetaWithMeals, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals, customOrder: cloudCustomOrder });
         }
 
-        // Sync all ratings to community_ratings (ensures they're visible on user profiles)
+        // Sync ratings to community_ratings (ensures they're visible on user
+        // profiles) — DELTAS ONLY. Republishing every row on every load was
+        // hundreds of writes per session for heavy raters, and each write
+        // reset updated_at, which is what orders the friends feed.
         if (cloudRatings.length > 0) {
+          const prevSigs = loadPublishedSigs();
+          const nextSigs: Record<string, string> = {};
           for (const r of cloudRatings) {
+            const sig = publishSignature(r);
+            nextSigs[r.restaurantId] = sig;
+            if (prevSigs[r.restaurantId] === sig) continue; // unchanged since last publish
             publishCommunityRating(userId, r.restaurantId, {
               name: r.name, score: r.score, notes: r.notes,
               cuisine: r.cuisine, price: r.price, address: r.address,
@@ -1403,6 +1473,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             // instead of vanishing during sign-in.
             syncCommunityPhotos(r.restaurantId, r.photos);
           }
+          // Rebuilt from the current rating set, so deleted ratings' stale
+          // signatures fall away instead of accumulating.
+          savePublishedSigs(nextSigs);
         }
       } else {
         // No cloud row exists — keep any existing local data and push it to cloud
@@ -1416,6 +1489,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(localRatings);
         setLists(localLists);
         setWishlist(localWishlist);
+        restaurantMetaRef.current = localMeta;
         setRestaurantMeta(localMeta);
         setTrips(localTrips);
         setHomeMeals(localHomeMeals);
@@ -1487,37 +1561,62 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const skippedBecauseLoading = () => {
     if (userIdRef.current && supabaseConfigured && !cloudReadyRef.current) dirtyDuringLoadRef.current = true;
   };
+  // Coalesce same-channel cloud writes issued in one tick. Many legacy
+  // mutators still run their sync call inside a setState updater, which
+  // StrictMode double-invokes — two immediate writes of (equal) full arrays.
+  // Deferring to a microtask and keeping only the LAST payload per channel
+  // collapses those duplicates to a single write without rewriting every
+  // updater. (localStorage double-writes are idempotent and stay as-is.)
+  const pendingCloudWritesRef = useRef(new Map<string, () => void>());
+  const queueCloudWrite = useCallback((channel: string, write: () => void) => {
+    const pending = pendingCloudWritesRef.current;
+    const needsFlush = pending.size === 0;
+    pending.set(channel, write);
+    if (needsFlush) {
+      queueMicrotask(() => {
+        const writes = [...pending.values()];
+        pending.clear();
+        for (const w of writes) w();
+      });
+    }
+  }, []);
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
     if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
-      // Photos now upload to Storage and are stored as short URLs (see
-      // src/lib/images.ts), so oversized inline base64 should be rare. As a
-      // safety net, DROP (skip) any remaining data: URL over the limit —
-      // never slice it (a sliced base64 is an undecodable image that would
-      // sync back down and permanently replace the intact local photo) and
-      // never blank it to '' (that leaves a broken empty PhotoItem). Http(s)
-      // Storage URLs are always kept regardless of length.
-      const stripped = data.map((r) => {
-        const kept = r.photos.filter((p) => !(p.url.startsWith('data:') && p.url.length > MAX_INLINE_PHOTO_BYTES));
-        if (kept.length !== r.photos.length) {
-          console.warn(`[Lists] Dropped ${r.photos.length - kept.length} oversized inline photo(s) for "${r.name}" before cloud sync (upload to Storage instead).`);
-        }
-        return kept.length === r.photos.length ? r : { ...r, photos: kept };
+      queueCloudWrite('ratings', () => {
+        if (!userIdRef.current) return;
+        // Photos now upload to Storage and are stored as short URLs (see
+        // src/lib/images.ts), so oversized inline base64 should be rare. As a
+        // safety net, DROP (skip) any remaining data: URL over the limit —
+        // never slice it (a sliced base64 is an undecodable image that would
+        // sync back down and permanently replace the intact local photo) and
+        // never blank it to '' (that leaves a broken empty PhotoItem). Http(s)
+        // Storage URLs are always kept regardless of length.
+        const stripped = data.map((r) => {
+          const kept = r.photos.filter((p) => !(p.url.startsWith('data:') && p.url.length > MAX_INLINE_PHOTO_BYTES));
+          if (kept.length !== r.photos.length) {
+            console.warn(`[Lists] Dropped ${r.photos.length - kept.length} oversized inline photo(s) for "${r.name}" before cloud sync (upload to Storage instead).`);
+          }
+          return kept.length === r.photos.length ? r : { ...r, photos: kept };
+        });
+        saveRatings(userIdRef.current, stripped);
       });
-      saveRatings(userIdRef.current, stripped);
     } else skippedBecauseLoading();
-  }, []);
+  }, [queueCloudWrite]);
   const syncListsToCloud = useCallback((data: CustomList[]) => {
-    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
-    else skippedBecauseLoading();
-  }, []);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
+      queueCloudWrite('lists', () => { if (userIdRef.current) saveLists(userIdRef.current, data); });
+    } else skippedBecauseLoading();
+  }, [queueCloudWrite]);
   const syncWishlistToCloud = useCallback((data: WishlistItem[]) => {
-    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveWishlistData(userIdRef.current, data);
-    else skippedBecauseLoading();
-  }, []);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
+      queueCloudWrite('wishlist', () => { if (userIdRef.current) saveWishlistData(userIdRef.current, data); });
+    } else skippedBecauseLoading();
+  }, [queueCloudWrite]);
   const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
-    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
-    else skippedBecauseLoading();
-  }, []);
+    if (cloudReadyRef.current && userIdRef.current && supabaseConfigured) {
+      queueCloudWrite('meta', () => { if (userIdRef.current) saveMetaData(userIdRef.current, data); });
+    } else skippedBecauseLoading();
+  }, [queueCloudWrite]);
 
   // ── Pending photo upload retry ──
   // processPhoto falls back to an inline data: URL when the Storage upload
@@ -1582,19 +1681,28 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   }, [cloudLoaded, userId, retryPendingPhotoUploads]);
 
+  // Pure-updater-safe meta commit: computes the next blob from the eager
+  // restaurantMetaRef OUTSIDE setState (same-tick calls build on each other),
+  // then persists exactly once. The old pattern ran saveToStorage +
+  // syncMetaToCloud INSIDE the updater, which StrictMode double-invokes.
+  const commitMeta = useCallback((mutate: (prev: Record<string, RestaurantMeta>) => Record<string, RestaurantMeta>) => {
+    const prev = restaurantMetaRef.current;
+    const next = mutate(prev);
+    if (next === prev) return;
+    restaurantMetaRef.current = next;
+    setRestaurantMeta(next);
+    saveToStorage(STORAGE_KEY_META, next);
+    syncMetaToCloud(next);
+  }, [syncMetaToCloud]);
+
   // Persist the unified tombstone set to localStorage (always) and the durable
   // __tombstones__ meta stash (cloud, when ready) so deletions stick locally
   // and converge across devices.
   const persistTombstones = useCallback(() => {
     const json = tombstonesToJSON(tombstonesRef.current);
     saveToStorage(STORAGE_KEY_TOMBSTONES, json);
-    setRestaurantMeta((prev) => {
-      const next = { ...prev, __tombstones__: json as unknown as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [syncMetaToCloud]);
+    commitMeta((prev) => ({ ...prev, __tombstones__: json as unknown as RestaurantMeta }));
+  }, [commitMeta]);
   // Record a deletion. `tombstone('restaurants', id)`, `tombstone('members',
   // memberKey(listId, id))`, etc.
   const tombstone = useCallback((cat: keyof Tombstones, key: string) => {
@@ -1607,27 +1715,33 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (tombstonesRef.current[cat].delete(key)) persistTombstones();
   }, [persistTombstones]);
 
-  // Mirror the whole local visit-history blob into the durable user_app_data
-  // stash (restaurant_meta.__visit_history__). The dedicated `visit_history`
-  // table isn't present on every deployment (it errors with PGRST205), so
-  // without this the history is localStorage-only and disappears on a new
-  // origin / device. Call after any local visit-history mutation.
+  // Persist the whole local visit-history blob to the cloud. Preferred
+  // channel: the dedicated visit_history column (migration 058) — a small,
+  // column-scoped write. Fallback: the durable restaurant_meta
+  // __visit_history__ stash (always-present column), which re-uploads the
+  // entire meta blob — that used to be the ONLY channel, making every
+  // logged visit a write-amplifier. Call after any local visit-history
+  // mutation. The load path merges BOTH sources.
   const syncVisitHistoryToCloud = useCallback(() => {
     const blob = loadLocalVisitHistory();
-    setRestaurantMeta((prev) => {
-      const next = { ...prev, __visit_history__: blob as unknown as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [persistTombstones]);
+    const uid = userIdRef.current;
+    if (uid && supabaseConfigured && cloudReadyRef.current) {
+      void saveVisitHistoryColumn(uid, blob as unknown as Record<string, unknown[]>).then((ok) => {
+        if (!ok) commitMeta((prev) => ({ ...prev, __visit_history__: blob as unknown as RestaurantMeta }));
+      });
+    } else {
+      // Cloud not ready — keep the stash channel so the dirty-during-load
+      // reconcile (which pushes the meta blob) carries it.
+      commitMeta((prev) => ({ ...prev, __visit_history__: blob as unknown as RestaurantMeta }));
+    }
+  }, [commitMeta]);
   const syncTripsToCloud = useCallback((data: Trip[]) => {
     if (!userIdRef.current || !supabaseConfigured) return;
     if (!cloudReadyRef.current) { dirtyDuringLoadRef.current = true; return; }
     // Dedicated trips column only (migration 012) — no longer mirrored into
     // restaurant_meta.__trips__, which used to double the clobber surface.
-    saveTrips(userIdRef.current, data);
-  }, []);
+    queueCloudWrite('trips', () => { if (userIdRef.current) saveTrips(userIdRef.current, data); });
+  }, [queueCloudWrite]);
 
   // ── Custom Order ──
   const setCustomOrder = useCallback((order: string[]) => {
@@ -1637,8 +1751,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // into restaurant_meta.__custom_order__.
     if (!userIdRef.current || !supabaseConfigured) return;
     if (!cloudReadyRef.current) { dirtyDuringLoadRef.current = true; return; }
-    saveCustomOrder(userIdRef.current, order);
-  }, []);
+    queueCloudWrite('customOrder', () => { if (userIdRef.current) saveCustomOrder(userIdRef.current, order); });
+  }, [queueCloudWrite]);
 
   // ── Home Meals cloud sync ──
   // ── Trip CRUD ──
@@ -1753,20 +1867,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // incomplete — writing it would clobber the stored recipes. localStorage
     // already has the change; the next successful load unions + backfills.
     if (!cloudReadyRef.current) return;
-    saveHomeMeals(userIdRef.current, data);
-    setRestaurantMeta((prev) => {
-      const next = {
-        ...prev,
-        __home_meals__: data as unknown as RestaurantMeta,
-        // Carry deletion tombstones in the same durable stash so removals reach
-        // the cloud and survive the union on every device.
-        __deleted_meals__: Array.from(deletedMealIdsRef.current) as unknown as RestaurantMeta,
-      };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [syncMetaToCloud]);
+    queueCloudWrite('homeMeals', () => { if (userIdRef.current) saveHomeMeals(userIdRef.current, data); });
+    commitMeta((prev) => ({
+      ...prev,
+      __home_meals__: data as unknown as RestaurantMeta,
+      // Carry deletion tombstones in the same durable stash so removals reach
+      // the cloud and survive the union on every device.
+      __deleted_meals__: Array.from(deletedMealIdsRef.current) as unknown as RestaurantMeta,
+    }));
+  }, [queueCloudWrite, commitMeta]);
 
   // Recipe CRUD that mirrors into homeMeals — defined here so it can
   // reference syncHomeMealsToCloud. addRecipe always mirrors (new id);
@@ -1876,17 +1985,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // have nowhere to live, so they're cleaned up (no orphaned blob entries).
   const removeRecipeFromCookedList = useCallback((recipeId: string) => {
     removeRecipe(DEFAULT_COOKED_ID, recipeId);
-    setRestaurantMeta((prev) => {
+    commitMeta((prev) => {
       const stash = ((prev as Record<string, unknown>).__cook_photos__ ?? {}) as Record<string, unknown>;
       if (!(recipeId in stash)) return prev;
       const nextStash = { ...stash };
       delete nextStash[recipeId];
-      const next = { ...prev, __cook_photos__: nextStash as unknown as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
+      return { ...prev, __cook_photos__: nextStash as unknown as RestaurantMeta };
     });
-  }, [removeRecipe, syncMetaToCloud]);
+  }, [removeRecipe, commitMeta]);
 
   // Every home-cooking list that currently contains this recipe id.
   const getListsForRecipe = useCallback((recipeId: string): CustomList[] => {
@@ -2021,7 +2127,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ...meta,
       ...(meta.image !== undefined ? { image: safeImage(meta.image) } : {}),
     };
-    setRestaurantMeta((prev) => {
+    commitMeta((prev) => {
       // Merge with existing entry so we don't drop coordinate or other
       // fields the new caller didn't bother to provide. (e.g. the heart
       // toggle has only id/name/image/cuisine/price/address — it would
@@ -2049,21 +2155,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addressComponents: cleaned.addressComponents,
             neighborhood: cleaned.neighborhood,
           } as RestaurantMeta);
-      const next = { ...prev, [cleaned.id]: merged };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
+      return { ...prev, [cleaned.id]: merged };
     });
-  }, [syncMetaToCloud]);
+  }, [commitMeta]);
 
   const stashMetaKey = useCallback((key: string, value: unknown) => {
-    setRestaurantMeta((prev) => {
-      const next = { ...prev, [key]: value as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [syncMetaToCloud]);
+    commitMeta((prev) => ({ ...prev, [key]: value as RestaurantMeta }));
+  }, [commitMeta]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
     if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
@@ -2084,6 +2182,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       visitDate: row.visitDate, tags: row.tags, wouldReturn: row.wouldReturn,
       friendIds: row.friendIds || [], photoUrl: row.image || '',
     });
+    // Record what was published so the boot-time delta sync skips this row.
+    stampPublishedSig(row);
   }, []);
 
   const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[] }) => {
@@ -2234,43 +2334,46 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
-    setRatings((prev) => {
-      const now = Date.now();
-      const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial, updatedAt: now } : r);
-      saveToStorage(STORAGE_KEY_RATINGS, next);
-      syncRatingsToCloud(next);
-      // Keep the community copy in step — without this, reorder/edit paths
-      // left profiles showing the stale pre-edit score until next boot.
-      const row = next.find((r) => r.restaurantId === restaurantId);
-      if (row && userIdRef.current) publishRatingRow(userIdRef.current, row);
-      return next;
-    });
+    // Compute from the eager ref and keep every side effect OUT of the
+    // setState updater — StrictMode double-invokes updaters, which used to
+    // publish the community row twice per edit.
+    const prev = ratingsRef.current;
+    const now = Date.now();
+    const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial, updatedAt: now } : r);
+    ratingsRef.current = next;
+    setRatings(next);
+    saveToStorage(STORAGE_KEY_RATINGS, next);
+    syncRatingsToCloud(next);
+    // Keep the community copy in step — without this, reorder/edit paths
+    // left profiles showing the stale pre-edit score until next boot.
+    const row = next.find((r) => r.restaurantId === restaurantId);
+    if (row && userIdRef.current) publishRatingRow(userIdRef.current, row);
   }, [syncRatingsToCloud, publishRatingRow]);
 
   const applySettledScores = useCallback((changes: SettleChange[]) => {
     if (changes.length === 0) return;
-    setRatings((prev) => {
-      // Drop no-ops so a save with nothing to do stays a no-op end to end.
-      const real = changes.filter((c) => {
-        const row = prev.find((r) => r.restaurantId === c.restaurantId);
-        return row !== undefined && row.score !== c.score;
-      });
-      if (real.length === 0) return prev;
-      const now = Date.now();
-      const changedIds = new Set(real.map((c) => c.restaurantId));
-      const next = applySettleChanges(prev, real)
-        .map((r) => (changedIds.has(r.restaurantId) ? { ...r, updatedAt: now } : r));
-      saveToStorage(STORAGE_KEY_RATINGS, next);
-      syncRatingsToCloud(next);
-      const uid = userIdRef.current;
-      if (uid) {
-        for (const c of real) {
-          const row = next.find((r) => r.restaurantId === c.restaurantId);
-          if (row) publishRatingRow(uid, row);
-        }
-      }
-      return next;
+    const prev = ratingsRef.current;
+    // Drop no-ops so a save with nothing to do stays a no-op end to end.
+    const real = changes.filter((c) => {
+      const row = prev.find((r) => r.restaurantId === c.restaurantId);
+      return row !== undefined && row.score !== c.score;
     });
+    if (real.length === 0) return;
+    const now = Date.now();
+    const changedIds = new Set(real.map((c) => c.restaurantId));
+    const next = applySettleChanges(prev, real)
+      .map((r) => (changedIds.has(r.restaurantId) ? { ...r, updatedAt: now } : r));
+    ratingsRef.current = next;
+    setRatings(next);
+    saveToStorage(STORAGE_KEY_RATINGS, next);
+    syncRatingsToCloud(next);
+    const uid = userIdRef.current;
+    if (uid) {
+      for (const c of real) {
+        const row = next.find((r) => r.restaurantId === c.restaurantId);
+        if (row) publishRatingRow(uid, row);
+      }
+    }
   }, [syncRatingsToCloud, publishRatingRow]);
 
   const removeRating = useCallback((restaurantId: string) => {

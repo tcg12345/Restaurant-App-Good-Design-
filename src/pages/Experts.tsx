@@ -8,7 +8,7 @@ import { scoreColor, scoreDotBg } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  getExpertProfiles, getUserRatings, getFollowCounts, followPublicAccount, getFriends,
+  getExpertProfiles, getRatingsByUserIds, getExpertStats, followPublicAccount, getFriends,
   type UserProfile, type CommunityRating,
 } from '../lib/supabase-community';
 
@@ -47,15 +47,29 @@ export const Experts: React.FC = () => {
     const profiles = await getExpertProfiles();
     if (profiles.length === 0) { setExperts([]); setLoading(false); return; }
 
-    const data = await Promise.all(
-      profiles.map(async (p) => {
-        const [ratings, counts] = await Promise.all([
-          getUserRatings(p.user_id),
-          getFollowCounts(p.user_id),
-        ]);
-        return { profile: p, ratings, followers: counts.followers };
-      })
-    );
+    // Two batched requests total (was 3 PER expert): one query for every
+    // expert's rating rows — the page really renders them (cuisine filter,
+    // top-4 highlights) — and one stats RPC for RLS-accurate follower counts.
+    const ids = profiles.map((p) => p.user_id);
+    const [allRatings, stats] = await Promise.all([
+      getRatingsByUserIds(ids),
+      getExpertStats(ids),
+    ]);
+    const byUser = new Map<string, CommunityRating[]>();
+    for (const r of allRatings) {
+      const arr = byUser.get(r.user_id);
+      if (arr) arr.push(r);
+      else byUser.set(r.user_id, [r]);
+    }
+    // Match getUserRatings' newest-first order — the card reads ratings[0]
+    // as "latest" and slices the top 4.
+    const recency = (r: CommunityRating) => Date.parse(r.updated_at || r.created_at || '') || 0;
+    for (const arr of byUser.values()) arr.sort((a, b) => recency(b) - recency(a));
+    const data = profiles.map((p) => ({
+      profile: p,
+      ratings: byUser.get(p.user_id) || [],
+      followers: stats[p.user_id]?.followerCount ?? 0,
+    }));
     setExperts(data);
     setLoading(false);
   }, []);

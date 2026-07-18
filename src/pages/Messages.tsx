@@ -801,6 +801,8 @@ const ChatView: React.FC<{
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // A CJK IME's confirm-Enter must commit the composition, not send.
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
@@ -908,7 +910,7 @@ const ChatView: React.FC<{
                     type="text"
                     value={groupNameDraft}
                     onChange={(e) => setGroupNameDraft(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveGroupName(); } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleSaveGroupName(); } }}
                     placeholder="e.g. Weekend brunch crew"
                     maxLength={40}
                     className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-on-surface placeholder:text-on-surface/30 focus:outline-none"
