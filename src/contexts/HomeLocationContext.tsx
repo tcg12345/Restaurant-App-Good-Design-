@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   type HomeLocation,
   loadLastSelectedLocation,
   saveLastSelectedLocation,
   getCurrentHomeLocation,
 } from '../components/HomeLocationBar';
+import { haversineDistanceMi, formatDistance } from '../lib/distance';
 
 /**
  * Shared "where am I dining" location used by the Discover page hero
@@ -62,4 +63,24 @@ export function HomeLocationProvider({ children }: { children: React.ReactNode }
  *  route) so callers can render conditionally without throwing. */
 export function useHomeLocation(): HomeLocationContextValue | null {
   return useContext(HomeLocationContext);
+}
+
+/**
+ * Formatted distance ("3.2 mi") from the user's home anchor to the given
+ * coords, or '' when either end is unknown. Reads the anchor REACTIVELY
+ * from this context — cards that used to call loadLastSelectedLocation()
+ * inside a useMemo kept stale distances until remount when the user picked
+ * a new home location. Falls back to the stored value outside the provider.
+ */
+export function useDistanceFromHome(lat?: number | null, lng?: number | null): string {
+  const ctx = useHomeLocation();
+  // Outside the provider there's nothing to subscribe to — read storage
+  // once (non-reactive, same as the old behavior there).
+  const fallback = useMemo(() => (ctx ? null : loadLastSelectedLocation()), [ctx]);
+  const home = ctx ? ctx.location : fallback;
+  return useMemo(() => {
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, lat, lng));
+  }, [home?.lat, home?.lng, lat, lng]);
 }

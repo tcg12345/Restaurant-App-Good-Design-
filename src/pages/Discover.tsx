@@ -106,25 +106,6 @@ async function applyCoverPhotos(
 // scoreCandidates / cache keys all read a stable value every render.
 const REC_RADIUS_MILES = 8;
 
-const RecRefreshButton: React.FC<{
-  onRefresh: () => void;
-  refreshing: boolean;
-}> = ({ onRefresh, refreshing }) => (
-  <button
-    type="button"
-    onClick={onRefresh}
-    disabled={refreshing}
-    aria-label="Refresh recommendations"
-    title="Refresh recommendations"
-    className={cn(
-      'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
-      refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
-    )}
-  >
-    <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
-  </button>
-);
-
 // Max age we'll trust a Supabase cache entry before throwing it out and
 // building a fresh preference-weighted pool from scratch.
 const HOME_RECS_CACHE_TTL = 2 * 24 * 60 * 60 * 1000; // 2 days
@@ -292,15 +273,6 @@ const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; 
     ? <Link to={to} className={cls}>{inner}</Link>
     : <button type="button" onClick={onClick} className={cls}>{inner}</button>;
 };
-
-/** Stable hash → 0-360 hue. Used to derive a consistent gradient color
- *  per restaurant/recipe id so the placeholder image area has visual
- *  variety without needing real photos. */
-function hashToHue(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
 
 /** The phone home's location control — a real button that unmistakably
  *  reads as tappable (the old eyebrow-text trigger looked like static copy). */
@@ -951,9 +923,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
-  const NEARBY_INITIAL = 4;
-  const NEARBY_INCREMENT = 12;
-  const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
   const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
   // ── Home-page location anchor ──
@@ -1022,34 +991,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // after the chip picker was removed; see REC_RADIUS_MILES above.
   const recRadiusMiles = REC_RADIUS_MILES;
 
-  // Manual refresh for the Recommended For You row. Drops every cache layer
-  // for the current location (session + Supabase) so the next fetch goes
-  // straight to Google with the picked radius. Resets the dedup/cursor refs
-  // so a refetched batch can re-add the same place ids cleanly. The nonce
-  // bump is what re-runs the orchestrating effect.
-  const refreshRecs = useCallback(() => {
-    if (!homeLocation) return;
-    const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-    delete sessionRecsCache[locKey];
-    if (userId && supabaseConfigured) {
-      // Fire-and-forget — we don't block the user on a cache delete.
-      supabase.from('home_rec_cache')
-        .delete().eq('user_id', userId).eq('location_key', locKey)
-        .then(undefined, () => { /* ignore */ });
-    }
-    recsFetchedRef.current = false;
-    recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
-    setApiRecommendations([]);
-    setRecRefreshNonce((n) => n + 1);
-  }, [homeLocation, userId]);
-
-  // Bumped by the refresh button. The orchestrating recs effect lists this in
-  // its deps so we get a re-fetch even when nothing else changed (location +
-  // radius + prefs all the same), after we've torn down the cached pool.
-  const [recRefreshNonce, setRecRefreshNonce] = useState(0);
-
   // Social signals for scoreCandidates — refetched once per (userId, home city)
   // change and reused across every load-more batch. expertRecRestaurantIds is
   // fetched once from the (small) expert_recommendations table, not per batch.
@@ -1063,13 +1004,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
-  const [recsLoading, setRecsLoading] = useState(false);
-  // In-flight guard for loadMoreRecommendations. A ref (not state) so rapid
-  // successive calls can't double-fire a batch while a render is pending.
-  const recsLoadingMoreRef = useRef(false);
   const recsFetchedRef = useRef(false);
-  const recsQueryCursorRef = useRef(0);
-  const recsExhaustedRef = useRef(false);
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
   // Monotonic token for the orchestrating effect's async chains — a reset
   // (radius change, prefs hydration, refresh) can start a new chain while an
@@ -1120,11 +1055,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
     return () => { cancelled = true; };
   }, [recommendations, mode, communityPrices]);
-
-  // User's top rated restaurants
-  const topRated = useMemo(() => {
-    return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
-  }, [myLocalRatings]);
 
   // ── Recipes For You ──
   // Pull the friend / expert / public pools once on sign-in. Each pool is
@@ -1218,31 +1148,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, 8);
   }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
-
-  // Map each city the user eats in to a representative lat/lng, computed as
-  // the centroid of that city's high-rated community ratings. Used so that
-  // per-city queries pull results from THAT city instead of wherever the
-  // Discover map happens to be centered.
-  const cityCoordMap = useMemo(() => {
-    const acc: Record<string, { lat: number; lng: number; count: number }> = {};
-    for (const r of myRatings) {
-      if (Number(r.score) < 7) continue;
-      if (r.lat == null || r.lng == null) continue;
-      if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) continue;
-      const city = extractCityState(r.address || '', r.address || '');
-      if (!city) continue;
-      const cur = acc[city];
-      if (!cur) acc[city] = { lat: r.lat, lng: r.lng, count: 1 };
-      else {
-        cur.lat = (cur.lat * cur.count + r.lat) / (cur.count + 1);
-        cur.lng = (cur.lng * cur.count + r.lng) / (cur.count + 1);
-        cur.count++;
-      }
-    }
-    const out: Record<string, { lat: number; lng: number }> = {};
-    for (const [k, v] of Object.entries(acc)) out[k] = { lat: v.lat, lng: v.lng };
-    return out;
-  }, [myRatings]);
 
   // Thin wrapper around buildCandidateQueries — Map passes a city override
   // from the home-location dropdown; the engine treats it as target.label so
@@ -1420,11 +1325,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setHomeLocationRefreshing(true);
     setHomeLocation(loc);
     saveLastSelectedLocation(loc);
-    // Reset the rec cursor so useEffect below refetches from scratch.
+    // Reset the rec guards so the effect below refetches from scratch.
     recsFetchedRef.current = false;
     recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
     window.setTimeout(() => setHomeLocationRefreshing(false), 450);
   }, [homeLocation]);
 
@@ -1476,8 +1379,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (prev === '' && sig !== '' && recsFetchedRef.current) {
       recsFetchedRef.current = false;
       recsSeenIdsRef.current = new Set();
-      recsQueryCursorRef.current = 0;
-      recsExhaustedRef.current = false;
     }
   }, [userPreferences.topCuisines, mode]);
 
@@ -1500,9 +1401,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // results or clear the spinner.
     const runId = ++recsRunIdRef.current;
     recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
-    setRecsLoading(true);
     setApiRecommendations([]);
 
     // Force the queries to target the selected home city so the API doesn't
@@ -1529,13 +1427,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // Cached pools may have been built under a wider radius — enforce the
       // current chip value before anything hits the screen.
       const merged = filterByRadius(combined);
-      // Seed the dedup set so loadMore doesn't re-surface these.
+      // Seed the dedup set so a later batch doesn't re-surface these.
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
       // Apply community cover photos. This is non-blocking from the user's
       // perspective — we set the recs immediately so the cards render
       // placeholders, then swap in cover photos as soon as Supabase returns.
       setApiRecommendations(merged);
-      setRecsLoading(false);
       applyCoverPhotos(merged, uid).then((withCovers) => {
         if (recsRunIdRef.current !== runId) return;
         setApiRecommendations((prev) => {
@@ -1545,11 +1442,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           return withCovers;
         });
       });
-      // Set the cursor past the initial batch so loadMoreRecommendations can
-      // continue fetching deeper queries (Tier 3 / 4 / 5) when the user
-      // scrolls past the cached pool — that's what keeps the row infinite.
-      recsExhaustedRef.current = false;
-      recsQueryCursorRef.current = 5;
     };
 
     const runLiveFetch = async () => {
@@ -1562,7 +1454,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         // cached pool covers enough variety that reshuffling on reload
         // actually produces visibly different recs without any more calls.
         const initialBatch = queries.slice(0, 5);
-        recsQueryCursorRef.current = initialBatch.length;
         let fresh = await fetchRecBatch(initialBatch);
         // The personalised queries are cuisine-specific ("best $$ Ramen in
         // Austin, TX"); when the user's top cuisines happen to be niche in
@@ -1576,9 +1467,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             `popular restaurants in ${homeCityOverride}`,
           ];
           fresh = await fetchRecBatch(fallbackQueries);
-          // Advance the cursor past the fallbacks so load-more doesn't
-          // immediately re-issue them.
-          recsQueryCursorRef.current += fallbackQueries.length;
         }
         // Stamp cover photos onto the results BEFORE caching so returning
         // users get them straight out of cache on the next visit.
@@ -1614,7 +1502,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       if (recsRunIdRef.current !== runId) return; // superseded by a newer run
       const shuffled = shuffleInPlace([...withCovers]);
       setApiRecommendations(shuffled);
-      setRecsLoading(false);
       if (uid && locKey && homeLocation && withCovers.length > 0) {
         const entry: HomeRecCacheEntry = {
           places: withCovers,
@@ -1705,12 +1592,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           // Cache miss or stale — live fetch.
           await runLiveFetch();
           } catch (err) {
-            // Never leave the spinner stuck: if any step in the cache-check
-            // or fallback live fetch throws (network error, Places auth
-            // hiccup, etc.), clear the loading flag and let the UI render
-            // the empty state rather than spinning forever.
+            // Failures just leave the section rendering its empty state.
             console.warn('[Recs] live fetch failed:', err);
-            if (recsRunIdRef.current === runId) setRecsLoading(false);
           }
         })();
         return;
@@ -1718,59 +1601,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
 
     // Anonymous home — just run the live path. The .catch here mirrors the
-    // logged-in path: an unhandled rejection from runLiveFetch otherwise
-    // leaves the section stuck on the spinner.
+    // logged-in path so a rejection never surfaces as an unhandled error.
     runLiveFetch().catch((err) => {
       console.warn('[Recs] live fetch failed:', err);
-      if (recsRunIdRef.current === runId) setRecsLoading(false);
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce, usingDesktopHeader]);
-
-  // Load more recommendations — called when a consumer wants to extend the
-  // pool past the initial batch. Fetches one query at a time and writes
-  // every batch back into both caches so the user's next reload of this
-  // city already has the extended pool. The in-flight guard is a REF, not
-  // state: state lags a render behind rapid successive calls (e.g. scroll
-  // handlers), which used to let batches double-fire.
-  const loadMoreRecommendations = useCallback(async () => {
-    if (recsLoadingMoreRef.current || recsExhaustedRef.current) return;
-    if (mode !== 'home' || !homeLocation) return;
-    const homeCityOverride = homeLocation.label.split(',').slice(0, 2).join(', ').trim();
-    const queries = buildRecQueries(homeCityOverride);
-    if (recsQueryCursorRef.current >= queries.length) {
-      recsExhaustedRef.current = true;
-      return;
-    }
-    recsLoadingMoreRef.current = true;
-    try {
-      const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
-      recsQueryCursorRef.current += batch.length;
-      const fresh = await fetchRecBatch(batch);
-      if (fresh.length === 0) return;
-      const freshWithCovers = await applyCoverPhotos(fresh, userId);
-      setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
-      // Persist newly-surfaced places into the cache so future reloads of
-      // this city get them without another Places call.
-      if (userId) {
-        const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-        const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
-        const existing = sessionRecsCache[locKey]?.places || [];
-        const mergedPool = [...existing, ...freshWithCovers]
-          .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
-        sessionRecsCache[locKey] = {
-          places: mergedPool,
-          preferencesHash: prefsHash,
-          updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
-        };
-        saveHomeRecsCache(
-          userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
-          prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
-        );
-      }
-    } finally {
-      recsLoadingMoreRef.current = false;
-    }
-  }, [buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, usingDesktopHeader]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -1780,9 +1615,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const getFilteredPlaces = useCallback((allPlaces: PlaceResult[], sort: SortOption, price: number): PlaceResult[] => {
     let filtered = allPlaces;
 
-    // Filter by price
+    // Filter by price. priceLevel < 1 means UNKNOWN (Google returned no
+    // price) — keep those under a price filter rather than silently
+    // dropping them (the server-side nearby path keeps them too).
     if (price > 0) {
-      filtered = filtered.filter((p) => p.priceLevel === price);
+      filtered = filtered.filter((p) => p.priceLevel === price || p.priceLevel < 1);
     }
 
     // Filter by Michelin distinction (client-side; read from the ref so this
@@ -1808,7 +1645,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         sorted.sort((a, b) => b.rating - a.rating);
         break;
       case 'price_low':
-        sorted.sort((a, b) => a.priceLevel - b.priceLevel);
+        // Unknown price (< 1) sorts LAST — it isn't "cheaper than $".
+        sorted.sort((a, b) =>
+          (a.priceLevel >= 1 ? a.priceLevel : Infinity) - (b.priceLevel >= 1 ? b.priceLevel : Infinity));
         break;
       case 'price_high':
         sorted.sort((a, b) => b.priceLevel - a.priceLevel);
@@ -1826,6 +1665,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // rarely overlaps the Michelin set — so source matching restaurants from the
   // bundled dataset directly and merge them into the result list (deduped by
   // name+proximity). Awaits the dataset load so it works on the first search.
+  // Call BEFORE getFilteredPlaces so the injected entries participate in the
+  // chosen sort instead of trailing at the bottom.
+  //
+  // Cap the injections at the nearest MICHELIN_MERGE_CAP (michelinNearbySync
+  // returns nearest-first) — a wide radius over a dense guide city (Paris)
+  // would otherwise flood hundreds of synthetic markers onto the map.
+  const MICHELIN_MERGE_CAP = 30;
   const mergeMichelinResults = useCallback(async (
     googlePlaces: PlaceResult[],
     centerLat: number,
@@ -1841,13 +1687,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       passesMichelinFilter(sel, p.name, p.lat, p.lng, p.fullAddress || p.address));
     const radiusMi = Math.min(radiusMeters / 1609.34, 31); // cap ~50 km
     const price = filtersRef.current.selectedPrice;
+    let added = 0;
     for (const m of michelinNearbySync(centerLat, centerLng, radiusMi, sel)) {
+      if (added >= MICHELIN_MERGE_CAP) break;
       if (price > 0 && m.priceTier !== price) continue;
       const dup = kept.some((p) =>
         p.name.toLowerCase() === m.name.toLowerCase()
         && havMi(p.lat, p.lng, m.lat, m.lng) < 0.12);
       if (dup) continue;
       kept.push(michelinToPlaceResult(m));
+      added++;
     }
     return kept;
   }, []);
@@ -2031,8 +1880,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price, undefined, abort.signal);
-      let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
-      sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
+      // Merge Michelin dataset entries FIRST so they participate in the sort.
+      const merged = await mergeMichelinResults(results, center.lat, center.lng, radius);
+      const sorted = getFilteredPlaces(merged, filtersRef.current.sortBy, 0); // price already filtered server-side
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(sorted);
       syncMarkers(sorted);
@@ -2157,8 +2007,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction, undefined, abort.signal);
-      let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
-      filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
+      // Merge Michelin dataset entries FIRST so they participate in the sort.
+      const merged = await mergeMichelinResults(results, lat, lng, searchRadius);
+      const filtered = getFilteredPlaces(merged, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(filtered);
       syncMarkers(filtered);
@@ -2763,11 +2614,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (!showsWishlist) return;
     const missing = wishlistRatings.filter((r) => (!r.lat || !r.lng) && r.address && !wishlistGeoTriedRef.current.has(r.restaurant_id));
     if (missing.length === 0) return;
-    missing.forEach((r) => wishlistGeoTriedRef.current.add(r.restaurant_id));
     let cancelled = false;
     (async () => {
       for (const r of missing) {
         if (cancelled) break;
+        // Mark "tried" only when an id is actually ATTEMPTED — bulk-marking
+        // the whole batch up front meant a cancelled effect (e.g. switching
+        // map modes mid-backfill) permanently skipped the untried remainder
+        // for the session, leaving those hearts unplotted.
+        wishlistGeoTriedRef.current.add(r.restaurant_id);
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`);

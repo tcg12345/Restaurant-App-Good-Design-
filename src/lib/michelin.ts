@@ -14,6 +14,7 @@
 
 import { priceLevelToString, type PlaceResult } from './places';
 import { haversineDistanceMi } from './distance';
+import { cityFromAddress, normalizeCity } from './city';
 
 export interface MichelinInfo {
   name: string;
@@ -125,7 +126,8 @@ function nameSimilarity(a: string, b: string): number {
 
 type Grid = Map<string, MichelinInfo[]>;
 
-interface MichelinIndex {
+/** Exported for tests — production code goes through find/match helpers. */
+export interface MichelinIndex {
   grid: Grid;
   /** Records lacking coordinates, indexed by normalized name (rare/none now). */
   byName: Map<string, MichelinInfo[]>;
@@ -235,8 +237,27 @@ function candidatesNear(index: MichelinIndex, lat: number, lng: number): Micheli
 // building (all share the name check; closest/most-similar wins) and tolerates
 // name drift between Google and Michelin ("Restaurant Le X" vs "Le X").
 //
+/**
+ * Does this Michelin record's city appear in the address as a WHOLE city?
+ * Prefer comparing against the city EXTRACTED from the address (normalized
+ * equality); fall back to a word-boundary containment check over the whole
+ * address only when no city can be extracted. This guards two old false
+ * positives: a first-token compare let city "Santa Fe" match any Santa
+ * Monica address, and raw substring containment let city "York" match any
+ * "New York" address.
+ */
+export function michelinCityMatchesAddress(city: string, address: string | undefined): boolean {
+  const c = normalizeCity(city);
+  if (!c || !address) return false;
+  const addrCity = normalizeCity(cityFromAddress(address));
+  if (addrCity) return addrCity === c;
+  const normAddr = normalize(address);
+  return normAddr.length > 0 && ` ${normAddr} `.includes(` ${c} `);
+}
+
 // Falls back to exact-name + city-confirmation when there are no coordinates.
-function matchInIndex(
+// Exported for tests.
+export function matchInIndex(
   index: MichelinIndex,
   name: string,
   lat?: number,
@@ -267,20 +288,17 @@ function matchInIndex(
   }
 
   // ── Name-only fallback ──────────────────────────────────────────────────
+  // Without coordinates the name alone is dangerously ambiguous — any
+  // same-named restaurant anywhere on Earth would otherwise match — so a
+  // hit must be confirmed by the record's city appearing in the address.
+  // No address → no match, even when the name is unique in the dataset: a
+  // same-named place elsewhere must not inherit the stars.
   const key = normalize(name);
   if (!key) return null;
-  const normAddr = normalize(address || '');
-  const cityMatches = (info: MichelinInfo): boolean => {
-    if (!normAddr) return false;
-    const c = normalize(info.city);
-    if (!c) return false;
-    if (normAddr.includes(c)) return true;
-    const first = c.split(' ')[0];
-    return first.length >= 4 && normAddr.includes(first);
-  };
+  if (!normalize(address || '')) return null;
   const byNameHits = index.byName.get(key) || [];
   for (const cand of byNameHits) {
-    if (!normAddr || cityMatches(cand)) return cand;
+    if (michelinCityMatchesAddress(cand.city, address)) return cand;
   }
   return null;
 }

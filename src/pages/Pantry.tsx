@@ -14,7 +14,8 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { ScoreRing } from '../components/cards';
 import { getOpenStatus, useBackfillLocationComponents } from '../lib/useRestaurantLocationLabel';
 import { hasFreshHours } from '../lib/useWarmHours';
-import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
+import { useDistanceFromHome } from '../contexts/HomeLocationContext';
+import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox, matchesTimeBand } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
@@ -24,6 +25,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchPlacesByText, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { cityFromAddress } from '../lib/city';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -36,9 +38,7 @@ import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
-import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
-import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
@@ -701,12 +701,8 @@ const RestaurantRow: React.FC<{
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
   // to the city when available; otherwise the city stands alone.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  // Reactive: picking a new home location updates it without a remount.
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
 
   const handleDelete = () => {
     if (onRemove) {
@@ -930,12 +926,7 @@ const WishlistRow: React.FC<{
   const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
 
   // Distance from the user's anchor location.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!wlMeta || !Number.isFinite(wlMeta.lat) || !Number.isFinite(wlMeta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, wlMeta.lat!, wlMeta.lng!));
-  }, [wlMeta?.lat, wlMeta?.lng]);
+  const distanceLabel = useDistanceFromHome(wlMeta?.lat, wlMeta?.lng);
 
   return (
     <div className="flex items-start gap-3 py-3 group">
@@ -1018,12 +1009,7 @@ const WishlistGridCard: React.FC<{
     () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood) : '',
     [fullAddress, meta?.addressComponents, meta?.neighborhood],
   );
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
 
   return (
     <div className="group relative">
@@ -1147,12 +1133,7 @@ const RestaurantGridCard: React.FC<{
   // Distance in miles from the user's anchor location to the cached
   // place coordinates. Only renders when we have both, otherwise the
   // footer just shows the city.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
   // Today's opening hours pulled from the cached Places weekday list.
   const todayHours = useMemo(() => formatTodayHours(meta?.hours), [meta?.hours]);
 
@@ -1529,12 +1510,7 @@ const ListDetailView: React.FC<{
       out = out.filter((r) => r.difficulty && recipeDifficultyFilter.includes(r.difficulty));
     }
     if (recipeTimeFilter) {
-      out = out.filter((r) => {
-        const total = (r.prepTime ?? 0) + (r.cookTime ?? 0);
-        if (recipeTimeFilter === 'fast') return total < 30;
-        if (recipeTimeFilter === 'medium') return total >= 30 && total <= 60;
-        return total > 60;
-      });
+      out = out.filter((r) => matchesTimeBand((r.prepTime ?? 0) + (r.cookTime ?? 0), recipeTimeFilter));
     }
     const sorted = [...out];
     sorted.sort((a, b) => {
@@ -1550,6 +1526,8 @@ const ListDetailView: React.FC<{
     return sorted;
   }, [recipes, searchQuery, recipeCuisineFilter, recipeDifficultyFilter, recipeTimeFilter, recipeSortBy]);
 
+  // Truly unfiltered — stats/facets read this; search and pills apply in
+  // the filtered `ratedRestaurants` below.
   const ratedRestaurantsRaw = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     // Prefer list-specific rating over global rating
@@ -1557,17 +1535,18 @@ const ListDetailView: React.FC<{
     const globalRating = ratings.find((r) => r.restaurantId === id);
     const rating = listRating || globalRating;
     return { id, info, rating, hasListRating: !!listRating };
-  }).filter(({ info }) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
-  // Filtered version that the toolbar's City/Cuisine/Price pills also
-  // narrow down. The same wishlist* filter state is reused (the names
+  // Filtered version: the search input plus the toolbar's City/Cuisine/
+  // Price pills. The same wishlist* filter state is reused (the names
   // are historical — they apply to any non-recipe list view now).
   const ratedRestaurants = useMemo(() => {
-    if (isWishlistView || isHomeCooking) return ratedRestaurantsRaw;
     let out = ratedRestaurantsRaw;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      out = out.filter(({ info }) =>
+        info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q));
+    }
+    if (isWishlistView || isHomeCooking) return out;
     if (wishlistCuisineFilter.length > 0) {
       out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
     }
@@ -1588,7 +1567,7 @@ const ListDetailView: React.FC<{
         wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
     }
     return out;
-  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, searchQuery, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
 
   const wishlistedRestaurantsRaw = isWishlistView
     // Drive the global wishlist view directly off the wishlist array so
@@ -1680,23 +1659,27 @@ const ListDetailView: React.FC<{
     return sorted;
   }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
 
-  // Apply the search input on top of the filter pipeline (wishlist view
-  // only — the rated path already filters above).
+  // Apply the search input on top of the filter pipeline — for EVERY list
+  // type. Custom lists used to skip this, leaving non-matching wishlist
+  // rows visible under an unfiltered count while the rated section shrank.
   const wishlistedRestaurantsFinal = useMemo(() => {
-    if (!isWishlistView || !searchQuery.trim()) return wishlistedRestaurants;
+    if (!searchQuery.trim()) return wishlistedRestaurants;
     const q = searchQuery.toLowerCase();
     return wishlistedRestaurants.filter(({ info }) =>
       (info?.name || '').toLowerCase().includes(q) ||
       (info?.cuisine || '').toLowerCase().includes(q) ||
       (info?.address || '').toLowerCase().includes(q),
     );
-  }, [isWishlistView, wishlistedRestaurants, searchQuery]);
+  }, [wishlistedRestaurants, searchQuery]);
 
   const totalCount = isHomeCooking
     ? recipes.length
     : isWishlistView
       ? wishlistedRestaurantsRaw.length
-      : list.restaurantIds.length + (list.wishlistIds?.length || 0);
+      // Count only RENDERABLE wishlist entries (raw already drops ids whose
+      // getRestaurantInfo misses) so the header never claims rows the
+      // section below can't show.
+      : list.restaurantIds.length + wishlistedRestaurantsRaw.length;
 
   const handlePlusClick = () => {
     // New recipes always go through the full three-tab builder
@@ -1721,18 +1704,19 @@ const ListDetailView: React.FC<{
       ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
       : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
 
-  // Distinct city count for the stats row.
+  // Distinct city count for the stats row — describes the whole list, so
+  // it reads the unfiltered arrays (search/pills must not change it).
   const cityCount = useMemo(() => {
     const set = new Set<string>();
     const items = isWishlistView
       ? wishlistedRestaurantsRaw.map(({ info }) => info?.address || '')
-      : ratedRestaurants.map(({ info }) => info?.address || '');
+      : ratedRestaurantsRaw.map(({ info }) => info?.address || '');
     for (const a of items) {
       const c = extractCityState(a, a);
       if (c) set.add(c);
     }
     return set.size;
-  }, [isWishlistView, ratedRestaurants, wishlistedRestaurantsRaw]);
+  }, [isWishlistView, ratedRestaurantsRaw, wishlistedRestaurantsRaw]);
 
   // "Updated X ago" — most recent addedAt (wishlist) or createdAt (ratings).
   const lastUpdated = useMemo(() => {
@@ -1744,7 +1728,7 @@ const ListDetailView: React.FC<{
     } else if (isHomeCooking) {
       for (const r of recipes) if (r.createdAt > max) max = r.createdAt;
     } else {
-      for (const { rating } of ratedRestaurants) {
+      for (const { rating } of ratedRestaurantsRaw) {
         if (rating?.createdAt && rating.createdAt > max) max = rating.createdAt;
       }
     }
@@ -1757,7 +1741,7 @@ const ListDetailView: React.FC<{
     if (days < 60) return `Updated ${Math.floor(days / 7)} weeks ago`;
     if (days < 365) return `Updated ${Math.floor(days / 30)} months ago`;
     return `Updated ${Math.floor(days / 365)} year${days >= 730 ? 's' : ''} ago`;
-  }, [isWishlistView, isHomeCooking, ratedRestaurants, wishlistedRestaurantsRaw, recipes]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistedRestaurantsRaw, recipes]);
 
   // ── Quick-filter pills ────────────────────────────────────────────
   // Wishlist view derives its pill row from the actual saved places,
@@ -1831,9 +1815,11 @@ const ListDetailView: React.FC<{
       return { total: wishlistedRestaurantsRaw.length, visible: wishlistedRestaurantsFinal.length, avg: null };
     }
     // Custom restaurant list — combine rated and wishlist sections.
-    const total = ratedRestaurants.length + wishlistedRestaurantsRaw.length;
-    const visible = total; // no per-list filter UI yet beyond search
-    const scored = ratedRestaurants
+    // total/avg describe the WHOLE list (unfiltered); visible is what the
+    // search + pills currently show, so "5 / 14" renders while filtering.
+    const total = ratedRestaurantsRaw.length + wishlistedRestaurantsRaw.length;
+    const visible = ratedRestaurants.length + wishlistedRestaurantsFinal.length;
+    const scored = ratedRestaurantsRaw
       .map((r) => r.rating?.score)
       .filter((s): s is number => typeof s === 'number' && s > 0);
     const avg = scored.length > 0 ? scored.reduce((s, n) => s + n, 0) / scored.length : null;
@@ -2337,7 +2323,7 @@ const ListDetailView: React.FC<{
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Bookmark size={14} className="text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch">
@@ -3758,14 +3744,7 @@ const HomeCookingTab: React.FC<{
       result = result.filter((m) => m.difficulty && difficultyFilter.includes(m.difficulty));
     }
     if (timeFilter) {
-      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
-      result = result.filter((m) => {
-        const t = total(m);
-        if (timeFilter === 'fast') return t > 0 && t < 30;
-        if (timeFilter === 'medium') return t >= 30 && t <= 60;
-        if (timeFilter === 'slow') return t > 60;
-        return true;
-      });
+      result = result.filter((m) => matchesTimeBand((m.prepTime || 0) + (m.cookTime || 0), timeFilter));
     }
 
     if (sortBy === 'recent') {
@@ -5814,15 +5793,17 @@ export const Pantry: React.FC = () => {
   }, [listSwitcherOpen]);
 
   const handleExport = (format: 'csv' | 'json') => {
+    // cityFromAddress knows to drop trailing country / "STATE ZIP" tokens —
+    // the last comma segment of a full address is usually the COUNTRY.
     const items = filteredRatings.map((r) => ({
-      name: r.name, address: r.address, city: (() => { const p = r.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+      name: r.name, address: r.address, city: cityFromAddress(r.address),
       cuisine: r.cuisine, rating: r.score, notes: r.notes,
       date_visited: r.visitDate, is_wishlist: false, price_range: r.price.length,
     }));
     // Also add wishlist items
     wishlist.forEach((w) => {
       items.push({
-        name: w.name, address: w.address, city: (() => { const p = w.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+        name: w.name, address: w.address, city: cityFromAddress(w.address),
         cuisine: w.cuisine, rating: 0, notes: w.notes,
         date_visited: '', is_wishlist: true, price_range: w.price.length,
       });
@@ -5977,15 +5958,14 @@ export const Pantry: React.FC = () => {
     return () => window.removeEventListener('pointerup', up);
   }, []);
 
-  // Extract unique cities from addresses
+  // Extract unique cities from addresses. cityFromAddress drops trailing
+  // country / "STATE ZIP" segments — the naive last-comma-segment version
+  // filled this facet with "USA".
   const allCities = useMemo(() => {
     const cities = new Set<string>();
     ratings.forEach((r) => {
-      if (r.address) {
-        const parts = r.address.split(',').map((s) => s.trim());
-        if (parts.length >= 2) cities.add(parts[parts.length - 1]);
-        else if (parts.length === 1 && parts[0]) cities.add(parts[0]);
-      }
+      const c = cityFromAddress(r.address);
+      if (c) cities.add(c);
     });
     return Array.from(cities).sort();
   }, [ratings]);
@@ -6008,10 +5988,7 @@ export const Pantry: React.FC = () => {
       result = result.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
     }
     if (cityFilter.length > 0) {
-      result = result.filter((r) => {
-        const parts = r.address?.split(',').map((s) => s.trim()) || [];
-        return parts.some((p) => cityFilter.includes(p));
-      });
+      result = result.filter((r) => cityFilter.includes(cityFromAddress(r.address)));
     }
     if (cuisineFilter.length > 0) result = result.filter((r) => cuisineFilter.includes(r.cuisine));
     if (priceFilter) result = result.filter((r) => r.price === priceFilter);

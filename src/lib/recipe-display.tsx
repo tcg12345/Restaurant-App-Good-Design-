@@ -25,6 +25,21 @@ export const formatDuration = (minutes: number): string => {
   return `${hours} hr ${remMinutes} min`;
 };
 
+/**
+ * Shared recipe time-band predicate for the "Under 30 min / 30–60 / Over 60"
+ * filters. A recipe with NO times set (total 0/unknown) matches no band —
+ * "fast" means "known to take under 30 minutes", not "unknown". The recipe
+ * list and All Recipes views used to disagree on exactly this case.
+ */
+export type RecipeTimeBand = 'fast' | 'medium' | 'slow';
+export const matchesTimeBand = (totalMinutes: number, band: RecipeTimeBand): boolean => {
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return false;
+  if (band === 'fast') return totalMinutes < 30;
+  if (band === 'medium') return totalMinutes >= 30 && totalMinutes <= 60;
+  return totalMinutes > 60;
+};
+export const isFastRecipe = (totalMinutes: number): boolean => matchesTimeBand(totalMinutes, 'fast');
+
 /** Compact duration for tight stat cells ("2h 45m" / "45m" / "1h"). */
 export const formatDurationCompact = (minutes: number): string => {
   if (!Number.isFinite(minutes) || minutes <= 0) return '';

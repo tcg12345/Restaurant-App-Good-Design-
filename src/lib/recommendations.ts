@@ -23,6 +23,7 @@ import {
   type MichelinInfo,
 } from './michelin';
 import { haversineDistanceMi } from './distance';
+import { getRestaurantGeoBatch } from './restaurant-geo';
 
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
@@ -1171,14 +1172,33 @@ export async function gatherRecCandidates(
   for (const entry of CUISINE_TYPES) {
     if (entry.type) labelToType[entry.label.toLowerCase()] = entry.type;
   }
+  // Rows without coordinates can't survive the radius post-filter below —
+  // the old (0,0) default parked them in the Atlantic and they were silently
+  // discarded, so "a friend rated it in this city" candidates never surfaced
+  // for coordinate-less rows. Resolve coords from the shared restaurant_geo
+  // cache in one batched read; rows still unknown are skipped explicitly.
+  const rowCoords = (row: CommunityRating): { lat: number; lng: number } | null =>
+    typeof row.lat === 'number' && typeof row.lng === 'number'
+    && Number.isFinite(row.lat) && Number.isFinite(row.lng)
+    && !(Math.abs(row.lat) < 1 && Math.abs(row.lng) < 1) // (0,0)-ish = corrupted
+      ? { lat: row.lat, lng: row.lng }
+      : null;
+  const coordlessIds = allCommunityRows
+    .filter((row) => !byId.has(row.restaurant_id) && !rowCoords(row))
+    .map((row) => row.restaurant_id);
+  const geoCache = coordlessIds.length > 0
+    ? await getRestaurantGeoBatch(coordlessIds).catch(() => ({} as Record<string, { lat: number; lng: number }>))
+    : {};
   for (const row of allCommunityRows) {
     if (byId.has(row.restaurant_id)) continue;
+    const geo = rowCoords(row) ?? geoCache[row.restaurant_id] ?? null;
+    if (!geo) continue;
     const cuisineType = row.cuisine ? labelToType[row.cuisine.toLowerCase()] : undefined;
     byId.set(row.restaurant_id, {
       id: row.restaurant_id,
       name: row.restaurant_name,
-      lat: row.lat ?? 0,
-      lng: row.lng ?? 0,
+      lat: geo.lat,
+      lng: geo.lng,
       rating: 0,
       priceLevel: row.price?.length ?? 0,
       address: row.address,

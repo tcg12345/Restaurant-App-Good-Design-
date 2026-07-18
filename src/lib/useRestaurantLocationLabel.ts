@@ -10,8 +10,7 @@
 import { useEffect, useMemo } from 'react';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
 import { formatLocationLabel, fetchLocationDataForPlace } from './places';
-import { haversineDistanceMi, formatDistance } from './distance';
-import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { useDistanceFromHome } from '../contexts/HomeLocationContext';
 import { hasFreshHours } from './useWarmHours';
 
 /**
@@ -173,13 +172,9 @@ export function useRestaurantLocationLabel(
     [fullAddress, meta?.addressComponents, meta?.neighborhood],
   );
 
-  const distance = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meta?.lat, meta?.lng]);
+  // Reactive to home-location changes (the old loadLastSelectedLocation()
+  // read inside a useMemo kept stale distances until remount).
+  const distance = useDistanceFromHome(meta?.lat, meta?.lng);
 
   const todayHours = useMemo(() => formatTodayHours(meta?.hours), [meta?.hours]);
 
