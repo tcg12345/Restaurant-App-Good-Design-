@@ -820,9 +820,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: p.commentsCount + 1 } : p));
     return { id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, parentId: c.parentId, author: c.author };
   }, [addPostComment]);
-  const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string) => {
-    const ok = await deletePostComment(postId, commentId);
-    if (ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p));
+  const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string, removedCount = 1) => {
+    const ok = await deletePostComment(postId, commentId, removedCount);
+    // Deleting a parent cascades to its replies, so drop the badge by the
+    // full removed count, not just 1.
+    if (ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - removedCount) } : p));
     return ok;
   }, [deletePostComment]);
 

@@ -331,10 +331,39 @@ async function applyVideoEdits(
   v.muted = true; // required for playback without user gesture on some browsers
   v.playsInline = true;
   v.preload = 'auto';
-  await new Promise<void>((resolve, reject) => {
-    v.onloadedmetadata = () => resolve();
-    v.onerror = () => reject(new Error("Couldn't load video for editing."));
-  });
+
+  // Drop the element's decoder/buffer hold on the blob so a failed run
+  // doesn't pin the source bytes in memory.
+  const releaseVideo = () => {
+    try { v.removeAttribute('src'); v.load(); } catch { /* best-effort */ }
+  };
+
+  // Every wait below (metadata, seek, playback) can stall FOREVER on a
+  // corrupt or codec-unsupported source — some engines never fire 'error'
+  // for a decode that silently goes nowhere. Race each wait against the
+  // element's 'error' event and a hard timeout, so a bad clip rejects and
+  // applyAllEdits' catch falls back to uploading the original file instead
+  // of hanging the whole submit.
+  const raceDecode = <T,>(p: Promise<T>, ms: number, what: string) =>
+    new Promise<T>((resolve, reject) => {
+      let timer = 0;
+      const finish = (fn: () => void) => {
+        window.clearTimeout(timer);
+        v.removeEventListener('error', onError);
+        fn();
+      };
+      const onError = () => finish(() => reject(new Error(`Couldn't decode video (${what}).`)));
+      timer = window.setTimeout(() => finish(() => reject(new Error(`Video ${what} timed out.`))), ms);
+      v.addEventListener('error', onError);
+      p.then((val) => finish(() => resolve(val)), (err: unknown) => finish(() => reject(err)));
+    });
+
+  try {
+    await raceDecode(new Promise<void>((resolve) => { v.onloadedmetadata = () => resolve(); }), 15_000, 'metadata load');
+  } catch (err) {
+    releaseVideo();
+    throw err;
+  }
   const sw = v.videoWidth;
   const sh = v.videoHeight;
   const crop = item.edits.crop;
@@ -355,7 +384,12 @@ async function applyVideoEdits(
   const totalSeconds = Math.max(0.05, end - start);
 
   v.currentTime = start;
-  await new Promise<void>((resolve) => { v.onseeked = () => resolve(); });
+  try {
+    await raceDecode(new Promise<void>((resolve) => { v.onseeked = () => resolve(); }), 15_000, 'seek');
+  } catch (err) {
+    releaseVideo();
+    throw err;
+  }
 
   const canvasStream = (canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream?.(30);
   if (!canvasStream) throw new Error('Canvas capture not supported in this browser.');
@@ -412,22 +446,37 @@ async function applyVideoEdits(
     requestAnimationFrame(drawLoop);
   };
 
-  await v.play();
-  requestAnimationFrame(drawLoop);
+  try {
+    await v.play();
+    requestAnimationFrame(drawLoop);
 
-  // Wait for playback to reach the trim end (or natural end).
-  await new Promise<void>((resolve) => {
-    const handler = () => {
-      if (v.currentTime >= end || v.ended) {
-        cancelled = true;
-        v.removeEventListener('timeupdate', handler);
-        v.removeEventListener('ended', handler);
-        resolve();
-      }
-    };
-    v.addEventListener('timeupdate', handler);
-    v.addEventListener('ended', handler);
-  });
+    // Wait for playback to reach the trim end (or natural end). Recording
+    // runs in real time, so budget ~3× the clip length (buffering, slow
+    // devices) plus slack before calling it stuck.
+    const playbackTimeoutMs = Math.min(10 * 60_000, totalSeconds * 3_000 + 20_000);
+    await raceDecode(new Promise<void>((resolve) => {
+      const handler = () => {
+        if (v.currentTime >= end || v.ended) {
+          cancelled = true;
+          v.removeEventListener('timeupdate', handler);
+          v.removeEventListener('ended', handler);
+          resolve();
+        }
+      };
+      v.addEventListener('timeupdate', handler);
+      v.addEventListener('ended', handler);
+    }), playbackTimeoutMs, 'playback');
+  } catch (err) {
+    // Kill the rAF loop and the recorder before surfacing the error —
+    // otherwise they'd keep drawing/recording off a dead video forever.
+    cancelled = true;
+    try { v.pause(); } catch { /* already broken */ }
+    await stopRecorder();
+    canvasStream.getTracks().forEach((t) => t.stop());
+    audio.cleanup();
+    releaseVideo();
+    throw err;
+  }
 
   await stopRecorder();
   canvasStream.getTracks().forEach((t) => t.stop());
@@ -437,6 +486,7 @@ async function applyVideoEdits(
   // after playthrough, when webkitAudioDecodedByteCount is populated), tell
   // the caller so it can warn the user instead of silently dropping sound.
   if (!audioAttached && sourceHadAudio(v) === true) onAudioDropped?.();
+  releaseVideo();
 
   const blob = new Blob(chunks, { type: mimeType });
   const baseName = (item.file?.name ?? 'video').replace(/\.[a-z0-9]+$/i, '') || 'video';
@@ -1822,13 +1872,35 @@ function formatTrimTime(seconds: number): string {
  * stares at a black spinner for seconds. Streaming lets the strip paint
  * left-to-right in real time.
  */
+// Bounded LRU — each entry is FRAME_COUNT jpeg data-URLs (~hundreds of KB
+// per video), and an unbounded per-URL map kept every clip ever opened in
+// the editor alive for the whole page session. Map iterates in insertion
+// order, so re-inserting on hit makes the first key the least recent.
+const FRAMES_CACHE_MAX = 12;
 const framesCache = new Map<string, string[]>();
+function framesCacheGet(src: string): string[] | undefined {
+  const hit = framesCache.get(src);
+  if (hit) {
+    framesCache.delete(src);
+    framesCache.set(src, hit);
+  }
+  return hit;
+}
+function framesCachePut(src: string, frames: string[]): void {
+  framesCache.delete(src);
+  framesCache.set(src, frames);
+  while (framesCache.size > FRAMES_CACHE_MAX) {
+    const oldest = framesCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    framesCache.delete(oldest);
+  }
+}
 async function extractFrames(
   src: string,
   duration: number,
   onFrame: (i: number, dataUrl: string) => void,
 ): Promise<string[]> {
-  const cached = framesCache.get(src);
+  const cached = framesCacheGet(src);
   if (cached) {
     cached.forEach((url, i) => onFrame(i, url));
     return cached;
@@ -1864,7 +1936,7 @@ async function extractFrames(
     out.push(url);
     onFrame(i, url);
   }
-  framesCache.set(src, out);
+  framesCachePut(src, out);
   return out;
 }
 
@@ -1880,14 +1952,14 @@ const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Pa
   // instead of staring at a spinner for the full N×seekTime window.
   // Cached per URL so tab/back-forth doesn't re-seek the whole video.
   const [frames, setFrames] = useState<(string | null)[]>(() => {
-    const cached = framesCache.get(item.previewUrl);
+    const cached = framesCacheGet(item.previewUrl);
     return cached ? cached.slice() : new Array(FRAME_COUNT).fill(null);
   });
   const [framesError, setFramesError] = useState(false);
   useEffect(() => {
     let cancelled = false;
     setFramesError(false);
-    const cached = framesCache.get(item.previewUrl);
+    const cached = framesCacheGet(item.previewUrl);
     if (cached) { setFrames(cached.slice()); return; }
     setFrames(new Array(FRAME_COUNT).fill(null));
     extractFrames(item.previewUrl, duration, (i, url) => {

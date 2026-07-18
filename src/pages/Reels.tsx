@@ -335,6 +335,20 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     if (el) el.muted = muted;
   }, [muted]);
 
+  // Actually RELEASE media when a slide scrolls out of the near window.
+  // React clearing the src prop only removes the attribute — the element
+  // keeps its buffered/decoded resource until load() runs with no source,
+  // so long scrolls used to accumulate one decoded video per visited slide.
+  useEffect(() => {
+    const release = (el: HTMLVideoElement | null) => {
+      if (!el || (!el.src && !el.currentSrc)) return;
+      el.removeAttribute('src');
+      try { el.load(); } catch { /* noop */ }
+    };
+    if (!near) release(videoRef.current);
+    if (!active) release(backdropRef.current);
+  }, [near, active]);
+
   // Mirror the video's play/pause state into React so the persistent
   // paused overlay reflects reality (covers system pauses, autoplay
   // failures, and user taps in one place).
@@ -1328,7 +1342,7 @@ interface CommentsBodyProps {
    *  to null when the fetch failed (vs [] for "no comments"). */
   loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string, parentId?: string | null) => Promise<UnifiedComment | null>;
-  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  deleteComment: (id: string, commentId: string, removedCount?: number) => Promise<boolean>;
   currentUserId: string | null;
 }
 
@@ -1416,9 +1430,12 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   };
 
   const onDeleteOne = async (commentId: string) => {
-    const ok = await deleteComment(targetId, commentId);
-    // Drop the comment and (if it was a parent) any of its replies — the DB
-    // cascade removes them server-side; mirror that locally.
+    // The DB cascade removes a parent's replies with it, so the badge must
+    // drop by parent + replies, not just 1.
+    const removed = 1 + comments.filter((c) => c.parentId === commentId).length;
+    const ok = await deleteComment(targetId, commentId, removed);
+    // Drop the comment and (if it was a parent) any of its replies — mirror
+    // the server-side cascade locally.
     if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId && c.parentId !== commentId));
   };
 
@@ -1628,7 +1645,7 @@ interface CommentsSheetProps {
   onClose: () => void;
   loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
-  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  deleteComment: (id: string, commentId: string, removedCount?: number) => Promise<boolean>;
   currentUserId: string | null;
 }
 
@@ -1679,7 +1696,7 @@ interface CommentsPanelProps {
   onClose: () => void;
   loadComments: (id: string) => Promise<UnifiedComment[] | null>;
   addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
-  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  deleteComment: (id: string, commentId: string, removedCount?: number) => Promise<boolean>;
   currentUserId: string | null;
 }
 
@@ -1888,6 +1905,7 @@ export const Reels: React.FC = () => {
   const {
     reels: allReels, recipeReels, loading: reelsLoading,
     loadError: reelsLoadError, refreshReels,
+    loadMoreReels, hasMoreReels,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
     openCommentsSheet, closeCommentsSheet, openCommentsReelId,
     currentUserId,
@@ -1896,6 +1914,7 @@ export const Reels: React.FC = () => {
   const {
     posts: allPosts, loading: postsLoading,
     loadError: postsLoadError, refreshPosts,
+    loadMorePosts, hasMorePosts,
     togglePostLike, togglePostSave, deletePost,
     setPostVisibility: _setPostVisibility,
     openAddPostModal,
@@ -2259,6 +2278,27 @@ export const Reels: React.FC = () => {
   }, []);
   const showDesktopFrame = isDesktop && !phoneMode;
 
+  // ── Infinite scroll: a zero-height sentinel sits after the last slide;
+  // when it enters the container's viewport extended two screens downward,
+  // pull the next keyset page of reels and posts. The contexts guard
+  // re-entrancy and flip hasMore* off on a short page, and the effect
+  // re-arms whenever the feed grows, so this keeps firing until the
+  // sentinel scrolls out of the margin or both sources run dry.
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = containerRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!root || !sentinel) return;
+    if (!hasMoreReels && !hasMorePosts) return;
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      if (hasMoreReels) void loadMoreReels();
+      if (hasMorePosts) void loadMorePosts();
+    }, { root, rootMargin: '0px 0px 200% 0px' });
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasMoreReels, hasMorePosts, loadMoreReels, loadMorePosts, feedItems.length, showDesktopFrame]);
+
   // ── Mutual exclusion between the side panes (restaurant / recipe /
   // comments): only one can be visible at a time. Wrap the open calls so
   // opening any one always closes the other two. Tapping the same
@@ -2570,6 +2610,11 @@ export const Reels: React.FC = () => {
             );
           });
         })()}
+
+      {/* Zero-height tail sentinel for infinite scroll (observer effect
+          above). height-0 so it never becomes a snap stop and doesn't
+          perturb the round(scrollTop / h) active-slide arithmetic. */}
+      <div ref={loadMoreSentinelRef} className="h-0 w-full" aria-hidden="true" />
 
       {/* Comments sheet floats above the feed (mobile only — desktop uses
           the side panel rendered by the layout). The target id and adapter

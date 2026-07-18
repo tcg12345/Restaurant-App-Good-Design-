@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, supabaseConfigured } from '../lib/supabase';
-import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
+import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
@@ -251,6 +251,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     (async () => {
       try {
+        // Native cold start caused BY the OAuth redirect (iOS killed the app
+        // while the user was in the provider sheet): finish the PKCE code
+        // exchange BEFORE the session check, or the completed sign-in
+        // evaporates and the user lands back on the auth screen. No-op on
+        // web and on ordinary launches.
+        if (isNativeRuntime()) {
+          try {
+            await withTimeout(completeOAuthFromLaunchUrl(), 8000, 'oauth launch-url');
+          } catch { /* proceed with the normal signed-out boot */ }
+        }
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession(),
           6000,

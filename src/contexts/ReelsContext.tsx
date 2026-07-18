@@ -125,6 +125,10 @@ interface ReelsContextValue {
    * "nothing here yet" empty state. */
   loadError: boolean;
   refreshReels: () => Promise<void>;
+  /** Fetch the next keyset page and append it. No-op while one is in flight
+   *  or when the feed is exhausted. */
+  loadMoreReels: () => Promise<void>;
+  hasMoreReels: boolean;
 
   postReel: (input: {
     file: File;
@@ -153,7 +157,8 @@ interface ReelsContextValue {
   /** Resolves to null when the fetch failed (vs [] for "no comments"). */
   loadComments: (reelId: string) => Promise<ReelComment[] | null>;
   addComment: (reelId: string, body: string, parentId?: string | null) => Promise<ReelComment | null>;
-  deleteComment: (reelId: string, commentId: string) => Promise<boolean>;
+  /** `removedCount` = 1 + the comment's replies (DB cascades parent_id). */
+  deleteComment: (reelId: string, commentId: string, removedCount?: number) => Promise<boolean>;
 
   // Modal
   addReelModalOpen: boolean;
@@ -198,13 +203,25 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [editingReelId, setEditingReelId] = useState<string | null>(null);
   const [openCommentsReelId, setOpenCommentsReelId] = useState<string | null>(null);
 
+  // Keyset pagination: the feed loads a page at a time instead of one
+  // hard-capped window (older reels simply didn't exist past row 100, and
+  // every refresh re-downloaded everything). The cursor is the last row of
+  // the previous page; like/save state batches per page inside listReels.
+  const PAGE_SIZE = 30;
+  const [hasMoreReels, setHasMoreReels] = useState(true);
+  const reelsCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
+  const loadingMoreRef = useRef(false);
+
   const refreshReels = useCallback(async () => {
     if (!supabaseConfigured) return;
     setLoading(true);
     try {
-      const rows = await listReels({ viewerId: userIdRef.current, limit: 100 });
+      const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE });
       if (rows) {
         setReels(rows.map(rowToUi));
+        const last = rows[rows.length - 1];
+        reelsCursorRef.current = last ? { createdAt: last.createdAt, id: last.id } : null;
+        setHasMoreReels(rows.length >= PAGE_SIZE);
         setLoadError(false);
         // Heal posters for older reels that never had one, in the background.
         // As each lands, swap that reel's gradient for the captured frame.
@@ -219,6 +236,33 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setLoadError(true);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadMoreReels = useCallback(async () => {
+    if (!supabaseConfigured || loadingMoreRef.current) return;
+    const before = reelsCursorRef.current;
+    if (!before) return;
+    loadingMoreRef.current = true;
+    try {
+      const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE, before });
+      if (!rows) return;
+      const last = rows[rows.length - 1];
+      if (last) reelsCursorRef.current = { createdAt: last.createdAt, id: last.id };
+      setHasMoreReels(rows.length >= PAGE_SIZE);
+      if (rows.length > 0) {
+        setReels((prev) => {
+          const seen = new Set(prev.map((r) => r.id));
+          return [...prev, ...rows.filter((r) => !seen.has(r.id)).map(rowToUi)];
+        });
+        void backfillReelPosters(rows, (reelId, localUrl) => {
+          setReels((prev) => prev.map((r) => (r.id === reelId && !r.posterUrl ? { ...r, posterUrl: localUrl } : r)));
+        });
+      }
+    } catch (err) {
+      console.warn('[Reels] load more failed:', err);
+    } finally {
+      loadingMoreRef.current = false;
     }
   }, []);
 
@@ -248,9 +292,17 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       attempts += 1;
       const fresh = await cloudGetReel(reelId).catch(() => null);
       if (fresh && fresh.muxStatus === 'ready' && fresh.muxPlaybackId) {
-        setReels((prev) => prev.map((r) => (r.id === reelId
-          ? { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, muxTokens: fresh.muxTokens || undefined, posterUrl: fresh.posterUrl || r.posterUrl }
-          : r)));
+        setReels((prev) => prev.map((r) => {
+          if (r.id !== reelId) return r;
+          const nextPoster = fresh.posterUrl || r.posterUrl;
+          // The local processing poster is a blob: object URL — release it
+          // once the real Mux poster replaces it (revoking twice is a no-op,
+          // so a StrictMode re-run of this updater is harmless).
+          if (nextPoster !== r.posterUrl && r.posterUrl?.startsWith('blob:')) {
+            try { URL.revokeObjectURL(r.posterUrl); } catch { /* noop */ }
+          }
+          return { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, muxTokens: fresh.muxTokens || undefined, posterUrl: nextPoster };
+        }));
         return;
       }
       if (fresh && fresh.muxStatus === 'errored') {
@@ -383,10 +435,13 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return c;
   }, []);
 
-  const deleteComment = useCallback(async (reelId: string, commentId: string): Promise<boolean> => {
+  // `removedCount` = 1 + the comment's replies: parent_id cascades in the
+  // DB (migration 057), so deleting a parent removes N+1 rows — the badge
+  // used to drop by only 1 and drift until the next full load.
+  const deleteComment = useCallback(async (reelId: string, commentId: string, removedCount = 1): Promise<boolean> => {
     const ok = await cloudDeleteComment(commentId);
     if (ok) {
-      setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, comments: Math.max(0, r.comments - 1) } : r));
+      setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, comments: Math.max(0, r.comments - removedCount) } : r));
     }
     return ok;
   }, []);
@@ -429,6 +484,8 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loading,
     loadError,
     refreshReels,
+    loadMoreReels,
+    hasMoreReels,
     postReel,
     toggleLike,
     toggleSave,

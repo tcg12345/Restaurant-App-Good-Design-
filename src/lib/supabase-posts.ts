@@ -478,15 +478,23 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
   onProgress?.(1);
 
   // Re-fetch with embeds + signed/Mux URLs, then attach the local poster for any
-  // item still transcoding so the author sees a frame immediately.
+  // item still transcoding so the author sees a frame immediately. Posters
+  // that DIDN'T get attached (item already ready with a Mux poster, or the
+  // re-fetch failed) are dead blob: URLs — revoke them here or they pin
+  // their poster bitmaps in memory for the life of the page.
   const post = await getPost(postId);
+  const attached = new Set<number>();
   if (post) {
     for (const it of post.items) {
       if (it.mediaType === 'video' && it.muxStatus !== 'ready' && localPosters[it.position]) {
         it.posterUrl = localPosters[it.position] as string;
+        attached.add(it.position);
       }
     }
   }
+  localPosters.forEach((u, idx) => {
+    if (u && !attached.has(idx)) URL.revokeObjectURL(u);
+  });
   return post;
 }
 
@@ -577,10 +585,18 @@ export async function listPosts(opts: {
    *  and filter client-side — and once the platform has more recent public
    *  posts than `limit`, friends' older posts silently fall outside it. */
   userIds?: string[];
+  /** Keyset cursor: return rows strictly OLDER than this (created_at, id)
+   *  pair — pass the last row of the previous page to fetch the next one. */
+  before?: { createdAt: string; id: string };
 }): Promise<PostRow[] | null> {
   if (!supabaseConfigured) return [];
-  const { limit = 50, viewerId, userIds } = opts;
+  const { limit = 50, viewerId, userIds, before } = opts;
   if (userIds && userIds.length === 0) return [];
+
+  // (created_at, id) keyset filter — id breaks same-instant ties.
+  const beforeFilter = before
+    ? `created_at.lt."${before.createdAt}",and(created_at.eq."${before.createdAt}",id.lt."${before.id}")`
+    : null;
 
   // Feed of posts — RLS scopes the row set to public + owner +
   // accepted-followers. Same author-agnostic philosophy as reels.
@@ -592,10 +608,13 @@ export async function listPosts(opts: {
   if (userIds && userIds.length > IN_CHUNK) {
     const merged: unknown[] = [];
     for (let i = 0; i < userIds.length; i += IN_CHUNK) {
-      const res = await supabase.from('posts')
+      let q = supabase.from('posts')
         .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)')
-        .in('user_id', userIds.slice(i, i + IN_CHUNK))
+        .in('user_id', userIds.slice(i, i + IN_CHUNK));
+      if (beforeFilter) q = q.or(beforeFilter);
+      const res = await q
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(limit);
       if (res.error) { error = res.error; break; }
       merged.push(...(res.data || []));
@@ -608,7 +627,11 @@ export async function listPosts(opts: {
     let q = supabase.from('posts')
       .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)');
     if (userIds) q = q.in('user_id', userIds);
-    const res = await q.order('created_at', { ascending: false }).limit(limit);
+    if (beforeFilter) q = q.or(beforeFilter);
+    const res = await q
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(limit);
     data = res.data;
     error = res.error;
   }

@@ -70,6 +70,10 @@ interface PostsContextValue {
    * "nothing here yet" empty state. */
   loadError: boolean;
   refreshPosts: () => Promise<void>;
+  /** Fetch the next keyset page and append it. No-op while one is in flight
+   *  or when the feed is exhausted. */
+  loadMorePosts: () => Promise<void>;
+  hasMorePosts: boolean;
 
   createPost: (input: {
     caption: string;
@@ -94,7 +98,8 @@ interface PostsContextValue {
   /** Resolves to null when the fetch failed (vs [] for "no comments"). */
   loadPostComments: (postId: string) => Promise<PostComment[] | null>;
   addPostComment: (postId: string, body: string, parentId?: string | null) => Promise<PostComment | null>;
-  deletePostComment: (postId: string, commentId: string) => Promise<boolean>;
+  /** `removedCount` = 1 + the comment's replies (DB cascades parent_id). */
+  deletePostComment: (postId: string, commentId: string, removedCount?: number) => Promise<boolean>;
 
   // Modal state
   addPostModalOpen: boolean;
@@ -158,13 +163,23 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     postItemIdxRef.current[postId] = idx;
   }, []);
 
+  // Keyset pagination — same shape as ReelsContext: page at a time on a
+  // (created_at, id) cursor instead of one hard-capped 100-row window.
+  const PAGE_SIZE = 30;
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const postsCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
+  const loadingMoreRef = useRef(false);
+
   const refreshPosts = useCallback(async () => {
     if (!supabaseConfigured) return;
     setLoading(true);
     try {
-      const rows = await listPosts({ viewerId: userIdRef.current, limit: 100 });
+      const rows = await listPosts({ viewerId: userIdRef.current, limit: PAGE_SIZE });
       if (rows) {
         setPosts(rows.map(decoratePost));
+        const last = rows[rows.length - 1];
+        postsCursorRef.current = last ? { createdAt: last.createdAt, id: last.id } : null;
+        setHasMorePosts(rows.length >= PAGE_SIZE);
         setLoadError(false);
         // Heal posters for older video items in the background; swap each
         // item's gradient for the captured frame as it lands.
@@ -185,6 +200,36 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  const loadMorePosts = useCallback(async () => {
+    if (!supabaseConfigured || loadingMoreRef.current) return;
+    const before = postsCursorRef.current;
+    if (!before) return;
+    loadingMoreRef.current = true;
+    try {
+      const rows = await listPosts({ viewerId: userIdRef.current, limit: PAGE_SIZE, before });
+      if (!rows) return;
+      const last = rows[rows.length - 1];
+      if (last) postsCursorRef.current = { createdAt: last.createdAt, id: last.id };
+      setHasMorePosts(rows.length >= PAGE_SIZE);
+      if (rows.length > 0) {
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          return [...prev, ...rows.filter((r) => !seen.has(r.id)).map(decoratePost)];
+        });
+        void backfillPostPosters(rows, (postId, itemId, localUrl) => {
+          setPosts((prev) => prev.map((p) => (p.id !== postId ? p : {
+            ...p,
+            items: p.items.map((it) => (it.id === itemId && !it.posterUrl ? { ...it, posterUrl: localUrl } : it)),
+          })));
+        });
+      }
+    } catch (err) {
+      console.warn('[Posts] load more failed:', err);
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     refreshPosts();
   }, [userId, refreshPosts]);
@@ -194,7 +239,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // until then. Non-blocking; gives up quietly after a few minutes.
   const pollPostReady = useCallback((postId: string) => {
     let attempts = 0;
-    const MAX_ATTEMPTS = 60; // ~3 min at 3s
+    const MAX_ATTEMPTS = 25; // ~4 min with the backoff below
     const tick = async () => {
       attempts += 1;
       const items = await cloudGetPostItems(postId).catch(() => null);
@@ -214,10 +259,15 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           });
           return { ...p, items: merged };
         }));
-        if (!items.some((it) => it.muxStatus === 'processing')) return; // all done
+        // Done when nothing is still transcoding — 'errored' items are
+        // terminal, so keeping the poll alive for them just burned requests
+        // for the full window.
+        if (!items.some((it) => it.muxStatus === 'processing')) return;
       }
-      if (attempts < MAX_ATTEMPTS) setTimeout(tick, 3000);
+      if (attempts < MAX_ATTEMPTS) setTimeout(tick, delay(attempts));
     };
+    // Exponential-ish backoff: 3s → 6s → 9s → … capped at 15s.
+    const delay = (n: number) => Math.min(15_000, 3000 * (1 + Math.floor(n / 3)));
     setTimeout(tick, 3000);
   }, []);
 
@@ -364,10 +414,13 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return c;
   }, []);
 
-  const deletePostComment = useCallback(async (postId: string, commentId: string): Promise<boolean> => {
+  // `removedCount` = 1 + the comment's replies: parent_id cascades in the
+  // DB, so deleting a parent removes N+1 rows — the badge used to drop by
+  // only 1 and drift until the next full load.
+  const deletePostComment = useCallback(async (postId: string, commentId: string, removedCount = 1): Promise<boolean> => {
     const ok = await cloudDeletePostComment(commentId);
     if (ok) {
-      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p));
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - removedCount) } : p));
     }
     return ok;
   }, []);
@@ -401,6 +454,8 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loading,
     loadError,
     refreshPosts,
+    loadMorePosts,
+    hasMorePosts,
     createPost,
     togglePostLike,
     togglePostSave,
