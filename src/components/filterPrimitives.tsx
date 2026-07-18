@@ -79,6 +79,20 @@ export const RangeSlider: React.FC<{
   const span = max - min || 1;
   const left = ((value[0] - min) / span) * 100;
   const right = (1 - (value[1] - min) / span) * 100;
+  // Keep at least one step between the thumbs. Letting them MEET deadlocked
+  // the slider: only the thumbs are hit-testable and the max input renders
+  // on top, so at [10,10] every grab landed on the max thumb, whose clamp
+  // (never below the min value) pinned it at 10 forever — only Reset
+  // recovered. A pointer-proximity z-swap can't fix this (hit-testing
+  // happens before any handler runs, and touch has no hover), so the gap
+  // is enforced in both clamps instead.
+  const minCeil = Math.max(min, value[1] - step);
+  const maxFloor = Math.min(max, value[0] + step);
+  // Legacy pinned-together states (a persisted [10,10] from before the gap
+  // existed) still need the RIGHT thumb grabbable: when the pair sits in
+  // the upper half, raise the min input above the max one so the grab
+  // lands on the thumb that can actually move away.
+  const minOnTop = value[0] > (min + max) / 2;
   return (
     <div className="fs-range">
       <div className="fs-range__track" />
@@ -90,7 +104,8 @@ export const RangeSlider: React.FC<{
         step={step}
         value={value[0]}
         aria-label={ariaLabelMin}
-        onChange={(e) => onChange([Math.min(Number(e.target.value), value[1]), value[1]])}
+        style={minOnTop ? { zIndex: 2 } : undefined}
+        onChange={(e) => onChange([Math.min(Number(e.target.value), minCeil), value[1]])}
       />
       <input
         type="range"
@@ -99,7 +114,7 @@ export const RangeSlider: React.FC<{
         step={step}
         value={value[1]}
         aria-label={ariaLabelMax}
-        onChange={(e) => onChange([value[0], Math.max(Number(e.target.value), value[0])])}
+        onChange={(e) => onChange([value[0], Math.max(Number(e.target.value), maxFloor)])}
       />
     </div>
   );
