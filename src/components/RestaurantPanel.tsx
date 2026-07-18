@@ -30,6 +30,7 @@ import {
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { useBlobPhotos } from '../lib/useBlobPhotos';
 // Required for the Mapbox canvas to actually render — provides the
 // .mapboxgl-canvas-container / .mapboxgl-canvas positioning rules. The
 // rest of the app already imports this from the detail page; the panel
@@ -294,11 +295,27 @@ export const RestaurantPanelBody: React.FC<{
   const [experts, setExperts] = useState<ExpertRecommendation[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  // Bumping re-arms the load effect (the inline retry row).
+  const [loadToken, setLoadToken] = useState(0);
   // Community photo gallery — small grid section in the panel, full-screen
   // viewer when a thumb is tapped.
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryStart, setGalleryStart] = useState(0);
+  // iOS WKWebView silently fails to render large base64 data: URLs — the
+  // detail page converts them to blob URLs, but this panel (which fronts
+  // every reel/post restaurant tap on iOS) rendered them raw, so photo
+  // grids came up blank in the app. Shared hook, shared cache.
+  const blobSources = useMemo(
+    () => [...communityPhotos, ...(myRating?.photos || [])],
+    [communityPhotos, myRating],
+  );
+  const photoBlobMap = useBlobPhotos(blobSources);
+  const communityPhotosDisplay = useMemo(
+    () => communityPhotos.map((p) => (photoBlobMap[p.url] ? { ...p, url: photoBlobMap[p.url] } : p)),
+    [communityPhotos, photoBlobMap],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -312,6 +329,7 @@ export const RestaurantPanelBody: React.FC<{
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     setCommunity(null);
     setFriends(null);
     setExperts([]);
@@ -332,11 +350,19 @@ export const RestaurantPanelBody: React.FC<{
         const profs = await getProfilesByIds(ids);
         if (!cancelled) setProfiles(profs);
       }
-      if (!cancelled) setLoading(false);
     };
-    load();
+    // Never leave the spinner up on a failed fetch: the un-caught version
+    // kept loading=true forever (permanent spinner) and emitted an
+    // unhandled rejection. Failures render an inline retry row instead.
+    load()
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn('[RestaurantPanel] load failed:', err);
+        setLoadError(true);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [snapshot.id, currentUserId]);
+  }, [snapshot.id, currentUserId, loadToken]);
 
   const meta = useMemo(() => ({
     id: snapshot.id,
@@ -810,7 +836,7 @@ export const RestaurantPanelBody: React.FC<{
                             {myRating.photos.map((p, i) => (
                               <img
                                 key={i}
-                                src={p.url}
+                                src={photoBlobMap[p.url] ?? p.url}
                                 alt=""
                                 className="w-20 h-20 rounded-xl object-cover flex-shrink-0 snap-start"
                                 referrerPolicy="no-referrer"
@@ -890,7 +916,7 @@ export const RestaurantPanelBody: React.FC<{
             thumbnail (or the count chip) opens the full-screen
             PhotoGallery at that index. Hidden when there are no
             community photos. */}
-        {communityPhotos.length > 0 && (
+        {communityPhotosDisplay.length > 0 && (
           <section>
             <button
               type="button"
@@ -899,21 +925,21 @@ export const RestaurantPanelBody: React.FC<{
             >
               <h3 className="font-serif font-bold text-on-surface text-[15px]">Photos</h3>
               <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/60 hover:text-on-surface transition-colors">
-                See all {communityPhotos.length}
+                See all {communityPhotosDisplay.length}
                 <ChevronRight size={13} />
               </span>
             </button>
             <div className="grid grid-cols-4 gap-1.5">
-              {communityPhotos.slice(0, 4).map((p, idx) => {
-                const isLast = idx === 3 && communityPhotos.length > 4;
-                const more = communityPhotos.length - 4;
+              {communityPhotosDisplay.slice(0, 4).map((p, idx) => {
+                const isLast = idx === 3 && communityPhotosDisplay.length > 4;
+                const more = communityPhotosDisplay.length - 4;
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => { setGalleryStart(idx); setGalleryOpen(true); }}
                     className="relative aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06] hover:ring-on-surface/[0.14] transition-shadow"
-                    aria-label={p.caption || `Photo ${idx + 1} of ${communityPhotos.length}`}
+                    aria-label={p.caption || `Photo ${idx + 1} of ${communityPhotosDisplay.length}`}
                   >
                     <img
                       src={p.url}
@@ -945,6 +971,17 @@ export const RestaurantPanelBody: React.FC<{
         {loading ? (
           <div className="flex items-center justify-center py-6 text-on-surface/45">
             <Loader2 size={18} className="animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-6">
+            <span className="text-[13px] text-on-surface/55 font-medium">Couldn&rsquo;t load community info</span>
+            <button
+              type="button"
+              onClick={() => setLoadToken((t) => t + 1)}
+              className="px-4 py-1.5 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/10 text-xs font-semibold text-on-surface/70 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : (
           <>
@@ -1023,10 +1060,10 @@ export const RestaurantPanelBody: React.FC<{
           so it escapes the panel's transform stacking context — a fixed
           child of a transformed ancestor would otherwise be clipped to
           the 380px panel column. */}
-      {galleryOpen && communityPhotos.length > 0 && createPortal(
+      {galleryOpen && communityPhotosDisplay.length > 0 && createPortal(
         <PhotoGallery
           photos={[]}
-          communityPhotos={communityPhotos}
+          communityPhotos={communityPhotosDisplay}
           name={snapshot.name}
           initialIndex={galleryStart}
           onClose={() => setGalleryOpen(false)}
