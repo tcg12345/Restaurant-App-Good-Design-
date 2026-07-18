@@ -25,6 +25,7 @@ import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, p
 import { getRestaurantGeoBatch, saveRestaurantGeo } from '../lib/restaurant-geo';
 import {
   buildTasteProfile,
+  recPrefsHashForProfile,
   buildCandidateQueries,
   scoreCandidates,
   haversineKm,
@@ -59,7 +60,6 @@ import {
 } from '../components/HomeLocationBar';
 import {
   locationKey,
-  preferencesHash,
   getHomeRecsCache,
   saveHomeRecsCache,
   type HomeRecCacheEntry,
@@ -1498,7 +1498,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     const uid = userId;
     const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
+    // Canonical hash shared with gatherRecCandidates (the browser surface) —
+    // mismatched formats made each surface treat the other's cache writes as
+    // "prefs drifted" and refetch Google forever.
+    const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
 
     const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
       if (recsRunIdRef.current !== runId) return; // superseded by a newer run
@@ -1663,6 +1666,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const topUpResults = topUpQuery
               ? (await fetchRecBatch([topUpQuery])).filter((p) => !fresh.places.some((q) => q.id === p.id))
               : [];
+            // A newer run may have superseded us during the await — writing
+            // the session/DB cache now would clobber its fresher entry.
+            if (recsRunIdRef.current !== runId) return;
             const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
               .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
             // Only reset the TTL clock when the underlying preferences changed
@@ -1733,7 +1739,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // this city get them without another Places call.
       if (userId) {
         const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-        const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
+        const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
         const existing = sessionRecsCache[locKey]?.places || [];
         const mergedPool = [...existing, ...freshWithCovers]
           .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);

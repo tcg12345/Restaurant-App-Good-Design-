@@ -10,7 +10,7 @@ import {
   getCommunityPricesForPlaces,
   getCommunityRatingStats,
 } from './supabase-community';
-import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
+import { locationKey, recPrefsHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
 import {
   ensureMichelinIndex,
@@ -415,6 +415,19 @@ export interface RecQuery {
 
 /** Price tiers the user demonstrably favors: every tier holding ≥ 15% of the
  *  positive price mass. Falls back to the rounded distribution center. */
+/** Canonical home_rec_cache fingerprint for a taste profile + radius.
+ *  EVERY surface sharing the (user_id, location_key) cache row must use
+ *  this — mismatched hash formats made the home rail and the browser
+ *  endlessly invalidate each other's writes. */
+export function recPrefsHashForProfile(profile: TasteProfile, radiusMeters: number): string {
+  return recPrefsHash(
+    profile.topCuisines,
+    profile.topPrices,
+    radiusMeters,
+    preferredPriceTiers(profile).join(''),
+  );
+}
+
 export function preferredPriceTiers(profile: TasteProfile): number[] {
   const dist = profile.priceDist;
   if (!dist) return [];
@@ -1044,16 +1057,11 @@ export async function gatherRecCandidates(
   opts: Omit<RecOptions, 'limit' | 'keepWishlisted'>,
 ): Promise<RecPool> {
   const maxQueries = opts.maxQueries ?? 5;
-  const allowedTiers = preferredPriceTiers(opts.profile);
-  // The v3 marker + tier fingerprint invalidates every pre-v3 cached pool —
-  // pools assembled without price-restricted queries skew cheap and would
-  // otherwise keep satisfying cache hits for two more days.
-  const prefsHash =
-    preferencesHash(opts.profile.topCuisines, opts.profile.topPrices) +
-    '|r=' +
-    opts.radiusMeters +
-    '|v3:' +
-    allowedTiers.join('');
+  // Canonical hash shared with Discover's home rail — see recPrefsHash in
+  // supabase-rec-cache.ts. (The v3 tier fingerprint also invalidates every
+  // pre-v3 cached pool: pools assembled without price-restricted queries
+  // skew cheap and would otherwise satisfy hits for two more days.)
+  const prefsHash = recPrefsHashForProfile(opts.profile, opts.radiusMeters);
   const locKey = locationKey(opts.target.lat, opts.target.lng);
 
   let mergeCached: PlaceResult[] = [];
@@ -1272,6 +1280,11 @@ export async function gatherRecCandidates(
     communityByRestaurant,
     expertRecRestaurantIds: expertRecIds,
   };
+
+  // An aborted gather must not persist: a stale/cancelled browser session
+  // writing the SHARED (user_id, location_key) cache row could clobber a
+  // fresher entry another surface just saved.
+  if (opts.signal?.aborted) return { candidates, signals, fetchedAt: Date.now() };
 
   // Persist the pool (not a scored page of it) whenever we actually hit
   // Google, so the next open of the same city ranks instantly with zero

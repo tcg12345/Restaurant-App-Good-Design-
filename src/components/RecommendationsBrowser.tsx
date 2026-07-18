@@ -255,6 +255,10 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     }
     if (cached) poolCache.delete(key); // expired
     let cancelled = false;
+    // Abort the in-flight Google fan-out on close/retarget — the cancelled
+    // flag alone only ignored the RESULT while up to 8 queries kept running
+    // (and their pool write could land in the shared cache anyway).
+    const controller = new AbortController();
     setLoading(true);
     setPool(null);
     gatherRecCandidates({
@@ -263,6 +267,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       target: { label: target.label, lat: target.lat, lng: target.lng },
       radiusMeters: Math.round(radiusMiles * 1609.34),
       maxQueries: 8,
+      signal: controller.signal,
     })
       .then((out) => {
         if (cancelled) return;
@@ -277,7 +282,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       })
       .catch(() => { if (!cancelled) setPool(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, target, radiusMiles, userId]);
 
