@@ -22,6 +22,7 @@ import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { getRestaurantGeoBatch, saveRestaurantGeo } from '../lib/restaurant-geo';
 import {
   buildTasteProfile,
   buildCandidateQueries,
@@ -2804,7 +2805,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (missing.length === 0) return;
 
     (async () => {
+      // Shared geocode cache first — anything anyone resolved before costs
+      // zero geocoding calls here.
+      const cachedGeo = await getRestaurantGeoBatch(missing.map((r) => r.restaurant_id));
+      const toGeocode: typeof missing = [];
       for (const r of missing) {
+        const hit = cachedGeo[r.restaurant_id];
+        if (hit) { r.lat = hit.lat; r.lng = hit.lng; }
+        else toGeocode.push(r);
+      }
+      for (const r of toGeocode) {
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(
@@ -2816,6 +2826,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             const [lng, lat] = feature.center;
             r.lat = lat;
             r.lng = lng;
+            saveRestaurantGeo(r.restaurant_id, lat, lng);
+            // These are the CURRENT USER's own ratings, so patching the
+            // community row is allowed under RLS.
             publishCommunityRating(r.user_id, r.restaurant_id, {
               name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
               price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
@@ -2880,23 +2893,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             r.lng = lng;
             updatedSinceFlush++;
             scheduleFlush();
-            // Persist so subsequent loads don't need to geocode again.
-            publishCommunityRating(r.user_id, r.restaurant_id, {
-              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
-              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
-              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-              photoUrl: r.photo_url || '', lat, lng,
-            });
+            // Persist to the SHARED geo cache (any signed-in user may
+            // write it). The old republish of the rating row used the
+            // rating OWNER's id — RLS rejected every one of those writes
+            // silently, so these expert/friend ratings were re-geocoded on
+            // every mount forever.
+            saveRestaurantGeo(r.restaurant_id, lat, lng);
           }
         } catch {}
       };
 
+      // Shared cache first — one batched read replaces geocoding for
+      // anything anyone resolved before.
+      const cachedGeo = await getRestaurantGeoBatch(missing.map((r) => r.restaurant_id));
+      const toGeocode: CommunityRating[] = [];
+      for (const r of missing) {
+        const hit = cachedGeo[r.restaurant_id];
+        if (hit) {
+          r.lat = hit.lat;
+          r.lng = hit.lng;
+          updatedSinceFlush++;
+          scheduleFlush();
+        } else {
+          toGeocode.push(r);
+        }
+      }
+
       // Run with bounded concurrency.
       let idx = 0;
-      const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
-        while (idx < missing.length) {
+      const workers = Array.from({ length: Math.min(CONCURRENCY, toGeocode.length) }, async () => {
+        while (idx < toGeocode.length) {
           const i = idx++;
-          await geocodeOne(missing[i]);
+          await geocodeOne(toGeocode[i]);
         }
       });
       await Promise.all(workers);

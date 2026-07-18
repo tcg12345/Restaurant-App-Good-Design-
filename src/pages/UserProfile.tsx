@@ -20,6 +20,7 @@ import {
   getUserWishlist, publishCommunityRating, getUserPublicHomeMeals, getExpertRecommendationCount,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
+import { getRestaurantGeoBatch, saveRestaurantGeo } from '../lib/restaurant-geo';
 import { getMyGuides, isPublicGuide, type Guide } from '../lib/supabase-guides';
 import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
@@ -474,30 +475,52 @@ export const UserProfile: React.FC = () => {
       if (!coordsLookedUp.current) {
         coordsLookedUp.current = true;
         const missing = userRatings.filter((r) => !r.lat && !r.lng && !resolvedCoords[r.restaurant_id]);
-        for (const r of missing.slice(0, 15)) {
-          try {
-            const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
-            if (results[0]?.lat && results[0]?.lng) {
-              const lt = results[0].lat, ln = results[0].lng;
-              const el2 = createRatingMarkerEl(Number(r.score) || 0);
-              const rid2 = r.restaurant_id;
-              el2.addEventListener('click', () => { navigate(`/restaurant/${rid2}`); });
-              new mapboxgl.Marker({ element: el2, anchor: 'center' }).setLngLat([ln, lt]).addTo(map);
-              publishCommunityRating(r.user_id, r.restaurant_id, {
-                name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
-                price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
-                wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-                photoUrl: r.photo_url || '', lat: lt, lng: ln,
-              });
-            }
-          } catch {}
-          await new Promise((resolve) => setTimeout(resolve, 250));
+        if (missing.length > 0) {
+          const addMarker = (r: (typeof missing)[number], lt: number, ln: number) => {
+            const el2 = createRatingMarkerEl(Number(r.score) || 0);
+            const rid2 = r.restaurant_id;
+            el2.addEventListener('click', () => { navigate(`/restaurant/${rid2}`); });
+            new mapboxgl.Marker({ element: el2, anchor: 'center' }).setLngLat([ln, lt]).addTo(map);
+          };
+          // Shared geocode cache first (one batched read): places anyone has
+          // resolved before cost zero Places calls here.
+          const cachedGeo = await getRestaurantGeoBatch(missing.map((r) => r.restaurant_id));
+          const stillMissing: typeof missing = [];
+          for (const r of missing) {
+            const hit = cachedGeo[r.restaurant_id];
+            if (hit) addMarker(r, hit.lat, hit.lng);
+            else stillMissing.push(r);
+          }
+          for (const r of stillMissing.slice(0, 15)) {
+            try {
+              const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
+              if (results[0]?.lat && results[0]?.lng) {
+                const lt = results[0].lat, ln = results[0].lng;
+                addMarker(r, lt, ln);
+                // Persist to the SHARED cache so nobody geocodes this place
+                // again — any signed-in user may write it.
+                saveRestaurantGeo(r.restaurant_id, lt, ln);
+                // The community row itself can only be patched by its OWNER:
+                // the old unconditional publish fired one doomed RLS-rejected
+                // write per rating on every other user's profile, every mount.
+                if (userId && r.user_id === userId) {
+                  publishCommunityRating(r.user_id, r.restaurant_id, {
+                    name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+                    price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+                    wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+                    photoUrl: r.photo_url || '', lat: lt, lng: ln,
+                  });
+                }
+              }
+            } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
         }
       }
     });
 
     return () => { map.remove(); mapRef.current = null; };
-  }, [showMapPage, userRatings, resolvedCoords, navigate]);
+  }, [showMapPage, userRatings, resolvedCoords, navigate, userId]);
 
   const invalidateProfileCache = () => {
     if (username) delete profileCache[`${username}_${userId}`];
