@@ -12,7 +12,8 @@ import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { ScoreRing } from '../components/cards';
-import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
+import { getOpenStatus, useBackfillLocationComponents } from '../lib/useRestaurantLocationLabel';
+import { hasFreshHours } from '../lib/useWarmHours';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
@@ -22,7 +23,7 @@ import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -569,38 +570,6 @@ function formatTodayHours(hours: string[] | undefined): string {
   return line.slice(today.length + 1).trim();
 }
 
-// Backfill location data on saved restaurants so cards can render the
-// Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST" label.
-// One Places call (deduped via inflight + cache) gives us the address
-// components; one Mapbox reverse-geocode gives us the neighborhood
-// (Google rarely returns neighborhood components). Once written to the
-// shared restaurantMeta, every card using that meta upgrades to the
-// richer label automatically.
-function useBackfillLocationComponents(restaurantId: string, hasFullData: boolean) {
-  const { cacheRestaurantMeta } = useLists();
-  useEffect(() => {
-    if (!restaurantId || hasFullData) return;
-    let cancelled = false;
-    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng, hours }) => {
-      if (cancelled) return;
-      // Skip the meta write if every field is empty so we don't
-      // pointlessly bump the cache.
-      if (!addressComponents?.length && !neighborhood && lat == null && lng == null && hours == null) return;
-      cacheRestaurantMeta({
-        id: restaurantId,
-        ...(addressComponents?.length ? { addressComponents } : {}),
-        ...(neighborhood ? { neighborhood } : {}),
-        ...(lat != null ? { lat } : {}),
-        ...(lng != null ? { lng } : {}),
-        // Persist an empty array too — that's the signal "we asked and
-        // the place doesn't publish hours" so we don't keep refetching.
-        ...(hours != null ? { hours } : {}),
-      });
-    });
-    return () => { cancelled = true; };
-  }, [restaurantId, hasFullData, cacheRestaurantMeta]);
-}
-
 /* ── Restaurant row card ── */
 /* ── Clean, centered confirmation dialog for destructive actions (swipe /
    menu Delete). Rendered through a portal so it's always viewport-centered,
@@ -717,7 +686,7 @@ const RestaurantRow: React.FC<{
   // when address components are cached, falls back to formatted-address
   // parsing for older saved restaurants.
   const meta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   // Michelin override: starred restaurants show the Guide's cuisine + price
   // (and a star marker). Falls back to the saved values otherwise.
   const mich = useMichelinMatch(
@@ -952,7 +921,7 @@ const WishlistRow: React.FC<{
   // Beli-style label: neighborhood + borough/city + state, falling back
   // to formatted-address parsing when no addressComponents are cached.
   const wlMeta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && wlMeta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && hasFreshHours(wlMeta));
   const fullAddr = address || wlMeta?.address || '';
   const mich = useMichelinMatch(
     name,
@@ -1038,7 +1007,7 @@ const WishlistGridCard: React.FC<{
   const cuisineLabel = mich.cuisine;
   const showPrice = !!mich.price;
 
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   const fullAddress = address || meta?.address || '';
   // Beli-style hierarchical label using Google's address components plus
   // Mapbox-derived neighborhood when available; falls back to
@@ -1167,7 +1136,7 @@ const RestaurantGridCard: React.FC<{
   );
   const cuisineLabel = mich.cuisine;
   const showPrice = !!mich.price;
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
   // when components are cached, falling back to the formatted address.
@@ -2682,13 +2651,18 @@ const AddToNightSheet: React.FC<{
   tripId: string;
   tripLat: number;
   tripLng: number;
+  /** Trip destination string ("Tokyo") — geocoded on demand when the trip
+   *  was created without coordinates, so search isn't biased to nowhere. */
+  tripDestination: string;
+  /** Cache on-demand geocoded coords back onto the trip. */
+  onDestinationResolved: (lat: number, lng: number) => void;
   existingRestaurantIds: Set<string>;
   ratings: RestaurantRating[];
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   rateRestaurant: (rating: RestaurantRating) => void;
   onClose: () => void;
-}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
   const { phoneMode } = useSettings();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
@@ -2711,14 +2685,36 @@ const AddToNightSheet: React.FC<{
     }
   }, [open]);
 
-  const lat = tripLat || 40.735;
-  const lng = tripLng || -73.99;
+  // Trips created by typing a destination without picking a suggestion store
+  // destinationLat/Lng 0 — a hardcoded fallback here used to quietly search
+  // Manhattan for a Tokyo trip. Geocode the destination string on demand
+  // instead (cached back onto the trip via onDestinationResolved); if that
+  // fails too, search with no location bias at all.
+  const resolvedCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const resolveTripCoords = async (): Promise<{ lat: number; lng: number } | null> => {
+    if (tripLat && tripLng) return { lat: tripLat, lng: tripLng };
+    if (resolvedCoordsRef.current) return resolvedCoordsRef.current;
+    if (!tripDestination.trim() || !MAPBOX_TOKEN) return null;
+    try {
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(tripDestination)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=1`);
+      const data = await res.json();
+      const center = data?.features?.[0]?.center;
+      if (Array.isArray(center) && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+        const coords = { lat: center[1], lng: center[0] };
+        resolvedCoordsRef.current = coords;
+        onDestinationResolved(coords.lat, coords.lng);
+        return coords;
+      }
+    } catch { /* fall through to unbiased search */ }
+    return null;
+  };
 
   const handleSearchPlaces = async () => {
     if (!placeSearch.trim()) return;
     setPlaceLoading(true);
     try {
-      const res = await searchPlacesByText(placeSearch, lat, lng);
+      const coords = await resolveTripCoords();
+      const res = await searchPlacesByText(placeSearch, coords?.lat ?? null, coords?.lng ?? null);
       setPlaceResults(res);
     } catch { setPlaceResults([]); }
     finally { setPlaceLoading(false); }
@@ -3027,10 +3023,19 @@ const TripsTab: React.FC<{
 
   if (selectedTrip) {
     const nights = getNightCount(selectedTrip.startDate, selectedTrip.endDate);
-    const completedCount = selectedTrip.restaurants.filter((r) => r.status === 'completed').length;
+    const completedRestaurants = selectedTrip.restaurants.filter((r) => r.status === 'completed');
+    const completedCount = completedRestaurants.length;
     const plannedCount = selectedTrip.restaurants.filter((r) => r.status === 'planned').length;
-    const avgRating = completedCount > 0
-      ? (selectedTrip.restaurants.filter((r) => r.status === 'completed' && r.rating).reduce((sum, r) => sum + (r.rating?.score || 0), 0) / completedCount).toFixed(1)
+    // Trip entries never store a rating of their own — read each completed
+    // restaurant's score live from the user's global ratings (always fresh;
+    // `r.rating` kept as a legacy fallback) and average over the RATED ones
+    // only. Dividing by completedCount showed "0.0" the moment anything
+    // unrated was checked off.
+    const ratedScores = completedRestaurants
+      .map((r) => ratings.find((g) => g.restaurantId === r.restaurantId)?.score ?? r.rating?.score)
+      .filter((s): s is number => typeof s === 'number' && s > 0);
+    const avgRating = ratedScores.length > 0
+      ? (ratedScores.reduce((sum, s) => sum + s, 0) / ratedScores.length).toFixed(1)
       : '—';
     const totalRestaurants = selectedTrip.restaurants.length;
 
@@ -3250,6 +3255,8 @@ const TripsTab: React.FC<{
           tripId={selectedTrip.id}
           tripLat={selectedTrip.destinationLat}
           tripLng={selectedTrip.destinationLng}
+          tripDestination={selectedTrip.destination}
+          onDestinationResolved={(lat, lng) => updateTrip(selectedTrip.id, { destinationLat: lat, destinationLng: lng })}
           existingRestaurantIds={new Set(selectedTrip.restaurants.filter((r) => r.night === addNightIndex).map((r) => r.restaurantId))}
           ratings={ratings}
           addRestaurantToTrip={addRestaurantToTrip}

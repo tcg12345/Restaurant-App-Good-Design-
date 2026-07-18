@@ -11,6 +11,7 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { useSubmitOnce } from '../lib/useSubmitOnce';
 import { type H2HState, initH2HTieBreak, placementOrder } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
@@ -25,6 +26,9 @@ export const AddRestaurantModal: React.FC = () => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { dragProps } = useBottomSheet(addRestaurantModalOpen, closeAddRestaurantModal);
+  // Double-tapping Save during the sheet's exit animation must not save
+  // twice — the second isNewVisit save archives the first as a phantom visit.
+  const { submitting: saving, tryLock } = useSubmitOnce(addRestaurantModalOpen);
 
   // Real friends
   const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
@@ -110,7 +114,9 @@ export const AddRestaurantModal: React.FC = () => {
       } else {
         setScore(ex?.score ?? 7);
         setNotes(ex?.notes ?? '');
-        setVisitDate(ex?.visitDate ?? '');
+        // First-ever rating defaults to today — `''` would save as "No date".
+        // Editing keeps whatever the record holds (including deliberately unset).
+        setVisitDate(ex ? (ex.visitDate ?? '') : localISODate());
         setWouldReturn(ex?.wouldReturn ?? true);
         setSelectedTags(ex?.tags ?? []);
         setPhotos(ex?.photos ?? []);
@@ -121,8 +127,11 @@ export const AddRestaurantModal: React.FC = () => {
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
       // Restore the saved price when editing — resetting to -1 made "Update"
-      // silently revert a hand-picked price back to the meta default.
-      setPriceIndex(!startAsNewVisit && ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
+      // silently revert a hand-picked price back to the meta default. A new
+      // visit keeps it too: the restaurant's price tier doesn't change
+      // between visits, and resetting overwrote a hand-picked $$$$ with the
+      // meta price on save.
+      setPriceIndex(ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
       setPriceAmount('');
       // Caller-requested initial page wins (e.g. opening directly to "notes"
       // from RestaurantPanel); otherwise the modal always opens on main.
@@ -185,7 +194,9 @@ export const AddRestaurantModal: React.FC = () => {
     if (!isNaN(num) && num > 0) setPriceIndex(priceIndexFromAmount(num));
   };
 
-  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
+  // No pick and no meta price → persist '' (unset); fabricating '$$' would
+  // stamp a made-up tier on the rating.
+  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -257,7 +268,7 @@ export const AddRestaurantModal: React.FC = () => {
   };
 
   const persistRating = (finalScore: number, orderOverride?: string[]) => {
-    if (!restaurant) return;
+    if (!restaurant || !tryLock()) return;
     // The H2H placement order only binds while the score being saved is the
     // one the search produced — dragging the slider afterwards is a manual
     // override and the comparison order no longer applies.
@@ -667,8 +678,9 @@ export const AddRestaurantModal: React.FC = () => {
                         Pick a visit date to save this visit.
                       </p>
                     )}
-                    <button onClick={handleSaveRating} className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform">
-                      {existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
+                    <button onClick={handleSaveRating} disabled={saving}
+                      className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none">
+                      {saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}

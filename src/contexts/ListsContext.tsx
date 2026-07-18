@@ -73,6 +73,11 @@ export interface RestaurantMeta {
    *  place doesn't publish hours. Cards read this to show today's hours
    *  inline. */
   hours?: string[];
+  /** When `hours` was last fetched (Date.now()). Schedules change, so
+   *  cached hours older than the freshness window (see hasFreshHours) are
+   *  refetched instead of trusted forever. Absent on entries written
+   *  before this field existed — treated as stale. */
+  hoursFetchedAt?: number;
 }
 
 export interface RecipeIngredient {
@@ -393,11 +398,6 @@ interface ListsContextValue {
   getWishlistItem: (restaurantId: string) => WishlistItem | undefined;
 
   // Modals
-  ratingModalOpen: boolean;
-  ratingModalRestaurant: RestaurantMeta | null;
-  openRatingModal: (restaurant: RestaurantMeta) => void;
-  closeRatingModal: () => void;
-
   addToListModalOpen: boolean;
   addToListRestaurantId: string | null;
   openAddToListModal: (restaurantId: string, meta?: RestaurantMeta) => void;
@@ -2002,8 +2002,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getHomeMeal = useCallback((id: string) => homeMeals.find((m) => m.id === id), [homeMeals]);
 
-  const [ratingModalOpen, setRatingModalOpen] = useState(false);
-  const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
   const [addToListModalOpen, setAddToListModalOpen] = useState(false);
   const [addToListRestaurantId, setAddToListRestaurantId] = useState<string | null>(null);
   const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
@@ -2748,14 +2746,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => { toggleWishlistRef.current = toggleWishlist; }, [toggleWishlist]);
 
   // Modals
-  const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
-    if (!userIdRef.current) { requireSignIn('Sign in to rate restaurants'); return; }
-    cacheRestaurantMeta(restaurant);
-    setRatingModalRestaurant(restaurant);
-    setRatingModalOpen(true);
-  }, [cacheRestaurantMeta, requireSignIn]);
-  const closeRatingModal = useCallback(() => { setRatingModalOpen(false); setRatingModalRestaurant(null); }, []);
-
   const openAddToListModal = useCallback((restaurantId: string, meta?: RestaurantMeta) => {
     if (!userIdRef.current) { requireSignIn('Sign in to save to a list'); return; }
     if (meta) cacheRestaurantMeta(meta);
@@ -2802,7 +2792,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,
-      ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,

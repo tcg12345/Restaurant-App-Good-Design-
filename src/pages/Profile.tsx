@@ -20,7 +20,7 @@ import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Gu
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
@@ -60,10 +60,8 @@ const TOP_RATED_GRADIENT = 'from-stone-700 via-stone-800 to-stone-950';
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
 function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
-  if (r.visitDate) {
-    const d = new Date(r.visitDate);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
-  }
+  const d = parseVisitDate(r.visitDate);
+  if (d) return d.toISOString();
   if (typeof r.createdAt === 'number' && Number.isFinite(r.createdAt)) {
     const d = new Date(r.createdAt);
     if (!Number.isNaN(d.getTime())) return d.toISOString();

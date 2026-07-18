@@ -34,7 +34,6 @@ import { ListsProvider } from './contexts/ListsContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
-import { RatingModal } from './components/RatingModal';
 import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
@@ -475,7 +474,6 @@ const AppContent: React.FC = () => {
 
   const modals = (
     <>
-      <RatingModal />
       <VerificationOutcomeModal />
       <AddToListModal />
       <AddRestaurantModal />

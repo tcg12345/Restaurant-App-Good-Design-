@@ -7,7 +7,7 @@ import {
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
   Car, Footprints, Award, Images, Plus, Heart,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -23,44 +23,19 @@ import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
+import { openExternalUrl } from '../lib/external-links';
 import { Link } from 'react-router-dom';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { useBottomSheet } from '../lib/useBottomSheet';
-
-/** Parse hours array to find next opening time when currently closed */
-function getNextOpenTime(hours: string[]): string {
-  if (!hours || hours.length === 0) return '';
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const now = new Date();
-  const todayIdx = now.getDay();
-
-  // Look at today first, then upcoming days
-  for (let offset = 0; offset < 7; offset++) {
-    const dayIdx = (todayIdx + offset) % 7;
-    const dayName = days[dayIdx];
-    const entry = hours.find((h) => h.startsWith(dayName));
-    if (!entry) continue;
-    // Skip "Closed" days
-    if (/closed/i.test(entry)) continue;
-    // Extract opening time — format: "Monday: 11:30 AM – 10:00 PM" or "Monday: 5:00 – 11:00 PM"
-    const timePart = entry.split(':').slice(1).join(':').trim();
-    const openMatch = timePart.match(/^(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
-    if (!openMatch) continue;
-    const openTime = openMatch[1].trim();
-    if (offset === 0) return `today at ${openTime}`;
-    if (offset === 1) return `tomorrow at ${openTime}`;
-    return `${dayName} at ${openTime}`;
-  }
-  return '';
-}
+import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
 
 /** Short "last week / last month" style recency label. */
 function timeAgo(date: string): string {
-  if (!date) return '';
-  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  const d = parseVisitDate(date);
+  if (!d) return '';
   const diff = Date.now() - d.getTime();
   const days = Math.floor(diff / 86400000);
   if (days < 1) return 'today';
@@ -588,7 +563,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <span className="text-on-surface/65">
                       <span className="font-semibold text-red-600">Closed</span>
                       {(() => {
-                        const next = getNextOpenTime(place.hours);
+                        const next = getNextOpenLabel(place.hours, restaurantLocalNow(place.lng));
                         return next ? <span> · opens {next}</span> : null;
                       })()}
                     </span>
@@ -623,7 +598,9 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="flex gap-2.5 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] mt-5 py-1">
           {[
             { Icon: Phone, label: 'Call', href: place.phone ? `tel:${place.phone}` : null },
-            { Icon: Navigation, label: 'Route', href: directionsUrl, external: true },
+            // Route goes through openExternalUrl so native hands off to the
+            // Maps app instead of bouncing the tap through Safari.
+            { Icon: Navigation, label: 'Route', href: directionsUrl || null, onClick: directionsUrl ? () => { void openExternalUrl(directionsUrl); } : undefined },
             { Icon: Globe, label: 'Web', href: place.website || null, external: true },
             { Icon: Send, label: 'Share', onClick: () => setChatShareTarget(buildShareTarget()) },
             ...(michelin ? [{ Icon: Award, label: 'Michelin Guide', href: michelin.guideUrl, external: true, accent: true }] : []),
@@ -940,7 +917,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasPhotos = (myRating.photos?.length || 0) > 0;
           const hasDate = !!myRating.visitDate;
           const hasFriends = (myRating.friendIds?.length || 0) > 0;
-          const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+          const dateLabel = parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? null;
           const eyebrowStyle = { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em' } as const;
           return (
             <>
@@ -1074,10 +1051,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const scoreBorder = (s: number) =>
             s >= 8 ? 'border-l-green-500' : s >= 5 ? 'border-l-amber-500' : 'border-l-red-500';
           const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          const parseDate = (d?: string | null) => {
-            if (!d) return null;
-            return new Date(d.length === 10 ? `${d}T12:00:00` : d);
-          };
+          const parseDate = parseVisitDate;
 
           type Entry = {
             id: string; score: number; date: Date | null; notes?: string; tags?: string[];

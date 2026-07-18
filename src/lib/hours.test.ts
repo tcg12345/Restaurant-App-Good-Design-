@@ -6,6 +6,7 @@ import {
   emptyHoursFilter,
   type HoursFilter,
   restaurantLocalNow,
+  getNextOpenLabel,
 } from './hours';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
@@ -146,6 +147,44 @@ describe('open now', () => {
     const f: HoursFilter = { meals: ['dinner'], openNow: true };
     expect(passesHoursFilter(DINNER_ONLY, f, new Date(2026, 6, 8, 19, 0))).toBe(true);
     expect(passesHoursFilter(DINNER_ONLY, f, wedNoon)).toBe(false); // dinner spot, closed at noon
+  });
+});
+
+describe('getNextOpenLabel', () => {
+  // 2026-07-08 is a Wednesday.
+  const wed3pm = new Date(2026, 6, 8, 15, 0);
+  const wed11pm = new Date(2026, 6, 8, 23, 0);
+
+  it('on a split day, points at the NEXT seating, not the first of the day', () => {
+    expect(getNextOpenLabel(LUNCH_AND_DINNER, wed3pm)).toBe('today at 5:00 PM');
+  });
+
+  it('after close it rolls to tomorrow instead of "opens today at 11:30 AM"', () => {
+    expect(getNextOpenLabel(LUNCH_AND_DINNER, wed11pm)).toBe('tomorrow at 11:30 AM');
+  });
+
+  it('skips closed days and names the next open one', () => {
+    const hours = [
+      'Wednesday: Closed',
+      'Thursday: Closed',
+      `Friday: ${t(`5:00 PM${dash}10:00 PM`)}`,
+    ];
+    expect(getNextOpenLabel(hours, wed3pm)).toBe('Friday at 5:00 PM');
+  });
+
+  it('an overnight span counts from its published start day', () => {
+    // Wed 11 PM, bar opens 10 PM–2 AM every day: tonight's opening already
+    // passed (place is open — callers only ask when closed), so the next
+    // START is tomorrow 10 PM.
+    const lateBar = everyDay(t(`10:00 PM${dash}2:00 AM`));
+    expect(getNextOpenLabel(lateBar, new Date(2026, 6, 8, 21, 0))).toBe('today at 10:00 PM');
+    expect(getNextOpenLabel(lateBar, wed11pm)).toBe('tomorrow at 10:00 PM');
+  });
+
+  it('returns "" for unknown hours or an always-closed week', () => {
+    expect(getNextOpenLabel(undefined, wed3pm)).toBe('');
+    expect(getNextOpenLabel([], wed3pm)).toBe('');
+    expect(getNextOpenLabel(DAYS.map((d) => `${d}: Closed`), wed3pm)).toBe('');
   });
 });
 

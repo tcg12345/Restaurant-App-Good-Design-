@@ -12,6 +12,7 @@ import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
 import { formatLocationLabel, fetchLocationDataForPlace } from './places';
 import { haversineDistanceMi, formatDistance } from './distance';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { hasFreshHours } from './useWarmHours';
 
 /**
  * Find today's entry in a Google Places `weekdayDescriptions` array.
@@ -129,8 +130,9 @@ export function useBackfillLocationComponents(restaurantId: string, hasFullData:
         ...(lat != null ? { lat } : {}),
         ...(lng != null ? { lng } : {}),
         // Persist an empty array too — that's the signal "we asked and the place
-        // doesn't publish hours" so we don't keep refetching.
-        ...(hours != null ? { hours } : {}),
+        // doesn't publish hours"; the timestamp bounds how long either answer
+        // is trusted before a refetch.
+        ...(hours != null ? { hours, hoursFetchedAt: Date.now() } : {}),
       });
     });
     return () => { cancelled = true; };
@@ -160,7 +162,9 @@ export function useRestaurantLocationLabel(
 
   useBackfillLocationComponents(
     restaurantId,
-    !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined,
+    // Stale hours count as "not full" so a schedule change eventually
+    // reaches cards that only ever hit this backfill path.
+    !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta),
   );
 
   const fullAddress = addressFallback || meta?.address || '';

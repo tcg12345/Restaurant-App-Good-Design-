@@ -537,7 +537,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [mapPanelWidth]);
-  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals, restaurantMeta } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals, restaurantMeta } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,

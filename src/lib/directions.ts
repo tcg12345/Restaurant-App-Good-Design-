@@ -1,9 +1,49 @@
 import { useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { MAPBOX_TOKEN } from './keys';
 
 interface Coord {
   lat: number;
   lng: number;
+}
+
+export interface DirectionsDestination {
+  /** Google place id, when known — pins chains to the exact branch instead
+   *  of whatever location Google resolves the address string to. */
+  placeId?: string | null;
+  /** Street address — the preferred destination text. */
+  address?: string | null;
+  /** Display name; labels the pin and doubles as an address fallback. */
+  name?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/**
+ * Directions deep link for the current platform.
+ *
+ * Web → a Google Maps dir URL, always carrying `destination_place_id` when
+ * the place id is known (an address alone routes ambiguous/chain
+ * destinations to the wrong branch). Native → an Apple Maps universal link,
+ * so iOS hands the tap to the Maps app instead of parking the user on the
+ * Google Maps web page in Safari. Open it via openExternalUrl (external-links)
+ * rather than a raw target=_blank so native gets the system handoff.
+ */
+export function buildDirectionsUrl(dest: DirectionsDestination): string | null {
+  const hasCoords =
+    typeof dest.lat === 'number' && Number.isFinite(dest.lat) &&
+    typeof dest.lng === 'number' && Number.isFinite(dest.lng) &&
+    !(dest.lat === 0 && dest.lng === 0); // 0/0 is the "unknown" sentinel
+  const target = dest.address || dest.name || (hasCoords ? `${dest.lat},${dest.lng}` : '');
+  if (!target) return null;
+  if (Capacitor.isNativePlatform()) {
+    const params = new URLSearchParams({ daddr: target });
+    if (dest.name) params.set('q', dest.name);
+    return `https://maps.apple.com/?${params.toString()}`;
+  }
+  const params = new URLSearchParams({ api: '1', destination: target });
+  if (dest.placeId) params.set('destination_place_id', dest.placeId);
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 export interface TravelTimes {

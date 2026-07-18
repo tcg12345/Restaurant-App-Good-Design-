@@ -47,3 +47,17 @@ export function firstFrameSrc(url?: string | null): string | undefined {
 export function localISODate(d: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * Parse a stored visit/rating date for display. Bare `YYYY-MM-DD` strings are
+ * calendar days in the user's LOCAL timezone, but `new Date(s)` /
+ * `Date.parse(s)` read them as UTC midnight — which renders as the PREVIOUS
+ * day anywhere west of UTC. Anchoring to local noon keeps the calendar day
+ * stable in every timezone. Full ISO timestamps parse unchanged. Returns null
+ * for empty/unparseable input.
+ */
+export function parseVisitDate(s: string | null | undefined): Date | null {
+  if (!s) return null;
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00` : s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}

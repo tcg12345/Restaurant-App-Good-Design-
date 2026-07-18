@@ -839,9 +839,8 @@ export const AppAssistant: React.FC = () => {
    *  modal users get when tapping the "+" button on a restaurant
    *  card. Used for both open_rating_modal and
    *  open_add_restaurant_modal because the unified modal is the
-   *  canonical rate / log / wishlist surface; the standalone
-   *  RatingModal (lists.openRatingModal) is a legacy variant we
-   *  don't want the assistant to surface. */
+   *  canonical rate / log / wishlist surface (the old standalone
+   *  RatingModal has been retired). */
   const handleOpenRatingModal = useCallback((restaurantId: string): ActionResult => {
     const meta = buildRestaurantMetaFromId(restaurantId, lists.restaurantMeta, lists.ratings, lists.wishlist, pageContext);
     if (!meta) {

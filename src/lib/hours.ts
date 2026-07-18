@@ -95,6 +95,45 @@ export function parseWeekdayHours(hours: string[] | undefined | null): Interval[
   return out;
 }
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** 17*60+30 → "5:30 PM" (Google's time style — minutes always shown). */
+function formatMinutes(mins: number): string {
+  const m = ((mins % 1440) + 1440) % 1440;
+  const h24 = Math.floor(m / 60);
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${String(m % 60).padStart(2, '0')} ${h24 >= 12 ? 'PM' : 'AM'}`;
+}
+
+/**
+ * "When does this place open next?" label for a closed restaurant:
+ * "today at 5:00 PM" / "tomorrow at 11:30 AM" / "Friday at 5:00 PM".
+ *
+ * Scans today's REMAINING intervals first — so a split lunch/dinner day at
+ * 3 PM points at the 5 PM seating, and at 11 PM rolls past the already-run
+ * 11:30 AM opening to tomorrow — then the following six days. Overnight
+ * spans count from their published start day. Returns '' when hours are
+ * unknown/unparseable or every day is closed.
+ */
+export function getNextOpenLabel(hours: string[] | undefined | null, now: Date = new Date()): string {
+  const intervals = parseWeekdayHours(hours);
+  if (intervals.length === 0) return '';
+  const today = now.getDay();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  for (let offset = 0; offset < 7; offset++) {
+    const day = (today + offset) % 7;
+    const next = intervals
+      .filter((iv) => iv.day === day && (offset > 0 || iv.start > nowMins))
+      .sort((a, b) => a.start - b.start)[0];
+    if (!next) continue;
+    const time = formatMinutes(next.start);
+    if (offset === 0) return `today at ${time}`;
+    if (offset === 1) return `tomorrow at ${time}`;
+    return `${DAY_NAMES[day]} at ${time}`;
+  }
+  return '';
+}
+
 const overlaps = (s: number, e: number, ws: number, we: number) => s < we && e > ws;
 
 /** Does any open interval overlap the meal window on any day? Overnight spans
