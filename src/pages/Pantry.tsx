@@ -1447,7 +1447,13 @@ const ListDetailView: React.FC<{
     const pending = pendingListRatingRef.current;
     if (!pending) return;
     const globalRating = ratings.find((r) => r.restaurantId === pending.restaurantId);
-    if (globalRating && globalRating.createdAt && globalRating.createdAt >= pending.openedAt) {
+    // Compare against updatedAt (falling back to createdAt): createdAt is
+    // "first rated" and re-rating only bumps updatedAt, so checking
+    // createdAt alone made "Create New Rating" a silent no-op for any
+    // restaurant that already had a global rating — the save landed
+    // globally but never got copied into the list's own ratings.
+    const touchedAt = globalRating ? (globalRating.updatedAt ?? globalRating.createdAt) : undefined;
+    if (globalRating && touchedAt && touchedAt >= pending.openedAt) {
       // The rating was just saved/updated — move it to list-specific storage
       setListRating(list.id, globalRating);
       pendingListRatingRef.current = null;
