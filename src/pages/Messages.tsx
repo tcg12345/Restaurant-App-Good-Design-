@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
@@ -653,14 +653,35 @@ const NewChatSheet: React.FC<{
 };
 
 /* ── Read-receipt helpers ── */
-type ReceiptStatus = 'sent' | 'delivered' | 'read';
+type ReceiptStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
-// TODO(backend): replace with real per-message delivery/read status from Supabase
-// realtime message_receipts table or presence. For now every outgoing message is
-// reported as "sent" so the progression UI is ready without lying about state.
-const getReceiptStatus = (_messageId: string): ReceiptStatus => 'sent';
+// Delivery status comes from the message itself now: ChatContext awaits
+// each insert and marks 'sent'/'failed' (older messages loaded from the
+// server carry no status — they're delivered by definition).
+// TODO(backend): 'delivered'/'read' still need a receipts table/presence.
+const getReceiptStatus = (msg: { status?: 'sending' | 'sent' | 'failed' }): ReceiptStatus => msg.status ?? 'sent';
 
-const MessageReceipt: React.FC<{ status: ReceiptStatus }> = ({ status }) => {
+const MessageReceipt: React.FC<{ status: ReceiptStatus; onRetry?: () => void }> = ({ status, onRetry }) => {
+  if (status === 'failed') {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        className="flex items-center gap-1 mt-1 px-1 text-red-500 text-[11px] font-semibold"
+      >
+        <AlertCircle size={11} className="stroke-[2.5]" />
+        Not sent — tap to retry
+      </button>
+    );
+  }
+  if (status === 'sending') {
+    return (
+      <div className="flex items-center gap-1 mt-1 px-1 text-on-surface/35">
+        <Clock size={11} className="stroke-[2.5]" />
+        <span className="text-[10px] font-medium">Sending…</span>
+      </div>
+    );
+  }
   const label = status === 'read' ? 'Read' : status === 'delivered' ? 'Delivered' : 'Sent';
   const tone = status === 'read' ? 'text-primary' : 'text-on-surface/35';
   return (
@@ -697,7 +718,7 @@ const ChatView: React.FC<{
   onBack: () => void;
   onConversationCreated?: (id: string) => void;
 }> = ({ conversation, draftFriendId, profiles, onBack, onConversationCreated }) => {
-  const { sendMessage, markRead, deleteConversation, renameConversation, getOrCreateDirectConversation } = useChat();
+  const { sendMessage, markRead, retryMessage, deleteConversation, renameConversation, getOrCreateDirectConversation } = useChat();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
@@ -731,7 +752,14 @@ const ChatView: React.FC<{
   const [isOtherTyping] = useState(false);
 
   useEffect(() => {
-    if (convId) markRead(convId);
+    if (!convId) return;
+    // Only mark read while the tab is actually VISIBLE — messages arriving
+    // while the thread sits open in a backgrounded tab aren't read, and
+    // eagerly stamping them cleared unread badges on other devices too.
+    const mark = () => { if (document.visibilityState === 'visible') markRead(convId); };
+    mark();
+    document.addEventListener('visibilitychange', mark);
+    return () => document.removeEventListener('visibilitychange', mark);
   }, [convId, messages.length, markRead]);
 
   useEffect(() => {
@@ -995,9 +1023,14 @@ const ChatView: React.FC<{
                       {msg.text}
                     </div>
                   )}
-                  {/* Read receipt under the last sent message */}
-                  {isMe && isLastSent && (
-                    <MessageReceipt status={getReceiptStatus(msg.id)} />
+                  {/* Receipt under the last sent message; failed/sending
+                      messages always show theirs (a buried failure with no
+                      affordance would look delivered). */}
+                  {isMe && (isLastSent || msg.status === 'failed' || msg.status === 'sending') && (
+                    <MessageReceipt
+                      status={getReceiptStatus(msg)}
+                      onRetry={msg.status === 'failed' && convId ? () => retryMessage(convId, msg.id) : undefined}
+                    />
                   )}
                 </div>
               </div>
