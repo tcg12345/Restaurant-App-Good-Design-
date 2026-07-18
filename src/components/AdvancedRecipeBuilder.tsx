@@ -546,10 +546,20 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean }
 /* ── Draft persistence ───────────────────────────────────────── */
 
 /* ── Auto-resume slot (single, transient — used by the "Resume your
-     draft?" prompt on next modal open). Not exposed in Activity. ─ */
-function resumeSlotKey(userId: string | null, mealId: string | null): string {
+     draft?" prompt on next modal open). Not exposed in Activity.
+
+     Seeded sessions (AI generation / import) get their OWN slot: they
+     share every write path with manual sessions (autosave, Save draft,
+     publish cleanup), so keying them to the plain slot silently
+     overwrote — or on publish, deleted — the user's in-progress manual
+     recipe. Nothing ever READS the seed slot (a seeded open shows the
+     seed, never a resume prompt), so it's write-only by design; a
+     seeded session the user wants to keep goes through Save draft into
+     the Activity drafts list. ─ */
+function resumeSlotKey(userId: string | null, mealId: string | null, seeded = false): string {
   const u = userId || 'anon';
-  return mealId ? `gourmad-recipe-draft-${u}-edit-${mealId}` : `gourmad-recipe-draft-${u}`;
+  if (mealId) return `gourmad-recipe-draft-${u}-edit-${mealId}`;
+  return seeded ? `gourmad-recipe-draft-${u}-seed` : `gourmad-recipe-draft-${u}`;
 }
 
 interface ResumeSlot {
@@ -647,7 +657,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const aiEditAbortRef = useRef<AbortController | null>(null);
   const toast = useToast();
 
-  const key = useMemo(() => resumeSlotKey(userId, existing?.id || null), [userId, existing?.id]);
+  const key = useMemo(() => resumeSlotKey(userId, existing?.id || null, !!seed), [userId, existing?.id, seed]);
   const saveTimerRef = useRef<number | null>(null);
   const hasUserInputRef = useRef(false);
   const initialHydratedRef = useRef(false);
