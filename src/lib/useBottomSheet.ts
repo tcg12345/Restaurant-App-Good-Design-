@@ -33,27 +33,54 @@ import { pushOverlay } from './overlay-registry';
  * (close via the existing X / back affordance). Body-scroll lock still
  * applies.
  */
+/* Module-level ref-count for the body scroll lock (same pattern as
+ * overlay-registry). Per-instance save/restore broke with STACKED sheets:
+ * open A (saves ''), open B on top (saves 'hidden'); close A first →
+ * restores '' while B is still up (page scrolls behind it); close B →
+ * restores 'hidden' → body permanently unscrollable with nothing open.
+ * Counting locks instead: set styles on 0→1, clear them on 1→0 — order of
+ * closing never matters. */
+let bodyLockCount = 0;
+let savedOverflow = '';
+let savedOverscroll = '';
+
+function acquireBodyScrollLock(): () => void {
+  if (typeof document === 'undefined') return () => {};
+  const body = document.body;
+  if (bodyLockCount === 0) {
+    // Save whatever a NON-sheet owner had set (usually '') exactly once.
+    savedOverflow = body.style.overflow;
+    savedOverscroll = body.style.overscrollBehavior;
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'contain';
+  }
+  bodyLockCount++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    bodyLockCount = Math.max(0, bodyLockCount - 1);
+    if (bodyLockCount === 0) {
+      body.style.overflow = savedOverflow;
+      body.style.overscrollBehavior = savedOverscroll;
+    }
+  };
+}
+
 export function useBottomSheet(
   open: boolean,
   onClose: () => void,
 ): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void } {
-  // Lock body scroll while the sheet is open. Save/restore the previous
-  // value rather than blindly setting back to '' so a parent that already
-  // had its own overflow (e.g. another modal open underneath) isn't broken
-  // when this one closes.
+  // Lock body scroll while the sheet is open — ref-counted so stacked
+  // sheets compose regardless of close order (see acquireBodyScrollLock).
   useEffect(() => {
     if (!open) return;
     if (typeof document === 'undefined') return;
-    const body = document.body;
-    const prevOverflow = body.style.overflow;
-    const prevOverscroll = body.style.overscrollBehavior;
-    body.style.overflow = 'hidden';
-    body.style.overscrollBehavior = 'contain';
+    const releaseLock = acquireBodyScrollLock();
     // Stand the page swipe-back down while this sheet owns the screen.
     const releaseOverlay = pushOverlay();
     return () => {
-      body.style.overflow = prevOverflow;
-      body.style.overscrollBehavior = prevOverscroll;
+      releaseLock();
       releaseOverlay();
     };
   }, [open]);
