@@ -2296,11 +2296,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
       // Rewrite the current rating using the promoted visit's data,
       // keeping the restaurant metadata from the active rating so
-      // fields like address / cuisine / lists are preserved.
-      let promotedForPublish: RestaurantRating | null = null;
-      setRatings((prev) => {
-        const existing = prev.find((r) => r.restaurantId === restaurantId);
-        if (!existing) return prev;
+      // fields like address / cuisine / lists are preserved. Computed
+      // from ratingsRef BEFORE the set (same pattern as rateRestaurant):
+      // the old version assigned the promoted row inside the setRatings
+      // updater and read it right after, but React only runs updaters
+      // later (at render), so the publish below saw null and silently
+      // skipped — friends kept seeing the deleted visit's score until
+      // the next boot-time full republish.
+      const existing = ratingsRef.current.find((r) => r.restaurantId === restaurantId);
+      if (existing) {
+        const now = Date.now();
         const promoted: RestaurantRating = {
           ...existing,
           score: Number(promote.score),
@@ -2310,36 +2315,39 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           wouldReturn: promote.would_return !== undefined ? !!promote.would_return : existing.wouldReturn,
           photos: promote.photos || [],
           friendIds: promote.friend_ids || [],
-          createdAt: Date.now(),
+          createdAt: now,
+          // Stamp updatedAt too: the merge reads it with PRECEDENCE over
+          // createdAt, so spreading `existing` would carry the old stamp
+          // and let a stale pre-promotion copy from another device win.
+          updatedAt: now,
         };
-        promotedForPublish = promoted;
-        const next = [promoted, ...prev.filter((r) => r.restaurantId !== restaurantId)];
+        const next = [promoted, ...ratingsRef.current.filter((r) => r.restaurantId !== restaurantId)];
+        ratingsRef.current = next;
+        setRatings(next);
         saveToStorage(STORAGE_KEY_RATINGS, next);
         syncRatingsToCloud(next);
-        return next;
-      });
-      // Keep the community-published row in sync with the promoted data.
-      if (userIdRef.current && promotedForPublish) {
-        const p = promotedForPublish;
-        publishCommunityRating(userIdRef.current, restaurantId, {
-          name: p.name,
-          score: p.score,
-          notes: p.notes,
-          cuisine: p.cuisine,
-          price: p.price,
-          address: p.address,
-          visitDate: p.visitDate,
-          tags: p.tags,
-          wouldReturn: p.wouldReturn,
-          friendIds: p.friendIds || [],
-          photoUrl: p.image || '',
-        });
-        // The promoted visit's photo set replaces the deleted visit's in
-        // the community gallery (or clears it if the promoted visit has
-        // no photos) — the gallery must always mirror the *current* visit.
-        // Same decoupling as rateRestaurant: only an empty set removes;
-        // unknown visibility defers rather than deleting.
-        syncCommunityPhotos(restaurantId, p.photos);
+        // Keep the community-published row in sync with the promoted data.
+        if (userIdRef.current) {
+          publishCommunityRating(userIdRef.current, restaurantId, {
+            name: promoted.name,
+            score: promoted.score,
+            notes: promoted.notes,
+            cuisine: promoted.cuisine,
+            price: promoted.price,
+            address: promoted.address,
+            visitDate: promoted.visitDate,
+            tags: promoted.tags,
+            wouldReturn: promoted.wouldReturn,
+            friendIds: promoted.friendIds || [],
+            photoUrl: promoted.image || '',
+          });
+          // The promoted visit's photo set replaces the deleted visit's in
+          // the community gallery (or clears it if the promoted visit has
+          // no photos) — the gallery must always mirror the *current* visit.
+          // Same decoupling as rateRestaurant: only an empty set removes;
+          // unknown visibility defers rather than deleting.
+          syncCommunityPhotos(restaurantId, promoted.photos);
+        }
       }
       return;
     }
