@@ -603,10 +603,24 @@ export async function followPublicAccount(userId: string, targetId: string): Pro
   } catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
 }
 
-/** Get follower and following counts */
+/** Get follower and following counts.
+ *
+ *  Goes through the SECURITY DEFINER RPC from migration 052: the
+ *  user_friends SELECT policy only exposes rows involving the CALLER and
+ *  RLS filters before counting, so direct count queries returned 0-or-1
+ *  for everyone else's profile (and ~0 for every expert). The RPC counts
+ *  server-side and returns only the aggregates. */
 export async function getFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
   if (!supabaseConfigured || !userId) return { followers: 0, following: 0 };
   try {
+    const { data, error } = await supabase.rpc('get_follow_counts', { target: userId });
+    if (!error && data) {
+      const row = (Array.isArray(data) ? data[0] : data) as { followers?: unknown; following?: unknown } | undefined;
+      if (row) return { followers: Number(row.followers) || 0, following: Number(row.following) || 0 };
+    }
+    if (error) console.warn('[Community] get_follow_counts RPC failed (migration 052 applied?) — falling back to RLS-limited counts:', error.message);
+    // Fallback for projects without migration 052 — only accurate for the
+    // caller's own id (RLS hides everyone else's edges).
     const [{ count: following }, { count: followers }] = await Promise.all([
       supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'accepted'),
       supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId).eq('status', 'accepted'),
