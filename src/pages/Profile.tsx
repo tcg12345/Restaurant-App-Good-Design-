@@ -1111,7 +1111,9 @@ export const Profile: React.FC = () => {
       return;
     }
     clearLocalAppData();
-    setSettingsOpen(false);
+    // Hard reload so provider state (still holding the deleted account's data
+    // in memory) is torn down too — same clean-slate pattern as sign-out.
+    window.location.reload();
   };
 
   const displayName = profile?.display_name || 'Your Name';

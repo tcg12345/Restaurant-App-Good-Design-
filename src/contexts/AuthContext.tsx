@@ -181,6 +181,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const continueAsGuest = useCallback(() => {
+    // Purge any app data a previous signed-in user left on this device BEFORE
+    // raising the guest flag (clearLocalAppData drops gourmad-* keys, which
+    // includes GUEST_MODE_KEY — so clear first, then set it), so a guest never
+    // sees the prior account's ratings / meals / cached private-bucket URLs.
+    clearLocalAppData();
     try { localStorage.setItem(GUEST_MODE_KEY, '1'); } catch { /* storage unavailable */ }
     setIsGuest(true);
   }, []);
@@ -405,12 +410,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
+    markNeedsPassword(false);
+    clearGuest();
+    // End the session's data footprint on this device: React state alone isn't
+    // enough — the data providers sit ABOVE the auth gate, so they stay mounted
+    // (still holding the prior user's ratings/meals in memory), and localStorage
+    // + the signed-URL cache would otherwise persist. Purge storage, then hard
+    // reload so the whole tree re-inits from a clean slate on the Auth screen —
+    // the same clean-identity technique guardDeviceAccount uses on an account
+    // switch. (supabase.auth.signOut already cleared the session, so the reload
+    // comes back signed-out.)
+    clearLocalAppData();
+    try {
+      window.location.reload();
+      return;
+    } catch { /* no window (SSR/tests) — fall back to clearing React state */ }
     setProfile(null);
     setProfileError(false);
     setPendingRequestCount(0);
     setIsAdmin(false);
-    markNeedsPassword(false);
-    clearGuest();
   }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
