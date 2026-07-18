@@ -899,7 +899,11 @@ export const RecipePage: React.FC = () => {
       photos: (data.photos || []).map((url) => ({ url, caption: '', isFavorite: false })),
       tags: data.tags || [],
       dishes: [],
-      isPublic: true,
+      // A copy of someone else's recipe must NOT be published under your name.
+      // It lands private (isPublic:false, with sourceAuthor attribution below)
+      // until you explicitly publish it; publishing it as-is was leaking other
+      // users' recipes into friends' feeds/pickers as though you authored them.
+      isPublic: !isAnotherUsers,
       createdAt: Date.now(),
       coverPhoto: data.coverPhoto || undefined,
       prepTime: data.prepMinutes || undefined,

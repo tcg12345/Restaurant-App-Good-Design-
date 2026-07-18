@@ -761,7 +761,11 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
     photos: r.photos ?? [],
     tags: r.tags ?? [],
     dishes: [],
-    isPublic: !r.isPrivate,
+    // A sourceAuthorId means this is a copy of someone else's recipe (it's only
+    // ever stamped on saves from another user). Such a copy is ALWAYS private
+    // until the saver explicitly publishes it — never inherit the original's
+    // public flag, which would republish it under the saver's name.
+    isPublic: r.sourceAuthorId ? false : !r.isPrivate,
     createdAt: r.createdAt || Date.now(),
     coverPhoto: r.coverPhoto,
     prepTime: r.prepTime,
