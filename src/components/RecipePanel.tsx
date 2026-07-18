@@ -196,7 +196,15 @@ const ReviewsSection: React.FC<{
     setSaving(true);
     setSubmitError(false);
     try {
-      const saved = await upsertHomeMealReview(currentUserId, meal.id, { rating, notes });
+      // The meta mirror rides the stash param — upsertHomeMealReview writes
+      // __my_meal_reviews__ through stashMetaKey itself (spreading the
+      // existing map), so the shared restaurant_meta column is only ever
+      // written by ListsContext and the review survives navigation away and
+      // back without a re-fetch (mirrors the full-page behavior).
+      const saved = await upsertHomeMealReview(currentUserId, meal.id, { rating, notes }, {
+        meta: restaurantMeta as Record<string, unknown>,
+        stashMetaKey,
+      });
       if (!saved) throw new Error('save failed');
       // Update the in-memory review list so the new entry appears
       // immediately. Drop the previous entry by this user if present.
@@ -205,16 +213,6 @@ const ReviewsSection: React.FC<{
         return [saved, ...filtered];
       });
       setMyReview(saved);
-      // Stash through ListsContext meta so it survives navigation away
-      // and back without a re-fetch (mirrors the full-page behavior).
-      try {
-        const meta = (stashMetaKey as unknown as (k: string, v: unknown) => void);
-        // Spread the existing map — stashMetaKey replaces the whole value,
-        // so writing a single-entry object here would erase the user's
-        // cached reviews for every other meal (RecipePage reads this map).
-        const existing = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
-        meta('__my_meal_reviews__', { ...existing, [meal.id]: { rating, notes, updatedAt: new Date().toISOString() } });
-      } catch { /* meta sync is best-effort */ }
       setSavedAt(Date.now());
       showToast(myReview ? 'Review updated' : 'Review posted');
     } catch {

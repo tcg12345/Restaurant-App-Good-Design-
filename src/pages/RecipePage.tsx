@@ -1036,13 +1036,12 @@ export const RecipePage: React.FC = () => {
         }
       } else {
         const notes = title ? `${title}\n\n${body}` : body;
-        const saved = await upsertHomeMealReview(currentUserId, data.id, { rating, notes });
-        // Also stash via ListsContext meta so the home-meal fallback path
-        // surfaces the review for the author.
-        const existing = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
-        stashMetaKey('__my_meal_reviews__', {
-          ...existing,
-          [data.id]: { rating, notes, updatedAt: new Date().toISOString() },
+        // The meta mirror rides the stash param — upsertHomeMealReview
+        // writes __my_meal_reviews__ through stashMetaKey itself, so the
+        // shared restaurant_meta column is only ever written by ListsContext.
+        const saved = await upsertHomeMealReview(currentUserId, data.id, { rating, notes }, {
+          meta: restaurantMeta as Record<string, unknown>,
+          stashMetaKey,
         });
         if (saved) {
           setMyReview({ id: saved.id, userId: saved.userId, rating: norm5(saved.rating), notes: saved.notes, photo: '', createdAt: saved.createdAt });

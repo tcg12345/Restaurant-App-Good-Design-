@@ -7,6 +7,9 @@
  * own review inside their `user_app_data.restaurant_meta.__my_meal_reviews__`
  * when the table doesn't exist or RLS blocks the write. This dual-write
  * approach mirrors the pattern used for home meals themselves.
+ *
+ * Meta WRITES go through ListsContext (see MetaReviewStash below) — this
+ * module never writes the shared restaurant_meta column directly.
  */
 import { supabase, supabaseConfigured } from './supabase';
 
@@ -105,40 +108,49 @@ async function fetchMetaReviews(mealIds: string[], scanUserIds: string[]): Promi
   } catch { return []; }
 }
 
-async function saveMyMetaReview(
-  userId: string,
+/** How the meta fallback gets WRITTEN. restaurant_meta is shared with
+ *  __home_meals__ / __visit_history__ / __tombstones__ and owned by
+ *  ListsContext, which pushes the whole JSONB from its state. The previous
+ *  version here did its own read-modify-write of the entire column: racing
+ *  a ListsContext sync lost one side's write, and even without a race its
+ *  fresh-DB-read blob could be staler than local state — resurrecting
+ *  deleted meals/visit history (ListsContext records a prior clobber bug of
+ *  exactly this shape). Callers now pass their context meta + stashMetaKey
+ *  so every restaurant_meta write serializes through the one owner. */
+export interface MetaReviewStash {
+  /** ListsContext's restaurantMeta state — the authoritative merged copy,
+   *  NOT a fresh DB read. */
+  meta: Record<string, unknown>;
+  /** ListsContext's stashMetaKey — merges one reserved key into
+   *  restaurant_meta via the context's serialized state + sync path. */
+  stashMetaKey: (key: string, value: unknown) => void;
+}
+
+const reviewMapFrom = (meta: Record<string, unknown>): MetaReviewMap => {
+  const raw = meta.__my_meal_reviews__;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...(raw as MetaReviewMap) } : {};
+};
+
+function saveMyMetaReview(
   mealId: string,
   review: { rating: number; notes: string },
-): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
-  try {
-    // Load the full meta, set the review, write it back.
-    const { data } = await supabase.from('user_app_data')
-      .select('restaurant_meta')
-      .eq('user_id', userId)
-      .single();
-    const meta = ((data?.restaurant_meta ?? {}) as Record<string, unknown>);
-    const existing = (meta.__my_meal_reviews__ ?? {}) as MetaReviewMap;
-    existing[mealId] = { rating: review.rating, notes: review.notes, updatedAt: new Date().toISOString() };
-    meta.__my_meal_reviews__ = existing as unknown as typeof meta[string];
-    const { error } = await supabase.from('user_app_data')
-      .update({ restaurant_meta: meta, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.warn('[HomeMealReviews] meta fallback save error:', error.message); return false; }
-    return true;
-  } catch (err) {
-    console.warn('[HomeMealReviews] meta fallback exception:', err);
-    return false;
-  }
+  stash: MetaReviewStash,
+): void {
+  const map = reviewMapFrom(stash.meta);
+  map[mealId] = { rating: review.rating, notes: review.notes, updatedAt: new Date().toISOString() };
+  stash.stashMetaKey('__my_meal_reviews__', map);
 }
 
 // ── Public API ──
 
-/** Create or update the current user's review for a home meal. */
+/** Create or update the current user's review for a home meal. `stash`
+ *  carries ListsContext's meta + stashMetaKey — the meta fallback writes
+ *  through it (see MetaReviewStash), never directly at the column. */
 export async function upsertHomeMealReview(
   userId: string,
   mealId: string,
   data: { rating: number; notes: string },
+  stash: MetaReviewStash,
 ): Promise<HomeMealReview | null> {
   if (!supabaseConfigured || !userId || !mealId) return null;
 
@@ -160,7 +172,7 @@ export async function upsertHomeMealReview(
       .single();
     if (!error && row) {
       // Also stash in meta as a reliable fallback.
-      saveMyMetaReview(userId, mealId, data).catch(() => {});
+      saveMyMetaReview(mealId, data, stash);
       return rowToHomeMealReview(row as Record<string, unknown>);
     }
     console.warn('[HomeMealReviews] table upsert failed, falling back to meta:', error?.message);
@@ -168,26 +180,25 @@ export async function upsertHomeMealReview(
     console.warn('[HomeMealReviews] table upsert exception, falling back to meta:', err);
   }
 
-  // Fallback: store in the reviewer's own restaurant_meta.
-  const ok = await saveMyMetaReview(userId, mealId, data);
-  if (ok) {
-    return {
-      id: `meta-${userId}-${mealId}`,
-      userId,
-      mealId,
-      rating: data.rating,
-      notes: data.notes,
-      createdAt: now,
-      updatedAt: now,
-    };
-  }
-  return null;
+  // Fallback: store in the reviewer's own restaurant_meta (via ListsContext,
+  // which persists locally at once and syncs the column when cloud-ready).
+  saveMyMetaReview(mealId, data, stash);
+  return {
+    id: `meta-${userId}-${mealId}`,
+    userId,
+    mealId,
+    rating: data.rating,
+    notes: data.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /** Delete the current user's review for a home meal. */
 export async function deleteHomeMealReview(
   userId: string,
   mealId: string,
+  stash: MetaReviewStash,
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId || !mealId) return false;
   if (isUuid(mealId)) try {
@@ -196,24 +207,12 @@ export async function deleteHomeMealReview(
       .eq('user_id', userId)
       .eq('recipe_id', mealId);
   } catch { /* best-effort */ }
-  // Also clear from meta.
-  try {
-    const map = await loadMyMetaReviews(userId);
-    if (map[mealId]) {
-      delete map[mealId];
-      const { data } = await supabase.from('user_app_data')
-        .select('restaurant_meta')
-        .eq('user_id', userId)
-        .single();
-      if (data) {
-        const meta = (data.restaurant_meta ?? {}) as Record<string, unknown>;
-        meta.__my_meal_reviews__ = map as unknown as typeof meta[string];
-        await supabase.from('user_app_data')
-          .update({ restaurant_meta: meta, updated_at: new Date().toISOString() })
-          .eq('user_id', userId);
-      }
-    }
-  } catch { /* best-effort */ }
+  // Also clear from meta — through ListsContext, same as the save path.
+  const map = reviewMapFrom(stash.meta);
+  if (map[mealId]) {
+    delete map[mealId];
+    stash.stashMetaKey('__my_meal_reviews__', map);
+  }
   return true;
 }
 
