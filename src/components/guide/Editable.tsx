@@ -135,6 +135,34 @@ export const Editable: React.FC<EditableProps> = ({
     }
   };
 
+  // Paste as PLAIN TEXT, clamped to the character budget. The default
+  // contentEditable paste injects whatever HTML is on the clipboard —
+  // images, styled spans, whole page fragments — corrupting the editing
+  // DOM; and since the keydown maxLength guard only sees keystrokes, an
+  // unhandled paste walks straight past every limit (1200-char sections,
+  // short subtitles). insertText keeps the DOM a flat text run, same as
+  // typing (see handleKey).
+  const handlePaste = (e: React.ClipboardEvent<HTMLElement>) => {
+    e.preventDefault();
+    let text = e.clipboardData.getData('text/plain');
+    if (!text) return;
+    // Single-line nodes never take line breaks — collapse them to spaces
+    // (mirrors the blur commit's normalization).
+    if (!multiline) text = text.replace(/\s*\n\s*/g, ' ');
+    if (maxLength) {
+      const el = e.currentTarget;
+      // Pasting over a selection replaces it, so the budget gets that
+      // length back. Only count selections inside this node.
+      const sel = window.getSelection();
+      const replaced = sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)
+        ? sel.toString().length
+        : 0;
+      const remaining = Math.max(0, maxLength - ((el.textContent?.length || 0) - replaced));
+      text = text.slice(0, remaining);
+    }
+    if (text) document.execCommand('insertText', false, text);
+  };
+
   return React.createElement(as, {
     ref: (node: HTMLElement | null) => { ref.current = node; },
     contentEditable: true,
@@ -167,6 +195,10 @@ export const Editable: React.FC<EditableProps> = ({
       }
     },
     onKeyDown: handleKey,
+    onPaste: handlePaste,
+    // Dropping content into a contentEditable inserts raw HTML through a
+    // path onPaste never sees — block it outright rather than sanitize.
+    onDrop: (e: React.DragEvent<HTMLElement>) => e.preventDefault(),
   } as React.HTMLAttributes<HTMLElement> & { contentEditable: boolean; ref: (n: HTMLElement | null) => void });
 };
 
