@@ -77,6 +77,9 @@ interface PostsContextValue {
     isPublic: boolean;
     items: NewPostItem[];
     onProgress?: (n: number) => void;
+    /** Cancels the media uploads — the just-inserted post is torn down and
+     *  the promise rejects with an AbortError. */
+    signal?: AbortSignal;
   }) => Promise<Post | null>;
 
   togglePostLike: (postId: string) => Promise<void>;

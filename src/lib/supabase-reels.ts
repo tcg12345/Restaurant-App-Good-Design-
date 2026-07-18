@@ -222,6 +222,9 @@ export interface UploadReelInput {
   restaurant?: ReelRestaurantSnapshot;
   recipe?: ReelRecipeSnapshot;
   onProgress?: (fraction: number) => void;
+  /** Cancels the Mux byte upload (the long phase). createReel rolls the
+   *  just-inserted row back and rejects with an AbortError. */
+  signal?: AbortSignal;
 }
 
 /** Probe the duration of a local video file using a hidden <video>. */
@@ -261,7 +264,7 @@ export async function readVideoDuration(file: File): Promise<number> {
  */
 export async function createReel(input: UploadReelInput): Promise<ReelRow | null> {
   if (!supabaseConfigured) return null;
-  const { userId, file, kind, caption, audioLabel, locationLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
+  const { userId, file, kind, caption, audioLabel, locationLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress, signal } = input;
 
   // Our own id up-front: it doubles as the Mux `passthrough`, so every webhook
   // maps straight back to this row by primary key — no upload/asset-id race.
@@ -338,15 +341,20 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
     throw new Error(insertError?.message || 'Failed to create reel');
   }
 
-  // 3) Upload the bytes straight to Mux — drives the bulk of the progress bar.
+  // 3) Upload the bytes straight to Mux — drives the bulk of the progress
+  //    bar. `signal` covers the whole long phase: aborting rejects the PUT
+  //    (or the pre-check below) and the catch rolls the row back, so a
+  //    user-cancelled upload leaves no ghost "processing" reel.
   onProgress?.(0.12);
   try {
-    await uploadToMux(ticket.uploadUrl, file, { onProgress: (f) => onProgress?.(0.12 + 0.86 * f) });
+    if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
+    await uploadToMux(ticket.uploadUrl, file, { onProgress: (f) => onProgress?.(0.12 + 0.86 * f), signal });
   } catch (err) {
-    // Roll the row back so a failed upload doesn't leave a ghost processing reel.
+    // Roll the row back so a failed/cancelled upload doesn't leave a ghost
+    // processing reel.
     try { await supabase.from('reels').delete().eq('id', reelId); } catch { /* best-effort */ }
     if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
-    console.error('[Reels] mux upload failed:', err);
+    if ((err as { name?: string })?.name !== 'AbortError') console.error('[Reels] mux upload failed:', err);
     throw err instanceof Error ? err : new Error('Upload failed');
   }
   onProgress?.(1);

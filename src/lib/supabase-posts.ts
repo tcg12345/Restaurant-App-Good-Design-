@@ -300,6 +300,10 @@ export interface CreatePostInput {
   isPublic: boolean;
   items: NewPostItem[];
   onProgress?: (fraction: number) => void;
+  /** Cancels the media uploads (the long phase). createPost deletes the
+   *  just-inserted post (items cascade), removes any uploaded photos, and
+   *  rejects with an AbortError. */
+  signal?: AbortSignal;
 }
 
 /** Probe a video file's duration via a hidden <video>. */
@@ -451,13 +455,25 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     try {
       await uploadToMux(ticket.uploadUrl, item.file, {
         onProgress: (f) => { loadedBytes[idx] = (item.file.size || 0) * f; emitProgress(); },
+        signal: input.signal,
       });
     } catch (err) {
+      // A user cancel aborts the whole post below — don't mark items.
+      if ((err as { name?: string })?.name === 'AbortError') throw err;
       console.warn(`[Posts] mux upload failed for item ${idx + 1}:`, err);
       // Mark errored so the UI doesn't spin on a processing item forever.
       try { await supabase.from('post_items').update({ mux_status: 'errored' }).eq('id', itemIds[idx]); } catch { /* ignore */ }
     }
-  }));
+  })).catch(async (err) => {
+    // Cancelled mid-upload: tear the whole post down (items cascade off the
+    // posts row) so no ghost "processing" items outlive the cancel.
+    if ((err as { name?: string })?.name === 'AbortError') {
+      try { await supabase.from('posts').delete().eq('id', postId); } catch { /* best-effort */ }
+      await removePhotos();
+      cleanupLocal();
+    }
+    throw err;
+  });
 
   onProgress?.(1);
 

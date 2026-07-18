@@ -194,6 +194,9 @@ export const AddPostModal: React.FC = () => {
   const [audio, setAudio] = useState('Original audio');
   const [isPublic, setIsPublic] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // In-flight media uploads — lets the close button double as Cancel while
+  // a create upload runs (abort → createPost tears the whole post down).
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState(0);
   const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -907,6 +910,8 @@ export const AddPostModal: React.FC = () => {
           recipe: it.recipe,
         };
       });
+      const controller = new AbortController();
+      uploadAbortRef.current = controller;
       const post = await createPost({
         caption: postCaption.trim(),
         // Only use the actual picked location — free-text typing without
@@ -916,6 +921,7 @@ export const AddPostModal: React.FC = () => {
         isPublic,
         items: newItems,
         onProgress: (n) => setProgress(n),
+        signal: controller.signal,
       });
       if (!post) throw new Error("Couldn't create the post — try again.");
       // Hold the modal open on the animated success screen with
@@ -923,13 +929,23 @@ export const AddPostModal: React.FC = () => {
       setProgress(1);
       setSharedPost({ id: post.id });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
-      setErrorMsg(msg);
-      setProgress(0);
+      if ((err as { name?: string })?.name === 'AbortError') {
+        // User tapped Cancel — createPost already tore the post down.
+        showToast('Upload cancelled');
+        setProgress(0);
+      } else {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        setErrorMsg(msg);
+        setProgress(0);
+      }
     } finally {
+      uploadAbortRef.current = null;
       setSubmitting(false);
     }
   };
+
+  // Abort the in-flight media uploads (the close button's Cancel role).
+  const cancelUpload = () => uploadAbortRef.current?.abort();
 
   const activeItem = items.find((it) => it.key === activeKey) ?? items[0] ?? null;
   const activeIdx = activeItem ? items.findIndex((it) => it.key === activeItem.key) : -1;
@@ -1228,13 +1244,15 @@ export const AddPostModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  if (submitting) return;
+                  // While a create upload runs this doubles as Cancel —
+                  // aborts the uploads; createPost tears the post down.
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
                   if (step > (isEditing ? 3 : 1) && !sharedPost) goToStep((step - 1) as Step);
                   else closeAddPostModal();
                 }}
-                disabled={submitting}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
+                aria-label={submitting && !isEditing ? 'Cancel upload' : step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
               >
                 {step > (isEditing ? 3 : 1) && !sharedPost ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </button>
@@ -1869,10 +1887,14 @@ export const AddPostModal: React.FC = () => {
             <div className="h-[60px] flex-shrink-0 border-b border-on-surface/[0.07] flex items-center px-3.5 relative">
               <button
                 type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
+                onClick={() => {
+                  // Doubles as Cancel while a create upload is in flight.
+                  if (submitting) { if (!isEditing) cancelUpload(); return; }
+                  closeAddPostModal();
+                }}
+                disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label="Close"
+                aria-label={submitting && !isEditing ? 'Cancel upload' : 'Close'}
               >
                 <X size={17} />
               </button>

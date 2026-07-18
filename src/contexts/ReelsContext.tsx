@@ -137,6 +137,9 @@ interface ReelsContextValue {
     restaurant?: ReelRestaurantSnapshot;
     recipe?: ReelRecipeSnapshot;
     onProgress?: (n: number) => void;
+    /** Cancels the Mux upload — the just-inserted row is rolled back and
+     *  the promise rejects with an AbortError. */
+    signal?: AbortSignal;
   }) => Promise<Reel | null>;
 
   toggleLike: (reelId: string) => Promise<void>;
