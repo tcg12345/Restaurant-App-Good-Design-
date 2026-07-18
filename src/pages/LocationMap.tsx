@@ -560,8 +560,14 @@ export const LocationMap: React.FC = () => {
   }, [navigate]);
 
   const handleUseCurrent = useCallback(async (): Promise<void> => {
-    const loc = await getCurrentHomeLocation();
-    handleLocationChange(loc);
+    // Permission denied / no GPS rejects — swallow instead of emitting an
+    // unhandled rejection (the user just stays on the current location).
+    try {
+      const loc = await getCurrentHomeLocation();
+      handleLocationChange(loc);
+    } catch (err) {
+      console.warn('[LocationMap] use-current-location failed:', err);
+    }
   }, [handleLocationChange]);
 
   // Sort the list by distance from the city centre — that's what people
