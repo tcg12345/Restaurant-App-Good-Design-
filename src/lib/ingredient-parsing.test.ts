@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { parseIngredientLine, normalizeUnit, parseAmount, displayUnit } from './ingredient-parsing';
+import { parseIngredientLine, normalizeUnit, normalizeQuantityToken, parseAmount, displayUnit } from './ingredient-parsing';
+
+describe('normalizeQuantityToken', () => {
+  it('maps unicode vulgar fractions to ASCII', () => {
+    expect(normalizeQuantityToken('½')).toBe('1/2');
+    expect(normalizeQuantityToken('¾')).toBe('3/4');
+    expect(normalizeQuantityToken('⅚')).toBe('5/6');
+  });
+
+  it('keeps the whole part of compounds ("1½" and "1 ½" → "1 1/2")', () => {
+    expect(normalizeQuantityToken('1½')).toBe('1 1/2');
+    expect(normalizeQuantityToken('2 ¾')).toBe('2 3/4');
+  });
+
+  it('normalizes en/em dashes and the fraction slash', () => {
+    expect(normalizeQuantityToken('2–3')).toBe('2-3');
+    expect(normalizeQuantityToken('2—3')).toBe('2-3');
+    expect(normalizeQuantityToken('1⁄2')).toBe('1/2');
+  });
+
+  it('leaves plain text untouched', () => {
+    expect(normalizeQuantityToken('to taste')).toBe('to taste');
+    expect(normalizeQuantityToken('1 1/2')).toBe('1 1/2');
+  });
+});
 
 describe('parseIngredientLine', () => {
   it('does NOT fuzzy-match ingredient words into units ("2 bay leaves" ≠ "2 bags")', () => {
@@ -28,6 +52,12 @@ describe('parseIngredientLine', () => {
     expect(parseIngredientLine('')).toBeNull();
   });
 
+  it('parses unicode-fraction and dash-range lines (importer output)', () => {
+    expect(parseIngredientLine('½ cup sugar')).toEqual({ amount: '1/2', unit: 'cups', name: 'sugar' });
+    expect(parseIngredientLine('1½ cups flour')).toEqual({ amount: '1 1/2', unit: 'cups', name: 'flour' });
+    expect(parseIngredientLine('2–3 eggs')).toEqual({ amount: '2-3', unit: '', name: 'eggs' });
+  });
+
   it('keeps the T/t tablespoon-teaspoon case distinction', () => {
     expect(parseIngredientLine('1 T butter')).toEqual({ amount: '1', unit: 'tbsp', name: 'butter' });
     expect(parseIngredientLine('1 t vanilla')).toEqual({ amount: '1', unit: 'tsp', name: 'vanilla' });
@@ -53,6 +83,12 @@ describe('amount + display helpers', () => {
     expect(parseAmount('1 1/2')).toBe(1.5);
     expect(parseAmount('.5')).toBe(0.5);
     expect(parseAmount('1-2')).toBe(1);
+  });
+
+  it('parses unicode fractions and dash ranges', () => {
+    expect(parseAmount('½')).toBe(0.5);
+    expect(parseAmount('1½')).toBe(1.5);
+    expect(parseAmount('2–3')).toBe(2);
   });
 
   it('renders singular for amounts ≤ 1', () => {

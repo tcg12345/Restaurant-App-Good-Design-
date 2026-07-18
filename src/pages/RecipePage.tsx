@@ -46,6 +46,8 @@ import {
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
 import { cn, localISODate } from '../lib/utils';
+import { normalizeQuantityToken } from '../lib/ingredient-parsing';
+import { parseQuantity } from '../lib/recipe-display';
 import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
@@ -72,30 +74,8 @@ const VULGAR_FRAC: Record<string, string> = {
   '0.250': '¼', '0.500': '½', '0.750': '¾',
   '0.333': '⅓', '0.667': '⅔', '0.125': '⅛', '0.375': '⅜', '0.625': '⅝', '0.875': '⅞',
 };
-function formatQty(raw: string | number | undefined, scale: number): string {
-  if (raw === undefined || raw === null || raw === '') return '';
-  // The amount string in our DB might be "1", "1/2", "1 1/2", "0.5", or
-  // free text like "to taste". Parse to a number when possible; otherwise
-  // pass through unchanged (still scaled? no — only numeric values scale).
-  const trimmed = String(raw).trim();
-  if (!trimmed) return '';
-  // Pure numeric / fraction parser shared with recipe-display.tsx.
-  const mixed = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-  let value: number | null = null;
-  if (mixed) {
-    const d = parseInt(mixed[3], 10);
-    if (d) value = parseInt(mixed[1], 10) + parseInt(mixed[2], 10) / d;
-  } else {
-    const frac = trimmed.match(/^(\d+)\/(\d+)$/);
-    if (frac) {
-      const d = parseInt(frac[2], 10);
-      if (d) value = parseInt(frac[1], 10) / d;
-    } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-      value = parseFloat(trimmed);
-    }
-  }
-  if (value === null) return trimmed;
-  const v = value * scale;
+/** Render one already-scaled numeric value with vulgar fractions. */
+function renderScaledQty(v: number): string {
   if (v === 0) return '0';
   const whole = Math.floor(v);
   const frac = +(v - whole).toFixed(3);
@@ -105,6 +85,27 @@ function formatQty(raw: string | number | undefined, scale: number): string {
   // Use unicode vulgar fraction inline with whole (e.g. "1½")
   if (VULGAR_FRAC[frac.toFixed(3)]) return `${whole}${fracStr}`;
   return `${whole} ${fracStr}`;
+}
+function formatQty(raw: string | number | undefined, scale: number): string {
+  if (raw === undefined || raw === null || raw === '') return '';
+  // The amount string in our DB might be "1", "1/2", "1 1/2", "0.5", a
+  // unicode fraction ("½", "1½" — the recipe importer produces these), a
+  // range ("2-3"), or free text like "to taste". Normalize unicode to the
+  // ASCII vocabulary first, parse via the shared parser, and pass free
+  // text through unchanged (only numeric values scale).
+  const original = String(raw).trim();
+  const trimmed = normalizeQuantityToken(original);
+  if (!trimmed) return '';
+  // Ranges scale BOTH endpoints and re-render as a range ("2-3" ×2 → "4-6").
+  const range = trimmed.match(/^(.+?)\s*-\s*(.+)$/);
+  if (range) {
+    const lo = parseQuantity(range[1]);
+    const hi = parseQuantity(range[2]);
+    if (lo !== null && hi !== null) return `${renderScaledQty(lo * scale)}-${renderScaledQty(hi * scale)}`;
+  }
+  const value = parseQuantity(trimmed);
+  if (value === null) return original;
+  return renderScaledQty(value * scale);
 }
 
 // Parse a step's first sentence as a title and the rest as body. Falls back
