@@ -933,12 +933,69 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // migration 046 also enforces this server-side.)
   const isPublicRef = useRef(authProfile?.is_public ?? false);
   isPublicRef.current = authProfile?.is_public ?? false;
+  // Whether isPublicRef is AUTHORITATIVE: false while the auth profile is
+  // still loading. The distinction matters — "unknown" must never be treated
+  // as "private, so clear the gallery" (that deleted a public user's
+  // published photos when they rated right after sign-in).
+  const isPublicKnownRef = useRef(!!authProfile);
+  isPublicKnownRef.current = !!authProfile;
+  // Photo publishes deferred because visibility was unknown at save time,
+  // keyed by restaurantId (latest photo set wins). Flushed once the profile
+  // lands; dropped on sign-out/user switch.
+  const pendingPhotoPublishRef = useRef<Map<string, PhotoItem[]>>(new Map());
+
+  /** Reconcile the community gallery for one restaurant with `photos`.
+   *
+   *  - No photos → the user removed them (or the visit has none): clear the
+   *    published rows. Safe regardless of visibility.
+   *  - Photos + account KNOWN public → publish.
+   *  - Photos + account KNOWN private → leave the table alone; migration
+   *    046's RLS already hides any historical rows from non-followers.
+   *  - Photos + visibility UNKNOWN (profile still loading) → defer: queue the
+   *    publish for when the profile lands. Never delete on "unknown" — that
+   *    branch is what silently wiped a public user's existing gallery.
+   */
+  const syncCommunityPhotos = useCallback((restaurantId: string, photos: PhotoItem[] | undefined) => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    if (!photos || photos.length === 0) {
+      pendingPhotoPublishRef.current.delete(restaurantId);
+      removeCommunityPhotos(uid, restaurantId);
+      return;
+    }
+    if (!isPublicKnownRef.current) {
+      pendingPhotoPublishRef.current.set(restaurantId, photos);
+      return;
+    }
+    pendingPhotoPublishRef.current.delete(restaurantId);
+    if (isPublicRef.current) {
+      publishCommunityPhotos(uid, restaurantId, photos).catch(() => {
+        console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
+      });
+    }
+  }, []);
+
+  // Flush deferred publishes once the profile resolves. Private accounts just
+  // drop the queue (nothing was published, nothing needs deleting).
+  useEffect(() => {
+    if (!authProfile || !userIdRef.current) return;
+    const pending = pendingPhotoPublishRef.current;
+    if (pending.size === 0) return;
+    const entries = [...pending.entries()];
+    pending.clear();
+    if (!isPublicRef.current) return;
+    for (const [restaurantId, photos] of entries) {
+      publishCommunityPhotos(userIdRef.current, restaurantId, photos).catch(() => {});
+    }
+  }, [authProfile]);
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
     // Block all cloud writes until THIS user's data has been loaded once.
     cloudReadyRef.current = false;
     dirtyDuringLoadRef.current = false;
+    // Deferred photo publishes belong to the previous identity — drop them.
+    pendingPhotoPublishRef.current.clear();
     if (!userId || !supabaseConfigured) {
       if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
       return;
@@ -1295,20 +1352,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
-            // Only republish photos for accounts KNOWN to be public. While the
-            // auth profile is still loading, isPublicRef is false (see its
-            // declaration), so a private — or not-yet-resolved — account never
-            // publishes photos to the world-readable gallery during sign-in.
-            if (r.photos && r.photos.length > 0 && isPublicRef.current) {
-              publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
-            } else if (!r.photos || r.photos.length === 0) {
-              // Self-heal: clear gallery rows for ratings whose photos were
-              // removed before reconciliation existed (or on another
-              // device). Deliberately NOT keyed on isPublic here — the
-              // profile may not be loaded yet at boot, and removing
-              // photo-less ratings' rows is safe regardless.
-              removeCommunityPhotos(userId, r.restaurantId);
-            }
+            // Reconcile each rating's gallery: publish when known public,
+            // clear when there are no photos, and — crucially — DEFER (not
+            // delete) when the profile hasn't resolved yet, so a public
+            // user's existing photos republish once visibility is known
+            // instead of vanishing during sign-in.
+            syncCommunityPhotos(r.restaurantId, r.photos);
           }
         }
       } else {
@@ -2067,18 +2116,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const row = next.find((r) => r.restaurantId === c.restaurantId);
         if (row) publishRatingRow(userIdRef.current, row);
       }
-      // Reconcile the community gallery with this save: publish the
-      // current photo set when the account is public; otherwise (photos
-      // removed, or account private) clear any previously published rows.
-      // Skipping the clear was how removed photos lived on forever on
-      // restaurant pages.
-      if (rating.photos && rating.photos.length > 0 && isPublicRef.current) {
-        publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
-          console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
-        });
-      } else {
-        removeCommunityPhotos(userIdRef.current, rating.restaurantId);
-      }
+      // Reconcile the community gallery with this save. Removal happens ONLY
+      // when the photo set is empty (an intentional removal); a save made
+      // before the profile resolves defers the publish rather than deleting
+      // — the old "else remove" branch wiped a public user's existing gallery
+      // when they rated right after sign-in (isPublicRef still false).
+      syncCommunityPhotos(rating.restaurantId, rating.photos);
     }
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
@@ -2173,6 +2216,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     clearLocalVisitHistory(restaurantId);
     syncVisitHistoryToCloud();
     if (userIdRef.current) {
+      // Drop any deferred publish first so it can't republish this gallery
+      // after we clear it.
+      pendingPhotoPublishRef.current.delete(restaurantId);
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
       deleteAllVisitRecordsForRestaurant(userIdRef.current, restaurantId).catch(() => {
@@ -2260,11 +2306,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // The promoted visit's photo set replaces the deleted visit's in
         // the community gallery (or clears it if the promoted visit has
         // no photos) — the gallery must always mirror the *current* visit.
-        if (p.photos && p.photos.length > 0 && isPublicRef.current) {
-          publishCommunityPhotos(userIdRef.current, restaurantId, p.photos).catch(() => {});
-        } else {
-          removeCommunityPhotos(userIdRef.current, restaurantId);
-        }
+        // Same decoupling as rateRestaurant: only an empty set removes;
+        // unknown visibility defers rather than deleting.
+        syncCommunityPhotos(restaurantId, p.photos);
       }
       return;
     }
