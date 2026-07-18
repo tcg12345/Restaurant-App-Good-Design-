@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Sliders, Swords, Sparkles, RotateCcw, SkipForward } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -230,6 +230,26 @@ export const InlineH2H: React.FC<{
    *  the dial matches the score that lands in the list. */
   settlePreview?: (rawScore: number) => number;
 }> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta, settlePreview }) => {
+  const complete = state !== null && state !== undefined && isComplete(state);
+  // Comparison for the compare step (computed once per render — also feeds
+  // the auto-complete check below).
+  const comparison = state && !complete ? pickComparison(state) : null;
+  // Auto-completion: skipResult bypasses the result step; a missing
+  // comparison mid-search is the defensive bail-out.
+  const shouldAutoComplete = !!state && (complete ? !!skipResult : !comparison);
+  // Fire the parent's onComplete exactly ONCE per completed search, from an
+  // effect. The old version scheduled setTimeout(onComplete) DURING RENDER:
+  // once per render while complete — twice under StrictMode — so a parent
+  // that re-rendered this component before unmounting saved/settled the
+  // rating multiple times. The ref re-arms when a new search starts.
+  const completionFiredRef = useRef(false);
+  useEffect(() => {
+    if (!shouldAutoComplete) { completionFiredRef.current = false; return; }
+    if (completionFiredRef.current) return;
+    completionFiredRef.current = true;
+    onComplete(computeFinalScore(state!));
+  }, [shouldAutoComplete, state, onComplete]);
+
   // Tier select (skipped when the caller supplies state externally)
   if (!state) {
     if (skipTierSelect) return null;
@@ -256,14 +276,10 @@ export const InlineH2H: React.FC<{
     );
   }
 
-  // Result (skipped when the caller wants immediate completion)
-  if (isComplete(state)) {
-    if (skipResult) {
-      // Defer so React can settle the current render before we trigger the
-      // parent's onComplete (which may unmount this component).
-      setTimeout(() => onComplete(computeFinalScore(state)), 0);
-      return null;
-    }
+  // Result (skipped when the caller wants immediate completion — the
+  // completion effect above fires onComplete once, post-render)
+  if (complete) {
+    if (skipResult) return null;
     return (
       <InlineResult
         state={state}
@@ -275,10 +291,8 @@ export const InlineH2H: React.FC<{
   }
 
   // Compare
-  const comparison = pickComparison(state);
   if (!comparison) {
-    // Defensive: shouldn't happen, but bail out cleanly.
-    setTimeout(() => onComplete(computeFinalScore(state)), 0);
+    // Defensive: shouldn't happen — the completion effect bails out for us.
     return null;
   }
   return (
