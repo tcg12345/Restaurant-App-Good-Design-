@@ -237,16 +237,18 @@ export const parseIngredientLine = (raw: string): { name: string; amount: string
   if (!rest) return { name: '', amount, unit: '' };
   const words = rest.split(' ');
   // Try a two-word unit first ("fl oz", "fluid ounces"), then one-word.
-  // Matches original AddHomeMealModal behavior — fuzzy on by default;
-  // the Levenshtein thresholds in normalizeUnit are tight enough that
-  // common ingredient words don't get misread.
+  // STRICT matching only: this word is ingredient prose, not a value the
+  // user offered as a unit, and Levenshtein distance 1 on short words
+  // turns real ingredients into bogus units ("2 bay leaves" → unit "bags"
+  // name "leaves"; "2 ears corn" → "jars"). Fuzzy matching stays available
+  // where the user is explicitly typing a unit (the unit combobox).
   if (words.length >= 2) {
     const twoWord = `${words[0]} ${words[1]}`;
-    const matched = normalizeUnit(twoWord);
+    const matched = normalizeUnit(twoWord, true);
     if (matched) return { amount, unit: matched, name: words.slice(2).join(' ') };
   }
   const firstWord = words[0].replace(/[.,;:]$/, '');
-  const matched = normalizeUnit(firstWord);
+  const matched = normalizeUnit(firstWord, true);
   if (matched) return { amount, unit: matched, name: words.slice(1).join(' ') };
   return { amount, unit: '', name: rest };
 };
