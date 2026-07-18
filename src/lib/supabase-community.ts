@@ -1019,12 +1019,23 @@ export async function getSentRequestIds(userId: string): Promise<string[]> {
   } catch (err) { console.error('[Friends] getSentRequestIds exception:', err); return []; }
 }
 
-/** Send a friend request (status = 'pending') */
+/** Send a friend request (status = 'pending').
+ *
+ *  UPSERT, not INSERT: a declined request leaves its row in place under
+ *  UNIQUE(user_id, friend_id), so a plain insert hit 23505 forever once
+ *  the target had declined — every retry showed "Couldn't send that
+ *  request." The upsert flips the surviving row back to 'pending'
+ *  (requester-side UPDATE policy from migration 053). An existing
+ *  'accepted' edge is left alone so an errant call can't downgrade an
+ *  established follow back to pending. */
 export async function sendFriendRequest(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
   try {
+    const { data: existing } = await supabase.from('user_friends')
+      .select('status').eq('user_id', userId).eq('friend_id', friendId).maybeSingle();
+    if ((existing as { status?: string } | null)?.status === 'accepted') return true; // already following
     const { error } = await supabase.from('user_friends')
-      .insert({ user_id: userId, friend_id: friendId, status: 'pending' });
+      .upsert({ user_id: userId, friend_id: friendId, status: 'pending' }, { onConflict: 'user_id,friend_id' });
     if (error) { console.error('[Friends] sendRequest error:', error); return false; }
     return true;
   } catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }
