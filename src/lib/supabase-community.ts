@@ -773,18 +773,45 @@ export interface ActivityComment {
   profile?: UserProfile;
 }
 
-export async function toggleLike(userId: string, ratingId: string): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
+export interface ToggleLikeResult {
+  ok: boolean;
+  /** The state the like is actually in server-side after this call (best
+   *  known state on failure). Callers reconcile their optimistic UI to it. */
+  liked: boolean;
+}
+
+/** Select-then-write toggle. Each write's { error } is checked explicitly —
+ *  supabase-js does NOT throw for RLS/constraint failures, so the old
+ *  version returned true even when the write silently failed, which made
+ *  every caller's rollback dead code and let fast double-taps drift the
+ *  heart from server state. */
+export async function toggleLike(userId: string, ratingId: string): Promise<ToggleLikeResult> {
+  if (!supabaseConfigured || !userId) return { ok: false, liked: false };
   try {
-    const { data } = await supabase.from('activity_likes')
-      .select('id').eq('user_id', userId).eq('rating_id', ratingId).single();
-    if (data) {
-      await supabase.from('activity_likes').delete().eq('id', data.id);
-    } else {
-      await supabase.from('activity_likes').insert({ user_id: userId, rating_id: ratingId });
+    const { data, error: selectError } = await supabase.from('activity_likes')
+      .select('id').eq('user_id', userId).eq('rating_id', ratingId).maybeSingle();
+    if (selectError) {
+      console.warn('[Community] toggleLike select failed:', selectError.message);
+      return { ok: false, liked: false };
     }
-    return true;
-  } catch { return false; }
+    if (data) {
+      const { error } = await supabase.from('activity_likes').delete().eq('id', data.id);
+      if (error) {
+        console.warn('[Community] toggleLike delete failed:', error.message);
+        return { ok: false, liked: true }; // row survived — still liked
+      }
+      return { ok: true, liked: false };
+    }
+    const { error } = await supabase.from('activity_likes').insert({ user_id: userId, rating_id: ratingId });
+    if (error) {
+      // 23505: a concurrent insert (double-tap racing this one) already
+      // created the row — the like exists, which is what we wanted.
+      if (error.code === '23505') return { ok: true, liked: true };
+      console.warn('[Community] toggleLike insert failed:', error.message);
+      return { ok: false, liked: false };
+    }
+    return { ok: true, liked: true };
+  } catch { return { ok: false, liked: false }; }
 }
 
 export async function getLikeCount(ratingId: string): Promise<number> {

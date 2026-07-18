@@ -701,10 +701,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const wasLiked = userLiked.has(ratingId);
     setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
     setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
-    const ok = await toggleLike(userId, ratingId);
-    if (!ok) {
-      // Offline / failed write: roll the heart and count back so the UI
-      // doesn't drift from the server.
+    const res = await toggleLike(userId, ratingId);
+    // Reconcile to the server's actual resulting state: roll back on a
+    // failed write (offline / RLS) AND when the server ended up where we
+    // started (e.g. a concurrent duplicate insert) — either way the
+    // optimistic flip didn't stick.
+    if (!res.ok || res.liked === wasLiked) {
       setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.add(ratingId) : next.delete(ratingId); return next; });
       setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? 1 : -1)) }));
     }

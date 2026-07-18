@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
+import { createToggleQueue } from '../lib/toggle-queue';
 import {
   listPosts,
   getPostItems as cloudGetPostItems,
@@ -234,6 +235,9 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ui;
   }, [pollPostReady]);
 
+  // Serializes like/save requests per post — see toggle-queue.ts.
+  const toggleQueueRef = useRef(createToggleQueue());
+
   const togglePostLike = useCallback(async (postId: string) => {
     const me = userIdRef.current;
     if (!me) { requireSignIn('Sign in to like'); return; }
@@ -244,11 +248,15 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return { ...p, liked: nextLiked, likesCount: p.likesCount + (nextLiked ? 1 : -1) };
     }));
     if (nextLiked == null) return;
-    const ok = await cloudSetPostLike(postId, me, nextLiked);
-    if (!ok) {
+    const desired = nextLiked;
+    // Serialized per post (see toggle-queue): no INSERT/DELETE race, no
+    // redundant sends, and the rollback below only fires while the UI
+    // still shows THIS failed optimistic state.
+    const outcome = await toggleQueueRef.current.run(`like:${postId}`, desired, () => cloudSetPostLike(postId, me, desired));
+    if (outcome === 'failed') {
       setPosts((prev) => prev.map((p) => {
-        if (p.id !== postId) return p;
-        return { ...p, liked: !nextLiked, likesCount: p.likesCount + (nextLiked ? -1 : 1) };
+        if (p.id !== postId || p.liked !== desired) return p;
+        return { ...p, liked: !desired, likesCount: p.likesCount + (desired ? -1 : 1) };
       }));
     }
   }, []);
@@ -263,11 +271,12 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return { ...p, saved: nextSaved, savesCount: p.savesCount + (nextSaved ? 1 : -1) };
     }));
     if (nextSaved == null) return;
-    const ok = await cloudSetPostSave(postId, me, nextSaved);
-    if (!ok) {
+    const desired = nextSaved;
+    const outcome = await toggleQueueRef.current.run(`save:${postId}`, desired, () => cloudSetPostSave(postId, me, desired));
+    if (outcome === 'failed') {
       setPosts((prev) => prev.map((p) => {
-        if (p.id !== postId) return p;
-        return { ...p, saved: !nextSaved, savesCount: p.savesCount + (nextSaved ? -1 : 1) };
+        if (p.id !== postId || p.saved !== desired) return p;
+        return { ...p, saved: !desired, savesCount: p.savesCount + (desired ? -1 : 1) };
       }));
     }
   }, []);
