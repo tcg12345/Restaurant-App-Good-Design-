@@ -1076,7 +1076,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // older one is mid-flight, and the stale one must not clobber the results.
   const recsRunIdRef = useRef(0);
 
-  const recommendations = apiRecommendations;
+  // Derive the DISPLAYED ranking from the raw pool at render time instead of
+  // baking it in at fetch time. The recSignals fetch and the rec
+  // orchestrator start concurrently, and fetchRecBatch closes over whatever
+  // signals existed when it ran — the empty initial set on a fresh load —
+  // while the orchestrator's once-guard blocks any refetch when the signals
+  // land. Result: friend/expert/tag lifts were absent for the whole
+  // session. Scoring is synchronous and cheap, so re-ranking here applies
+  // the lifts the moment signals (or the taste profile) arrive, no extra
+  // Places spend. Ties keep the pool's (shuffled) order, preserving the
+  // cached-path variety.
+  const recommendations = useMemo<PlaceResult[]>(() => {
+    if (mode !== 'home' || !homeLocation || apiRecommendations.length === 0) return apiRecommendations;
+    const target = { label: homeLocation.label, lat: homeLocation.lat, lng: homeLocation.lng };
+    return scoreCandidates(apiRecommendations, userPreferences, recSignals, target, recRadiusMiles * 1609.34);
+  }, [apiRecommendations, userPreferences, recSignals, mode, homeLocation, recRadiusMiles]);
 
   // Community-supplied price fallback: when Google has no priceLevel for
   // a place (parsePriceLevel returns -1, priceLevelToString returns '')
