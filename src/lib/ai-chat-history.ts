@@ -227,6 +227,86 @@ export function decodeCloudChatPayload(raw: unknown): AiChatCloudPayload {
   return { chats: boundChats(chats), tombstones };
 }
 
+/* ── Inline draft images ─────────────────────────────────────────────────
+ * recipe_draft blocks are the only place chat messages carry images (the
+ * draft's coverPhoto + photo strip). The draft sheet uploads to Storage
+ * before applying, so these are normally short http(s) URLs — but the
+ * upload's offline/signed-out fallback leaves the base64 data: URL inline,
+ * and one such image (hundreds of KB) persisted per save is what pushes
+ * localStorage into its quota fallback and silently evicts the oldest
+ * chats. These helpers find inline images in saved history and swap them
+ * for Storage URLs once AiChatHistoryContext manages to upload them. */
+
+/** Distinct data: URLs inside recipe_draft blocks across all chats. */
+export function collectChatImageDataUrls(chats: SavedChat[]): string[] {
+  const out = new Set<string>();
+  for (const chat of chats) {
+    for (const m of chat.messages) {
+      for (const b of m.blocks) {
+        if (b.type !== 'recipe_draft') continue;
+        const draft = b.draft as { coverPhoto?: unknown; photos?: unknown[] };
+        if (typeof draft.coverPhoto === 'string' && draft.coverPhoto.startsWith('data:')) out.add(draft.coverPhoto);
+        for (const p of Array.isArray(draft.photos) ? draft.photos : []) {
+          // Draft photo strips hold bare URL strings; published-meal shapes
+          // hold {url} objects. Handle both.
+          if (typeof p === 'string' && p.startsWith('data:')) out.add(p);
+          else if (p && typeof (p as { url?: unknown }).url === 'string' && ((p as { url: string }).url).startsWith('data:')) {
+            out.add((p as { url: string }).url);
+          }
+        }
+      }
+    }
+  }
+  return [...out];
+}
+
+/** Swap inline draft-image URLs per `replacements` (data: URL → Storage
+ *  URL). Changed chats get a fresh updatedAt so the slimmed copy wins the
+ *  cross-device merge over the bloated one; untouched chats/messages keep
+ *  their identity. */
+export function replaceChatImageUrls(chats: SavedChat[], replacements: Map<string, string>, now: number): SavedChat[] {
+  if (replacements.size === 0) return chats;
+  let anyChanged = false;
+  const next = chats.map((chat) => {
+    let chatChanged = false;
+    const messages = chat.messages.map((m) => {
+      let msgChanged = false;
+      const blocks = m.blocks.map((b) => {
+        if (b.type !== 'recipe_draft') return b;
+        const draft = b.draft as { coverPhoto?: unknown; photos?: unknown[] };
+        let draftChanged = false;
+        let coverPhoto = draft.coverPhoto;
+        if (typeof coverPhoto === 'string' && replacements.has(coverPhoto)) {
+          coverPhoto = replacements.get(coverPhoto);
+          draftChanged = true;
+        }
+        const origPhotos = Array.isArray(draft.photos) ? draft.photos : undefined;
+        const photos = origPhotos?.map((p) => {
+          if (typeof p === 'string' && replacements.has(p)) { draftChanged = true; return replacements.get(p); }
+          const url = (p as { url?: unknown } | null)?.url;
+          if (typeof url === 'string' && replacements.has(url)) {
+            draftChanged = true;
+            return { ...(p as object), url: replacements.get(url) };
+          }
+          return p;
+        });
+        if (!draftChanged) return b;
+        msgChanged = true;
+        const nextDraft = { ...(b.draft as object), coverPhoto } as typeof b.draft;
+        if (origPhotos) (nextDraft as { photos?: unknown[] }).photos = photos;
+        return { ...b, draft: nextDraft };
+      });
+      if (!msgChanged) return m;
+      chatChanged = true;
+      return { ...m, blocks };
+    });
+    if (!chatChanged) return chat;
+    anyChanged = true;
+    return { ...chat, messages, updatedAt: now };
+  });
+  return anyChanged ? next : chats;
+}
+
 /** Derive a chat title from the first user message in the conversation. */
 export function deriveChatTitle(messages: UiMessage[]): string {
   for (const m of messages) {

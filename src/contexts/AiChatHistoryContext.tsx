@@ -34,11 +34,14 @@ import {
   sameChatSet,
   sameTombstoneSet,
   buildGeneratedRecipeChat,
+  collectChatImageDataUrls,
+  replaceChatImageUrls,
   CHAT_USER_KEY,
   type SavedChat,
   type ChatTombstone,
 } from '../lib/ai-chat-history';
 import { loadAiChatHistory, saveAiChatHistory } from '../lib/supabase-ai-chat';
+import { uploadPhoto } from '../lib/images';
 import type { HomeMeal } from './ListsContext';
 
 /** What a caller passes to upsert the live conversation — the context
@@ -62,6 +65,11 @@ const CLOUD_SAVE_DEBOUNCE_MS = 800;
 /** Minimum gap between foreground-return pulls, so tab-switch-happy desktop
  *  use doesn't hammer the row. */
 const FOREGROUND_PULL_MIN_MS = 60_000;
+/** Quiet period before migrating inline draft images out of saved chats.
+ *  Long enough that the live chat's own upload retry (LocationChat's
+ *  cover-photo path) usually wins first — it also fixes the open
+ *  conversation's state, where this migration can only fix the history. */
+const CHAT_IMAGE_MIGRATE_DELAY_MS = 8_000;
 
 export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -261,6 +269,42 @@ export const AiChatHistoryProvider: React.FC<{ children: React.ReactNode }> = ({
     saveTimerRef.current = setTimeout(() => { void syncWithCloud(); }, CLOUD_SAVE_DEBOUNCE_MS);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [savedChats, userId, syncWithCloud]);
+
+  // Migrate inline draft images out of saved history. The draft sheet
+  // uploads covers to Storage before applying, so a data: URL in a saved
+  // chat means an upload fell back inline (offline, signed out, legacy
+  // data from before uploads existed) — persisted whole, one such image
+  // can trip persistSavedChats' quota fallback and evict the oldest chats.
+  // After a quiet period (so the live chat's own retry gets first crack),
+  // upload each inline image and swap the URL in place; the bumped
+  // updatedAt makes the slimmed copy win the cross-device merge. Failures
+  // stay inline and re-arm on the next history change or app start.
+  const chatImageMigrateInFlightRef = useRef(false);
+  useEffect(() => {
+    if (!userId) return; // uploads need a session
+    if (collectChatImageDataUrls(savedChats).length === 0) return;
+    const t = setTimeout(() => {
+      if (chatImageMigrateInFlightRef.current) return;
+      chatImageMigrateInFlightRef.current = true;
+      void (async () => {
+        try {
+          const pending = collectChatImageDataUrls(savedChatsRef.current);
+          const replacements = new Map<string, string>();
+          for (const url of pending) {
+            try {
+              replacements.set(url, await uploadPhoto(url));
+            } catch { /* still offline / no session — retried on the next change */ }
+          }
+          if (replacements.size > 0) {
+            commit((prev) => replaceChatImageUrls(prev, replacements, Date.now()));
+          }
+        } finally {
+          chatImageMigrateInFlightRef.current = false;
+        }
+      })();
+    }, CHAT_IMAGE_MIGRATE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [savedChats, userId, commit]);
 
   // Flush on tab-hide / background / close and on unmount, so a chat made
   // right before leaving the app still reaches the cloud rather than dying

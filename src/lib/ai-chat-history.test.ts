@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { HomeMeal } from '../contexts/ListsContext';
 import {
   mergeChats,
   mergeTombstones,
@@ -7,11 +8,14 @@ import {
   sameTombstoneSet,
   encodeCloudChatPayload,
   decodeCloudChatPayload,
+  collectChatImageDataUrls,
+  replaceChatImageUrls,
   CHAT_TOMBSTONE_SENTINEL_ID,
   MAX_CHAT_TOMBSTONES,
   MAX_SAVED_CHATS,
   type SavedChat,
   type ChatTombstone,
+  type UiMessage,
 } from './ai-chat-history';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
@@ -216,5 +220,60 @@ describe('cross-device deletion (read-merge-write simulation)', () => {
     const many = Array.from({ length: MAX_SAVED_CHATS + 10 }, (_, i) => chat(`c${i}`, i));
     const merged = mergeChats(many.slice(0, 20), many.slice(15), []);
     expect(merged.length).toBeLessThanOrEqual(MAX_SAVED_CHATS);
+  });
+});
+
+/* ── Inline draft-image migration (H8) ─────────────────────────────────── */
+
+const INLINE = 'data:image/jpeg;base64,QUJD';
+const STORED = 'https://cdn.example.com/photos/u1/cover.jpg';
+
+function draftChat(id: string, draft: Partial<HomeMeal>, updatedAt = 100): SavedChat {
+  const messages: UiMessage[] = [
+    { role: 'user', blocks: [{ type: 'text', text: 'make me pasta' }] },
+    {
+      role: 'assistant',
+      blocks: [
+        { type: 'text', text: 'Drafted!' },
+        { type: 'recipe_draft', toolUseId: `t-${id}`, draft: draft as HomeMeal, rawInput: {}, publishedMealId: null },
+      ],
+    },
+  ];
+  return chat(id, updatedAt, { messages });
+}
+
+describe('inline draft images', () => {
+  it('collects data: URLs from cover + photo strip, ignoring Storage URLs', () => {
+    const chats = [
+      draftChat('a', { coverPhoto: INLINE, photos: [INLINE, STORED] as never }),
+      draftChat('b', { coverPhoto: STORED }),
+      chat('c', 100), // plain chat, no draft
+    ];
+    expect(collectChatImageDataUrls(chats)).toEqual([INLINE]);
+  });
+
+  it('also finds {url} object photo shapes', () => {
+    const chats = [draftChat('a', { photos: [{ url: INLINE, caption: '', isFavorite: false }] })];
+    expect(collectChatImageDataUrls(chats)).toEqual([INLINE]);
+  });
+
+  it('replaces inline URLs everywhere, bumps updatedAt, and keeps untouched chats by identity', () => {
+    const chats = [
+      draftChat('a', { coverPhoto: INLINE, photos: [INLINE, STORED] as never }),
+      draftChat('b', { coverPhoto: STORED }),
+    ];
+    const next = replaceChatImageUrls(chats, new Map([[INLINE, STORED]]), 999);
+    const block = next[0].messages[1].blocks[1] as { draft: HomeMeal };
+    expect(block.draft.coverPhoto).toBe(STORED);
+    expect(block.draft.photos as unknown as string[]).toEqual([STORED, STORED]);
+    expect(next[0].updatedAt).toBe(999);
+    expect(next[1]).toBe(chats[1]);
+    // Post-replacement, the scan comes back empty — the queue drains.
+    expect(collectChatImageDataUrls(next)).toEqual([]);
+  });
+
+  it('is an identity no-op when nothing matches', () => {
+    const chats = [draftChat('a', { coverPhoto: STORED })];
+    expect(replaceChatImageUrls(chats, new Map([[INLINE, STORED]]), 999)).toBe(chats);
   });
 });

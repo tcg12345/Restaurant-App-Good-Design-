@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { processPhoto, processDataUrl } from '../../lib/images';
+import { processPhoto, processDataUrl, uploadPhoto } from '../../lib/images';
 import { useSettings } from '../../contexts/SettingsContext';
 import type { HomeMeal, RecipeIngredient } from '../../contexts/ListsContext';
 import type { IngredientEdit } from '../../lib/build-recipe-client';
@@ -210,9 +210,16 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
         try {
           onCoverPhotoChange(await processDataUrl(res.dataUrl));
         } catch {
-          // Compression failed (decode error) — keep the full-size image
-          // rather than dropping the user's generated photo.
-          onCoverPhotoChange(res.dataUrl);
+          // Compression failed (decode error) — keep the user's generated
+          // photo, but still try to get it into Storage as-is: passing the
+          // full-size base64 through inline is what bloats the saved chat
+          // history (hundreds of KB per image) and evicts old chats when
+          // localStorage hits quota. Only truly-offline falls back inline.
+          try {
+            onCoverPhotoChange(await uploadPhoto(res.dataUrl));
+          } catch {
+            onCoverPhotoChange(res.dataUrl);
+          }
         }
       } else {
         setImageError(res.error || "Couldn't generate a photo. Try again.");

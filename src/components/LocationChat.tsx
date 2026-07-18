@@ -56,6 +56,7 @@ import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, changedFieldsInEdit, type BuildRecipeInput } from '../lib/recipe-from-ai';
 import { refineRecipe, editRecipeIngredient, type IngredientEdit, type IngredientEditResult } from '../lib/build-recipe-client';
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
+import { uploadPhoto } from '../lib/images';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
 
@@ -1197,7 +1198,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleCoverPhotoChange = useCallback((dataUrl: string | null) => {
     if (!openDraftToolUseId) return;
-    patchDraftBlock(openDraftToolUseId, (b) => ({
+    const toolUseId = openDraftToolUseId;
+    patchDraftBlock(toolUseId, (b) => ({
       ...b,
       draft: {
         ...b.draft,
@@ -1207,6 +1209,29 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           : (b.draft.photos || []).filter((p) => p !== b.draft.coverPhoto),
       },
     }));
+    // The sheet uploads before calling us, so it normally hands over a short
+    // Storage URL; a data: URL means that upload FAILED (offline, signed
+    // out) and the image is riding inline. Left that way it gets persisted
+    // whole into localStorage + the cloud JSONB row — one image is hundreds
+    // of KB, enough to trip persistSavedChats' quota fallback and silently
+    // evict the oldest chats. The image is applied above regardless (it must
+    // render now); here we retry the upload and swap the inline payload for
+    // the URL once it lands. Anything that stays inline past this (still
+    // offline) is caught by the saved-history migration in
+    // AiChatHistoryContext.
+    if (!dataUrl || !dataUrl.startsWith('data:')) return;
+    void uploadPhoto(dataUrl)
+      .then((storedUrl) => {
+        patchDraftBlock(toolUseId, (b) => ({
+          ...b,
+          draft: {
+            ...b.draft,
+            coverPhoto: b.draft.coverPhoto === dataUrl ? storedUrl : b.draft.coverPhoto,
+            photos: ((b.draft.photos || []) as unknown as string[]).map((p) => (p === dataUrl ? storedUrl : p)) as never,
+          },
+        }));
+      })
+      .catch(() => { /* still offline / signed out — migration retries later */ });
   }, [openDraftToolUseId, patchDraftBlock]);
 
   // Refine the open draft with a free-text AI instruction from the
