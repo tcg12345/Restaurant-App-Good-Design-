@@ -3,12 +3,17 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ArrowLeft, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { saveTasteQuiz } from '../lib/taste-quiz';
 
 type StepOption = { id: string; label: string; image?: string };
 type Step = {
   id: number;
   type: 'image' | 'pill';
   question: string;
+  /** Pick-several step: pills toggle and a Continue button advances
+   *  (single-select steps auto-advance on tap). */
+  multi?: boolean;
   options: StepOption[];
 };
 
@@ -38,7 +43,8 @@ const STEPS: Step[] = [
   {
     id: 3,
     type: 'pill',
-    question: "What's your favorite cuisine?",
+    multi: true,
+    question: 'Which cuisines do you love?',
     options: [
       { id: 'italian', label: 'Italian' },
       { id: 'japanese', label: 'Japanese' },
@@ -67,15 +73,48 @@ const STEPS: Step[] = [
 export const Onboarding: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [selections, setSelections] = useState<Record<number, string>>({});
+  // The multi-select cuisine step collects several picks before advancing.
+  const [cuisineSel, setCuisineSel] = useState<string[]>([]);
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Persist the answers the footer promises we use — local mirror +
+  // user_profiles.taste_profile — then land on the app. recommendations.ts
+  // blends the cuisines in as cold-start priors. Fire-and-forget: the local
+  // mirror is synchronous, so the profile write finishing later is fine.
+  const finish = (finalSelections: Record<number, string>) => {
+    void saveTasteQuiz(user?.id, {
+      // Stable option ids for the single-select steps; display-cased LABELS
+      // for cuisines, since those must match rating cuisine tokens
+      // ("Italian") when recommendations blends them in.
+      atmosphere: finalSelections[0],
+      flavor: finalSelections[1],
+      cuisines: cuisineSel
+        .map((id) => STEPS[2].options.find((o) => o.id === id)?.label)
+        .filter((l): l is string => !!l),
+      frequency: finalSelections[3],
+      completedAt: Date.now(),
+    });
+    setTimeout(() => navigate('/'), 500);
+  };
 
   const handleSelect = (optionId: string) => {
-    setSelections({ ...selections, [currentStep]: optionId });
+    const step = STEPS[currentStep];
+    if (step.multi) {
+      setCuisineSel((prev) => prev.includes(optionId) ? prev.filter((c) => c !== optionId) : [...prev, optionId]);
+      return; // advance via the Continue button
+    }
+    const next = { ...selections, [currentStep]: optionId };
+    setSelections(next);
     if (currentStep < STEPS.length - 1) {
       setTimeout(() => setCurrentStep(currentStep + 1), 300);
     } else {
-      setTimeout(() => navigate('/'), 500);
+      finish(next);
     }
+  };
+
+  const handleContinueMulti = () => {
+    if (currentStep < STEPS.length - 1) setCurrentStep(currentStep + 1);
   };
 
   const progress = ((currentStep + 1) / STEPS.length) * 100;
@@ -149,28 +188,45 @@ export const Onboarding: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-wrap gap-3 content-start">
-                {STEPS[currentStep].options.map((option) => {
-                  const isSelected = selections[currentStep] === option.id;
-                  return (
-                    <motion.button
-                      key={option.id}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => handleSelect(option.id)}
-                      className={cn(
-                        "min-h-[44px] px-6 rounded-full font-medium text-sm transition-colors duration-200 inline-flex items-center gap-2",
-                        isSelected
-                          ? "bg-primary text-white shadow-lg shadow-primary/25"
-                          : "bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface hover:bg-white"
-                      )}
-                    >
-                      {option.label}
-                      {isSelected && <Check size={16} />}
-                    </motion.button>
-                  );
-                })}
-              </div>
+              <>
+                <div className="flex flex-wrap gap-3 content-start">
+                  {STEPS[currentStep].options.map((option) => {
+                    const isSelected = STEPS[currentStep].multi
+                      ? cuisineSel.includes(option.id)
+                      : selections[currentStep] === option.id;
+                    return (
+                      <motion.button
+                        key={option.id}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => handleSelect(option.id)}
+                        className={cn(
+                          "min-h-[44px] px-6 rounded-full font-medium text-sm transition-colors duration-200 inline-flex items-center gap-2",
+                          isSelected
+                            ? "bg-primary text-white shadow-lg shadow-primary/25"
+                            : "bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface hover:bg-white"
+                        )}
+                      >
+                        {option.label}
+                        {isSelected && <Check size={16} />}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+                {STEPS[currentStep].multi && (
+                  <motion.button
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleContinueMulti}
+                    disabled={cuisineSel.length === 0}
+                    className="mt-10 self-start inline-flex items-center gap-2 bg-primary text-white px-8 py-3 rounded-full font-semibold text-sm shadow-lg shadow-primary/25 disabled:opacity-50 disabled:shadow-none transition-opacity"
+                  >
+                    {cuisineSel.length > 0 ? `Continue with ${cuisineSel.length} pick${cuisineSel.length === 1 ? '' : 's'}` : 'Pick at least one'}
+                    <ChevronRight size={16} />
+                  </motion.button>
+                )}
+              </>
             )}
           </motion.div>
         </AnimatePresence>

@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
-import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
+import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
 import { moveWithinCustomOrder } from '../lib/customOrder';
@@ -12,8 +12,10 @@ import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { ScoreRing } from '../components/cards';
-import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
-import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
+import { getOpenStatus, useBackfillLocationComponents } from '../lib/useRestaurantLocationLabel';
+import { hasFreshHours } from '../lib/useWarmHours';
+import { useDistanceFromHome } from '../contexts/HomeLocationContext';
+import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox, matchesTimeBand } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
@@ -22,7 +24,8 @@ import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { cityFromAddress } from '../lib/city';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
@@ -35,9 +38,7 @@ import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
-import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
-import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
@@ -569,38 +570,6 @@ function formatTodayHours(hours: string[] | undefined): string {
   return line.slice(today.length + 1).trim();
 }
 
-// Backfill location data on saved restaurants so cards can render the
-// Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST" label.
-// One Places call (deduped via inflight + cache) gives us the address
-// components; one Mapbox reverse-geocode gives us the neighborhood
-// (Google rarely returns neighborhood components). Once written to the
-// shared restaurantMeta, every card using that meta upgrades to the
-// richer label automatically.
-function useBackfillLocationComponents(restaurantId: string, hasFullData: boolean) {
-  const { cacheRestaurantMeta } = useLists();
-  useEffect(() => {
-    if (!restaurantId || hasFullData) return;
-    let cancelled = false;
-    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng, hours }) => {
-      if (cancelled) return;
-      // Skip the meta write if every field is empty so we don't
-      // pointlessly bump the cache.
-      if (!addressComponents?.length && !neighborhood && lat == null && lng == null && hours == null) return;
-      cacheRestaurantMeta({
-        id: restaurantId,
-        ...(addressComponents?.length ? { addressComponents } : {}),
-        ...(neighborhood ? { neighborhood } : {}),
-        ...(lat != null ? { lat } : {}),
-        ...(lng != null ? { lng } : {}),
-        // Persist an empty array too — that's the signal "we asked and
-        // the place doesn't publish hours" so we don't keep refetching.
-        ...(hours != null ? { hours } : {}),
-      });
-    });
-    return () => { cancelled = true; };
-  }, [restaurantId, hasFullData, cacheRestaurantMeta]);
-}
-
 /* ── Restaurant row card ── */
 /* ── Clean, centered confirmation dialog for destructive actions (swipe /
    menu Delete). Rendered through a portal so it's always viewport-centered,
@@ -661,8 +630,8 @@ const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: st
     >
       {s.label && (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? '#10b981' : '#ef4444' }} />
-          <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
+          <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? 'var(--color-score-high)' : 'var(--color-score-low)' }} />
+          <span className="font-bold" style={{ color: s.open ? 'var(--color-score-high-ink)' : 'var(--color-score-low-ink)' }}>{s.label}</span>
         </span>
       )}
       {s.detail && <span className="truncate font-medium text-on-surface/40">{s.detail}</span>}
@@ -679,18 +648,12 @@ const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: st
 const RestaurantRow: React.FC<{
   restaurantId: string;
   name: string;
-  image: string;
   cuisine: string;
   price: string;
   address: string;
   score?: number;
   /** Position in the list (1-based) — shown as the rank prefix/gutter. */
   rank?: number;
-  tags?: string[];
-  notes?: string;
-  visitDate?: string;
-  wouldReturn?: boolean;
-  listBadges?: { emoji: string; name: string }[];
   onEdit?: () => void;
   onRemove?: () => void;
   removeLabel?: string;
@@ -717,7 +680,7 @@ const RestaurantRow: React.FC<{
   // when address components are cached, falls back to formatted-address
   // parsing for older saved restaurants.
   const meta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   // Michelin override: starred restaurants show the Guide's cuisine + price
   // (and a star marker). Falls back to the saved values otherwise.
   const mich = useMichelinMatch(
@@ -732,12 +695,8 @@ const RestaurantRow: React.FC<{
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
   // to the city when available; otherwise the city stands alone.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  // Reactive: picking a new home location updates it without a remount.
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
 
   const handleDelete = () => {
     if (onRemove) {
@@ -814,7 +773,7 @@ const RestaurantRow: React.FC<{
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#7a7a79' }}
+                style={{ background: 'var(--color-swipe-neutral)' }}
                 aria-label="Edit"
               >
                 <Edit3 size={19} />
@@ -825,7 +784,7 @@ const RestaurantRow: React.FC<{
               <button
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#c0392b' }}
+                style={{ background: 'var(--color-danger)' }}
                 aria-label="Delete"
               >
                 <Trash2 size={19} />
@@ -952,7 +911,7 @@ const WishlistRow: React.FC<{
   // Beli-style label: neighborhood + borough/city + state, falling back
   // to formatted-address parsing when no addressComponents are cached.
   const wlMeta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && wlMeta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && hasFreshHours(wlMeta));
   const fullAddr = address || wlMeta?.address || '';
   const mich = useMichelinMatch(
     name,
@@ -961,12 +920,7 @@ const WishlistRow: React.FC<{
   const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
 
   // Distance from the user's anchor location.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!wlMeta || !Number.isFinite(wlMeta.lat) || !Number.isFinite(wlMeta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, wlMeta.lat!, wlMeta.lng!));
-  }, [wlMeta?.lat, wlMeta?.lng]);
+  const distanceLabel = useDistanceFromHome(wlMeta?.lat, wlMeta?.lng);
 
   return (
     <div className="flex items-start gap-3 py-3 group">
@@ -1038,7 +992,7 @@ const WishlistGridCard: React.FC<{
   const cuisineLabel = mich.cuisine;
   const showPrice = !!mich.price;
 
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   const fullAddress = address || meta?.address || '';
   // Beli-style hierarchical label using Google's address components plus
   // Mapbox-derived neighborhood when available; falls back to
@@ -1049,12 +1003,7 @@ const WishlistGridCard: React.FC<{
     () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood) : '',
     [fullAddress, meta?.addressComponents, meta?.neighborhood],
   );
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
 
   return (
     <div className="group relative">
@@ -1077,7 +1026,7 @@ const WishlistGridCard: React.FC<{
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
               aria-label="Remove from wishlist"
               title="Remove from wishlist"
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
+              className="hit-44 flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
             >
               <Bookmark size={15} className="fill-primary" />
             </button>
@@ -1167,7 +1116,7 @@ const RestaurantGridCard: React.FC<{
   );
   const cuisineLabel = mich.cuisine;
   const showPrice = !!mich.price;
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && hasFreshHours(meta));
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
   // when components are cached, falling back to the formatted address.
@@ -1178,12 +1127,7 @@ const RestaurantGridCard: React.FC<{
   // Distance in miles from the user's anchor location to the cached
   // place coordinates. Only renders when we have both, otherwise the
   // footer just shows the city.
-  const distanceLabel = useMemo(() => {
-    const home = loadLastSelectedLocation();
-    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+  const distanceLabel = useDistanceFromHome(meta?.lat, meta?.lng);
   // Today's opening hours pulled from the cached Places weekday list.
   const todayHours = useMemo(() => formatTodayHours(meta?.hours), [meta?.hours]);
 
@@ -1322,17 +1266,20 @@ const RestaurantGridCard: React.FC<{
               </div>
             )}
           </div>
-          {/* Notes body — expands below the footer row */}
+          {/* Notes body — floats OVER the card as an absolutely-positioned
+              panel above the footer. Expanding in flow grew this card's
+              height, which re-laid-out the whole items-stretch grid row. */}
           <AnimatePresence initial={false}>
             {hasNotes && notesOpen && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className="overflow-hidden"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                className="absolute inset-x-2 bottom-14 z-10 rounded-xl border border-on-surface/[0.08] bg-paper px-3.5 py-3 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.28)]"
               >
-                <p className="pt-2 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
+                <p className="max-h-36 overflow-y-auto text-[12px] italic leading-snug text-on-surface/70 whitespace-pre-wrap">
                   &ldquo;{trimmedNotes}&rdquo;
                 </p>
               </motion.div>
@@ -1434,7 +1381,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -1560,12 +1507,7 @@ const ListDetailView: React.FC<{
       out = out.filter((r) => r.difficulty && recipeDifficultyFilter.includes(r.difficulty));
     }
     if (recipeTimeFilter) {
-      out = out.filter((r) => {
-        const total = (r.prepTime ?? 0) + (r.cookTime ?? 0);
-        if (recipeTimeFilter === 'fast') return total < 30;
-        if (recipeTimeFilter === 'medium') return total >= 30 && total <= 60;
-        return total > 60;
-      });
+      out = out.filter((r) => matchesTimeBand((r.prepTime ?? 0) + (r.cookTime ?? 0), recipeTimeFilter));
     }
     const sorted = [...out];
     sorted.sort((a, b) => {
@@ -1581,6 +1523,8 @@ const ListDetailView: React.FC<{
     return sorted;
   }, [recipes, searchQuery, recipeCuisineFilter, recipeDifficultyFilter, recipeTimeFilter, recipeSortBy]);
 
+  // Truly unfiltered — stats/facets read this; search and pills apply in
+  // the filtered `ratedRestaurants` below.
   const ratedRestaurantsRaw = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     // Prefer list-specific rating over global rating
@@ -1588,17 +1532,18 @@ const ListDetailView: React.FC<{
     const globalRating = ratings.find((r) => r.restaurantId === id);
     const rating = listRating || globalRating;
     return { id, info, rating, hasListRating: !!listRating };
-  }).filter(({ info }) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
-  // Filtered version that the toolbar's City/Cuisine/Price pills also
-  // narrow down. The same wishlist* filter state is reused (the names
+  // Filtered version: the search input plus the toolbar's City/Cuisine/
+  // Price pills. The same wishlist* filter state is reused (the names
   // are historical — they apply to any non-recipe list view now).
   const ratedRestaurants = useMemo(() => {
-    if (isWishlistView || isHomeCooking) return ratedRestaurantsRaw;
     let out = ratedRestaurantsRaw;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      out = out.filter(({ info }) =>
+        info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q));
+    }
+    if (isWishlistView || isHomeCooking) return out;
     if (wishlistCuisineFilter.length > 0) {
       out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
     }
@@ -1619,7 +1564,7 @@ const ListDetailView: React.FC<{
         wishlistMichelinFilter, info.name, info.lat, info.lng, info.address));
     }
     return out;
-  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, searchQuery, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady]);
 
   const wishlistedRestaurantsRaw = isWishlistView
     // Drive the global wishlist view directly off the wishlist array so
@@ -1711,23 +1656,27 @@ const ListDetailView: React.FC<{
     return sorted;
   }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistHoursFilter, restaurantMeta, wishlistMichelinFilter, wlMichelinReady, wishlistSort]);
 
-  // Apply the search input on top of the filter pipeline (wishlist view
-  // only — the rated path already filters above).
+  // Apply the search input on top of the filter pipeline — for EVERY list
+  // type. Custom lists used to skip this, leaving non-matching wishlist
+  // rows visible under an unfiltered count while the rated section shrank.
   const wishlistedRestaurantsFinal = useMemo(() => {
-    if (!isWishlistView || !searchQuery.trim()) return wishlistedRestaurants;
+    if (!searchQuery.trim()) return wishlistedRestaurants;
     const q = searchQuery.toLowerCase();
     return wishlistedRestaurants.filter(({ info }) =>
       (info?.name || '').toLowerCase().includes(q) ||
       (info?.cuisine || '').toLowerCase().includes(q) ||
       (info?.address || '').toLowerCase().includes(q),
     );
-  }, [isWishlistView, wishlistedRestaurants, searchQuery]);
+  }, [wishlistedRestaurants, searchQuery]);
 
   const totalCount = isHomeCooking
     ? recipes.length
     : isWishlistView
       ? wishlistedRestaurantsRaw.length
-      : list.restaurantIds.length + (list.wishlistIds?.length || 0);
+      // Count only RENDERABLE wishlist entries (raw already drops ids whose
+      // getRestaurantInfo misses) so the header never claims rows the
+      // section below can't show.
+      : list.restaurantIds.length + wishlistedRestaurantsRaw.length;
 
   const handlePlusClick = () => {
     // New recipes always go through the full three-tab builder
@@ -1752,18 +1701,19 @@ const ListDetailView: React.FC<{
       ? { eyebrow: 'Your saved places', icon: <Bookmark size={24} className="text-primary fill-primary" />, accent: 'text-primary', chipBg: 'bg-primary/8' }
       : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
 
-  // Distinct city count for the stats row.
+  // Distinct city count for the stats row — describes the whole list, so
+  // it reads the unfiltered arrays (search/pills must not change it).
   const cityCount = useMemo(() => {
     const set = new Set<string>();
     const items = isWishlistView
       ? wishlistedRestaurantsRaw.map(({ info }) => info?.address || '')
-      : ratedRestaurants.map(({ info }) => info?.address || '');
+      : ratedRestaurantsRaw.map(({ info }) => info?.address || '');
     for (const a of items) {
       const c = extractCityState(a, a);
       if (c) set.add(c);
     }
     return set.size;
-  }, [isWishlistView, ratedRestaurants, wishlistedRestaurantsRaw]);
+  }, [isWishlistView, ratedRestaurantsRaw, wishlistedRestaurantsRaw]);
 
   // "Updated X ago" — most recent addedAt (wishlist) or createdAt (ratings).
   const lastUpdated = useMemo(() => {
@@ -1775,7 +1725,7 @@ const ListDetailView: React.FC<{
     } else if (isHomeCooking) {
       for (const r of recipes) if (r.createdAt > max) max = r.createdAt;
     } else {
-      for (const { rating } of ratedRestaurants) {
+      for (const { rating } of ratedRestaurantsRaw) {
         if (rating?.createdAt && rating.createdAt > max) max = rating.createdAt;
       }
     }
@@ -1788,7 +1738,7 @@ const ListDetailView: React.FC<{
     if (days < 60) return `Updated ${Math.floor(days / 7)} weeks ago`;
     if (days < 365) return `Updated ${Math.floor(days / 30)} months ago`;
     return `Updated ${Math.floor(days / 365)} year${days >= 730 ? 's' : ''} ago`;
-  }, [isWishlistView, isHomeCooking, ratedRestaurants, wishlistedRestaurantsRaw, recipes]);
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistedRestaurantsRaw, recipes]);
 
   // ── Quick-filter pills ────────────────────────────────────────────
   // Wishlist view derives its pill row from the actual saved places,
@@ -1862,9 +1812,11 @@ const ListDetailView: React.FC<{
       return { total: wishlistedRestaurantsRaw.length, visible: wishlistedRestaurantsFinal.length, avg: null };
     }
     // Custom restaurant list — combine rated and wishlist sections.
-    const total = ratedRestaurants.length + wishlistedRestaurantsRaw.length;
-    const visible = total; // no per-list filter UI yet beyond search
-    const scored = ratedRestaurants
+    // total/avg describe the WHOLE list (unfiltered); visible is what the
+    // search + pills currently show, so "5 / 14" renders while filtering.
+    const total = ratedRestaurantsRaw.length + wishlistedRestaurantsRaw.length;
+    const visible = ratedRestaurants.length + wishlistedRestaurantsFinal.length;
+    const scored = ratedRestaurantsRaw
       .map((r) => r.rating?.score)
       .filter((s): s is number => typeof s === 'number' && s > 0);
     const avg = scored.length > 0 ? scored.reduce((s, n) => s + n, 0) / scored.length : null;
@@ -2316,15 +2268,10 @@ const ListDetailView: React.FC<{
                     restaurantId={id}
                     rank={idx + 1}
                     name={info?.name ?? id}
-                    image={info?.image ?? ''}
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
                     address={info?.address ?? ''}
                     score={rating?.score}
-                    tags={rating?.tags}
-                    notes={rating?.notes}
-                    visitDate={rating?.visitDate}
-                    wouldReturn={rating?.wouldReturn}
                     onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
@@ -2368,7 +2315,7 @@ const ListDetailView: React.FC<{
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Bookmark size={14} className="text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch">
@@ -2393,11 +2340,9 @@ const ListDetailView: React.FC<{
                       key={id}
                       restaurantId={id}
                       name={info?.name ?? id}
-                      image={info?.image ?? ''}
                       cuisine={info?.cuisine ?? ''}
                       price={info?.price ?? ''}
                       address={info?.address}
-                      notes={wishItem?.notes}
                       onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                     />
                   ))}
@@ -2682,13 +2627,17 @@ const AddToNightSheet: React.FC<{
   tripId: string;
   tripLat: number;
   tripLng: number;
+  /** Trip destination string ("Tokyo") — geocoded on demand when the trip
+   *  was created without coordinates, so search isn't biased to nowhere. */
+  tripDestination: string;
+  /** Cache on-demand geocoded coords back onto the trip. */
+  onDestinationResolved: (lat: number, lng: number) => void;
   existingRestaurantIds: Set<string>;
   ratings: RestaurantRating[];
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
-  rateRestaurant: (rating: RestaurantRating) => void;
   onClose: () => void;
-}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, onClose }) => {
   const { phoneMode } = useSettings();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
@@ -2711,14 +2660,36 @@ const AddToNightSheet: React.FC<{
     }
   }, [open]);
 
-  const lat = tripLat || 40.735;
-  const lng = tripLng || -73.99;
+  // Trips created by typing a destination without picking a suggestion store
+  // destinationLat/Lng 0 — a hardcoded fallback here used to quietly search
+  // Manhattan for a Tokyo trip. Geocode the destination string on demand
+  // instead (cached back onto the trip via onDestinationResolved); if that
+  // fails too, search with no location bias at all.
+  const resolvedCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const resolveTripCoords = async (): Promise<{ lat: number; lng: number } | null> => {
+    if (tripLat && tripLng) return { lat: tripLat, lng: tripLng };
+    if (resolvedCoordsRef.current) return resolvedCoordsRef.current;
+    if (!tripDestination.trim() || !MAPBOX_TOKEN) return null;
+    try {
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(tripDestination)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=1`);
+      const data = await res.json();
+      const center = data?.features?.[0]?.center;
+      if (Array.isArray(center) && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
+        const coords = { lat: center[1], lng: center[0] };
+        resolvedCoordsRef.current = coords;
+        onDestinationResolved(coords.lat, coords.lng);
+        return coords;
+      }
+    } catch { /* fall through to unbiased search */ }
+    return null;
+  };
 
   const handleSearchPlaces = async () => {
     if (!placeSearch.trim()) return;
     setPlaceLoading(true);
     try {
-      const res = await searchPlacesByText(placeSearch, lat, lng);
+      const coords = await resolveTripCoords();
+      const res = await searchPlacesByText(placeSearch, coords?.lat ?? null, coords?.lng ?? null);
       setPlaceResults(res);
     } catch { setPlaceResults([]); }
     finally { setPlaceLoading(false); }
@@ -2758,10 +2729,11 @@ const AddToNightSheet: React.FC<{
     ? ratings.filter((r) => r.name.toLowerCase().includes(ratedSearch.toLowerCase()) || r.cuisine.toLowerCase().includes(ratedSearch.toLowerCase()))
     : ratings;
 
-  if (!open) return null;
-
+  // Gate INSIDE AnimatePresence — an early `return null` unmounted the sheet
+  // the instant `open` flipped, skipping the slide-down exit entirely.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
@@ -2974,6 +2946,7 @@ const AddToNightSheet: React.FC<{
           </AnimatePresence>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 };
@@ -2987,14 +2960,13 @@ const TripsTab: React.FC<{
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   updateTripRestaurant: (tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => void;
   removeRestaurantFromTrip: (tripId: string, restaurantId: string, night: number) => void;
-  rateRestaurant: (rating: RestaurantRating) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   ratings: RestaurantRating[];
   onBack: () => void;
   autoCreate?: boolean;
   onAutoCreateHandled?: () => void;
-}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
+}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -3027,10 +2999,19 @@ const TripsTab: React.FC<{
 
   if (selectedTrip) {
     const nights = getNightCount(selectedTrip.startDate, selectedTrip.endDate);
-    const completedCount = selectedTrip.restaurants.filter((r) => r.status === 'completed').length;
+    const completedRestaurants = selectedTrip.restaurants.filter((r) => r.status === 'completed');
+    const completedCount = completedRestaurants.length;
     const plannedCount = selectedTrip.restaurants.filter((r) => r.status === 'planned').length;
-    const avgRating = completedCount > 0
-      ? (selectedTrip.restaurants.filter((r) => r.status === 'completed' && r.rating).reduce((sum, r) => sum + (r.rating?.score || 0), 0) / completedCount).toFixed(1)
+    // Trip entries never store a rating of their own — read each completed
+    // restaurant's score live from the user's global ratings (always fresh;
+    // `r.rating` kept as a legacy fallback) and average over the RATED ones
+    // only. Dividing by completedCount showed "0.0" the moment anything
+    // unrated was checked off.
+    const ratedScores = completedRestaurants
+      .map((r) => ratings.find((g) => g.restaurantId === r.restaurantId)?.score ?? r.rating?.score)
+      .filter((s): s is number => typeof s === 'number' && s > 0);
+    const avgRating = ratedScores.length > 0
+      ? (ratedScores.reduce((sum, s) => sum + s, 0) / ratedScores.length).toFixed(1)
       : '—';
     const totalRestaurants = selectedTrip.restaurants.length;
 
@@ -3196,7 +3177,7 @@ const TripsTab: React.FC<{
                               </div>
                             )}
                             <button onClick={() => removeRestaurantFromTrip(selectedTrip.id, r.restaurantId, r.night)}
-                              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
+                              className="hit-44 w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
                               <X size={11} />
                             </button>
                           </div>
@@ -3250,11 +3231,12 @@ const TripsTab: React.FC<{
           tripId={selectedTrip.id}
           tripLat={selectedTrip.destinationLat}
           tripLng={selectedTrip.destinationLng}
+          tripDestination={selectedTrip.destination}
+          onDestinationResolved={(lat, lng) => updateTrip(selectedTrip.id, { destinationLat: lat, destinationLng: lng })}
           existingRestaurantIds={new Set(selectedTrip.restaurants.filter((r) => r.night === addNightIndex).map((r) => r.restaurantId))}
           ratings={ratings}
           addRestaurantToTrip={addRestaurantToTrip}
           openAddRestaurantModal={openAddRestaurantModal}
-          rateRestaurant={rateRestaurant}
           onClose={() => setAddNightSheetOpen(false)}
         />
       </div>
@@ -3263,13 +3245,24 @@ const TripsTab: React.FC<{
 
   // ── Index view ──
   return (
-    <div className={cn('relative', phoneMode && 'pt-safe-4')}>
-      {/* Back to lists */}
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={onBack} className="p-1.5 rounded-full hover:bg-on-surface/5">
+    <div className="relative">
+      {/* Standard phone top-bar layout — same row structure as the other
+          list views (back at the left, title, primary action right). */}
+      <div className="pt-safe-4 flex items-center gap-2 mb-3">
+        <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
           <ArrowLeft size={20} />
         </button>
         <h2 className="font-serif font-bold text-xl">Trips</h2>
+        {sortedTrips.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:opacity-90 transition-opacity flex-shrink-0"
+          >
+            <Plus size={15} strokeWidth={2.5} />
+            <span>New Trip</span>
+          </button>
+        )}
       </div>
 
       {sortedTrips.length === 0 ? (
@@ -3323,10 +3316,11 @@ const TripsTab: React.FC<{
         </div>
       )}
 
-      {/* FAB */}
+      {/* FAB — bottom offset includes the home-indicator inset so it
+          doesn't sit half behind the bar on notched iPhones. */}
       {sortedTrips.length > 0 && (
-        <button onClick={() => setCreateOpen(true)}
-          className="fixed bottom-24 right-6 z-40 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
+        <button onClick={() => setCreateOpen(true)} aria-label="Create trip"
+          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-6 z-40 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
           <Plane size={22} />
         </button>
       )}
@@ -3439,10 +3433,11 @@ const CreateTripSheet: React.FC<{
 
   const nightCount = startDate && endDate ? getNightCount(startDate, endDate) : 0;
 
-  if (!open) return null;
-
+  // Same open-inside-AnimatePresence gate as AddToNightSheet — the early
+  // `return null` hard-popped the sheet away with no slide-down.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -3616,6 +3611,7 @@ const CreateTripSheet: React.FC<{
           </div>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 };
@@ -3625,7 +3621,6 @@ const HOME_MEAL_TAGS = ['Comfort Food', 'Healthy', 'Quick & Easy', 'Baking', 'Da
 
 const HomeCookingTab: React.FC<{
   meals: HomeMeal[];
-  onCreateMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
   onUpdateMeal: (id: string, updates: Partial<HomeMeal>) => void;
   onDeleteMeal: (id: string) => void;
   onOpenModal: (meal?: HomeMeal) => void;
@@ -3636,7 +3631,7 @@ const HomeCookingTab: React.FC<{
   // tab strip + back via the Restaurants tab — skip the local back
   // button + duplicate header to avoid two layers of chrome.
   hideHeader?: boolean;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
+}> = ({ meals, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -3751,14 +3746,7 @@ const HomeCookingTab: React.FC<{
       result = result.filter((m) => m.difficulty && difficultyFilter.includes(m.difficulty));
     }
     if (timeFilter) {
-      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
-      result = result.filter((m) => {
-        const t = total(m);
-        if (timeFilter === 'fast') return t > 0 && t < 30;
-        if (timeFilter === 'medium') return t >= 30 && t <= 60;
-        if (timeFilter === 'slow') return t > 60;
-        return true;
-      });
+      result = result.filter((m) => matchesTimeBand((m.prepTime || 0) + (m.cookTime || 0), timeFilter));
     }
 
     if (sortBy === 'recent') {
@@ -4244,9 +4232,9 @@ const HomeCookingTab: React.FC<{
     );
 
     const shareSheet = (
-      <ShareRecipeSheet
+      <ShareDialog
         open={!!shareRecipeData}
-        recipe={shareRecipeData}
+        payload={shareRecipeData ? { sharedRecipe: shareRecipeData } : null}
         onClose={() => setShareRecipeData(null)}
       />
     );
@@ -4903,7 +4891,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onToggleVisibility?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: isPrivate ? '#5c6144' : '#9a8f89' }}
+                style={{ background: isPrivate ? 'var(--color-olive)' : 'var(--color-swipe-muted)' }}
                 aria-label={isPrivate ? 'Make public' : 'Make private'}
               >
                 {isPrivate ? <Globe size={19} /> : <Lock size={19} />}
@@ -4914,7 +4902,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#7a7a79' }}
+                style={{ background: 'var(--color-swipe-neutral)' }}
                 aria-label="Edit"
               >
                 <Edit3 size={19} />
@@ -4925,7 +4913,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#c0392b' }}
+                style={{ background: 'var(--color-danger)' }}
                 aria-label="Delete"
               >
                 <Trash2 size={19} />
@@ -5210,184 +5198,6 @@ const RecipeFilterSheet: React.FC<{
   );
 };
 
-/* ── Reusable bottom-sheet pickers ──
-   These three sheets render the same kind of pop-up the rated view's
-   City / Cuisine / Price / Sort pills open. Extracted so the wishlist
-   (and any future list view) can reuse them with its own state. */
-
-const FilterListSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  placeholder: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-}> = ({ open, onClose, title, placeholder, options, selected, onToggle }) => {
-  const { phoneMode } = useSettings();
-  const [search, setSearch] = useState('');
-  useEffect(() => { if (!open) setSearch(''); }, [open]);
-  const q = search.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn(
-              'fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden',
-              phoneMode ? 'max-h-[92vh]' : 'max-h-[70vh]',
-            )}
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              <h3 className="font-serif font-bold text-lg">{title}</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            <div className="px-5 pt-3 pb-2 flex-shrink-0">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input
-                  type="text"
-                  placeholder={placeholder}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
-              {filtered.length === 0 ? (
-                <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
-              ) : filtered.map((opt) => {
-                const isSelected = selected.includes(opt);
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => onToggle(opt)}
-                    className={cn(
-                      'w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/[0.05] text-left transition-colors',
-                      isSelected ? 'text-primary bg-primary/[0.03]' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
-                    )}
-                  >
-                    <span className="text-sm font-medium">{opt}</span>
-                    {isSelected && <Check size={16} className="text-primary" />}
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-const PricePickerSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  value: string | null;
-  onChange: (v: string | null) => void;
-}> = ({ open, onClose, value, onChange }) => {
-  const { phoneMode } = useSettings();
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="px-5 pt-3 pb-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-serif font-bold text-base">Price Range</h3>
-                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
-                  <X size={14} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="flex gap-2">
-                {['$', '$$', '$$$', '$$$$'].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => { onChange(value === p ? null : p); onClose(); }}
-                    className={cn(
-                      'flex-1 py-3 rounded-xl text-sm font-bold transition-all border-2',
-                      value === p ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                    )}
-                  >{p}</button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-const SortPickerSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<readonly [string, string]>;
-}> = ({ open, onClose, value, onChange, options }) => {
-  const { phoneMode } = useSettings();
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="px-5 pt-3 pb-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-serif font-bold text-base">Sort By</h3>
-                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
-                  <X size={14} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                {options.map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => { onChange(key); onClose(); }}
-                    className={cn(
-                      'w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left',
-                      value === key ? 'bg-primary/5 text-primary' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
-                    )}
-                  >
-                    <span className="text-sm font-medium">{label}</span>
-                    {value === key && <Check size={16} className="text-primary" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
 /* ── Combined Restaurants/Recipes tab + list-selector ──
    The active tab carries the current list info (emoji + name + count
    + chevron) and toggles a dropdown when clicked. The inactive tab
@@ -5444,7 +5254,7 @@ const FilterPill: React.FC<{
     type="button"
     onClick={onClick}
     className={cn(
-      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      'hit-44-y inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
       active
         ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
         : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
@@ -5464,7 +5274,7 @@ const FilterPill: React.FC<{
         onClick={(e) => { e.stopPropagation(); onClear(); }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
         aria-label="Clear"
-        className="ml-0.5 text-current/70 hover:text-current"
+        className="ml-0.5 p-2 -m-1.5 text-current/70 hover:text-current"
       >
         <X size={10} />
       </span>
@@ -5604,7 +5414,7 @@ const SortPickerContent: React.FC<{
 );
 
 // Searchable scrollable list — used inside CityPill + CuisinePill
-// popovers. Lighter chrome than FilterListSheet (no big header bar).
+// popovers. Lighter chrome than a full bottom sheet (no big header bar).
 const SearchableMultiSelect: React.FC<{
   placeholder: string;
   options: string[];
@@ -5807,15 +5617,17 @@ export const Pantry: React.FC = () => {
   }, [listSwitcherOpen]);
 
   const handleExport = (format: 'csv' | 'json') => {
+    // cityFromAddress knows to drop trailing country / "STATE ZIP" tokens —
+    // the last comma segment of a full address is usually the COUNTRY.
     const items = filteredRatings.map((r) => ({
-      name: r.name, address: r.address, city: (() => { const p = r.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+      name: r.name, address: r.address, city: cityFromAddress(r.address),
       cuisine: r.cuisine, rating: r.score, notes: r.notes,
       date_visited: r.visitDate, is_wishlist: false, price_range: r.price.length,
     }));
     // Also add wishlist items
     wishlist.forEach((w) => {
       items.push({
-        name: w.name, address: w.address, city: (() => { const p = w.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+        name: w.name, address: w.address, city: cityFromAddress(w.address),
         cuisine: w.cuisine, rating: 0, notes: w.notes,
         date_visited: '', is_wishlist: true, price_range: w.price.length,
       });
@@ -5859,10 +5671,9 @@ export const Pantry: React.FC = () => {
     lists, createList,
     ratings, openAddRestaurantModal, removeRating,
     wishlist, restaurantMeta,
-    getListsForRestaurant,
     trips, createTrip, updateTrip, deleteTrip,
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
-    rateRestaurant, cacheRestaurantMeta, addToList,
+    cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
@@ -5970,15 +5781,14 @@ export const Pantry: React.FC = () => {
     return () => window.removeEventListener('pointerup', up);
   }, []);
 
-  // Extract unique cities from addresses
+  // Extract unique cities from addresses. cityFromAddress drops trailing
+  // country / "STATE ZIP" segments — the naive last-comma-segment version
+  // filled this facet with "USA".
   const allCities = useMemo(() => {
     const cities = new Set<string>();
     ratings.forEach((r) => {
-      if (r.address) {
-        const parts = r.address.split(',').map((s) => s.trim());
-        if (parts.length >= 2) cities.add(parts[parts.length - 1]);
-        else if (parts.length === 1 && parts[0]) cities.add(parts[0]);
-      }
+      const c = cityFromAddress(r.address);
+      if (c) cities.add(c);
     });
     return Array.from(cities).sort();
   }, [ratings]);
@@ -6001,10 +5811,7 @@ export const Pantry: React.FC = () => {
       result = result.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
     }
     if (cityFilter.length > 0) {
-      result = result.filter((r) => {
-        const parts = r.address?.split(',').map((s) => s.trim()) || [];
-        return parts.some((p) => cityFilter.includes(p));
-      });
+      result = result.filter((r) => cityFilter.includes(cityFromAddress(r.address)));
     }
     if (cuisineFilter.length > 0) result = result.filter((r) => cuisineFilter.includes(r.cuisine));
     if (priceFilter) result = result.filter((r) => r.price === priceFilter);
@@ -6044,8 +5851,13 @@ export const Pantry: React.FC = () => {
   const regularRatingsCount = ratings.length;
   const regularWishlist = wishlist;
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
-  const hasActiveFilters = activeFilterCount > 0;
+  // Sort is NOT a filter: it never counts into the Filters badge. The Sort
+  // pill itself lights up for any non-default choice (see isNonDefaultSort)
+  // — the old rules disagreed with each other ('recent' showed nothing
+  // active while 'lowest'/'added' inflated the filter count).
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
+  const isNonDefaultSort = sortBy !== 'highest';
+  const hasActiveFilters = activeFilterCount > 0 || isNonDefaultSort;
 
   // Seed custom order from current sort if empty when switching to custom
   const handleSortBy = useCallback((v: typeof sortBy) => {
@@ -6428,7 +6240,6 @@ export const Pantry: React.FC = () => {
         ) : showHomeCooking ? (
           <HomeCookingTab
             meals={homeMeals}
-            onCreateMeal={createHomeMeal}
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
@@ -6449,7 +6260,6 @@ export const Pantry: React.FC = () => {
             addRestaurantToTrip={addRestaurantToTrip}
             updateTripRestaurant={updateTripRestaurant}
             removeRestaurantFromTrip={removeRestaurantFromTrip}
-            rateRestaurant={rateRestaurant}
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
@@ -6591,9 +6401,9 @@ export const Pantry: React.FC = () => {
                     onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
                   <FilterPill onClick={() => setSortDropdownOpen(true)}
                     icon={<ArrowUpDown size={11} />}
-                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
-                    active={sortBy !== 'highest' && sortBy !== 'recent'}
-                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                    label={isNonDefaultSort ? sortLabels[sortBy] : 'Sort'}
+                    active={isNonDefaultSort}
+                    onClear={isNonDefaultSort ? () => setSortBy('highest') : undefined} />
                   {hasActiveFilters && (
                     <button onClick={handleResetFilters}
                       className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
@@ -6699,9 +6509,9 @@ export const Pantry: React.FC = () => {
                   <AnchoredPill
                     pill={{
                       icon: <ArrowUpDown size={11} />,
-                      label: sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort',
-                      active: sortBy !== 'highest' && sortBy !== 'recent',
-                      onClear: (sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined,
+                      label: isNonDefaultSort ? sortLabels[sortBy] : 'Sort',
+                      active: isNonDefaultSort,
+                      onClear: isNonDefaultSort ? () => setSortBy('highest') : undefined,
                     }}
                     popoverWidth="w-[240px]"
                   >
@@ -6788,7 +6598,6 @@ export const Pantry: React.FC = () => {
                 {filteredRatings.length > 0 ? (
                   <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                     {filteredRatings.map((r, idx) => {
-                      const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
                       return (sortBy !== 'custom' && effectiveViewMode === 'grid') ? (
                         <RestaurantGridCard
@@ -6826,7 +6635,7 @@ export const Pantry: React.FC = () => {
                                   that opens /reorder (real touch drag). */}
                               {!phoneMode && (
                                 <button
-                                  className="touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
+                                  className="hit-44 touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
                                   onPointerDown={() => setDragIdx(idx)}
                                   onPointerUp={() => {
                                     if (dragIdx !== null && dragIdx !== idx) moveRating(dragIdx, idx);
@@ -6849,16 +6658,10 @@ export const Pantry: React.FC = () => {
                               restaurantId={r.restaurantId}
                               rank={isCustom ? undefined : idx + 1}
                               name={r.name}
-                              image={r.image}
                               cuisine={r.cuisine}
                               price={r.price}
                               address={r.address}
                               score={r.score}
-                              tags={r.tags}
-                              notes={r.notes}
-                              visitDate={r.visitDate}
-                              wouldReturn={r.wouldReturn}
-                              listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
                               onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                               onRemove={() => removeRating(r.restaurantId)}
                               showMichelin={michelinFilter.length > 0}

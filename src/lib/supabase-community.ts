@@ -28,6 +28,25 @@ export interface CommunityRating {
   updated_at?: string;
 }
 
+/**
+ * The timestamp a feed row sorts and is LABELED by. Feed fetch windows
+ * order/limit by updated_at, so sorting or captioning by created_at let an
+ * edited 2-year-old review float to the top labeled "2 years ago" while
+ * genuinely new rows got evicted from the window.
+ */
+export function activityTimestamp(r: { created_at?: string; updated_at?: string }): string {
+  return r.updated_at || r.created_at || '';
+}
+
+/** True when a row was meaningfully edited after creation (> 60 s) — feeds
+ *  append an "edited" marker so the updated_at-based recency reads honestly. */
+export function isEditedActivity(r: { created_at?: string; updated_at?: string }): boolean {
+  if (!r.created_at || !r.updated_at) return false;
+  const c = Date.parse(r.created_at);
+  const u = Date.parse(r.updated_at);
+  return Number.isFinite(c) && Number.isFinite(u) && u - c > 60_000;
+}
+
 export interface CommunityPhoto {
   id: string;
   user_id: string;
@@ -228,6 +247,68 @@ export async function getFriendsStats(userId: string, restaurantId: string): Pro
   } catch (err) { console.error('[Community] getFriendsStats exception:', err); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
 }
 
+export interface CircleRatingHit {
+  username: string;
+  displayName?: string;
+  isExpert?: boolean;
+  isFriend?: boolean;
+  score?: number;
+  notes?: string;
+}
+
+/**
+ * Friends' + verified experts' ratings for ONE restaurant — the global,
+ * page-independent implementation behind the assistant's get_circle_ratings
+ * tool. LocationPage overrides it with its preloaded signals map; every
+ * other surface runs this direct query so the model never asserts "no one
+ * in your circle rated this" from an unwired stub.
+ */
+export async function getCircleRatingsForRestaurant(
+  userId: string | null | undefined,
+  restaurantId: string,
+): Promise<CircleRatingHit[]> {
+  const id = restaurantId.trim();
+  if (!supabaseConfigured || !id) return [];
+  try {
+    const [friendRes, ratingRes] = await Promise.all([
+      userId
+        ? supabase.from('user_friends').select('friend_id').eq('user_id', userId)
+        : Promise.resolve({ data: [] as Array<{ friend_id: string }> }),
+      supabase.from('community_ratings')
+        .select('*')
+        .eq('restaurant_id', id)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (ratingRes.error) {
+      console.warn('[Community] getCircleRatingsForRestaurant error:', ratingRes.error.message);
+      return [];
+    }
+    const friendIds = new Set(((friendRes.data || []) as Array<{ friend_id: string }>).map((f) => f.friend_id));
+    const rows = (ratingRes.data || []) as CommunityRating[];
+    if (rows.length === 0) return [];
+    const raterIds = Array.from(new Set(rows.map((r) => r.user_id)));
+    const profiles = await getProfilesByIds(raterIds);
+    return rows
+      .filter((r) => friendIds.has(r.user_id) || !!profiles[r.user_id]?.is_verified)
+      .map((r) => {
+        const prof = profiles[r.user_id];
+        const score = Number(r.score);
+        return {
+          username: prof?.username || '',
+          displayName: prof?.display_name || prof?.username || 'Unknown',
+          isExpert: !!prof?.is_verified,
+          isFriend: friendIds.has(r.user_id),
+          score: Number.isFinite(score) && score > 0 ? score : undefined,
+          notes: r.notes || undefined,
+        };
+      });
+  } catch (err) {
+    console.warn('[Community] getCircleRatingsForRestaurant exception:', err);
+    return [];
+  }
+}
+
 /**
  * Remove a user's community photos for a restaurant.
  */
@@ -372,6 +453,9 @@ export interface UserProfile {
   home_city?: string | null;
   home_lat?: number | null;
   home_lng?: number | null;
+  /** Onboarding palette-test answers (migration 059) — written by
+   *  lib/taste-quiz.ts, blended into recommendations as cold-start priors. */
+  taste_profile?: unknown;
 }
 
 /** Optional home-base extras for {@link saveProfile}. Pass any subset; only
@@ -415,6 +499,28 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
       .select('*').ilike('username', username.trim()).single();
     if (error) return null;
     return data as UserProfile;
+  } catch { return null; }
+}
+
+/**
+ * True when the username is already claimed by ANOTHER account. Head-count
+ * query on the lowercased handle (saveProfile stores usernames lowercased),
+ * so no profile rows cross the wire. Returns `null` when the check itself
+ * fails (offline / RLS / timeout) — callers must treat that as "couldn't
+ * tell" and fall back to the submit-time 23505 backstop, never as
+ * "available".
+ */
+export async function isUsernameTaken(username: string, excludeUserId?: string): Promise<boolean | null> {
+  const uname = username.toLowerCase().trim();
+  if (!supabaseConfigured || !uname) return null;
+  try {
+    let q = supabase.from('user_profiles')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('username', uname);
+    if (excludeUserId) q = q.neq('user_id', excludeUserId);
+    const { count, error } = await q;
+    if (error) return null;
+    return (count ?? 0) > 0;
   } catch { return null; }
 }
 
@@ -627,6 +733,43 @@ export async function getFollowCounts(userId: string): Promise<{ followers: numb
     ]);
     return { followers: followers || 0, following: following || 0 };
   } catch { return { followers: 0, following: 0 }; }
+}
+
+export interface ExpertStats { ratingCount: number; followerCount: number }
+
+/**
+ * Rating + follower counts for a batch of users in ONE round-trip (RPC from
+ * migration 056). The old path was 3 requests PER expert: an unbounded
+ * `select *` just to read `.length`, plus get_follow_counts. Falls back to
+ * bounded head-count queries when the migration isn't applied.
+ */
+export async function getExpertStats(userIds: string[]): Promise<Record<string, ExpertStats>> {
+  const out: Record<string, ExpertStats> = {};
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  if (!supabaseConfigured || ids.length === 0) return out;
+  try {
+    const { data, error } = await supabase.rpc('get_expert_stats', { user_ids: ids });
+    if (!error && data) {
+      for (const row of data as Array<{ user_id: string; rating_count: unknown; follower_count: unknown }>) {
+        out[row.user_id] = {
+          ratingCount: Number(row.rating_count) || 0,
+          followerCount: Number(row.follower_count) || 0,
+        };
+      }
+      return out;
+    }
+    if (error) console.warn('[Community] get_expert_stats RPC failed (migration 056 applied?) — falling back to per-user counts:', error.message);
+    // Fallback: still no `select *` — head-only counts + the follow RPC.
+    const results = await Promise.all(ids.map(async (id) => {
+      const [{ count }, counts] = await Promise.all([
+        supabase.from('community_ratings').select('*', { count: 'exact', head: true }).eq('user_id', id),
+        getFollowCounts(id),
+      ]);
+      return { id, ratingCount: count || 0, followerCount: counts.followers };
+    }));
+    for (const r of results) out[r.id] = { ratingCount: r.ratingCount, followerCount: r.followerCount };
+    return out;
+  } catch { return out; }
 }
 
 /** Get all ratings by a specific user */

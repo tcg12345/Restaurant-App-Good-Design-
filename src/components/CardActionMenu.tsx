@@ -75,10 +75,17 @@ export const CardActionMenu: React.FC<{
   const PAD = 8;
   const menuH = actions.length * ITEM_H + PAD * 2;
 
+  // Bottom clearance respects the iOS home indicator, not just a flat
+  // 10px — --sat-bottom mirrors env(safe-area-inset-bottom) on :root
+  // (index.css) so it's readable from JS.
+  const safeBottom = typeof window !== 'undefined'
+    ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat-bottom')) || 0)
+    : 0;
+  const bottomPad = Math.max(10, safeBottom);
   let left = rect.left + rect.width / 2 - MENU_W / 2;
   left = Math.max(10, Math.min(left, window.innerWidth - MENU_W - 10));
   let top = rect.bottom + 8;
-  if (top + menuH > window.innerHeight - 10) top = rect.top - menuH - 8;
+  if (top + menuH > window.innerHeight - bottomPad) top = rect.top - menuH - 8;
   top = Math.max(10, top);
 
   return createPortal(

@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  ArrowDown,
   ArrowLeft,
   ChefHat,
   Check,
@@ -24,6 +25,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Square,
   Trash2,
   X,
   Zap,
@@ -435,6 +437,201 @@ function renderAssistantText(
   return out;
 }
 
+/* ── One conversation turn, memoized ─────────────────────────────────
+   During a stream every token delta replaces ONLY the last message
+   object; earlier turns keep their reference, so React.memo skips them
+   entirely. Before this, each delta re-ran renderAssistantText (and
+   the combined place/user linkRegex scan) over EVERY bubble in the
+   conversation — visible jank on older phones once a chat grew long.
+   All other props are referentially stable between deltas (useMemo /
+   useCallback in the parent). */
+interface ChatTurnProps {
+  m: UiMessage;
+  linkables: InlineLinkable[];
+  linkRegex: RegExp | null;
+  placeById: Map<string, ScoredPlace>;
+  recipeById: Map<string, Recipe | CommunityRecipeHit>;
+  restaurantMeta: Record<string, RestaurantMeta>;
+  onNavigateRestaurant: (id: string) => void;
+  onNavigateRecipe: (id: string) => void;
+  onOpenDraft: (toolUseId: string) => void;
+}
+
+const ChatTurn = React.memo<ChatTurnProps>(({
+  m, linkables, linkRegex, placeById, recipeById, restaurantMeta,
+  onNavigateRestaurant, onNavigateRecipe, onOpenDraft,
+}) => {
+  // Hide messages that have only invisible blocks (a user turn full of
+  // tool_results, an assistant turn that only called search_restaurants,
+  // an empty pre-stream assistant slot, etc.). The persistent typing
+  // indicator at the bottom of the list handles all the "Claude is
+  // thinking" UX, so empty assistant slots don't need their own bubble.
+  const hasVisibleContent = m.blocks.some(
+    (b) =>
+      (b.type === 'text' && b.text)
+      || (b.type === 'cards' && b.placeIds.length > 0)
+      || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+      || b.type === 'recipe_draft',
+  );
+  if (!hasVisibleContent) return null;
+  return (
+    <div className={cn('lp-chat-msg', m.role === 'user' ? 'is-user' : 'is-assistant')}>
+      {m.blocks.map((b, bi) => {
+        if (b.type === 'text') {
+          if (!b.text) return null;
+          return (
+            <div key={bi} className="lp-chat-bubble">
+              {m.role === 'assistant'
+                ? renderAssistantText(b.text, linkables, linkRegex)
+                : b.text}
+            </div>
+          );
+        }
+        if (b.type === 'tool_use' || b.type === 'tool_result') {
+          // Invisible protocol blocks — stored in state for
+          // round-tripping the conversation; never rendered.
+          return null;
+        }
+        if (b.type === 'recipe_cards') {
+          if (b.recipeIds.length === 0) return null;
+          return (
+            <div key={bi} className="lp-chat-cards">
+              {b.recipeIds.map((id) => {
+                const r = recipeById.get(id);
+                if (!r) {
+                  return (
+                    <div key={id} className="lp-chat-card lp-chat-card-missing">
+                      Recipe not found.
+                    </div>
+                  );
+                }
+                const totalMin = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
+                const cover = r.photos?.[0] || '';
+                // Difficulty in the new Supabase store is lowercase
+                // ('easy' / 'medium' / 'hard') — capitalize for display.
+                const difficulty = r.difficulty
+                  ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
+                  : '';
+                // Community recipes carry author metadata — show "by
+                // @author" so the user knows it isn't their own. The
+                // user's own recipes come through as a Recipe and have
+                // no authorUsername field.
+                const author = 'authorUsername' in r ? r.authorUsername : undefined;
+                const authorDisplay = 'authorDisplayName' in r ? r.authorDisplayName : undefined;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className="lp-chat-card lp-chat-card-recipe"
+                    onClick={() => onNavigateRecipe(id)}
+                  >
+                    <div
+                      className="lp-chat-card-recipe-cover"
+                      style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
+                      aria-hidden="true"
+                    >
+                      {!cover && <ChefHat size={18} />}
+                    </div>
+                    <div className="lp-chat-card-info">
+                      <h4>{r.title}</h4>
+                      <p>
+                        {r.cuisine && <span className="accent">{r.cuisine}</span>}
+                        {r.cuisine && (totalMin > 0 || difficulty) && <span className="dot">·</span>}
+                        {totalMin > 0 && <span className="price">{totalMin} min</span>}
+                        {totalMin > 0 && difficulty && <span className="dot">·</span>}
+                        {difficulty && <span>{difficulty}</span>}
+                      </p>
+                      {author && (
+                        <p className="lp-chat-card-byline">
+                          by {authorDisplay || `@${author}`}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight />
+                  </button>
+                );
+              })}
+            </div>
+          );
+        }
+        if (b.type === 'recipe_draft') {
+          return (
+            <div key={bi} className="lp-chat-cards">
+              <RecipeDraftCard
+                draft={b.draft}
+                publishedMealId={b.publishedMealId}
+                onOpen={() => onOpenDraft(b.toolUseId)}
+              />
+            </div>
+          );
+        }
+        // restaurant cards
+        if (b.placeIds.length === 0) return null;
+        return (
+          <div key={bi} className="lp-chat-cards">
+            {b.placeIds.map((id) => {
+              const place = placeById.get(id);
+              const note = b.notes?.[id];
+              if (!place) {
+                return (
+                  <div key={id} className="lp-chat-card-group">
+                    <div className="lp-chat-card lp-chat-card-missing">
+                      Restaurant no longer in your filtered list.
+                    </div>
+                  </div>
+                );
+              }
+              const score = place.rating > 0 ? place.rating * 2 : 0;
+              const scoreClass = score >= 8
+                ? 'is-good'
+                : score >= 5 ? 'is-mid' : 'is-low';
+              const cuisine = inferCuisineLabel(place.types);
+              const priceLabel = priceLevelToString(place.priceLevel);
+              const placeMeta = restaurantMeta[place.id];
+              const areaLabel = formatLocationLabel(
+                placeMeta?.addressComponents,
+                place.address || '',
+                placeMeta?.neighborhood,
+              );
+              return (
+                <div key={id} className="lp-chat-card-group">
+                  <button
+                    type="button"
+                    className="lp-chat-card"
+                    onClick={() => onNavigateRestaurant(id)}
+                  >
+                    <div className={cn('lp-chat-card-score', scoreClass)}>
+                      {score > 0 ? score.toFixed(1) : '—'}
+                    </div>
+                    <div className="lp-chat-card-info">
+                      <h4>{place.name}</h4>
+                      <p>
+                        {cuisine && <span className="accent">{cuisine}</span>}
+                        {cuisine && priceLabel && <span className="dot">·</span>}
+                        {priceLabel && <span className="price">{priceLabel}</span>}
+                        {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
+                        {areaLabel && (
+                          <span className="area">
+                            <MapPin size={11} />
+                            {areaLabel}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <ChevronRight />
+                  </button>
+                  {note && <p className="lp-chat-card-note">{note}</p>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+ChatTurn.displayName = 'ChatTurn';
+
 /** Strip the UI blocks back into the Anthropic content array we
  *  need to round-trip on the next request. We MUST resend the
  *  assistant's full content (including tool_use blocks) AND the
@@ -563,19 +760,46 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
 
 interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
 
-/** Suggestion cards for the empty state, biased by active filters. `prompt`
- *  is sent to the model; `title` / `subtitle` drive the horizontal card. */
+/** Suggestion cards for the empty state. Every slot derives from the live
+ *  context — active cuisine/neighborhood/price filters plus time of day —
+ *  so the cards read as "about this search", not boilerplate. `prompt` is
+ *  sent to the model; `title` / `subtitle` drive the horizontal card. */
 function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
   const cuisineLabel = (filters.cuisines?.[0] && (
     GOOGLE_TYPE_TO_CUISINE_LABEL[filters.cuisines[0]] || ''
   )) || '';
+  const cuisineLc = cuisineLabel.toLowerCase();
+  const hood = filters.neighborhoods?.[0] || '';
+  const area = hood || shortCity;
+  const priceTier = filters.price && filters.price >= 1 && filters.price <= 4 ? filters.price : 0;
+  const priceSigns = priceTier > 0 ? '$'.repeat(priceTier) : '';
+  // Meal slot from the device clock — the user is usually planning the
+  // next meal, not an abstract one.
+  const hour = new Date().getHours();
+  const meal = hour < 11
+    ? { key: 'breakfast', title: 'Breakfast', subtitle: 'morning spots' }
+    : hour < 15
+      ? { key: 'lunch', title: 'Lunch now', subtitle: 'good for midday' }
+      : hour < 22
+        ? { key: 'dinner tonight', title: 'Dinner tonight', subtitle: 'evening picks' }
+        : { key: 'late-night food', title: 'Late night', subtitle: 'still serving' };
   return [
     cuisineLabel
-      ? { prompt: `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${shortCity}` }
-      : { prompt: `Best date night spots in ${shortCity}`, title: 'Date night', subtitle: `romantic spots in ${shortCity}` },
-    { prompt: 'Hidden gems most people miss', title: 'Hidden gems', subtitle: 'underrated local favorites' },
-    { prompt: 'Where to go for a casual lunch', title: 'Casual lunch', subtitle: 'easy midday bites' },
-    { prompt: 'Something quick under $20', title: 'Under $20', subtitle: 'quick & budget-friendly' },
+      ? { prompt: `Best ${cuisineLc} spots in ${area}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${area}` }
+      : { prompt: `Best date night spots in ${area}`, title: 'Date night', subtitle: `romantic spots in ${area}` },
+    {
+      prompt: `Hidden gems most people miss in ${area}`,
+      title: 'Hidden gems',
+      subtitle: hood ? `underrated in ${hood}` : 'underrated local favorites',
+    },
+    {
+      prompt: `Where should I go for ${meal.key}${cuisineLc ? ` — ideally ${cuisineLc}` : ''} in ${area}?`,
+      title: meal.title,
+      subtitle: cuisineLabel ? `${meal.subtitle} · ${cuisineLabel}` : meal.subtitle,
+    },
+    priceTier > 0
+      ? { prompt: `Best ${priceSigns} ${cuisineLc || 'restaurants'} in ${area}`, title: `Best ${priceSigns}`, subtitle: 'matches your price filter' }
+      : { prompt: `Something quick under $20 in ${area}`, title: 'Under $20', subtitle: 'quick & budget-friendly' },
   ];
 }
 
@@ -793,6 +1017,19 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return () => setHideBottomNav(false);
   }, [open, phoneMode, setHideBottomNav]);
 
+  // "Jump to latest" pill — shown when new content is streaming in while
+  // the user is scrolled up off the bottom (pinned-off), hidden the moment
+  // they return to the bottom (by tap or by scrolling).
+  const [showJump, setShowJump] = useState(false);
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    // rAF so a state update queued this tick (e.g. the just-sent user
+    // message) has painted before we measure scrollHeight.
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+    });
+  }, []);
+
   // Autoscroll to the bottom as messages grow / stream — but only when the
   // user is already near the bottom. This effect fires on every streamed
   // token; unconditionally pinning made it impossible to scroll up and
@@ -802,7 +1039,21 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
+    else if (streaming) setShowJump(true);
   }, [messages, streaming]);
+
+  // Retire the pill as soon as the user scrolls back to the bottom
+  // themselves. Re-bound per open/view because the scroller only exists
+  // while the chat view is mounted.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) setShowJump(false);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [open, view]);
 
   // Focus the input when the chat opens — desktop only. On phones we
   // deliberately DON'T auto-focus: doing so pops the on-screen keyboard up
@@ -819,6 +1070,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   useEffect(() => () => {
     abortRef.current?.abort();
   }, []);
+
+  // Autosize the composer with its content, up to ~4 lines (the CSS
+  // max-height caps it; past that it scrolls internally). rows={1} alone
+  // never grew, so multi-line prompts scrolled invisibly in a single row.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  }, [input, open, view]);
 
   // Always land in the live-chat view when the panel opens —
   // history view is a navigation destination, not a default.
@@ -2093,6 +2354,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           { role: 'user', content: toolResultsForApi },
         ];
       }
+
+      // Reaching here means MAX_AGENTIC_TURNS ran out while the model was
+      // still calling tools — anything it did (searches, opened modals,
+      // navigation) already happened, but no closing text followed. Fill
+      // the trailing empty assistant turn so the user isn't left staring
+      // at silent side effects.
+      const capNote = "I've done what I can in this turn — ask a follow-up if you'd like me to keep going.";
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant' && last.blocks.length === 0) {
+          next[next.length - 1] = { role: 'assistant', blocks: [{ type: 'text', text: capNote }] };
+          return next;
+        }
+        return [...next, { role: 'assistant', blocks: [{ type: 'text', text: capNote }] }];
+      });
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -2135,13 +2412,26 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     if (!text) return;
     setInput('');
     void sendTurn(text);
-  }, [input, sendTurn, streaming]);
+    // The user's OWN send always comes into view, even if they'd scrolled
+    // up — the near-bottom-gated autoscroll effect alone left it offscreen.
+    setShowJump(false);
+    scrollToBottom();
+  }, [input, sendTurn, streaming, scrollToBottom]);
 
   const handleSuggestion = useCallback((s: string) => {
     if (streaming) return;
     setInput('');
     void sendTurn(s);
-  }, [sendTurn, streaming]);
+    setShowJump(false);
+    scrollToBottom();
+  }, [sendTurn, streaming, scrollToBottom]);
+
+  // Stop generation mid-stream: aborting the fetch makes sendTurn's catch
+  // swallow the AbortError and its finally clear `streaming`; whatever text
+  // already streamed in stays in the conversation.
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const handleRetry = useCallback(() => {
     // Find the last user message and resend it.
@@ -2407,183 +2697,23 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </div>
               )}
 
-              {messages.map((m, mi) => {
-                // Hide messages that have only invisible blocks (a
-                // user turn full of tool_results, an assistant turn
-                // that only called search_restaurants, an empty
-                // pre-stream assistant slot, etc.). The persistent
-                // typing indicator at the bottom of the list (below)
-                // handles all the "Claude is thinking" UX, so empty
-                // assistant slots don't need their own bubble.
-                const hasVisibleContent = m.blocks.some(
-                  (b) =>
-                    (b.type === 'text' && b.text)
-                    || (b.type === 'cards' && b.placeIds.length > 0)
-                    || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
-                    || b.type === 'recipe_draft',
-                );
-                if (!hasVisibleContent) return null;
-                return (
-                <div
+              {/* Each turn is a memoized ChatTurn (defined above) — only
+                  the streaming message's object changes per token delta,
+                  so completed bubbles skip re-render entirely. */}
+              {messages.map((m, mi) => (
+                <ChatTurn
                   key={mi}
-                  className={cn('lp-chat-msg', m.role === 'user' ? 'is-user' : 'is-assistant')}
-                >
-                  {m.blocks.map((b, bi) => {
-                    if (b.type === 'text') {
-                      if (!b.text) return null;
-                      return (
-                        <div key={bi} className="lp-chat-bubble">
-                          {m.role === 'assistant'
-                            ? renderAssistantText(b.text, linkables, linkRegex)
-                            : b.text}
-                        </div>
-                      );
-                    }
-                    if (b.type === 'tool_use' || b.type === 'tool_result') {
-                      // Invisible protocol blocks — stored in state for
-                      // round-tripping the conversation; never rendered.
-                      return null;
-                    }
-                    if (b.type === 'recipe_cards') {
-                      if (b.recipeIds.length === 0) return null;
-                      return (
-                        <div key={bi} className="lp-chat-cards">
-                          {b.recipeIds.map((id) => {
-                            const r = recipeById.get(id);
-                            if (!r) {
-                              return (
-                                <div key={id} className="lp-chat-card lp-chat-card-missing">
-                                  Recipe not found.
-                                </div>
-                              );
-                            }
-                            const totalMin = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
-                            const cover = r.photos?.[0] || '';
-                            // Difficulty in the new Supabase store is
-                            // lowercase ('easy' / 'medium' / 'hard') —
-                            // capitalize the first letter for display.
-                            const difficulty = r.difficulty
-                              ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
-                              : '';
-                            // Community recipes carry author metadata
-                            // — show "by @author" so the user knows it
-                            // isn't their own. The user's own recipes
-                            // come through as a Recipe and have no
-                            // authorUsername field.
-                            const author = 'authorUsername' in r ? r.authorUsername : undefined;
-                            const authorDisplay = 'authorDisplayName' in r ? r.authorDisplayName : undefined;
-                            return (
-                              <button
-                                key={id}
-                                type="button"
-                                className="lp-chat-card lp-chat-card-recipe"
-                                onClick={() => handleNavigateRecipe(id)}
-                              >
-                                <div
-                                  className="lp-chat-card-recipe-cover"
-                                  style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
-                                  aria-hidden="true"
-                                >
-                                  {!cover && <ChefHat size={18} />}
-                                </div>
-                                <div className="lp-chat-card-info">
-                                  <h4>{r.title}</h4>
-                                  <p>
-                                    {r.cuisine && <span className="accent">{r.cuisine}</span>}
-                                    {r.cuisine && (totalMin > 0 || difficulty) && <span className="dot">·</span>}
-                                    {totalMin > 0 && <span className="price">{totalMin} min</span>}
-                                    {totalMin > 0 && difficulty && <span className="dot">·</span>}
-                                    {difficulty && <span>{difficulty}</span>}
-                                  </p>
-                                  {author && (
-                                    <p className="lp-chat-card-byline">
-                                      by {authorDisplay || `@${author}`}
-                                    </p>
-                                  )}
-                                </div>
-                                <ChevronRight />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      );
-                    }
-                    if (b.type === 'recipe_draft') {
-                      return (
-                        <div key={bi} className="lp-chat-cards">
-                          <RecipeDraftCard
-                            draft={b.draft}
-                            publishedMealId={b.publishedMealId}
-                            onOpen={() => handleOpenDraft(b.toolUseId)}
-                          />
-                        </div>
-                      );
-                    }
-                    // restaurant cards
-                    if (b.placeIds.length === 0) return null;
-                    return (
-                      <div key={bi} className="lp-chat-cards">
-                        {b.placeIds.map((id) => {
-                          const place = placeById.get(id);
-                          const note = b.notes?.[id];
-                          if (!place) {
-                            return (
-                              <div key={id} className="lp-chat-card-group">
-                                <div className="lp-chat-card lp-chat-card-missing">
-                                  Restaurant no longer in your filtered list.
-                                </div>
-                              </div>
-                            );
-                          }
-                          const score = place.rating > 0 ? place.rating * 2 : 0;
-                          const scoreClass = score >= 8
-                            ? 'is-good'
-                            : score >= 5 ? 'is-mid' : 'is-low';
-                          const cuisine = inferCuisineLabel(place.types);
-                          const priceLabel = priceLevelToString(place.priceLevel);
-                          const placeMeta = restaurantMeta[place.id];
-                          const areaLabel = formatLocationLabel(
-                            placeMeta?.addressComponents,
-                            place.address || '',
-                            placeMeta?.neighborhood,
-                          );
-                          return (
-                            <div key={id} className="lp-chat-card-group">
-                              <button
-                                type="button"
-                                className="lp-chat-card"
-                                onClick={() => handleNavigateRestaurant(id)}
-                              >
-                                <div className={cn('lp-chat-card-score', scoreClass)}>
-                                  {score > 0 ? score.toFixed(1) : '—'}
-                                </div>
-                                <div className="lp-chat-card-info">
-                                  <h4>{place.name}</h4>
-                                  <p>
-                                    {cuisine && <span className="accent">{cuisine}</span>}
-                                    {cuisine && priceLabel && <span className="dot">·</span>}
-                                    {priceLabel && <span className="price">{priceLabel}</span>}
-                                    {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
-                                    {areaLabel && (
-                                      <span className="area">
-                                        <MapPin size={11} />
-                                        {areaLabel}
-                                      </span>
-                                    )}
-                                  </p>
-                                </div>
-                                <ChevronRight />
-                              </button>
-                              {note && <p className="lp-chat-card-note">{note}</p>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-                );
-              })}
+                  m={m}
+                  linkables={linkables}
+                  linkRegex={linkRegex}
+                  placeById={placeById}
+                  recipeById={recipeById}
+                  restaurantMeta={restaurantMeta}
+                  onNavigateRestaurant={handleNavigateRestaurant}
+                  onNavigateRecipe={handleNavigateRecipe}
+                  onOpenDraft={handleOpenDraft}
+                />
+              ))}
 
               {/* Persistent typing indicator — visible the whole time
                   `streaming` is true (between user-send and final
@@ -2621,6 +2751,23 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   </button>
                 </div>
               )}
+
+              {/* "Jump to latest" — rendered at the END of the list and
+                  position:sticky to the scroller's bottom edge, so it
+                  floats over the content only while the user is pinned
+                  off the bottom during a stream. */}
+              {showJump && (
+                <div className="lp-chat-jump-wrap">
+                  <button
+                    type="button"
+                    className="lp-chat-jump"
+                    onClick={() => { setShowJump(false); scrollToBottom('smooth'); }}
+                  >
+                    <ArrowDown size={13} />
+                    Jump to latest
+                  </button>
+                </div>
+              )}
               </>
               )}
             </div>
@@ -2644,6 +2791,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
               <div className="lp-chat-composer">
+                {/* NOT disabled while streaming — disabling blurred the
+                    field, which dismisses the iOS keyboard after every
+                    send. Submission is gated in handleSubmit instead, so
+                    the user can type their follow-up while the answer
+                    streams. */}
                 <textarea
                   ref={inputRef}
                   className="lp-chat-input"
@@ -2661,16 +2813,29 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       ? 'Ask for a recommendation…'
                       : 'Ask a follow-up…'
                   }
-                  disabled={streaming}
                 />
-                <button
-                  type="submit"
-                  className="lp-chat-send"
-                  disabled={streaming || !input.trim()}
-                  aria-label="Send"
-                >
-                  {streaming ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={18} />}
-                </button>
+                {streaming ? (
+                  // Stop control — a long generation (a 12k-token recipe
+                  // answer) is cancellable; the abort keeps whatever
+                  // already streamed in.
+                  <button
+                    type="button"
+                    className="lp-chat-send is-stop"
+                    onClick={handleStop}
+                    aria-label="Stop generating"
+                  >
+                    <Square size={12} fill="currentColor" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="lp-chat-send"
+                    disabled={!input.trim()}
+                    aria-label="Send"
+                  >
+                    <ArrowUp size={18} />
+                  </button>
+                )}
               </div>
             </form>
             )}

@@ -444,6 +444,17 @@
   color: rgba(30,27,26,0.65);
 }
 .gle-overlay .gle-chip-x:hover { background: rgba(30,27,26,0.20); }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.gle-overlay .gle-chip-x { position: relative; }
+.gle-overlay .gle-chip-x::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .gle-overlay .gle-chip.is-input {
   background: rgba(30,27,26,0.04);
   padding-right: 6px;
@@ -720,6 +731,17 @@
   flex-shrink: 0;
 }
 .gle-overlay .gle-picker-clear:hover { background: rgba(30,27,26,0.16); }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.gle-overlay .gle-picker-clear { position: relative; }
+.gle-overlay .gle-picker-clear::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .gle-overlay .gle-picker-list {
   flex: 1;
   min-height: 0;

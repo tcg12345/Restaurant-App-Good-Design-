@@ -11,6 +11,7 @@ import type { Recipe as ListRecipe } from '../contexts/ListsContext';
 import type { GuideEntry } from './supabase-guides';
 import { priceLevelToString, type PlaceResult } from './places';
 import { cityFromAddress, cityFromAddressComponents } from './city';
+import { weeklyHoursSummary } from './hours';
 
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -49,7 +50,7 @@ export function entryFromRating(
     notes: r.notes?.trim() || undefined,
     mustOrder: allDishes.length > 0 ? allDishes : undefined,
     neighborhood: meta?.neighborhood,
-    hours: meta?.hours?.[0]?.split(': ')[1],
+    hours: weeklyHoursSummary(meta?.hours),
     city: city || undefined,
   };
 }

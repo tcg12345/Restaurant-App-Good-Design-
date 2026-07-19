@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Loader2, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
+import { loadLastSelectedLocation } from './HomeLocationBar';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -32,6 +34,7 @@ import type { RestaurantRating } from '../contexts/ListsContext';
  */
 
 const SEARCH_DEBOUNCE_MS = 240;
+// Final fallback bias when the user has never picked a home location (NYC).
 const DEFAULT_LAT = 40.735;
 const DEFAULT_LNG = -73.99;
 
@@ -80,6 +83,15 @@ export const SearchPopup: React.FC<Props> = ({
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
 
+  // Bias the Places search to the user's picked home location — the old
+  // hardcoded NYC default gave everyone Manhattan-flavored results. Falls
+  // back to the stored value outside the provider, then NYC.
+  const homeCtx = useHomeLocation();
+  const storedHome = useMemo(() => (homeCtx ? null : loadLastSelectedLocation()), [homeCtx]);
+  const homeLoc = homeCtx ? homeCtx.location : storedHome;
+  const biasLat = homeLoc && Number.isFinite(homeLoc.lat) ? homeLoc.lat : DEFAULT_LAT;
+  const biasLng = homeLoc && Number.isFinite(homeLoc.lng) ? homeLoc.lng : DEFAULT_LNG;
+
   // Michelin overlay: resolve matches for the whole results array once the
   // dataset is loaded (hooks can't run per-row inside the map below).
   const michelinReady = useMichelinIndexReady();
@@ -125,7 +137,7 @@ export const SearchPopup: React.FC<Props> = ({
     const reqId = ++requestIdRef.current;
     debounceRef.current = setTimeout(async () => {
       try {
-        const found = await searchPlacesByText(trimmed, DEFAULT_LAT, DEFAULT_LNG);
+        const found = await searchPlacesByText(trimmed, biasLat, biasLng);
         if (reqId !== requestIdRef.current) return;
         setResults(found);
       } catch {
@@ -135,7 +147,7 @@ export const SearchPopup: React.FC<Props> = ({
       }
     }, SEARCH_DEBOUNCE_MS);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [trimmed, open]);
+  }, [trimmed, open, biasLat, biasLng]);
 
   // ESC closes the popup.
   useEffect(() => {

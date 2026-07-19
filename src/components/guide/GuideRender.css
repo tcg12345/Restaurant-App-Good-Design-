@@ -415,6 +415,17 @@
 }
 .gle-scope .gle-rt:hover { background: rgba(30,27,26,0.12); color: var(--gle-ink); }
 .gle-scope .gle-rt:disabled { opacity: 0.3; cursor: not-allowed; }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.gle-scope .gle-rt { position: relative; }
+.gle-scope .gle-rt::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .gle-scope .gle-rt.danger:hover { background: rgba(239,68,68,0.12); color: rgb(220,38,38); }
 
 .gle-scope .gle-entry.layout-banner { grid-template-columns: minmax(0, 1fr); }
@@ -506,6 +517,22 @@
 .gle-scope .gle-of { color: var(--gle-ink-muted); font-size: 11px; }
 .gle-scope .gle-rule { flex: 1; border-bottom: 1px solid var(--gle-line); margin-left: 6px; max-width: 80px; }
 .gle-scope .gle-star { color: var(--gle-accent); font-size: 13px; }
+
+/* Editor-only stub for entries without a score (Places-sourced). */
+.gle-scope .gle-score-addstub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px dashed var(--gle-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--gle-ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gle-scope .gle-score-addstub:hover { color: var(--gle-accent); border-color: var(--gle-accent); }
 
 .gle-scope .gle-entry-name {
   font-family: var(--gle-font-serif);

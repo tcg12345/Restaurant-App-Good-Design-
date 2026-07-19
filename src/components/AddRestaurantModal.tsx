@@ -11,6 +11,8 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { useSubmitOnce } from '../lib/useSubmitOnce';
+import { useDeferredFocus } from '../lib/useDeferredFocus';
 import { type H2HState, initH2HTieBreak, placementOrder } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
@@ -25,6 +27,9 @@ export const AddRestaurantModal: React.FC = () => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { dragProps } = useBottomSheet(addRestaurantModalOpen, closeAddRestaurantModal);
+  // Double-tapping Save during the sheet's exit animation must not save
+  // twice — the second isNewVisit save archives the first as a phantom visit.
+  const { submitting: saving, tryLock } = useSubmitOnce(addRestaurantModalOpen);
 
   // Real friends
   const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
@@ -45,7 +50,6 @@ export const AddRestaurantModal: React.FC = () => {
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
   const [visitDate, setVisitDate] = useState(localISODate());
-  const [wouldReturn, setWouldReturn] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
   const [priceAmount, setPriceAmount] = useState('');
@@ -66,6 +70,10 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  // Focus the sub-page fields only after the slide-in settles — a bare
+  // autoFocus popped the keyboard mid-animation and the two fought.
+  const notesFocusRef = useDeferredFocus<HTMLTextAreaElement>(page === 'notes');
+  const dishFocusRef = useDeferredFocus<HTMLInputElement>(page === 'favorite-dishes');
   // Inline rating method choice. `null` means the user hasn't picked one yet
   // and the prominent chooser is shown. Set to a concrete method on pick or
   // when there are no other ratings to compare against (slider only).
@@ -101,7 +109,6 @@ export const AddRestaurantModal: React.FC = () => {
         setScore(7);
         setNotes('');
         setVisitDate(localISODate());
-        setWouldReturn(true);
         setSelectedTags([]);
         setPhotos([]);
         setFavoriteDishes([]);
@@ -110,8 +117,9 @@ export const AddRestaurantModal: React.FC = () => {
       } else {
         setScore(ex?.score ?? 7);
         setNotes(ex?.notes ?? '');
-        setVisitDate(ex?.visitDate ?? '');
-        setWouldReturn(ex?.wouldReturn ?? true);
+        // First-ever rating defaults to today — `''` would save as "No date".
+        // Editing keeps whatever the record holds (including deliberately unset).
+        setVisitDate(ex ? (ex.visitDate ?? '') : localISODate());
         setSelectedTags(ex?.tags ?? []);
         setPhotos(ex?.photos ?? []);
         setFavoriteDishes(ex?.favoriteDishes ?? []);
@@ -121,8 +129,11 @@ export const AddRestaurantModal: React.FC = () => {
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
       // Restore the saved price when editing — resetting to -1 made "Update"
-      // silently revert a hand-picked price back to the meta default.
-      setPriceIndex(!startAsNewVisit && ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
+      // silently revert a hand-picked price back to the meta default. A new
+      // visit keeps it too: the restaurant's price tier doesn't change
+      // between visits, and resetting overwrote a hand-picked $$$$ with the
+      // meta price on save.
+      setPriceIndex(ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
       setPriceAmount('');
       // Caller-requested initial page wins (e.g. opening directly to "notes"
       // from RestaurantPanel); otherwise the modal always opens on main.
@@ -185,7 +196,9 @@ export const AddRestaurantModal: React.FC = () => {
     if (!isNaN(num) && num > 0) setPriceIndex(priceIndexFromAmount(num));
   };
 
-  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
+  // No pick and no meta price → persist '' (unset); fabricating '$$' would
+  // stamp a made-up tier on the rating.
+  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -257,7 +270,7 @@ export const AddRestaurantModal: React.FC = () => {
   };
 
   const persistRating = (finalScore: number, orderOverride?: string[]) => {
-    if (!restaurant) return;
+    if (!restaurant || !tryLock()) return;
     // The H2H placement order only binds while the score being saved is the
     // one the search produced — dragging the slider afterwards is a manual
     // override and the comparison order no longer applies.
@@ -268,7 +281,7 @@ export const AddRestaurantModal: React.FC = () => {
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
         cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags, photos,
         favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
         listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
       },
@@ -396,7 +409,7 @@ export const AddRestaurantModal: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
@@ -432,7 +445,7 @@ export const AddRestaurantModal: React.FC = () => {
                             if (!isNewVisit) {
                               setIsNewVisit(true);
                               setScore(7); setNotes(''); setVisitDate(localISODate());
-                              setWouldReturn(true); setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
+                              setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
                             }
                           }}
                           className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
@@ -447,7 +460,7 @@ export const AddRestaurantModal: React.FC = () => {
                               const ex = getRating(restaurant.id);
                               if (ex) {
                                 setScore(ex.score); setNotes(ex.notes); setVisitDate(ex.visitDate);
-                                setWouldReturn(ex.wouldReturn); setSelectedTags(ex.tags); setPhotos(ex.photos);
+                                setSelectedTags(ex.tags); setPhotos(ex.photos);
                                 setSelectedFriends(ex.friendIds || []);
                               }
                             }
@@ -667,8 +680,9 @@ export const AddRestaurantModal: React.FC = () => {
                         Pick a visit date to save this visit.
                       </p>
                     )}
-                    <button onClick={handleSaveRating} className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform">
-                      {existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
+                    <button onClick={handleSaveRating} disabled={saving}
+                      className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none">
+                      {saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}
@@ -693,8 +707,8 @@ export const AddRestaurantModal: React.FC = () => {
               {page === 'notes' && (
                 <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} ref={notesFocusRef}
+                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8}
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
                   <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
@@ -716,7 +730,7 @@ export const AddRestaurantModal: React.FC = () => {
                         onChange={(e) => setDishDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDish(dishDraft); } }}
                         placeholder="Add a dish (press Enter)…"
-                        autoFocus
+                        ref={dishFocusRef}
                         className="w-full bg-white border border-on-surface/10 rounded-full pl-10 pr-20 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
                       />
                       {dishDraft.trim() && (
@@ -979,7 +993,7 @@ export const AddRestaurantModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden kb-pad",
               phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}

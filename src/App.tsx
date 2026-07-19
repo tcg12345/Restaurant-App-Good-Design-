@@ -34,7 +34,6 @@ import { ListsProvider } from './contexts/ListsContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
-import { RatingModal } from './components/RatingModal';
 import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
@@ -237,18 +236,23 @@ const AppContent: React.FC = () => {
   // or desktop-sidebar with no intermediate "tablet" layout in between.
   const useSidebar = isDesktop && !phoneMode;
 
-  // Pull-to-refresh (phone): bump a nonce keyed onto <Routes> so the current
-  // route remounts and its mount-time data loads re-run, and broadcast
+  // Pull-to-refresh (phone): bump the CURRENT route's nonce so that page
+  // remounts and its mount-time data loads re-run, and broadcast
   // `app:refresh` for any context that wants to refetch in place — a soft
-  // refresh with no full page reload / loading flash.
-  const [refreshNonce, setRefreshNonce] = React.useState(0);
+  // refresh with no full page reload / loading flash. Nonces are scoped
+  // PER PATH: a single global nonce used to key every keep-alive layer,
+  // so refreshing Discover also remounted Search/Pantry/Profile and threw
+  // away the scroll positions keep-alive exists to preserve.
+  const [refreshNonces, setRefreshNonces] = React.useState<Record<string, number>>({});
+  const refreshKeyFor = (path: string) => refreshNonces[path] ?? 0;
   const handleRefresh = React.useCallback(async () => {
     window.scrollTo({ top: 0 });
-    setRefreshNonce((n) => n + 1);
+    const path = location.pathname;
+    setRefreshNonces((m) => ({ ...m, [path]: (m[path] ?? 0) + 1 }));
     window.dispatchEvent(new CustomEvent('app:refresh'));
     // Hold briefly so the remount's fetches start under the spinner.
     await new Promise((resolve) => setTimeout(resolve, 750));
-  }, []);
+  }, [location.pathname]);
 
   // Keep-alive: once a tab-root page is visited it stays mounted. Mounted
   // lazily (on first visit) so we don't eagerly mount every tab at startup.
@@ -326,16 +330,6 @@ const AppContent: React.FC = () => {
   // Detail pages slide horizontally (iOS push/pop) rather than fading. Fading
   // an opaque page out over the kept tab caused a white wash; sliding it off
   // also covers the tab during its first repaint, so there's no flash.
-  const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { x: '100%' };
-  const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { x: 0 };
-  // Non-create pages live in normal flow (so the document is as tall as the
-  // page and sticky chrome works) and only become absolute for the exit
-  // slide, where they must overlay what's revealed underneath. Motion applies
-  // the non-animatable position/inset values instantly at exit start — the
-  // geometry is identical to the in-flow box, so there's no jump.
-  const motionExit = isCreateRoute
-    ? { x: '-100%', opacity: 1 }
-    : { x: '100%', position: 'absolute' as const, top: 0, left: 0, right: 0 };
   const motionTransition = isCreateRoute
     ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
     : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
@@ -346,19 +340,56 @@ const AppContent: React.FC = () => {
   // `instantNav` itself and drives the motion with its own drag).
   const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
   const stackInstant = instantNav || isTabSwitchNav;
-  // The instant flag travels via AnimatePresence `custom`, not props: an
-  // exiting page keeps its STALE variants (that's what preserves /create's
-  // leftward exit direction after leaving it), but framer refreshes `custom`
-  // on exiting clones — so the new navigation's instant-ness reaches the old
-  // page's exit transition while its direction stays source-correct.
+  // PUSH and POP slide in opposite directions (iOS). On a push the new page
+  // drives in from the right ABOVE the old one, which parks 30% off to the
+  // left, slightly dimmed (the iOS parallax); on a pop the old page slides
+  // off to the RIGHT above the parked page gliding back to center. The exit
+  // used to be x:'100%' unconditionally, so pushing detail→detail played the
+  // POP animation on the outgoing page — it read as going backwards.
+  // REPLACE navigations count as pushes. Both flags travel via
+  // AnimatePresence `custom`, not props: an exiting page keeps its STALE
+  // variants (that's what preserves /create's leftward exit direction after
+  // leaving it), but framer refreshes `custom` on exiting clones — so the
+  // new navigation's instant-ness AND direction reach the old page's exit
+  // while the create-vs-stack branch stays source-correct.
+  const stackNav = { instant: stackInstant, pop: navType === 'POP' };
+  type StackNav = typeof stackNav;
+  // Non-create pages live in normal flow (so the document is as tall as the
+  // page and sticky chrome works) and only become absolute for the exit
+  // slide, where they must overlay what's revealed underneath. Motion applies
+  // the non-animatable position/inset/zIndex values instantly at exit start —
+  // the geometry is identical to the in-flow box, so there's no jump. The
+  // dim rides a brightness() filter, NOT opacity: the parked page must stay
+  // opaque or the kept-alive tab beneath ghosts through it mid-slide.
   const stackVariants: Variants = {
-    enter: (instant: boolean) => (instant ? { x: 0 } : motionInitial),
-    center: (instant: boolean) => ({
-      ...motionAnimate,
+    enter: ({ instant, pop }: StackNav) => {
+      if (instant) return { x: 0 };
+      if (isCreateRoute) return { x: '-100%', opacity: 1 };
+      // Pop: re-emerge from the parked parallax slot, brightening.
+      return pop ? { x: '-30%', filter: 'brightness(0.85)' } : { x: '100%' };
+    },
+    center: ({ instant }: StackNav) => ({
+      x: 0,
+      ...(isCreateRoute
+        ? { opacity: 1 }
+        // Clear the filter once centered — any non-none filter turns the
+        // wrapper into a containing block for fixed-position descendants
+        // (bottom sheets, overlays), which must not persist at rest.
+        : { filter: 'brightness(1)', transitionEnd: { filter: 'none' } }),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
-    exit: (instant: boolean) => ({
-      ...motionExit,
+    exit: ({ instant, pop }: StackNav) => ({
+      ...(isCreateRoute
+        ? { x: '-100%', opacity: 1 }
+        : {
+            position: 'absolute' as const, top: 0, left: 0, right: 0,
+            ...(pop
+              // Pop: slide off rightward ABOVE the page re-emerging beneath.
+              ? { x: '100%', zIndex: 10 }
+              // Push: park left + dim under the newcomer (which paints above
+              // by DOM order), then unmount invisibly behind it.
+              : { x: '-30%', filter: 'brightness(0.8)', zIndex: 0 }),
+          }),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
   };
@@ -368,13 +399,14 @@ const AppContent: React.FC = () => {
     <>
       {/* Persistent keep-alive tab pages — visible when active, kept mounted
           (hidden) otherwise so returning to them preserves scroll + state.
-          Keyed by refreshNonce so a pull-to-refresh still reloads them. */}
-      <React.Fragment key={refreshNonce}>
+          Each layer is keyed by ITS OWN refresh nonce so a pull-to-refresh
+          remounts only the tab being refreshed, never its siblings. */}
+      <React.Fragment>
         {keptAlive.map((path) => {
           const active = path === location.pathname;
           return (
             <div
-              key={path}
+              key={`${path}#${refreshKeyFor(path)}`}
               // The ACTIVE tab sits in normal flow so the document grows with
               // its content — position:sticky chrome (the desktop sidebar and
               // header) only sticks within its parent's real height. Inactive
@@ -404,8 +436,11 @@ const AppContent: React.FC = () => {
 
       {/* Stack — every non-keep-alive route (details, map, reels, create…).
           Absolutely positioned so it overlays the tab layer; on exit it
-          animates away to reveal the kept-alive tab underneath. */}
-      <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false} custom={stackInstant}>
+          animates away to reveal the kept-alive tab underneath. mode="sync"
+          (not "wait") so push/pop overlap like iOS: the old and new page
+          slide simultaneously — sequential wait-mode played the exit over
+          bare surface, then the entrance, which read as two disjoint moves. */}
+      <AnimatePresence mode="sync" initial={false} custom={stackNav}>
         {!isKeepAlivePath && (
         <motion.div
           key={location.pathname}
@@ -414,13 +449,13 @@ const AppContent: React.FC = () => {
           // snapshot — the exiting page's wrapper must not pass for it.
           data-route-stack={location.pathname}
           variants={stackVariants}
-          custom={stackInstant}
+          custom={stackNav}
           initial="enter"
           animate="center"
           exit="exit"
           className={isCreateRoute ? 'absolute inset-0 z-30' : 'relative bg-surface'}
         >
-        <React.Fragment key={refreshNonce}>
+        <React.Fragment key={refreshKeyFor(location.pathname)}>
         <Routes location={location}>
           <Route path="/" element={<Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
@@ -475,7 +510,6 @@ const AppContent: React.FC = () => {
 
   const modals = (
     <>
-      <RatingModal />
       <VerificationOutcomeModal />
       <AddToListModal />
       <AddRestaurantModal />
@@ -574,7 +608,7 @@ const AppContent: React.FC = () => {
             // real underneath it. The spring stays for tapped navigation.
             transition={instantNav ? { duration: 0 } : { type: 'spring', damping: 20, stiffness: 100 }}
           >
-            <BottomNav collapsible={isMapPage} />
+            <BottomNav />
           </motion.div>
         )}
       </AnimatePresence>

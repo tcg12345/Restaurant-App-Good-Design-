@@ -125,14 +125,23 @@ export const Sidebar: React.FC = () => {
   }, [width]);
 
   return (
+    <>
+    {/* Fixed-width slot that holds the rail's place in the flex row. The
+        real rail renders as a fixed overlay next to it, so hover-expanding
+        72→264 never changes the flow width — the old in-flow width spring
+        re-laid-out <main> on every frame (the map canvas visibly resized). */}
+    <div style={{ width: SIDEBAR_COLLAPSED_WIDTH }} className="flex-shrink-0" aria-hidden />
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', damping: 28, stiffness: 280, mass: 0.9 }}
       onMouseEnter={onAsideMouseEnter}
       onMouseLeave={onAsideMouseLeave}
       className={cn(
-        'h-screen sticky top-0 flex-shrink-0 border-r border-on-surface/[0.07] bg-surface',
-        'flex flex-col z-30',
+        'fixed left-0 top-0 h-screen border-r border-on-surface/[0.07] bg-surface',
+        'flex flex-col z-30 transition-shadow duration-200',
+        // Expanded, the rail floats OVER the page content — the shadow
+        // sells the overlay so it doesn't read as content being shoved.
+        !collapsed && 'shadow-[12px_0_32px_-16px_rgba(0,0,0,0.28)]',
       )}
       aria-label="Primary"
     >
@@ -419,5 +428,6 @@ export const Sidebar: React.FC = () => {
         </NavLink>
       </div>
     </motion.aside>
+    </>
   );
 };

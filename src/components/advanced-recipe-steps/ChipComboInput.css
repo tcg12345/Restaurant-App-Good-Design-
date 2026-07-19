@@ -74,6 +74,17 @@
   background: rgba(168, 57, 42, 0.2);
   color: var(--accent, #A8392A);
 }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.chip-combo-chip-remove { position: relative; }
+.chip-combo-chip-remove::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 
 .chip-combo-input {
   flex: 1;

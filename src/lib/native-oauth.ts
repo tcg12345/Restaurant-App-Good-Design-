@@ -14,6 +14,13 @@
  *      session. The code verifier was stored in this web view when step 1
  *      ran, so the exchange happens in the same storage context.
  *
+ * If iOS jettisons the app while the user is over in the provider sheet
+ * (memory pressure), the redirect COLD-STARTS the app instead: the step-3
+ * listener is gone with the old JS context and the `?code=` arrives as the
+ * launch URL. `completeOAuthFromLaunchUrl()` (called on boot) covers that
+ * path — localStorage outlives the process, so the persisted verifier is
+ * still there to finish the exchange.
+ *
  * The imports tree-shake to Capacitor's tiny web stubs on the plain web
  * build; the native code only runs behind `isNativeRuntime()`.
  */
@@ -100,4 +107,60 @@ export async function signInWithOAuthNative(
       finish({ error: 'Could not open the sign-in page. Please try again.' });
     });
   });
+}
+
+/**
+ * Finish an OAuth sign-in whose redirect cold-started the app (see the
+ * header comment). Called once on boot, before the initial session check.
+ *
+ * Only acts when BOTH hold:
+ *   - the launch URL is our OAuth redirect carrying a `?code=`, and
+ *   - the PKCE code verifier supabase-js persisted when the flow started
+ *     is still in localStorage. Its absence means the exchange already
+ *     happened in a previous life (iOS keeps reporting the same launch URL
+ *     on later relaunches) or storage was cleared — either way the code is
+ *     unusable, so skip quietly instead of firing a doomed exchange.
+ *
+ * Returns true only when a session was actually established; the caller's
+ * normal boot path (getSession / onAuthStateChange) then picks it up.
+ */
+export async function completeOAuthFromLaunchUrl(): Promise<boolean> {
+  if (!isNativeRuntime()) return false;
+
+  let url: string | null = null;
+  try {
+    const launch = await App.getLaunchUrl();
+    url = launch?.url ?? null;
+  } catch {
+    return false;
+  }
+  if (!url || !url.startsWith(NATIVE_OAUTH_REDIRECT)) return false;
+
+  // supabase-js stores the verifier under `sb-<ref>-auth-token-code-verifier`;
+  // match by suffix so the project ref never needs hardcoding here.
+  let hasVerifier = false;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.endsWith('-code-verifier')) { hasVerifier = true; break; }
+    }
+  } catch {
+    return false;
+  }
+  if (!hasVerifier) return false;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.get('error_description')) return false;
+    const code = parsed.searchParams.get('code');
+    if (!code) return false;
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      console.warn('[native-oauth] launch-url code exchange failed:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -10,6 +10,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
+import { getTasteQuiz } from '../lib/taste-quiz';
 import {
   buildTasteProfile,
   gatherRecCandidates,
@@ -173,7 +174,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const isPage = variant === 'page';
   const navigate = useNavigate();
   const { setHideBottomNav } = useSettings();
-  const { user } = useAuth();
+  const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
 
@@ -237,9 +238,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   // (index-gated inside the builder) appear once the dataset loads.
   const michelinReady = useMichelinIndexReady();
   const liveProfile = useMemo(
-    () => buildTasteProfile(ratings, wishlist, lists, []),
+    () => buildTasteProfile(ratings, wishlist, lists, [], getTasteQuiz(myProfile)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ratings, wishlist, lists, michelinReady],
+    [ratings, wishlist, lists, michelinReady, myProfile],
   );
 
   // Gather the candidate pool (network) — profile changes deliberately do

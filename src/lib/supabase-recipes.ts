@@ -437,9 +437,16 @@ export async function toggleRecipeCommentLike(userId: string, commentId: string)
   } catch { return null; }
 }
 
-/** Delete one of the caller's own comments. */
+/** Delete one of the caller's own comments (and its replies). */
 export async function deleteRecipeComment(commentId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
-  try { const { error } = await supabase.from('recipe_comments').delete().eq('id', commentId); return !error; }
-  catch { return false; }
+  try {
+    // Replies first — without a DB-level cascade, a deleted parent stranded
+    // its replies as rows that never rendered but still inflated the count
+    // badges. RLS may keep OTHER users' replies; the thread renders those
+    // orphans as top-level comments so counts still agree.
+    await supabase.from('recipe_comments').delete().eq('parent_id', commentId);
+    const { error } = await supabase.from('recipe_comments').delete().eq('id', commentId);
+    return !error;
+  } catch { return false; }
 }

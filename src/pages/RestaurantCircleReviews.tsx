@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreChipBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { getPlaceDetails } from '../lib/places';
 import {
@@ -43,8 +44,8 @@ type Entry = {
   href: string;
 };
 
-const scoreChipBg = (s: number) =>
-  s >= 8 ? 'bg-olive' : s >= 5 ? 'bg-amber-600' : 'bg-clay';
+// Solid tier chip fill — shared score palette (lib/score).
+
 
 export const RestaurantCircleReviews: React.FC = () => {
   const { id } = useParams<{ id: string }>();

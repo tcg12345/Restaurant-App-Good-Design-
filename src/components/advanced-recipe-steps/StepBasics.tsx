@@ -27,13 +27,18 @@ function fmtTime(min: number): string {
 const pad2 = (v: number) => String(v).padStart(2, '0');
 
 /** One column of the time card: label, live value, and the h : mm
- *  looping wheel pair. Hours wrap 0–12, minutes 0–59. */
+ *  looping wheel pair. Hours wrap 0–24, minutes 0–59. */
 const TimeWheelsCol: React.FC<{
   label: string;
   totalMin: number;
   onChange: (totalMin: number) => void;
 }> = ({ label, totalMin, onChange }) => {
-  const hours = Math.min(12, Math.floor(totalMin / 60));
+  const hours = Math.floor(totalMin / 60);
+  // The wheel physically shows 0–24; a stored total beyond that (imported
+  // long ferments etc.) is DISPLAY-clamped only. The minutes wheel writes
+  // back with the TRUE hour count — the old 12h clamp meant editing a 16h
+  // recipe's minutes silently rewrote the stored total down to ≤12:59.
+  const wheelHours = Math.min(24, hours);
   const minutes = totalMin % 60;
   return (
     <div className="rcx-tw-col">
@@ -43,8 +48,8 @@ const TimeWheelsCol: React.FC<{
       </div>
       <div className="rcx-tw-wheels">
         <LoopWheel
-          count={13}
-          value={hours}
+          count={25}
+          value={wheelHours}
           onChange={(h) => onChange(h * 60 + minutes)}
           ariaLabel={`${label} hours`}
         />

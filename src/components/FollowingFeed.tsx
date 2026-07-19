@@ -8,6 +8,8 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getAllFollowedRatings,
   getProfilesByIds,
+  activityTimestamp,
+  isEditedActivity,
   type CommunityRating,
   type UserProfile,
 } from '../lib/supabase-community';
@@ -94,7 +96,7 @@ const FilterPill: React.FC<{
     type="button"
     onClick={onClick}
     className={cn(
-      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      'hit-44-y inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
       active
         ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
         : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
@@ -467,7 +469,7 @@ export const FollowingFeed: React.FC = () => {
           onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
         {hasActiveFilters && (
           <button onClick={resetFilters}
-            className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+            className="hit-44-y flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
             <X size={10} /><span>Clear</span>
           </button>
         )}
@@ -581,7 +583,7 @@ export const FollowingFeed: React.FC = () => {
                                 <VerifiedBadge size={12} inline className="ml-1" />
                               )}
                               <span className="mx-1 text-on-surface/25">·</span>
-                              {timeAgo(r.created_at)}
+                              {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}
                             </p>
                           </div>
                         )}
@@ -761,7 +763,7 @@ const FollowingFilterSheet: React.FC<{
               <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
+                className="hit-44 w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
               >
                 <X size={16} className="text-on-surface/60" />
               </button>

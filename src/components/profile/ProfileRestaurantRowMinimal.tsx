@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { SquarePen, ArrowRight, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { scoreHex } from '../../lib/score';
 import type { CommunityRating, CommunityPhoto } from '../../lib/supabase-community';
 
 interface Props {
@@ -16,10 +17,8 @@ interface Props {
   compact?: boolean;
 }
 
-/** Score → semantic hex (emerald / amber / red), matching the design tokens. */
-const scoreHex = (s: number): string => (s >= 8 ? '#10b981' : s >= 5 ? '#f59e0b' : '#ef4444');
-
-/** Circular score badge with a soft tinted fill and an inset color ring. */
+/** Circular score badge with a soft tinted fill and an inset color ring.
+ *  Tier hex comes from the shared lib/score palette. */
 const RingScore: React.FC<{ score: number; size?: number }> = ({ score, size = 46 }) => {
   const c = scoreHex(score);
   return (

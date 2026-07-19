@@ -28,6 +28,7 @@ import { getProfilesByIds, getFriends, getFriendsPublicHomeMeals, type UserProfi
 import { cn } from '../lib/utils';
 import { shareExternally } from '../lib/native-share';
 import './RecipesForYou.css';
+import { avatarHue } from '../lib/avatar';
 
 type SourceFilter = 'all' | 'friend' | 'chef' | 'home';
 type SortKey = 'recent' | 'quick' | 'az';
@@ -62,13 +63,6 @@ const MEAL_CATEGORIES: { key: MealKey; label: string; hue: number; icon: typeof 
   { key: 'drinks',    label: 'Drinks',    hue: 200, icon: Wine },
 ];
 
-// Hash a string to a stable hue 0–360. Used for author avatars when we
-// don't have an explicit color.
-const hashToHue = (s: string): number => {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
-  return h;
-};
 
 // Stable seed-based number from a string — used only for deterministic
 // ordering (so mixed pools don't reshuffle between renders), never for
@@ -577,7 +571,7 @@ export const RecipesForYou: React.FC = () => {
     const recipeOfDayCover = recipeOfDay?.photos?.[0] || '';
     const rodAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
     const rodAuthorName = rodAuthor?.display_name || rodAuthor?.username || 'Anonymous';
-    const rodAuthorHue = recipeOfDay ? hashToHue(recipeOfDay.userId || 'x') : 0;
+    const rodAuthorHue = recipeOfDay ? avatarHue(recipeOfDay.userId || 'x') : 0;
     const rodTotal = recipeOfDay ? ((recipeOfDay.prepTimeMinutes ?? 0) + (recipeOfDay.cookTimeMinutes ?? 0)) : 0;
     const rodTime = formatTime(rodTotal);
 
@@ -1004,7 +998,7 @@ const BrowseCard: React.FC<{
   const cover = r.photos?.[0] || '';
   const time = formatTime((r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0));
   const authorName = author?.display_name || author?.username || 'Anonymous';
-  const authorHue = hashToHue(r.userId || authorName);
+  const authorHue = avatarHue(r.userId || authorName);
   return (
     <article
       className={cn('rbx-card', view === 'list' && 'list')}
@@ -1055,7 +1049,7 @@ const RecipeOfTheDay: React.FC<{
   const totalTime = (recipe.prepTimeMinutes ?? 0) + (recipe.cookTimeMinutes ?? 0);
   const time = formatTime(totalTime);
   const authorName = author?.display_name || author?.username || 'Anonymous';
-  const authorHue = hashToHue(recipe.userId || 'x');
+  const authorHue = avatarHue(recipe.userId || 'x');
 
   return (
     <article className="rod">
@@ -1138,7 +1132,7 @@ const MobileExploreCard: React.FC<{
   const cover = r.photos?.[0] || '';
   const totalTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
   const time = formatTime(totalTime);
-  const hue = hashToHue(r.userId || r.id);
+  const hue = avatarHue(r.userId || r.id);
 
   const ImageBlock = (
     <div className="m-er-img" style={{ background: `linear-gradient(135deg, hsl(${hue} 50% 52%), hsl(${(hue + 25) % 360} 50% 42%))` }}>

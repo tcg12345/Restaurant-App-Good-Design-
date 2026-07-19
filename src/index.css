@@ -38,6 +38,80 @@
   --color-olive: #5c6144;
   --color-clay: #9f3012;
   --color-persimmon: #e85a2c;
+
+  /* ── Score tier system ──
+     The ONE palette for every score-coded surface — chips, rings, map
+     markers, gradients. Four competing palettes used to render the same
+     tier differently across the detail pages, lists and maps; this warm
+     brand set (formerly only the LocationPage markers) replaces them all.
+     lib/score.ts is the only module that should map a numeric score to
+     these tokens — never hardcode the hexes. Variants:
+       (base)   solid fills — markers, chips with white text
+       -tint    soft chip fill (flips to a low-alpha tint in dark)
+       -ink     readable text on surface/tint (lightens in dark)
+       -bright  text over dark media/gradients (same in both themes) */
+  --color-score-high: #2e7d5c;
+  --color-score-mid: #c28f3a;
+  --color-score-low: #a8392a;
+  --color-score-high-tint: #eaf2ef;
+  --color-score-mid-tint: #f8f1e7;
+  --color-score-low-tint: #f6ebea;
+  --color-score-high-ink: #2e7d5c;
+  --color-score-mid-ink: #8f6626;
+  --color-score-low-ink: #a8392a;
+  --color-score-high-bright: #5fbe93;
+  --color-score-mid-bright: #e0b064;
+  --color-score-low-bright: #e58273;
+
+  /* ── Recipes accent ──
+     The emerald family used by recipe affordances (Discover recipes tab,
+     Messages recipe pills). `recipes` is the solid accent, `-tint` the
+     soft chip fill, `-ink` readable text on surface/tint. */
+  --color-recipes: #059669;
+  --color-recipes-tint: #ecfdf5;
+  --color-recipes-ink: #047857;
+
+  /* Dark canvas behind the reel/post composers — matches the media
+     chrome (theme-independent by design, like .bg-media-white). */
+  --color-media-canvas: #16120e;
+
+  /* Destructive accent for swipe-to-delete reveals and similar. */
+  --color-danger: #c0392b;
+
+  /* Neutral swipe-action backgrounds (Pantry row reveals). */
+  --color-swipe-neutral: #7a7a79;
+  --color-swipe-muted: #9a8f89;
+
+  /* ── Pantry tile palette (decorative) ──
+     Gradient pairs for the Pantry home tiles: fixed essentials tiles
+     (rated / wishlist / recipes) plus the hash-picked list palette in
+     PhonePantryHome. Saturated fills under white text read the same in
+     both themes, so there are no dark overrides — theme-independent by
+     design, like the media chrome above. */
+  --color-tile-rated: #2c2826;
+  --color-tile-rated-deep: #161311;
+  --color-tile-wish: #d26a4a;
+  --color-tile-wish-deep: #a8482e;
+  --color-tile-recipes: #2f4a39;
+  --color-tile-recipes-deep: #15281d;
+  --color-tile-cook: #c68f3a;
+  --color-tile-cook-deep: #8e5e1f;
+  --color-tile-blue: #7b9cc4;
+  --color-tile-blue-deep: #506e92;
+  --color-tile-purple: #8e6c82;
+  --color-tile-purple-deep: #604858;
+  --color-tile-green: #7a9270;
+  --color-tile-green-deep: #506049;
+  --color-tile-rust: #c2725d;
+  --color-tile-rust-deep: #8d4a3c;
+  --color-tile-gold: #d4a85a;
+  --color-tile-gold-deep: #a07f39;
+  --color-tile-tan: #9c7a5a;
+  --color-tile-tan-deep: #71583e;
+  --color-tile-teal: #5f8c8a;
+  --color-tile-teal-deep: #41615f;
+  --color-tile-brick: #b16a6a;
+  --color-tile-brick-deep: #82494b;
 }
 
 /* ── Dark mode overrides ──────────────────────────────────────────────
@@ -59,6 +133,17 @@
   --color-ink-2: #c2c2c2;
   --color-ink-3: #8a8a8a;
   --color-ink-4: #5d5d5d;
+  /* Score tiers: solids stay put (fills under white text); tints become
+     low-alpha washes over the dark card and inks lighten for contrast. */
+  --color-score-high-tint: rgba(64, 145, 108, 0.16);
+  --color-score-mid-tint: rgba(194, 143, 58, 0.15);
+  --color-score-low-tint: rgba(190, 82, 66, 0.16);
+  --color-score-high-ink: #6fc49b;
+  --color-score-mid-ink: #d9a855;
+  --color-score-low-ink: #e08273;
+  /* Recipes accent: tint becomes a low-alpha wash, ink lightens. */
+  --color-recipes-tint: rgba(16, 185, 129, 0.14);
+  --color-recipes-ink: #34d399;
 }
 
 .dark {
@@ -173,6 +258,21 @@
 .dark .bg-black\/45 { background-color: rgba(0, 0, 0, 0.68) !important; }
 .dark .bg-black\/40 { background-color: rgba(0, 0, 0, 0.62) !important; }
 
+/* Literal white for chrome that sits OVER MEDIA (carousel dots, chips on
+   video) and must not track the theme: the `.bg-white → paper` remap above
+   turned these near-black in dark mode — an active carousel dot DARKER
+   than its inactive bg-white/50 siblings, a VERIFIED chip going dark with
+   dark-red text on a video. Photos and videos are equally bright in both
+   themes, so this stays white by design. */
+.bg-media-white {
+  background-color: #ffffff;
+}
+/* Companion ink for .bg-media-white pills — near-black text that must NOT
+   flip with the theme (it sits on the literal-white media chrome above). */
+.text-media-ink {
+  color: #1c1816;
+}
+
 /* Tiny gray accents that read as "almost transparent on cream" lose
    contrast on a dark page; bump them so the rounded delete confirmation
    buttons / muted chips remain visible. */
@@ -209,7 +309,7 @@
 /* Expose the iOS safe-area-inset-top as a CSS variable so JS-side scroll
    math (e.g. RecipeMobileSectionNav's scroll-to handler) can read it via
    getComputedStyle. env() can't be read directly from JS. */
-:root { --sat-top: env(safe-area-inset-top, 0px); }
+:root { --sat-top: env(safe-area-inset-top, 0px); --sat-bottom: env(safe-area-inset-bottom, 0px); }
 
 /* Height of the *visible* viewport (above the on-screen keyboard), published
    by native-keyboard.ts from the VisualViewport API on iOS. Full-screen
@@ -254,6 +354,67 @@
      keys. `kb-open` is toggled on <html> by native-keyboard.ts and only
      while a native keyboard is showing. Mirrors the AI chat's treatment. */
   html.kb-open .msg-composer-bar { padding-bottom: 0.5rem; }
+
+  /* Keyboard-aware lift (native shell, Keyboard.resize:"none"). --kb-height
+     is published by native-keyboard.ts — the exact keyboard height the
+     moment keyboardWillShow fires, back to 0 on hide. `kb-pad` pads a
+     full-height sheet's content up so its composer clears the keys;
+     `kb-bottom` lifts a fixed/absolute footer or bar. Both ease over ~the
+     keyboard's own animation time (same curve as the LocationChat island)
+     so the surface glides with the keyboard instead of teleporting. On the
+     web --kb-height stays 0, so these are no-ops. */
+  .kb-pad {
+    padding-bottom: var(--kb-height, 0px);
+    transition: padding-bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .kb-bottom {
+    bottom: var(--kb-height, 0px);
+    transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ── 44pt minimum tap target (Apple HIG) ──
+     Expands a small control's HIT AREA without changing its visuals: an
+     invisible ::after overlay centred on the control, at least 44×44.
+     The element becomes position:relative. Don't apply inside another
+     interactive element (the overlay would steal the parent's taps), and
+     prefer .hit-44-y in tight horizontal rows (dots, pills side by side)
+     where full-width expansion would overlap the neighbours. */
+  /* :where() keeps the position default at zero specificity so an explicit
+     `absolute`/`fixed` utility on the same element still wins — the overlay
+     just needs the element to be positioned SOMEHOW. */
+  :where(.hit-44, .hit-44-y) {
+    position: relative;
+  }
+  .hit-44::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  /* Vertical-only variant: full control width, ≥44px tall. */
+  .hit-44-y::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: max(100%, 44px);
+    transform: translateY(-50%);
+  }
+}
+
+/* Inline composers on document-scrolled pages (feed comment/reply boxes,
+   review comment bars): with Keyboard.resize:"none" the keyboard overlays
+   the page bottom and the document has no scroll room to lift a low
+   composer clear of it — native-keyboard.ts's reveal scrollIntoView can
+   only work if there's somewhere to scroll TO. While the keyboard is up,
+   grow the document by its height. Pages with their own scroll containers
+   (sheets, panels) are untouched — they opt in via .kb-pad instead. */
+html.kb-open body {
+  padding-bottom: var(--kb-height, 0px);
 }
 
 @layer base {

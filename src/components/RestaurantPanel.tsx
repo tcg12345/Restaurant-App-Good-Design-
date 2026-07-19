@@ -36,7 +36,7 @@ import { useBlobPhotos } from '../lib/useBlobPhotos';
 // rest of the app already imports this from the detail page; the panel
 // is a separate entry point so it has to bring it in too.
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { useLists } from '../contexts/ListsContext';
@@ -55,6 +55,8 @@ import type { ReelRestaurantSnapshot } from '../lib/supabase-reels';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, type PlaceDetails } from '../lib/places';
 import { isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
 import { getTodayHours } from '../pages/useRestaurantDetail';
+import { buildDirectionsUrl } from '../lib/directions';
+import { openExternalUrl } from '../lib/external-links';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
@@ -72,22 +74,20 @@ interface RestaurantPanelProps {
 }
 
 function formatRelativeDate(iso: string): string {
-  if (!iso) return '';
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const d = Math.floor((Date.now() - t) / 86_400_000);
+  const date = parseVisitDate(iso);
+  if (!date) return '';
+  const d = Math.floor((Date.now() - date.getTime()) / 86_400_000);
   if (d <= 0) return 'today';
   if (d === 1) return 'yesterday';
   if (d < 7) return `${d}d ago`;
   if (d < 30) return `${Math.floor(d / 7)}w ago`;
-  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function formatVisitDate(iso: string): string {
-  if (!iso) return '';
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  return new Date(t).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const date = parseVisitDate(iso);
+  if (!date) return '';
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 /* ── Score pill (Community / Friends / Experts) ───────────────────────── */
@@ -176,9 +176,13 @@ interface ActionButtonProps {
   label: string;
   href?: string | null;
   external?: boolean;
+  /** When set, the tap runs this instead of following href (which stays for
+   *  hover/copy-link affordances) — used to route external URLs through
+   *  openExternalUrl so native opens the right app, not Safari. */
+  onClick?: () => void;
 }
 
-const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external }) => {
+const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external, onClick }) => {
   const inner = (
     <>
       <span className="text-on-surface/75">{icon}</span>
@@ -191,7 +195,8 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external
   return (
     <a
       href={href}
-      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      {...(onClick ? { onClick: (e: React.MouseEvent) => { e.preventDefault(); onClick(); } } : {})}
+      {...(external && !onClick ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
       className={cls}
     >
       {inner}
@@ -253,7 +258,6 @@ export const RestaurantPanelBody: React.FC<{
     getRating,
     isWishlisted,
     toggleWishlist,
-    openRatingModal,
     openAddRestaurantModal,
     openAddToListModal,
     getListsForRestaurant,
@@ -373,7 +377,7 @@ export const RestaurantPanelBody: React.FC<{
     address: snapshot.address,
   }), [snapshot]);
 
-  const onRate = () => openRatingModal(meta);
+  const onRate = () => openAddRestaurantModal(meta);
   const onAddToList = () => openAddToListModal(snapshot.id, meta);
   const onWishlist = () => toggleWishlist(meta);
   /** Jump into the unified Add Restaurant modal at a specific page (notes /
@@ -429,6 +433,9 @@ export const RestaurantPanelBody: React.FC<{
       interactive: false,
       attributionControl: false,
     });
+    // Mapbox ToS requires attribution on every map, decorative locators
+    // included — keep it, but compact so it stays out of the title's way.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, el);
     mapInstanceRef.current = map;
     new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
@@ -448,11 +455,16 @@ export const RestaurantPanelBody: React.FC<{
   /* ── Hours + contact derived from the details fetch. */
   const phoneHref = details?.phone ? `tel:${details.phone}` : null;
   const websiteHref = details?.website || null;
-  const directionsHref = useMemo(() => {
-    const addr = details?.fullAddress || details?.address || snapshot.address;
-    if (!addr) return null;
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr)}`;
-  }, [details, snapshot.address]);
+  const directionsHref = useMemo(() => buildDirectionsUrl({
+    // details.id is the RESOLVED Google place id (synthetic Michelin ids
+    // are swapped for a real one by the details fetch) — including it pins
+    // chain restaurants to this exact branch.
+    placeId: details?.id,
+    address: details?.fullAddress || details?.address || snapshot.address,
+    name: snapshot.name,
+    lat,
+    lng,
+  }), [details, snapshot.address, snapshot.name, lat, lng]);
 
   const hours = details?.hours || [];
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -510,14 +522,9 @@ export const RestaurantPanelBody: React.FC<{
           <motion.div
             key={`${snapshot.id}-${lat}-${lng}`}
             ref={mapContainerRef}
-            // Arbitrary-variant Tailwind classes hide the Mapbox logo and
-            // attribution chrome that would otherwise sit over the title.
-            // The map is decorative in this context (non-interactive, used
-            // as a locator), so the attribution moves to the full detail
-            // page where the interactive map lives.
             // The saturate filter quiets the cartography slightly so it
             // reads as warm gray rather than bright pastel.
-            className="absolute inset-x-0 top-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
+            className="absolute inset-x-0 top-0"
             style={{ width: '100%', height: 204, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
           />
         ) : snapshot.image ? (
@@ -629,6 +636,7 @@ export const RestaurantPanelBody: React.FC<{
             label="Directions"
             href={directionsHref}
             external
+            onClick={directionsHref ? () => { void openExternalUrl(directionsHref); } : undefined}
           />
           <ActionButton
             icon={<Phone size={18} />}

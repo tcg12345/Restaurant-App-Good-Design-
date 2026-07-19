@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Search, Clock, Users, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { parseIngredientLine, displayAmount } from '../lib/ingredient-parsing';
 import { processPhoto } from '../lib/images';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeStep } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useDeferredFocus } from '../lib/useDeferredFocus';
 import type { PhotoItem } from '../contexts/ListsContext';
 
 const RECIPE_TAGS = [
@@ -58,6 +60,10 @@ export const RecipeModal: React.FC = () => {
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
+  // Focus after the sheet / sub-page entrance settles — a bare autoFocus
+  // popped the keyboard mid-animation and the two fought.
+  const titleFocusRef = useDeferredFocus<HTMLInputElement>(recipeModalOpen);
+  const ingNameFocusRef = useDeferredFocus<HTMLInputElement>(page === 'ingredients');
   const [confirmDelete, setConfirmDelete] = useState(false);
   // In-flight guards: the save/delete buttons stay tappable through a slow
   // network call otherwise — a double-tap on Save created two DB rows
@@ -129,7 +135,6 @@ export const RecipeModal: React.FC = () => {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
     setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
   };
-  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const movePhoto = (from: number, to: number) => {
     setPhotos((prev) => {
       const next = [...prev];
@@ -152,6 +157,23 @@ export const RecipeModal: React.FC = () => {
   };
 
   const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+
+  // Bulk paste: a multi-line ingredient list pasted into the name field
+  // parses each line ("2 cups flour") through the shared parser and adds
+  // them all — matching the Advanced builder's "paste a list" feature.
+  // Single-line pastes behave like normal typing.
+  const onIngredientPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !text.includes('\n')) return;
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    const parsed = lines.map((line) => {
+      const r = parseIngredientLine(line);
+      return { name: r?.name || line, amount: r?.amount ? displayAmount(r.amount) : '', unit: r?.unit ?? '' };
+    });
+    setIngredients((prev) => [...prev, ...parsed]);
+  };
 
   const addStep = () => {
     if (!stepText.trim()) return;
@@ -246,7 +268,7 @@ export const RecipeModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
@@ -278,7 +300,18 @@ export const RecipeModal: React.FC = () => {
                               className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
                               <Camera size={14} className="text-white" />
                             </button>
-                            <button onClick={() => setCoverPhoto('')}
+                            <button
+                              onClick={() => {
+                                // Explicit promotion: pull the first gallery
+                                // photo into the cover slot so the user SEES
+                                // the recipe's next cover (the save used to
+                                // promote it silently — photos[0] is the
+                                // cover by storage convention).
+                                setPhotos((prev) => {
+                                  setCoverPhoto(prev.length > 0 ? prev[0].url : '');
+                                  return prev.length > 0 ? prev.slice(1) : prev;
+                                });
+                              }}
                               className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
                               <X size={14} className="text-white" />
                             </button>
@@ -296,8 +329,8 @@ export const RecipeModal: React.FC = () => {
                     {/* Title */}
                     <div className="mb-3">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Recipe Title</p>
-                      <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g. Grandma's Lasagna" autoFocus
+                      <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} ref={titleFocusRef}
+                        placeholder="e.g. Grandma's Lasagna"
                         className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
 
@@ -423,17 +456,15 @@ export const RecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
-              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
-                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
                     {/* Add ingredient form — flat inputs, no card chrome */}
                     <div className="mb-5 space-y-2">
-                      <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)}
-                        placeholder="Ingredient name" autoFocus
+                      <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)} ref={ingNameFocusRef}
+                        placeholder="Ingredient name (paste a list to add several)"
                         className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
-                        onKeyDown={(e) => e.key === 'Enter' && addIngredient()} />
+                        onKeyDown={(e) => e.key === 'Enter' && addIngredient()} onPaste={onIngredientPaste} />
                       <div className="flex gap-2">
                         <input type="text" value={ingAmount} onChange={(e) => setIngAmount(e.target.value)}
                           placeholder="Amount" className="flex-1 bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
@@ -463,7 +494,7 @@ export const RecipeModal: React.FC = () => {
                                 {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
                                 <span className="font-normal">{ing.name}</span>
                               </p>
-                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                              <button onClick={() => removeIngredient(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
                                 <X size={14} />
                               </button>
                             </li>
@@ -505,7 +536,7 @@ export const RecipeModal: React.FC = () => {
                               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {step.order}</p>
                               <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step.text}</p>
                             </div>
-                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
+                            <button onClick={() => removeStep(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
                           </li>
@@ -593,7 +624,7 @@ export const RecipeModal: React.FC = () => {
                                   onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
                                   aria-label="Delete photo"
                                   className={cn(
-                                    "absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
+                                    "hit-44 absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
                                     isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                   )}
                                 >
@@ -605,13 +636,6 @@ export const RecipeModal: React.FC = () => {
                         </div>
                         {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
                           <div className="px-5 pt-4 pb-2 mt-0.5 border-t border-on-surface/[0.06] space-y-3">
-                            <input
-                              type="text"
-                              value={photos[selectedPhotoIdx].caption}
-                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
-                              placeholder="Add a caption…"
-                              className="w-full bg-on-surface/[0.04] rounded-full px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
-                            />
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => {

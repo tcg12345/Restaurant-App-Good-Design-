@@ -1,7 +1,7 @@
 /**
  * Head-to-head (pairwise) rating algorithm.
  *
- * Pure logic — no React, no styling. The UI in RatingModal owns the
+ * Pure logic — no React, no styling. The UI in AddRestaurantModal owns the
  * presentation; this module owns the binary-search bookkeeping that
  * turns a sequence of "which did you like better?" answers into a
  * single 0–10 score.

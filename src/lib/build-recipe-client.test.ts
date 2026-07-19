@@ -85,6 +85,23 @@ describe('readRecipeStream', () => {
     const out = await readRecipeStream(res);
     expect(out.error).toBe('Overloaded');
   });
+
+  it('keeps the LAST complete block when the model emits build_recipe twice', async () => {
+    // A self-correcting model can re-emit the tool in one message; the old
+    // per-name concatenation produced `{...}{...}` and failed to parse.
+    const first = { name: 'Draft One', steps: [{ body: 'Old.' }] };
+    const second = { name: 'Draft Two', steps: [{ body: 'New.' }] };
+    const firstEvents = toolUseEvents('build_recipe', JSON.stringify(first));
+    const secondEvents = toolUseEvents('build_recipe', JSON.stringify(second));
+    // Merge: message_start + first block, then second block + message end.
+    const res = sseResponse([
+      ...firstEvents.slice(0, firstEvents.length - 2),
+      ...secondEvents.slice(1),
+    ]);
+    const out = await readRecipeStream(res);
+    expect(out.error).toBeUndefined();
+    expect(out.recipe).toEqual(second);
+  });
 });
 
 describe('request payloads', () => {

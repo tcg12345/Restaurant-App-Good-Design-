@@ -4,7 +4,7 @@ import { User, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { saveProfile } from '../lib/supabase-community';
+import { saveProfile, isUsernameTaken } from '../lib/supabase-community';
 import { geocodePlace, searchLocations, type HomeLocation } from '../components/HomeLocationBar';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding wizard; desktop keeps the
@@ -129,6 +129,30 @@ export const ProfileSetup: React.FC = () => {
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
 
+  // Real availability, not just regex validity — a handle can be perfectly
+  // well-formed and still belong to someone else (which used to surface only
+  // as the 23505 error on submit). Debounced head-count query; 'unknown'
+  // (check failed) shows nothing and lets the submit-time backstop decide.
+  type Availability = 'idle' | 'checking' | 'available' | 'taken' | 'unknown';
+  const [availability, setAvailability] = useState<Availability>('idle');
+  useEffect(() => {
+    if (!usernameValid) { setAvailability('idle'); return; }
+    const uname = username.toLowerCase().trim();
+    // Keeping your current handle is always fine.
+    if (profile?.username && uname === profile.username.toLowerCase()) {
+      setAvailability('available');
+      return;
+    }
+    setAvailability('checking');
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const taken = await isUsernameTaken(uname, user?.id);
+      if (cancelled) return;
+      setAvailability(taken === null ? 'unknown' : taken ? 'taken' : 'available');
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [username, usernameValid, profile?.username, user?.id]);
+
   // Shared persistence (geocode the city, write the profile). Fields the user
   // never touched go up as `undefined` so saveProfile leaves the existing row
   // values alone: bio has no input on this screen (passing '' erased it), and
@@ -153,6 +177,7 @@ export const ProfileSetup: React.FC = () => {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
       if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
+      if (availability === 'taken') { setError('That username is already taken'); return; }
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) await refreshProfile();
@@ -164,6 +189,7 @@ export const ProfileSetup: React.FC = () => {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
       if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
+      if (availability === 'taken') { setError('That username is already taken'); return; }
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) {
@@ -209,10 +235,15 @@ export const ProfileSetup: React.FC = () => {
                 onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
                 className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
                 autoCapitalize="off" autoCorrect="off" autoComplete="username" />
-              <p className="text-[11px] text-on-surface/40 mt-1 px-1">
-                {username
-                  ? <>Your unique handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></>
-                  : 'Your unique @handle — letters, numbers, and underscores.'}
+              <p className="text-[11px] text-on-surface/40 mt-1 px-1 flex items-center justify-between gap-2">
+                <span>
+                  {username
+                    ? <>Your unique handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></>
+                    : 'Your unique @handle — letters, numbers, and underscores.'}
+                </span>
+                {availability === 'checking' && <span className="flex-shrink-0">Checking…</span>}
+                {availability === 'available' && <span className="flex-shrink-0 font-semibold text-green-700">Available</span>}
+                {availability === 'taken' && <span className="flex-shrink-0 font-semibold text-red-600">Taken</span>}
               </p>
             </div>
             <div>
@@ -301,6 +332,7 @@ export const ProfileSetup: React.FC = () => {
     if (stepKey === 'handle') {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
+      if (availability === 'taken') { setError('That username is already taken'); return; }
     }
     if (isLast) { void finish(); return; }
     setPStep((p) => p + 1);
@@ -371,10 +403,20 @@ export const ProfileSetup: React.FC = () => {
                   <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
                     <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
-                    {usernameValid && (
+                    {availability === 'checking' && (
+                      <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: 'var(--ob-label)', fontWeight: 600 }}>
+                        <Loader2 size={12} className="animate-spin" /> Checking…
+                      </span>
+                    )}
+                    {availability === 'available' && (
                       <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: 'var(--ob-success)', fontWeight: 600 }}>
                         <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         Available
+                      </span>
+                    )}
+                    {availability === 'taken' && (
+                      <span className="inline-flex items-center gap-1.5" style={{ fontSize: 12.5, color: 'var(--ob-error)', fontWeight: 600 }}>
+                        Taken
                       </span>
                     )}
                   </div>

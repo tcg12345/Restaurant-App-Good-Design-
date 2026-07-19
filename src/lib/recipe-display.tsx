@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, type LucideIcon } from 'lucide-react';
+import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, RotateCcw, type LucideIcon } from 'lucide-react';
 import { cn } from './utils';
 import { normalizeQuantityToken } from './ingredient-parsing';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -24,6 +24,21 @@ export const formatDuration = (minutes: number): string => {
   if (remMinutes === 0) return `${hours} hr`;
   return `${hours} hr ${remMinutes} min`;
 };
+
+/**
+ * Shared recipe time-band predicate for the "Under 30 min / 30–60 / Over 60"
+ * filters. A recipe with NO times set (total 0/unknown) matches no band —
+ * "fast" means "known to take under 30 minutes", not "unknown". The recipe
+ * list and All Recipes views used to disagree on exactly this case.
+ */
+export type RecipeTimeBand = 'fast' | 'medium' | 'slow';
+export const matchesTimeBand = (totalMinutes: number, band: RecipeTimeBand): boolean => {
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return false;
+  if (band === 'fast') return totalMinutes < 30;
+  if (band === 'medium') return totalMinutes >= 30 && totalMinutes <= 60;
+  return totalMinutes > 60;
+};
+export const isFastRecipe = (totalMinutes: number): boolean => matchesTimeBand(totalMinutes, 'fast');
 
 /** Compact duration for tight stat cells ("2h 45m" / "45m" / "1h"). */
 export const formatDurationCompact = (minutes: number): string => {
@@ -347,7 +362,7 @@ interface RecipeIngredientListProps {
  * RecipesContext so it survives in-session navigation.
  */
 export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings, compact }) => {
-  const { getCheckedIngredients, toggleIngredientCheck } = useRecipes();
+  const { getCheckedIngredients, toggleIngredientCheck, clearIngredientChecks } = useRecipes();
   const checked = getCheckedIngredients(recipeKey);
   const ratio = servings?.scale ?? 1;
 
@@ -391,6 +406,21 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
         </div>
       )}
 
+      {/* Checked state persists across sessions (RecipesContext) so a
+          half-shopped list survives navigation — which also meant checks
+          from the LAST cook accumulated forever with no way to reset. */}
+      {checked.size > 0 && (
+        <div className="flex justify-end pb-1">
+          <button
+            type="button"
+            onClick={() => clearIngredientChecks(recipeKey)}
+            className="hit-44-y inline-flex items-center gap-1.5 text-[12px] font-semibold text-on-surface/50 hover:text-on-surface transition-colors"
+          >
+            <RotateCcw size={12} />
+            Reset checks ({checked.size})
+          </button>
+        </div>
+      )}
       <ul className={cn(
         compact
           // Dotted hairline between rows in the compact variant.

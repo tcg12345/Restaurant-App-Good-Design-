@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { PRIVACY_URL } from '../lib/external-links';
+import { PRIVACY_URL, TERMS_URL, openExternalUrl } from '../lib/external-links';
 import { cn } from '../lib/utils';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding kit; desktop keeps the
@@ -175,8 +175,14 @@ type SharedProps = {
   onBack: () => void;
   onOAuth: (provider: 'google' | 'apple') => void;
   oauthPending: 'google' | 'apple' | null;
-  keepSignedIn: boolean;
-  setKeepSignedIn: (v: boolean) => void;
+  // ── Forgot password ──
+  onForgotPassword: () => void;
+  resetSending: boolean;
+  /** Set after a reset email goes out ("We emailed a link to …"). */
+  resetNotice: string;
+  /** Signup = first password after code verification; recovery = new
+   *  password after a forgot-password link. Tweaks the set-password copy. */
+  passwordSetupMode: 'signup' | 'recovery';
   /** When set, the email step shows a prominent "Browse without an account"
    *  button. As the first screen it enters guest mode; inside the on-demand
    *  sign-in overlay it dismisses the overlay. */
@@ -258,7 +264,8 @@ const StepEmail: React.FC<SharedProps> = ({
 
 const StepPassword: React.FC<SharedProps> = ({
   email, password, setPassword, showPassword, setShowPassword,
-  submitting, error, onSignIn, onBack, keepSignedIn, setKeepSignedIn,
+  submitting, error, onSignIn, onBack,
+  onForgotPassword, resetSending, resetNotice,
 }) => (
   <div className="space-y-4">
     <header>
@@ -301,20 +308,26 @@ const StepPassword: React.FC<SharedProps> = ({
         />
       </div>
 
-      <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={keepSignedIn}
-            onChange={(e) => setKeepSignedIn(e.target.checked)}
-            className="h-4 w-4 accent-primary"
-          />
-          <span className="text-sm text-on-surface/70">Keep me signed in</span>
-        </label>
-        <button type="button" className="text-sm text-primary font-medium hover:underline cursor-pointer">
-          Forgot password?
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={onForgotPassword}
+          disabled={resetSending}
+          className="text-sm text-primary font-medium hover:underline cursor-pointer disabled:opacity-60 disabled:no-underline"
+        >
+          {resetSending ? 'Sending reset link…' : 'Forgot password?'}
         </button>
       </div>
+
+      {resetNotice && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-sm text-green-700 bg-green-50 px-4 py-2.5 rounded-xl"
+        >
+          {resetNotice}
+        </motion.p>
+      )}
 
       {error && (
         <motion.p
@@ -333,20 +346,25 @@ const StepPassword: React.FC<SharedProps> = ({
 
 const StepSetPassword: React.FC<SharedProps> = ({
   email, password, setPassword, showPassword, setShowPassword,
-  submitting, error, onSetPassword,
+  submitting, error, onSetPassword, passwordSetupMode,
 }) => {
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+  const isRecovery = passwordSetupMode === 'recovery';
 
   return (
     <div className="space-y-4">
       <header>
         <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-          Choose a password
+          {isRecovery ? 'Set a new password' : 'Choose a password'}
         </h1>
         <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
-            <Check size={14} /> {email} verified
-          </span>
+          {isRecovery ? (
+            <span>Pick a new password for <span className="font-medium text-on-surface/80">{email}</span>.</span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
+              <Check size={14} /> {email} verified
+            </span>
+          )}
         </p>
       </header>
 
@@ -414,6 +432,8 @@ const StepSetPassword: React.FC<SharedProps> = ({
 
         <p className="text-xs text-on-surface/45 text-center leading-relaxed">
           At least 8 characters. By continuing you agree to our{' '}
+          <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="text-on-surface/70 underline">Terms</a>
+          {' '}&amp;{' '}
           <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="text-on-surface/70 underline">Privacy Policy</a>.
         </p>
       </form>
@@ -506,7 +526,8 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const {
     signIn, signInWithOAuth, checkEmailExists,
     startEmailSignup, verifyEmailCode, resendVerificationCode,
-    completePasswordSetup, needsPasswordSetup, isSignedIn, user,
+    completePasswordSetup, needsPasswordSetup, passwordSetupMode,
+    requestPasswordReset, isSignedIn, user,
   } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
 
@@ -520,8 +541,10 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [oauthPending, setOauthPending] = useState<'google' | 'apple' | null>(null);
+  // Forgot-password state (sign-in step)
+  const [resetSending, setResetSending] = useState(false);
+  const [resetNotice, setResetNotice] = useState('');
   // Email-verification (6-digit code) state
   const [code, setCode] = useState('');
   const [resendIn, setResendIn] = useState(0);
@@ -621,7 +644,19 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     setPassword('');
     setCode('');
     setError('');
+    setResetNotice('');
   }, []);
+
+  const handleForgotPassword = useCallback(async () => {
+    if (resetSending) return;
+    setError('');
+    setResetNotice('');
+    setResetSending(true);
+    const { error: err } = await requestPasswordReset(email);
+    setResetSending(false);
+    if (err) setError(err);
+    else setResetNotice(`We emailed a password-reset link to ${email}. Open it to choose a new password.`);
+  }, [email, resetSending, requestPasswordReset]);
 
   const handleVerify = useCallback(async () => {
     setError('');
@@ -673,7 +708,8 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     onBack: handleBack,
     onOAuth: handleOAuth,
     oauthPending,
-    keepSignedIn, setKeepSignedIn,
+    onForgotPassword: () => { void handleForgotPassword(); },
+    resetSending, resetNotice, passwordSetupMode,
     onBrowseAsGuest,
     code, setCode,
     onVerify: handleVerify,
@@ -786,15 +822,23 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
               rightSlot={<EyeToggle shown={showPassword} onClick={() => setShowPassword(!showPassword)} />}
               onSubmit={handleSignIn}
             />
-            <div className="flex items-center justify-between" style={{ marginTop: 16 }}>
-              <button type="button" onClick={() => setKeepSignedIn(!keepSignedIn)} className="flex items-center gap-2.5 cursor-pointer bg-transparent border-none p-0">
-                <span className="flex items-center justify-center flex-shrink-0" style={{ width: 22, height: 22, borderRadius: 6, background: keepSignedIn ? OB.TERRA : 'transparent', border: keepSignedIn ? 'none' : '2px solid var(--ob-radio-ring)' }}>
-                  {keepSignedIn && <Check size={13} strokeWidth={2.6} color="#fff" />}
-                </span>
-                <span style={{ fontSize: 14.5, color: 'var(--ob-ink-soft)', fontWeight: 500 }}>Keep me signed in</span>
+            <div className="flex items-center justify-end" style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => { void handleForgotPassword(); }}
+                disabled={resetSending}
+                style={{ fontSize: 14.5, color: resetSending ? 'var(--ob-label)' : OB.TERRA, fontWeight: 600 }}
+                className="cursor-pointer bg-transparent border-none p-0 disabled:cursor-default"
+              >
+                {resetSending ? 'Sending reset link…' : 'Forgot password?'}
               </button>
-              <button type="button" style={{ fontSize: 14.5, color: OB.TERRA, fontWeight: 600 }} className="cursor-pointer bg-transparent border-none p-0">Forgot?</button>
             </div>
+            {resetNotice && (
+              <div className="flex items-start gap-2" style={{ marginTop: 12 }}>
+                <svg className="flex-shrink-0" style={{ marginTop: 2 }} width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <span style={{ fontSize: 13.5, lineHeight: 1.45, color: 'var(--ob-success)', fontWeight: 500 }}>{resetNotice}</span>
+              </div>
+            )}
             {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
             <div style={{ marginTop: 'auto', paddingTop: 28 }} className="flex-1 flex flex-col justify-end">
               <OB.PrimaryButton type="submit" loading={submitting} trailing="none">Sign in</OB.PrimaryButton>
@@ -853,16 +897,23 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     );
   }
 
-  // Choose a password (email already verified by code; session exists)
+  // Choose a password (email already verified by code; session exists) —
+  // also the set-NEW-password screen a forgot-password link lands on.
   return (
     <OB.OnboardingScreen>
       <FadeStep stepKey="setpassword">
         <div style={{ marginTop: 26 }}><OB.BrandMark size={50} /></div>
-        <OB.Title size={30}>Choose a password</OB.Title>
-        <div className="flex items-center gap-2" style={{ marginTop: 14 }}>
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{emailDisplay} verified</span>
-        </div>
+        <OB.Title size={30}>{passwordSetupMode === 'recovery' ? 'Set a new password' : 'Choose a password'}</OB.Title>
+        {passwordSetupMode === 'recovery' ? (
+          <div style={{ marginTop: 14, fontSize: 14, color: 'var(--ob-secondary)' }}>
+            Pick a new password for <span style={{ color: OB.TERRA, fontWeight: 600 }}>{emailDisplay}</span>.
+          </div>
+        ) : (
+          <div className="flex items-center gap-2" style={{ marginTop: 14 }}>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{emailDisplay} verified</span>
+          </div>
+        )}
         <form onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
           <OB.FieldLabel>Password</OB.FieldLabel>
           <OB.Field
@@ -889,7 +940,20 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
           <div style={{ marginTop: 'auto', paddingTop: 28 }}>
             <OB.PrimaryButton type="submit" loading={submitting} disabled={!pwOk} trailing="check">Continue</OB.PrimaryButton>
             <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ob-label)', margin: '16px 0 0', lineHeight: 1.5 }}>
-              By continuing you agree to our <span style={{ color: OB.TERRA, fontWeight: 600 }}>Terms</span> &amp; <span style={{ color: OB.TERRA, fontWeight: 600 }}>Privacy</span>.
+              By continuing you agree to our{' '}
+              <button
+                type="button"
+                onClick={() => { void openExternalUrl(TERMS_URL); }}
+                className="cursor-pointer bg-transparent border-none p-0"
+                style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
+              >Terms</button>
+              {' '}&amp;{' '}
+              <button
+                type="button"
+                onClick={() => { void openExternalUrl(PRIVACY_URL); }}
+                className="cursor-pointer bg-transparent border-none p-0"
+                style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
+              >Privacy</button>.
             </p>
           </div>
         </form>

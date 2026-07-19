@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
-import { ShareRecipeSheet } from './ShareRecipeSheet';
+
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
 import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
@@ -18,6 +18,8 @@ import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
   getFriendsPublicHomeMeals, getFollowedExpertIds, getExpertProfiles,
+  followPublicAccount,
+  activityTimestamp, isEditedActivity,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
@@ -175,7 +177,10 @@ const PostMediaCarousel: React.FC<{
               key={i}
               className={cn(
                 'rounded-full transition-all w-1.5 h-1.5',
-                i === activeIdx ? 'bg-white' : 'bg-white/50',
+                // bg-media-white: dots sit over the photo — the paper remap
+                // turned the ACTIVE dot near-black in dark mode, darker
+                // than its untouched bg-white/50 siblings.
+                i === activeIdx ? 'bg-media-white' : 'bg-white/50',
               )}
             />
           ))}
@@ -204,6 +209,23 @@ const SuggestionsRail: React.FC<{
   const [railGuides, setRailGuides] = useState<RailGuide[]>([]);
   const navigate = useNavigate();
   const { isWishlisted } = useLists();
+
+  // Follow directly from the rail card. The card itself is a profile
+  // <Link>, so the button must cancel both the router navigation
+  // (stopPropagation) and the anchor's native activation (preventDefault).
+  // Suggested profiles are experts (public accounts), so the follow is
+  // immediate — no request/approval leg.
+  const [followPending, setFollowPending] = useState<Set<string>>(new Set());
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+  const followSuggested = useCallback(async (target: UserProfile, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!userId || followPending.has(target.user_id) || followedIds.has(target.user_id)) return;
+    setFollowPending((prev) => new Set(prev).add(target.user_id));
+    const ok = await followPublicAccount(userId, target.user_id);
+    setFollowPending((prev) => { const next = new Set(prev); next.delete(target.user_id); return next; });
+    if (ok) setFollowedIds((prev) => new Set(prev).add(target.user_id));
+  }, [userId, followPending, followedIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -312,9 +334,14 @@ const SuggestionsRail: React.FC<{
                           </>
                         ) : 'Friend pick'}
                       </span>
-                      <span className="text-[11px] font-bold text-primary group-hover:underline underline-offset-2 flex-shrink-0">
-                        Follow
-                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => { void followSuggested(p, e); }}
+                        disabled={!userId || followPending.has(p.user_id) || followedIds.has(p.user_id)}
+                        className="hit-44 text-[11px] font-bold text-primary hover:underline underline-offset-2 flex-shrink-0 disabled:opacity-60 disabled:no-underline"
+                      >
+                        {followedIds.has(p.user_id) ? 'Following' : 'Follow'}
+                      </button>
                     </div>
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className={cn('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
@@ -706,7 +733,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const feedItems: FeedItem[] = [
     ...ratingSource.map((r): FeedItem => ({
       type: 'rating', data: r,
-      sortTime: r.created_at ? new Date(r.created_at).getTime() : 0,
+      // updated_at — matching the fetch window's ordering (see M22 note on
+      // activityTimestamp); created_at here let edited rows sort stale.
+      sortTime: activityTimestamp(r) ? Date.parse(activityTimestamp(r)) : 0,
     })),
     ...mealSource.map((m): FeedItem => ({
       type: 'homeMeal', data: m,
@@ -817,9 +846,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: p.commentsCount + 1 } : p));
     return { id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, parentId: c.parentId, author: c.author };
   }, [addPostComment]);
-  const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string) => {
-    const ok = await deletePostComment(postId, commentId);
-    if (ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p));
+  const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string, removedCount = 1) => {
+    const ok = await deletePostComment(postId, commentId, removedCount);
+    // Deleting a parent cascades to its replies, so drop the badge by the
+    // full removed count, not just 1.
+    if (ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - removedCount) } : p));
     return ok;
   }, [deletePostComment]);
 
@@ -859,26 +890,53 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setCommentProfiles(profs);
   };
 
+  // One in-flight guard shared by both composer paths — Enter fires per
+  // keypress, so double-Enter (or Enter + Send tap) during the awaited
+  // insert used to post the same comment twice.
+  const commentSubmittingRef = useRef(false);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+
   const handleAddComment = async (ratingId: string) => {
-    if (!userId || !newComment.trim()) return;
-    const ok = await addComment(userId, ratingId, newComment.trim(), null);
-    if (ok) {
-      setNewComment('');
-      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
-      await refreshComments(ratingId);
+    const text = newComment.trim();
+    if (!userId || !text || commentSubmittingRef.current) return;
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
+    // Clear optimistically so the box feels instant; restore on failure.
+    setNewComment('');
+    try {
+      const ok = await addComment(userId, ratingId, text, null);
+      if (ok) {
+        setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+        await refreshComments(ratingId);
+      } else {
+        setNewComment(text);
+      }
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
   const handleAddReply = async (ratingId: string, parentId: string) => {
-    if (!userId || !replyText.trim()) return;
-    const ok = await addComment(userId, ratingId, replyText.trim(), parentId);
-    if (ok) {
-      setReplyText('');
-      setReplyingTo(null);
-      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
-      // Expand the parent thread so the new reply is visible immediately.
-      setExpandedThreads((prev) => new Set(prev).add(parentId));
-      await refreshComments(ratingId);
+    const text = replyText.trim();
+    if (!userId || !text || commentSubmittingRef.current) return;
+    commentSubmittingRef.current = true;
+    setCommentSubmitting(true);
+    setReplyText('');
+    try {
+      const ok = await addComment(userId, ratingId, text, parentId);
+      if (ok) {
+        setReplyingTo(null);
+        setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+        // Expand the parent thread so the new reply is visible immediately.
+        setExpandedThreads((prev) => new Set(prev).add(parentId));
+        await refreshComments(ratingId);
+      } else {
+        setReplyText(text);
+      }
+    } finally {
+      commentSubmittingRef.current = false;
+      setCommentSubmitting(false);
     }
   };
 
@@ -1424,7 +1482,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       <VerifiedBadge size={13} />
                     )}
                   </div>
-                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(r.created_at)}</p>
+                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}</p>
                 </div>
               </div>
 
@@ -1597,12 +1655,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                                   placeholder={`Reply to ${profile?.display_name || 'User'}…`}
                                   autoFocus
                                   className="flex-1 bg-on-surface/[0.04] rounded-full h-9 px-3.5 text-[12.5px] focus:outline-none focus:ring-1 focus:ring-primary/30"
-                                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddReply(r.id, c.id); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddReply(r.id, c.id); }}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleAddReply(r.id, c.id)}
-                                  disabled={!replyText.trim()}
+                                  disabled={!replyText.trim() || commentSubmitting}
                                   className="inline-flex items-center justify-center w-9 h-9 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
                                   aria-label="Post reply"
                                 >
@@ -1660,12 +1718,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                             onChange={(e) => setNewComment(e.target.value)}
                             placeholder="Add a comment…"
                             className="flex-1 bg-on-surface/[0.04] rounded-full h-10 px-4 text-[13px] focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(r.id); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(r.id); }}
                           />
                           <button
                             type="button"
                             onClick={() => handleAddComment(r.id)}
-                            disabled={!newComment.trim()}
+                            disabled={!newComment.trim() || commentSubmitting}
                             className="inline-flex items-center justify-center w-10 h-10 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
                             aria-label="Post comment"
                           >
@@ -1705,9 +1763,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )}
       </div>
 
-      <ShareRecipeSheet
+      <ShareDialog
         open={!!shareRecipeData}
-        recipe={shareRecipeData}
+        payload={shareRecipeData ? { sharedRecipe: shareRecipeData } : null}
         onClose={() => setShareRecipeData(null)}
       />
 

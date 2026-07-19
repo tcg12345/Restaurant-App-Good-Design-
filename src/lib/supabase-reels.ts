@@ -456,19 +456,34 @@ export async function listReels(opts: {
   kind?: ReelKind;
   limit?: number;
   viewerId?: string | null;
+  /** Keyset cursor: return rows strictly OLDER than this (created_at, id)
+   *  pair — pass the last row of the previous page to fetch the next one. */
+  before?: { createdAt: string; id: string };
+  /** Batch-get exactly these reels (e.g. everything the user commented on)
+   *  instead of a feed window. Overrides kind/before; newest first. */
+  ids?: string[];
 }): Promise<ReelRow[] | null> {
   if (!supabaseConfigured) return [];
-  const { kind, limit = 50, viewerId } = opts;
+  const { kind, viewerId, before, ids } = opts;
+  const limit = ids ? ids.length : (opts.limit ?? 50);
+  if (ids && ids.length === 0) return [];
 
   // Public feed — every reel regardless of author or follow state. Do not
   // add a `user_id` / friends filter here: the product is "discover what
   // anyone is posting", not a follow-only timeline. RLS policy
   // ("Anyone can read reels" USING (true)) already permits this.
+  // Ordered on (created_at, id) so the keyset cursor is total — created_at
+  // alone can tie across rows inserted in the same instant.
   let query = supabase.from('reels')
     .select('*, reel_likes(count), reel_saves(count), reel_comments(count)')
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(limit);
-  if (kind) query = query.eq('kind', kind);
+  if (ids) query = query.in('id', ids);
+  if (kind && !ids) query = query.eq('kind', kind);
+  if (before && !ids) {
+    query = query.or(`created_at.lt."${before.createdAt}",and(created_at.eq."${before.createdAt}",id.lt."${before.id}")`);
+  }
 
   const { data, error } = await query;
   if (error) {
@@ -555,12 +570,13 @@ export async function listReelsForRestaurant(
 
   const allReels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
   // Same visibility rules as the main feed: hide others' still-transcoding
-  // Mux reels (no playable asset yet) and others' followers-only reels.
-  const reels = allReels.filter((r) => {
-    if (r.muxStatus && r.muxStatus !== 'ready' && r.userId !== viewerId) return false;
-    if (!r.isPublic && r.userId !== viewerId) return false;
-    return true;
-  });
+  // Mux reels (no playable asset yet). Audience visibility (followers-only
+  // vs public) is enforced by RLS on the select above — re-filtering here
+  // wrongly hid followers-only reels from followers who ARE allowed to see
+  // them, so we don't second-guess the returned rows.
+  const reels = allReels.filter(
+    (r) => !(r.muxStatus && r.muxStatus !== 'ready' && r.userId !== viewerId),
+  );
   if (reels.length === 0) return [];
 
   const legacy = reels.filter((r) => !r.muxPlaybackId && r.videoPath);

@@ -22,12 +22,12 @@ import {
   ChevronRight, Layers, FileText, Trash2, Clock,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useReels, type Reel } from '../contexts/ReelsContext';
-import { usePosts, type Post } from '../contexts/PostsContext';
+import { useReels, reelRowToUi, type Reel } from '../contexts/ReelsContext';
+import { usePosts, postRowToUi, type Post } from '../contexts/PostsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
-import { listReelIdsCommentedByUser } from '../lib/supabase-reels';
-import { listPostIdsCommentedByUser } from '../lib/supabase-posts';
+import { listReelIdsCommentedByUser, listReels } from '../lib/supabase-reels';
+import { listPostIdsCommentedByUser, listPosts } from '../lib/supabase-posts';
 import {
   loadDrafts,
   removeDraft,
@@ -367,44 +367,45 @@ export const Activity: React.FC = () => {
   const likedPosts = useMemo(() => posts.filter((p) => p.liked), [posts]);
 
   /* ── Commented requires a dedicated query because per-viewer "did I
-        comment on this" isn't part of the Reel / Post embed shape. We
-        fetch the distinct ids the user has commented on, then intersect
-        with the already-loaded reels / posts. */
-  const [commentedReelIds, setCommentedReelIds] = useState<string[]>([]);
-  const [commentedPostIds, setCommentedPostIds] = useState<string[]>([]);
+        comment on this" isn't part of the Reel / Post embed shape. Fetch
+        the distinct ids the user has commented on, then batch-get those
+        exact reels/posts — intersecting with the currently-loaded feed
+        pages used to make "Comments · 12" open a grid of 8 tiles. */
+  const [commentedReels, setCommentedReels] = useState<Reel[]>([]);
+  const [commentedPosts, setCommentedPosts] = useState<Post[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(true);
 
   useEffect(() => {
     if (!user?.id) { setCommentsLoading(false); return; }
+    const uid = user.id;
     let cancelled = false;
     setCommentsLoading(true);
-    Promise.all([
-      listReelIdsCommentedByUser(user.id),
-      listPostIdsCommentedByUser(user.id),
-    ]).then(([reelIds, postIds]) => {
-      if (cancelled) return;
-      setCommentedReelIds(reelIds);
-      setCommentedPostIds(postIds);
-      setCommentsLoading(false);
-    }).catch(() => { if (!cancelled) setCommentsLoading(false); });
+    (async () => {
+      try {
+        const [reelIds, postIds] = await Promise.all([
+          listReelIdsCommentedByUser(uid),
+          listPostIdsCommentedByUser(uid),
+        ]);
+        if (cancelled) return;
+        const [reelRows, postRows] = await Promise.all([
+          reelIds.length > 0 ? listReels({ viewerId: uid, ids: reelIds }) : Promise.resolve([]),
+          postIds.length > 0 ? listPosts({ viewerId: uid, ids: postIds }) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        setCommentedReels((reelRows || []).map(reelRowToUi));
+        setCommentedPosts((postRows || []).map(postRowToUi));
+      } catch { /* keep whatever loaded */ }
+      if (!cancelled) setCommentsLoading(false);
+    })();
     return () => { cancelled = true; };
   }, [user?.id]);
 
-  const commentedReels = useMemo(() => {
-    const ids = new Set(commentedReelIds);
-    return reels.filter((r) => ids.has(r.id));
-  }, [reels, commentedReelIds]);
-  const commentedPosts = useMemo(() => {
-    const ids = new Set(commentedPostIds);
-    return posts.filter((p) => ids.has(p.id));
-  }, [posts, commentedPostIds]);
-
   const savedCount = savedReels.length + savedPosts.length;
   const likedCount = likedReels.length + likedPosts.length;
-  // Commented count uses the id lists (not the filtered reels) so the
-  // count reflects every comment in the DB even if a reel was deleted
-  // or isn't currently in the loaded list.
-  const commentedCount = commentedReelIds.length + commentedPostIds.length;
+  // Count and grid derive from the SAME fetched lists, so the tile count
+  // always matches what opens (comments on since-deleted items drop out
+  // of both).
+  const commentedCount = commentedReels.length + commentedPosts.length;
 
   /* ── Recipe drafts (Advanced-builder Save Draft entries). Local
         state mirrors localStorage so deletes / opens reflect

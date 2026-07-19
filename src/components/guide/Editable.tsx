@@ -9,7 +9,7 @@
  *   that opens a popover for the URL plus optional fit / position /
  *   brightness / saturation controls.
  * - `<EditableChips>` is a chip list with inline add + per-chip remove.
- * - `<EditableScore>` and `<EditablePrice>` are popover-based numeric/
+ * - `<EditableScore>` is a popover-based numeric
  *   symbolic inline editors.
  * - `<SectionChrome>` is the hover toolbar that sits at the top of each
  *   major section in the editor and gives the user a settings + hide
@@ -291,7 +291,9 @@ export const EditableImage: React.FC<EditableImageProps> = ({
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') { commit(); setOpen(false); }
-                if (e.key === 'Escape') setOpen(false);
+                // Claim the Esc so the editor's window-level close doesn't
+                // also fire — one press closes only this popover.
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); }
               }}
               autoFocus
             />
@@ -395,13 +397,15 @@ export const EditableChips: React.FC<EditableChipsProps> = ({
 
   return (
     <div className="gle-chips">
-      {values.map((v) => (
-        <span key={v} className={chipClass}>
+      {/* Key by index+value and remove by INDEX — duplicate values used to
+          collide as React keys and removing one deleted every copy. */}
+      {values.map((v, i) => (
+        <span key={`${i}:${v}`} className={chipClass}>
           <span>{v}</span>
           <button
             type="button"
             className="gle-chip-x"
-            onClick={() => onChange(values.filter((x) => x !== v))}
+            onClick={() => onChange(values.filter((_, idx) => idx !== i))}
             aria-label={`Remove ${v}`}
           >
             <X size={10} />
@@ -417,7 +421,7 @@ export const EditableChips: React.FC<EditableChipsProps> = ({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commit();
-              if (e.key === 'Escape') { setDraft(''); setAdding(false); }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(''); setAdding(false); }
             }}
             onBlur={commit}
             placeholder={placeholder}
@@ -462,43 +466,6 @@ export const EditableScore: React.FC<{ value: number; onChange: (v: number) => v
             />
             <span className={cn('gle-score-val', cls)}>{value.toFixed(1)}</span>
           </div>
-        </div>
-      )}
-    </span>
-  );
-};
-
-/* ────────────────────────────────────────────────────────────────
-   Editable price
-   ──────────────────────────────────────────────────────────────── */
-
-export const EditablePrice: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
-  return (
-    <span className="gle-price-wrap" ref={ref}>
-      <button type="button" className="gle-price-trigger" onClick={() => setOpen((v) => !v)}>
-        {value || '$'}
-        <ChevronDown size={11} />
-      </button>
-      {open && (
-        <div className="gle-price-pop">
-          {(['$', '$$', '$$$', '$$$$'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={cn('gle-price-opt', value === p && 'on')}
-              onClick={() => { onChange(p); setOpen(false); }}
-            >
-              {p}
-            </button>
-          ))}
         </div>
       )}
     </span>

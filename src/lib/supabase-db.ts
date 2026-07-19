@@ -23,6 +23,10 @@ export interface UserAppData {
   /** Manual drag-order of rated restaurant ids. Dedicated column as of
    *  migration 038 — was previously stashed in restaurant_meta.__custom_order__. */
   customOrder?: string[];
+  /** Per-restaurant visit-history blob. Dedicated column as of migration 058
+   *  — the restaurant_meta.__visit_history__ stash remains the cross-schema
+   *  fallback older clients read/write. */
+  visitHistory?: Record<string, unknown[]>;
 }
 
 /**
@@ -44,9 +48,22 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       // schema hasn't been migrated yet.
       let { data, error } = await supabase
         .from('user_app_data')
-        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, custom_order')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, custom_order, visit_history')
         .eq('user_id', userId)
         .single();
+
+      // Middle tier: schema has trips/home_meals/custom_order but predates
+      // the visit_history column (migration 058) — the __visit_history__
+      // meta stash still carries that data.
+      if (error && !data && error.code !== 'PGRST116') {
+        const fallback = await supabase
+          .from('user_app_data')
+          .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, custom_order')
+          .eq('user_id', userId)
+          .single();
+        data = fallback.data as typeof data;
+        error = fallback.error;
+      }
 
       // Fallback without trips/home_meals/custom_order if those columns don't
       // exist yet (schema drift — trips/order still round-trip via the
@@ -80,6 +97,12 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
         homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
         customOrder: asArray<string>((data as Record<string, unknown>).custom_order, []),
+        visitHistory: (() => {
+          const vh = (data as Record<string, unknown>).visit_history;
+          return vh && typeof vh === 'object' && !Array.isArray(vh)
+            ? (vh as Record<string, unknown[]>)
+            : undefined;
+        })(),
       };
     } catch (err) {
       lastError = err;
@@ -157,140 +180,87 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
 }
 
 /**
- * Ensure a row exists for this user. Call once after first sign-in.
+ * Column-scoped save in ONE round-trip: upsert on the user_id PK. When no
+ * row exists yet the insert path fires and every other column takes its
+ * schema default; when it does, ON CONFLICT updates ONLY the provided
+ * columns. Replaces the old select-then-insert ensureRow that doubled
+ * every partial save's latency (2 extra round-trips per write).
+ *
+ * `warnOnly` marks columns that may not exist on older schemas (trips /
+ * home_meals / custom_order) so their failures log as warnings.
  */
-async function ensureRow(userId: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('user_app_data')
-    .select('user_id')
-    .eq('user_id', userId)
-    .single();
-
-  if (error && error.code !== 'PGRST116') {
-    console.error('[Supabase] ensureRow check error:', error);
-  }
-
-  if (!data) {
-    const { error: insertErr } = await supabase.from('user_app_data').insert({
-      user_id: userId,
-      ratings: [],
-      lists: [],
-      wishlist: [],
-      restaurant_meta: {},
-      updated_at: new Date().toISOString(),
-    });
-    if (insertErr) {
-      console.error('[Supabase] ensureRow insert error:', insertErr);
+async function upsertColumns(
+  userId: string,
+  columns: Record<string, unknown>,
+  label: string,
+  warnOnly = false,
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('user_app_data')
+      .upsert({ user_id: userId, ...columns, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) {
+      if (warnOnly) console.warn(`[Supabase] ${label} error (column may not exist yet):`, error.message);
+      else console.error(`[Supabase] ${label} error:`, error);
+      return false;
     }
+    return true;
+  } catch (err) {
+    if (warnOnly) console.warn(`[Supabase] ${label} exception:`, err);
+    else console.error(`[Supabase] ${label} exception:`, err);
+    return false;
   }
 }
 
-/**
- * Partial update helpers — use UPDATE (not upsert) to avoid overwriting other columns.
- * These only work if the row already exists (ensured by loadUserData/saveUserData).
- */
 export async function saveRatings(userId: string, ratings: RestaurantRating[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ ratings, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveRatings error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Supabase] saveRatings exception:', err); return false; }
+  return upsertColumns(userId, { ratings }, 'saveRatings');
 }
 
 export async function saveLists(userId: string, lists: CustomList[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ lists, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveLists error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Supabase] saveLists exception:', err); return false; }
+  return upsertColumns(userId, { lists }, 'saveLists');
 }
 
 export async function saveWishlistData(userId: string, wishlist: WishlistItem[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ wishlist, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveWishlist error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Supabase] saveWishlist exception:', err); return false; }
+  return upsertColumns(userId, { wishlist }, 'saveWishlist');
 }
 
 export async function saveMetaData(userId: string, restaurantMeta: Record<string, RestaurantMeta>): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ restaurant_meta: restaurantMeta, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveMeta error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Supabase] saveMeta exception:', err); return false; }
+  return upsertColumns(userId, { restaurant_meta: restaurantMeta }, 'saveMeta');
 }
 
 export async function saveRecentViews(userId: string, recentViews: unknown[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ recent_views: recentViews, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveRecentViews error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Supabase] saveRecentViews exception:', err); return false; }
+  return upsertColumns(userId, { recent_views: recentViews }, 'saveRecentViews');
 }
 
 export async function saveTrips(userId: string, trips: Trip[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ trips, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    // Silently ignore if trips column doesn't exist yet
-    if (error) { console.warn('[Supabase] saveTrips error (trips column may not exist yet):', error.message); return false; }
-    return true;
-  } catch (err) { console.warn('[Supabase] saveTrips exception:', err); return false; }
+  return upsertColumns(userId, { trips }, 'saveTrips', true);
 }
 
 export async function saveHomeMeals(userId: string, homeMeals: HomeMeal[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ home_meals: homeMeals, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.warn('[Supabase] saveHomeMeals error (column may not exist yet):', error.message); return false; }
-    return true;
-  } catch (err) { console.warn('[Supabase] saveHomeMeals exception:', err); return false; }
+  return upsertColumns(userId, { home_meals: homeMeals }, 'saveHomeMeals', true);
 }
 
 export async function saveCustomOrder(userId: string, customOrder: string[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
-  try {
-    await ensureRow(userId);
-    const { error } = await supabase
-      .from('user_app_data')
-      .update({ custom_order: customOrder, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
-    if (error) { console.warn('[Supabase] saveCustomOrder error (column may not exist yet):', error.message); return false; }
-    return true;
-  } catch (err) { console.warn('[Supabase] saveCustomOrder exception:', err); return false; }
+  return upsertColumns(userId, { custom_order: customOrder }, 'saveCustomOrder', true);
+}
+
+/** Column-scoped visit-history save (migration 058). Returns false when the
+ *  column doesn't exist yet — callers fall back to the restaurant_meta
+ *  __visit_history__ stash, which used to be the ONLY channel and re-uploaded
+ *  the whole meta blob (inline photos included) on every visit logged. */
+export async function saveVisitHistoryColumn(
+  userId: string,
+  visitHistory: Record<string, unknown[]>,
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  return upsertColumns(userId, { visit_history: visitHistory }, 'saveVisitHistory', true);
 }
 

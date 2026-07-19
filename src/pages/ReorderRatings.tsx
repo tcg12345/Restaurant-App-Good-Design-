@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
 import { settleScores, normalizeScores } from '../lib/settleScores';
+import { SCORE_TIER_HEX } from '../lib/score';
 
 interface RatedItem {
   restaurantId: string;
@@ -62,8 +63,8 @@ const ReorderItem: React.FC<{
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <motion.span
           key={item.score}
-          initial={changed ? { scale: 1.3, color: '#f59e0b' } : false}
-          animate={{ scale: 1, color: changed ? '#f59e0b' : '#1a1a1a' }}
+          initial={changed ? { scale: 1.3, color: SCORE_TIER_HEX.mid } : false}
+          animate={{ scale: 1, color: changed ? SCORE_TIER_HEX.mid : '#1a1a1a' }}
           transition={{ type: 'spring', damping: 15, stiffness: 300 }}
           className="text-base font-bold tabular-nums min-w-[2rem] text-right"
         >
@@ -99,47 +100,64 @@ export const ReorderRatings: React.FC = () => {
     Object.fromEntries(buildInitialItems().map((i) => [i.restaurantId, i.score]))
   );
 
+  // True once the user has actually moved something — from then on the
+  // list is theirs and we stop syncing from `ratings`.
+  const dirtyRef = useRef(false);
+
+  // Re-seed from ratings until the first drag. The initial useState seed
+  // races cloud hydration: landing on this page cold showed "No rated
+  // restaurants yet" until it was re-entered, because ratings arrived
+  // after mount and the one-shot seed never re-ran.
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    const next = buildInitialItems();
+    setItems(next);
+    originalScores.current = Object.fromEntries(next.map((i) => [i.restaurantId, i.score]));
+  }, [buildInitialItems]);
+
   const handleReorder = useCallback((newOrder: RatedItem[]) => {
+    dirtyRef.current = true;
     setItems(newOrder);
   }, []);
 
   // When a specific item finishes dragging, update only that item's score
-  // to the midpoint of its new neighbours.
+  // to the midpoint of its new neighbours. Everything is computed OUTSIDE
+  // the setItems updater: calling setUndoStack inside it double-pushed
+  // undo snapshots under StrictMode's double-invoked updaters.
   const handleItemDragEnd = useCallback((draggedId: string) => {
-    setItems((current) => {
-      const idx = current.findIndex((i) => i.restaurantId === draggedId);
-      if (idx === -1) return current;
+    const current = items;
+    const idx = current.findIndex((i) => i.restaurantId === draggedId);
+    if (idx === -1) return;
 
-      // Save snapshot for undo before mutating
-      setUndoStack((prev) => [...prev, current]);
+    let newScore: number;
+    if (current.length === 1) {
+      // Only one item, keep its score
+      return;
+    } else if (idx === 0) {
+      // Dragged to top: score should be above the item below it
+      const below = current[1].score;
+      newScore = roundScore(Math.min(10, below + 0.5));
+    } else if (idx === current.length - 1) {
+      // Dragged to bottom: score should be below the item above it
+      const above = current[idx - 1].score;
+      newScore = roundScore(Math.max(0.1, above - 0.5));
+    } else {
+      // Middle: midpoint of the two neighbours
+      const above = current[idx - 1].score;
+      const below = current[idx + 1].score;
+      newScore = roundScore((above + below) / 2);
+    }
 
-      let newScore: number;
-      if (current.length === 1) {
-        // Only one item, keep its score
-        return current;
-      } else if (idx === 0) {
-        // Dragged to top: score should be above the item below it
-        const below = current[1].score;
-        newScore = roundScore(Math.min(10, below + 0.5));
-      } else if (idx === current.length - 1) {
-        // Dragged to bottom: score should be below the item above it
-        const above = current[idx - 1].score;
-        newScore = roundScore(Math.max(0.1, above - 0.5));
-      } else {
-        // Middle: midpoint of the two neighbours
-        const above = current[idx - 1].score;
-        const below = current[idx + 1].score;
-        newScore = roundScore((above + below) / 2);
-      }
+    // Only update if the score actually changed
+    if (newScore === current[idx].score) return;
 
-      // Only update if the score actually changed
-      if (newScore === current[idx].score) return current;
-
-      return current.map((item, i) =>
-        i === idx ? { ...item, score: newScore } : item
-      );
-    });
-  }, []);
+    dirtyRef.current = true;
+    // Save snapshot for undo before committing.
+    setUndoStack((prev) => [...prev, current]);
+    setItems(current.map((item, i) =>
+      i === idx ? { ...item, score: newScore } : item
+    ));
+  }, [items]);
 
   const handleUndo = useCallback(() => {
     setUndoStack((prev) => {

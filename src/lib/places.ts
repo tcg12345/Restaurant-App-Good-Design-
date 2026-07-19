@@ -525,8 +525,11 @@ export function isFoodPlace(types: string[]): boolean {
 
 export async function searchPlacesByText(
   query: string,
-  lat: number,
-  lng: number,
+  // null/undefined coords → search with NO location bias (query-only,
+  // global). Better than biasing to a made-up point when the caller
+  // genuinely doesn't know where to look.
+  lat: number | null | undefined,
+  lng: number | null | undefined,
   locationNameOrRadius?: string | number,
   useRestriction = false,
   radiusOverride?: number,
@@ -545,9 +548,12 @@ export async function searchPlacesByText(
   const hasLocation = !!locationName && locationName !== 'Current Location';
   const shouldRestrict = useRestriction || hasLocation;
 
-  const locationParam = shouldRestrict
-    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, Math.min(radiusMeters, 50000)) } }
-    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } };
+  const hasCoords = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng);
+  const locationParam = !hasCoords
+    ? {}
+    : shouldRestrict
+      ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, Math.min(radiusMeters, 50000)) } }
+      : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } };
 
   // Search 1: raw query + "restaurant" keyword for broad food results
   const body: Record<string, unknown> = {

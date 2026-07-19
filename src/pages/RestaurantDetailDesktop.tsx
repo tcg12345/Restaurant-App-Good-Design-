@@ -7,7 +7,7 @@ import {
   Edit3, Send, Building2, TrendingUp, TrendingDown,
   Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -20,42 +20,22 @@ import { getProfilesByIds, type UserProfile as UP } from '../lib/supabase-commun
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
+import { openExternalUrl } from '../lib/external-links';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
+import { scoreHex } from '../lib/score';
+import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
+import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import 'mapbox-gl/dist/mapbox-gl.css';
-
-/** Parse hours array to find next opening time when currently closed */
-function getNextOpenTime(hours: string[]): string {
-  if (!hours || hours.length === 0) return '';
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const now = new Date();
-  const todayIdx = now.getDay();
-
-  for (let offset = 0; offset < 7; offset++) {
-    const dayIdx = (todayIdx + offset) % 7;
-    const dayName = days[dayIdx];
-    const entry = hours.find((h) => h.startsWith(dayName));
-    if (!entry) continue;
-    if (/closed/i.test(entry)) continue;
-    const timePart = entry.split(':').slice(1).join(':').trim();
-    const openMatch = timePart.match(/^(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
-    if (!openMatch) continue;
-    const openTime = openMatch[1].trim();
-    if (offset === 0) return `today at ${openTime}`;
-    if (offset === 1) return `tomorrow at ${openTime}`;
-    return `${dayName} at ${openTime}`;
-  }
-  return '';
-}
 
 /** Short "last week / last month" style recency label. */
 function timeAgo(date: string): string {
-  if (!date) return '';
-  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  const d = parseVisitDate(date);
+  if (!d) return '';
   const diff = Date.now() - d.getTime();
   const days = Math.floor(diff / 86400000);
   if (days < 1) return 'today';
@@ -70,12 +50,11 @@ function timeAgo(date: string): string {
 }
 
 /* ── Small shared styling helpers for the redesign ──────────────────────
-   Score colours follow the design-system palette (emerald ≥ 8 / amber 5–7
-   / red < 5) — the same tiers the score rings use elsewhere in the app. */
-const SCORE_HIGH = '#10b981';
-const SCORE_MID = '#f59e0b';
-const SCORE_LOW = '#ef4444';
-const scoreColor = (s: number) => (s >= 8 ? SCORE_HIGH : s >= 5 ? SCORE_MID : SCORE_LOW);
+   Score colours follow the shared tier palette (lib/score → the
+   --color-score-* tokens): high ≥ 8 / mid 5–7 / low < 5. This file
+   appends alpha nibbles to the value (`${scoreColor(s)}24`), which a
+   var() string can't do, so it uses the literal scoreHex mirror. */
+const scoreColor = (s: number) => scoreHex(s);
 /** Soft card surface used throughout the page. */
 const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
 /** Section heading (serif, matches the reference). */
@@ -158,9 +137,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
   }, [friendsStats.ratings, openCircleId]);
 
   if (loading) {
+    // Skeleton mirroring the page shape (hero + title/meta column) instead
+    // of a bare centered spinner that popped into the full page.
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={40} className="animate-spin text-primary" />
+      <div className="min-h-screen bg-surface px-8 pt-10" aria-busy="true">
+        <div className="max-w-5xl mx-auto grid grid-cols-2 gap-10">
+          <div className="animate-pulse bg-on-surface/[0.06] rounded-3xl aspect-[4/3]" />
+          <div className="space-y-4 pt-2">
+            <div className="animate-pulse bg-on-surface/[0.06] rounded h-8 w-3/4" />
+            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-1/2" />
+            <LoadingSkeleton variant="text" className="pt-4" />
+            <LoadingSkeletonList count={3} variant="list-item" className="pt-2" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -186,7 +175,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
     ...(myRating ? {
       score: myRating.score,
       notes: myRating.notes,
-      wouldReturn: myRating.wouldReturn,
       tags: myRating.tags,
       isReview: true,
     } : { isReview: false }),
@@ -402,7 +390,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 const close = getTodayHours(place.hours).split(/\s*[–-]\s*/)[1];
                 return close ? <span className="text-sm font-medium text-on-surface/55">closes {close.trim()}</span> : null;
               })() : (() => {
-                const next = getNextOpenTime(place.hours);
+                const next = getNextOpenLabel(place.hours, restaurantLocalNow(place.lng));
                 return next ? <span className="text-sm font-medium text-on-surface/55">opens {next}</span> : null;
               })()}
             </span>
@@ -622,7 +610,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             const hasDate = !!myRating.visitDate;
             const hasPrice = !!myRating.price;
             const hasFriends = (myRating.friendIds?.length || 0) > 0;
-            const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
+            const dateLabel = parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) ?? null;
 
             const FieldEdit: React.FC<{ onClick: () => void }> = ({ onClick }) => (
               <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-on-surface border border-on-surface/10 hover:bg-on-surface/[0.05] rounded-full px-3 py-1.5 transition-colors flex-shrink-0">
@@ -709,7 +697,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           {/* ── Visit history ── */}
           {myRating && visitHistory.length > 0 && place && (() => {
             const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const parseDate = (d?: string | null) => d ? new Date(d.length === 10 ? `${d}T12:00:00` : d) : null;
+            const parseDate = parseVisitDate;
             type Entry = { id: string; score: number; date: Date | null; notes?: string; tags?: string[]; photos?: { url: string }[]; trend: 'up' | 'down' | null };
             const entries: Entry[] = [
               { id: 'current', score: myRating.score, date: parseDate(myRating.visitDate), notes: myRating.notes, tags: myRating.tags, photos: myRating.photos, trend: null },
@@ -789,32 +777,40 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
                   const sc = Number(rec.rating);
+                  // Plain div row — the profile Link and the expand toggle
+                  // are siblings, not a Link nested inside a button (invalid
+                  // HTML; taps could both navigate and toggle).
                   return (
-                    <li key={rec.id}>
-                      <button onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)} className="w-full px-5 py-5 text-left hover:bg-on-surface/[0.015] transition-colors">
-                        <div className="flex items-start gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-base font-serif font-bold text-on-surface hover:text-primary truncate">{rec.expert_name}</Link>
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={12} inline />Verified</span>
-                            </div>
+                    <li key={rec.id} className="px-5 py-5">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link to={`/user/${rec.expert_username}`} className="text-base font-serif font-bold text-on-surface hover:text-primary truncate">{rec.expert_name}</Link>
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={12} inline />Verified</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                            aria-expanded={isExpanded}
+                            className="block w-full text-left hover:opacity-80 transition-opacity"
+                          >
                             <p className={cn('text-sm mt-1.5 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
-                          </div>
-                          <div className="flex-shrink-0 w-14 h-9 rounded-md grid place-items-center" style={{ background: scoreColor(sc) }}>
-                            <span className="text-sm font-bold text-white tabular-nums">{sc.toFixed(1)}</span>
-                          </div>
+                          </button>
                         </div>
-                        <AnimatePresence>
-                          {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                              <div className="pt-3">
-                                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight dishes</p>
-                                <div className="flex flex-wrap gap-1.5">{rec.highlight_dishes.map((dish) => <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>)}</div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </button>
+                        <div className="flex-shrink-0 w-14 h-9 rounded-md grid place-items-center" style={{ background: scoreColor(sc) }}>
+                          <span className="text-sm font-bold text-white tabular-nums">{sc.toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                            <div className="pt-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight dishes</p>
+                              <div className="flex flex-wrap gap-1.5">{rec.highlight_dishes.map((dish) => <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>)}</div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </li>
                   );
                 })}
@@ -851,7 +847,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   <span className="text-[11px] font-semibold text-on-surface/70">Call</span>
                 </a>
               )}
-              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-2 group">
+              <a href={directionsUrl} onClick={(e) => { e.preventDefault(); void openExternalUrl(directionsUrl); }} className="flex flex-col items-center gap-2 group">
                 <span className="w-[46px] h-[46px] rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface group-hover:bg-on-surface/10 transition-colors"><Navigation size={19} /></span>
                 <span className="text-[11px] font-semibold text-on-surface/70">Route</span>
               </a>

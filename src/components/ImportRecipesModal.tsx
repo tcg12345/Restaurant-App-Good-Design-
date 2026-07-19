@@ -339,11 +339,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
 
     const today = localISODate();
 
-    // Build every meal payload up-front so the bulk insert can run in one
-    // shot. Calling createHomeMeal per row would issue one cloud PATCH per
-    // meal, and the responses can land out of order — an early snapshot
-    // with only a handful of rows can clobber the final array.
-    const mealsToCreate = items.map((item) => {
+    const buildMeal = (item: (typeof items)[number]) => {
       const r = item.recipe;
       const cover = r.photos[0] ?? '';
       const galleryUrls = r.photos.slice(cover ? 1 : 0);
@@ -366,14 +362,31 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
         ingredients: r.ingredients,
         steps: r.steps,
       };
-    });
+    };
 
-    try {
-      createHomeMealsBulk(mealsToCreate);
-      setItems((prev) => prev.map((it) => ({ ...it, status: 'created' as const })));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setItems((prev) => prev.map((it) => ({ ...it, status: 'error' as const, error: msg })));
+    // Import in CHUNKS, checking the Stop flag between them — the old
+    // single bulk call never read abortRef, so Stop did nothing and the
+    // progress display jumped 0→100. Each chunk still goes through
+    // createHomeMealsBulk (one setState + one full-array cloud snapshot
+    // per chunk, each a superset of the last), not per-row createHomeMeal —
+    // per-row was the original out-of-order-clobber hazard. The small
+    // inter-chunk pause is what paints the progress and lets a Stop tap
+    // land; it also spaces the snapshot writes so reordering is unlikely.
+    const CHUNK = 8;
+    for (let start = 0; start < items.length; start += CHUNK) {
+      if (abortRef.current) break;
+      const end = Math.min(items.length, start + CHUNK);
+      setItems((prev) => prev.map((it, i) => (i >= start && i < end ? { ...it, status: 'creating' as const } : it)));
+      try {
+        createHomeMealsBulk(items.slice(start, end).map(buildMeal));
+        setItems((prev) => prev.map((it, i) => (i >= start && i < end ? { ...it, status: 'created' as const } : it)));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setItems((prev) => prev.map((it, i) => (i >= start && i < end ? { ...it, status: 'error' as const, error: msg } : it)));
+      }
+      if (end < items.length) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
     }
 
     setIsRunning(false);
@@ -408,7 +421,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'bg-surface w-full overflow-hidden flex flex-col',
+              'bg-surface w-full overflow-hidden flex flex-col kb-pad',
               phoneMode
                 ? 'h-full rounded-none'
                 : 'h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',

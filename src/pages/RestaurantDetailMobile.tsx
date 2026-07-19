@@ -7,9 +7,9 @@ import {
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
   Car, Footprints, Award, Images, Plus, Heart,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -23,44 +23,20 @@ import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
+import { openExternalUrl } from '../lib/external-links';
 import { Link } from 'react-router-dom';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { useBottomSheet } from '../lib/useBottomSheet';
-
-/** Parse hours array to find next opening time when currently closed */
-function getNextOpenTime(hours: string[]): string {
-  if (!hours || hours.length === 0) return '';
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const now = new Date();
-  const todayIdx = now.getDay();
-
-  // Look at today first, then upcoming days
-  for (let offset = 0; offset < 7; offset++) {
-    const dayIdx = (todayIdx + offset) % 7;
-    const dayName = days[dayIdx];
-    const entry = hours.find((h) => h.startsWith(dayName));
-    if (!entry) continue;
-    // Skip "Closed" days
-    if (/closed/i.test(entry)) continue;
-    // Extract opening time — format: "Monday: 11:30 AM – 10:00 PM" or "Monday: 5:00 – 11:00 PM"
-    const timePart = entry.split(':').slice(1).join(':').trim();
-    const openMatch = timePart.match(/^(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
-    if (!openMatch) continue;
-    const openTime = openMatch[1].trim();
-    if (offset === 0) return `today at ${openTime}`;
-    if (offset === 1) return `tomorrow at ${openTime}`;
-    return `${dayName} at ${openTime}`;
-  }
-  return '';
-}
+import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
+import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 
 /** Short "last week / last month" style recency label. */
 function timeAgo(date: string): string {
-  if (!date) return '';
-  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  const d = parseVisitDate(date);
+  if (!d) return '';
   const diff = Date.now() - d.getTime();
   const days = Math.floor(diff / 86400000);
   if (days < 1) return 'today';
@@ -122,6 +98,28 @@ export const RestaurantDetailMobile: React.FC = () => {
     }, 320);
   };
 
+  // Dot taps ride the same slide animation as arrows/swipes (they used to
+  // swap instantly). Multi-photo jumps play as ONE slide: the landing photo
+  // is loaded into the adjacent track slot for the duration (heroJump).
+  const [heroJump, setHeroJump] = useState<number | null>(null);
+  const heroSlideTo = (target: number) => {
+    if (heroG.current.busy || target === photoIndex || photos.length < 2) return;
+    const N = photos.length;
+    const forward = (target - photoIndex + N) % N;
+    const dir: 1 | -1 = forward <= N - forward ? 1 : -1;
+    heroG.current.busy = true;
+    setHeroJump(target);
+    setHeroAnimating(true);
+    setHeroDragX(dir === 1 ? -heroWidth() : heroWidth());
+    window.setTimeout(() => {
+      setPhotoIndex(target);
+      setHeroJump(null);
+      setHeroAnimating(false);
+      setHeroDragX(0);
+      heroG.current.busy = false;
+    }, 320);
+  };
+
   const onHeroTouchStart = (e: React.TouchEvent) => {
     if (heroG.current.busy) return;
     const t = e.touches[0];
@@ -175,9 +173,8 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
-  // Hours expanded by default — it's the most frequently checked info,
-  // so show it open without a tap. Local state so we don't mutate the
-  // shared hook default.
+  // Hours start collapsed — the summary row already shows the Open/Closed
+  // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
   const [flavorOpen, setFlavorOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(false);
@@ -255,9 +252,17 @@ export const RestaurantDetailMobile: React.FC = () => {
   }, [myRating?.friendIds]);
 
   if (loading) {
+    // Skeleton mirroring the page shape (hero, title, meta, review rows)
+    // instead of a bare centered spinner that popped into the full page.
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={40} className="animate-spin text-primary" />
+      <div className="min-h-screen bg-surface" aria-busy="true">
+        <div className="animate-pulse bg-on-surface/[0.06] w-full" style={{ height: '40vh', maxHeight: '46vh' }} />
+        <div className="px-5 pt-6 space-y-3">
+          <div className="animate-pulse bg-on-surface/[0.06] rounded h-7 w-3/4" />
+          <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-1/2" />
+          <LoadingSkeleton variant="text" className="pt-4" />
+          <LoadingSkeletonList count={3} variant="list-item" className="pt-4" />
+        </div>
       </div>
     );
   }
@@ -273,7 +278,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
   /* ── Score-color helpers — kept on the app's score thresholds
      (≥8 / ≥5 / <5) so chips and discs stay consistent across the page. ── */
-  const chipBg = (s: number) => (s >= 8 ? 'bg-green-600' : s >= 5 ? 'bg-amber-600' : 'bg-red-500');
+  const chipBg = (s: number) => scoreChipBg(s);
   // Soft-tinted score pill for friend chips in "From your circle".
   const softChip = (s: number) => (s >= 8 ? 'bg-green-100 text-green-700' : s >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600');
 
@@ -287,7 +292,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     price: priceStr,
     address: place.fullAddress || place.address,
     ...(myRating
-      ? { score: myRating.score, notes: myRating.notes, wouldReturn: myRating.wouldReturn, tags: myRating.tags, isReview: true }
+      ? { score: myRating.score, notes: myRating.notes, tags: myRating.tags, isReview: true }
       : { isReview: false }),
   });
 
@@ -312,7 +317,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <button
             onClick={() => navigate(-1)}
             aria-label="Back"
-            className="pointer-events-auto w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+            className="hit-44 pointer-events-auto w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
           </button>
@@ -320,14 +325,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={() => { if (place) toggleWishlist(wishMeta); }}
               aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-              className="w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-primary text-primary' : ''} />
             </button>
             <button
               onClick={() => { if (place) setChatShareTarget(buildShareTarget()); }}
               aria-label="Share"
-              className="w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Share2 size={16} />
             </button>
@@ -361,15 +366,22 @@ export const RestaurantDetailMobile: React.FC = () => {
             willChange: 'transform',
           }}
         >
-          {[
-            (photoIndex - 1 + photos.length) % photos.length,
-            photoIndex,
-            (photoIndex + 1) % photos.length,
-          ].map((idx, slot) => (
+          {(() => {
+            const N = photos.length;
+            const prevIdx = (photoIndex - 1 + N) % N;
+            const nextIdx = (photoIndex + 1) % N;
+            // During a dot-initiated jump the landing photo rides the slot
+            // the track is sliding toward, so a >1 jump still animates.
+            return heroJump !== null && heroJump !== photoIndex
+              ? (heroDragX < 0 ? [prevIdx, photoIndex, heroJump] : [heroJump, photoIndex, nextIdx])
+              : [prevIdx, photoIndex, nextIdx];
+          })().map((idx, slot) => (
             <button
               key={slot}
               onClick={() => { if (heroG.current.swiped) { heroG.current.swiped = false; return; } setGalleryOpen(true); }}
-              className="relative w-1/3 h-full cursor-pointer"
+              // bg placeholder so a slow hero photo doesn't paint as a
+              // hard white block while it decodes.
+              className="relative w-1/3 h-full cursor-pointer bg-on-surface/5"
               aria-label="Open photo gallery"
               aria-hidden={slot !== 1}
               tabIndex={slot === 1 ? 0 : -1}
@@ -443,14 +455,14 @@ export const RestaurantDetailMobile: React.FC = () => {
                   return (
                     <button
                       key={i}
-                      onClick={(e) => { e.stopPropagation(); setPhotoIndex(i); }}
-                      className="flex-shrink-0 h-full flex items-center justify-center"
+                      onClick={(e) => { e.stopPropagation(); heroSlideTo(i); }}
+                      className="hit-44-y flex-shrink-0 h-full flex items-center justify-center"
                       style={{ width: SLOT }}
                       aria-label={`Show photo ${i + 1}`}
                       tabIndex={scale === 0 ? -1 : 0}
                     >
                       <span
-                        className={cn('block h-1.5 w-1.5 rounded-full transition-all duration-300 ease-out', i === photoIndex ? 'bg-white' : 'bg-white/50')}
+                        className={cn('block h-1.5 w-1.5 rounded-full transition-all duration-300 ease-out', i === photoIndex ? 'bg-media-white' : 'bg-white/50')}
                         style={{ transform: `scale(${scale})` }}
                       />
                     </button>
@@ -468,14 +480,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={(e) => { e.stopPropagation(); heroSlide(-1); }}
               aria-label="Previous photo"
-              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+              className="hit-44 absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); heroSlide(1); }}
               aria-label="Next photo"
-              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+              className="hit-44 absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronRight size={20} />
             </button>
@@ -518,7 +530,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta, 'new-visit')}
                         aria-label="Re-rate"
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
                       >
                         <Star size={17} />
                       </button>
@@ -526,7 +538,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta)}
                         aria-label="You've rated this — view your rating"
-                        className="w-[38px] h-[38px] rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
                       >
                         <Check size={18} strokeWidth={2.5} />
                       </button>
@@ -537,7 +549,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(wishMeta)}
                         aria-label="Add rating"
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
                       >
                         <Plus size={18} />
                       </button>
@@ -545,7 +557,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => toggleWishlist(wishMeta)}
                         aria-label={isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
                       >
                         <Bookmark size={17} className={isWishlisted(place.id) ? 'fill-primary text-primary' : 'text-ink-2'} />
                       </button>
@@ -588,7 +600,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <span className="text-on-surface/65">
                       <span className="font-semibold text-red-600">Closed</span>
                       {(() => {
-                        const next = getNextOpenTime(place.hours);
+                        const next = getNextOpenLabel(place.hours, restaurantLocalNow(place.lng));
                         return next ? <span> · opens {next}</span> : null;
                       })()}
                     </span>
@@ -623,7 +635,9 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="flex gap-2.5 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] mt-5 py-1">
           {[
             { Icon: Phone, label: 'Call', href: place.phone ? `tel:${place.phone}` : null },
-            { Icon: Navigation, label: 'Route', href: directionsUrl, external: true },
+            // Route goes through openExternalUrl so native hands off to the
+            // Maps app instead of bouncing the tap through Safari.
+            { Icon: Navigation, label: 'Route', href: directionsUrl || null, onClick: directionsUrl ? () => { void openExternalUrl(directionsUrl); } : undefined },
             { Icon: Globe, label: 'Web', href: place.website || null, external: true },
             { Icon: Send, label: 'Share', onClick: () => setChatShareTarget(buildShareTarget()) },
             ...(michelin ? [{ Icon: Award, label: 'Michelin Guide', href: michelin.guideUrl, external: true, accent: true }] : []),
@@ -662,10 +676,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          const discGradient = (s: number) =>
-            s >= 8 ? 'linear-gradient(145deg,#26AC74,#138257)'
-              : s >= 5 ? 'linear-gradient(145deg,#E7A93B,#C9821B)'
-                : 'linear-gradient(145deg,#E0584A,#C13B2E)';
+          const discGradient = (s: number) => scoreGradient(s);
           const discShadow = (s: number) =>
             `0 5px 14px ${s >= 8 ? 'rgba(20,135,90,0.32)' : s >= 5 ? 'rgba(201,130,27,0.30)' : 'rgba(193,59,46,0.30)'}, inset 0 1px 0 rgba(255,255,255,0.4), inset 0 0 0 1px rgba(255,255,255,0.08)`;
 
@@ -847,7 +858,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                 <MessageCircle size={16} /> Reply
                               </button>
                             </div>
-                            <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="hit-44-y inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
                               Full review <ChevronRight size={13} />
                             </button>
                           </div>
@@ -889,7 +900,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                     <p className="italic text-on-surface/75 mt-2.5 pl-[52px]" style={{ fontFamily: '"Newsreader", serif', fontSize: '14.5px', lineHeight: 1.5 }}>
                                       "{r.notes}"
                                     </p>
-                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)} className="mt-2 ml-[52px] inline-flex items-center gap-1 text-primary" style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)} className="hit-44-y mt-2 ml-[52px] inline-flex items-center gap-1 text-primary" style={{ fontSize: '12.5px', fontWeight: 600 }}>
                                       Full review <ChevronRight size={11} />
                                     </button>
                                   </motion.div>
@@ -940,7 +951,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasPhotos = (myRating.photos?.length || 0) > 0;
           const hasDate = !!myRating.visitDate;
           const hasFriends = (myRating.friendIds?.length || 0) > 0;
-          const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null;
+          const dateLabel = parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? null;
           const eyebrowStyle = { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em' } as const;
           return (
             <>
@@ -1074,23 +1085,20 @@ export const RestaurantDetailMobile: React.FC = () => {
           const scoreBorder = (s: number) =>
             s >= 8 ? 'border-l-green-500' : s >= 5 ? 'border-l-amber-500' : 'border-l-red-500';
           const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          const parseDate = (d?: string | null) => {
-            if (!d) return null;
-            return new Date(d.length === 10 ? `${d}T12:00:00` : d);
-          };
+          const parseDate = parseVisitDate;
 
           type Entry = {
             id: string; score: number; date: Date | null; notes?: string; tags?: string[];
-            photos?: { url: string }[]; wouldReturn?: boolean; trend: 'up' | 'down' | 'same' | null; isCurrent: boolean;
+            photos?: { url: string }[]; trend: 'up' | 'down' | 'same' | null; isCurrent: boolean;
           };
 
           const entries: Entry[] = [];
           entries.push({
             id: 'current', score: myRating.score, date: parseDate(myRating.visitDate), notes: myRating.notes,
-            tags: myRating.tags, photos: myRating.photos, wouldReturn: myRating.wouldReturn, trend: null, isCurrent: true,
+            tags: myRating.tags, photos: myRating.photos, trend: null, isCurrent: true,
           });
           visitHistory.forEach((v) => {
-            entries.push({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, wouldReturn: v.would_return, trend: null, isCurrent: false });
+            entries.push({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, trend: null, isCurrent: false });
           });
 
           entries.sort((a, b) => {
@@ -1188,36 +1196,45 @@ export const RestaurantDetailMobile: React.FC = () => {
               <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
+                  // The row is a plain div: the profile Link and the expand
+                  // toggle are SIBLINGS, not a Link nested inside a button —
+                  // that's invalid HTML, and iOS taps could both navigate
+                  // and toggle at once.
                   return (
-                    <li key={rec.id}>
-                      <button onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)} className="w-full px-4 py-4 text-left active:bg-on-surface/[0.015] transition-colors">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate">
-                                {rec.expert_name}
-                              </Link>
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={11} inline />Verified</span>
-                            </div>
+                    <li key={rec.id} className="px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link to={`/user/${rec.expert_username}`} className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate">
+                              {rec.expert_name}
+                            </Link>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={11} inline />Verified</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                            aria-expanded={isExpanded}
+                            className="block w-full text-left active:opacity-70 transition-opacity"
+                          >
                             <p className={cn('text-[13px] mt-1 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
-                          </div>
-                          <div className={cn('flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center', chipBg(Number(rec.rating)))}>
-                            <span className="text-[13px] font-bold text-white tabular-nums">{Number(rec.rating).toFixed(1)}</span>
-                          </div>
+                          </button>
                         </div>
-                        <AnimatePresence>
-                          {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                              <div className="pt-3">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>))}
-                                </div>
+                        <div className={cn('flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center', chipBg(Number(rec.rating)))}>
+                          <span className="text-[13px] font-bold text-white tabular-nums">{Number(rec.rating).toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                            <div className="pt-3">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>))}
                               </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </li>
                   );
                 })}
@@ -1360,6 +1377,11 @@ export const RestaurantDetailMobile: React.FC = () => {
           <span className="max-w-[60vw] truncate">{place.address}</span>
         </div>
       </section>
+
+      {/* Safe-area spacer — the page used to end flush with the map, which
+          put the address pill and Mapbox attribution under the iPhone home
+          indicator (the bottom nav is hidden on /restaurant/*). */}
+      <div className="bg-surface pb-safe" aria-hidden="true" />
 
       {/* Photo Gallery Bottom Sheet */}
       <AnimatePresence>

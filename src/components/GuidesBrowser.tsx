@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Bookmark, BookOpen, Clock, Search, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
+import { avatarHue } from '../lib/avatar';
 
 /* ── Browse-all guides popup ─────────────────────────────────────────────────
    Opened from the "Browse all" affordance on the Discover and Location
@@ -27,18 +28,11 @@ export interface BrowseGuide {
   count: number;
   /** Days since last update — drives the recency sort + "Updated" label. */
   daysAgo: number;
-  /** Bookmark count. Optional — real guides don't track this yet, so the
-   *  stat is hidden when absent. */
+  /** Bookmark count from saved_guides (guide_save_counts RPC). Absent
+   *  while loading or on failure — the stat hides rather than faking 0. */
   saves?: number;
 }
 
-/* Stable name → hue so author avatars get consistent colors without a
-   palette table. Mirrors the hash Discover uses for guide author chips. */
-function hashToHue(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
 
 function agoLabel(daysAgo: number): string {
   if (daysAgo <= 0) return 'Today';
@@ -200,7 +194,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
             >
               <span
                 className="w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold text-white flex-shrink-0"
-                style={{ background: `hsl(${hashToHue(name)} 42% 48%)` }}
+                style={{ background: `hsl(${avatarHue(name)} 42% 48%)` }}
               >
                 {name.charAt(0).toUpperCase()}
               </span>
@@ -321,7 +315,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
                 <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55 min-w-0">
                   <span
                     className="w-[18px] h-[18px] rounded-full grid place-items-center text-[9px] font-bold text-white flex-shrink-0"
-                    style={{ background: `hsl(${hashToHue(g.author)} 42% 48%)` }}
+                    style={{ background: `hsl(${avatarHue(g.author)} 42% 48%)` }}
                   >
                     {g.author.charAt(0).toUpperCase()}
                   </span>

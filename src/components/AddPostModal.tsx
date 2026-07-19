@@ -564,17 +564,18 @@ export const AddPostModal: React.FC = () => {
   };
 
   // Run on Next-button tap: materialize every staged MediaItem and hand
-  // the resulting Files to onPickFiles (which validates videos, appends
-  // to items, and is followed by an explicit advance). Returns true if
-  // we got at least as far as calling onPickFiles.
+  // the resulting Files to onPickFiles (which validates videos and appends
+  // to items). Returns true only when at least one file was ACCEPTED —
+  // "we called onPickFiles" used to count as success, which advanced the
+  // wizard to an empty step 2 while the validation message stayed behind.
   const materializeNativePicks = async (): Promise<boolean> => {
     if (nativePicks.length === 0) return false;
     setNativeMaterializing(true);
     try {
       const files = await readStagedNativeFiles();
-      await onPickFiles(files);
+      const accepted = await onPickFiles(files);
       setNativePicks([]);
-      return true;
+      return accepted > 0;
     } catch (err) {
       console.warn('[AddPost] native materialize failed:', err);
       setValidationMsg("Couldn't load one of the selected items — try again.");
@@ -1228,7 +1229,7 @@ export const AddPostModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full h-full bg-[#16120e] text-white flex flex-col overflow-hidden"
+            className="relative w-full h-full bg-media-canvas text-white flex flex-col overflow-hidden"
           >
             <input
               ref={fileInputRef}
@@ -1351,8 +1352,8 @@ export const AddPostModal: React.FC = () => {
                           <span
                             key={it.key}
                             className={cn(
-                              'w-1.5 h-1.5 rounded-full transition-colors',
-                              it.key === activeKey ? 'bg-white' : 'bg-white/35',
+                              'hit-44-y w-1.5 h-1.5 rounded-full transition-colors',
+                              it.key === activeKey ? 'bg-media-white' : 'bg-white/35',
                             )}
                           />
                         ))}
@@ -1964,7 +1965,7 @@ export const AddPostModal: React.FC = () => {
               />
 
               {/* Media canvas (left) */}
-              <div className="flex-1 min-w-0 relative bg-[#16120e] flex items-center justify-center overflow-hidden">
+              <div className="flex-1 min-w-0 relative bg-media-canvas flex items-center justify-center overflow-hidden">
                 {activeItem ? (
                   <>
                     <motion.div
@@ -2078,7 +2079,7 @@ export const AddPostModal: React.FC = () => {
                             key={it.key}
                             className={cn(
                               'w-[7px] h-[7px] rounded-full transition-colors',
-                              it.key === activeKey ? 'bg-white' : 'bg-white/35',
+                              it.key === activeKey ? 'bg-media-white' : 'bg-white/35',
                             )}
                           />
                         ))}

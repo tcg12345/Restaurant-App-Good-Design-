@@ -17,7 +17,7 @@
  * from ratings / places / recipes, saveGuide persistence with a stable
  * upfront id, and the Live Editor round-trip.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
@@ -32,7 +32,9 @@ import { useToast } from '../contexts/ToastContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide, type GuideTheme } from '../lib/supabase-guides';
-import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, type PlaceResult } from '../lib/places';
+import { entryFromRating, entryFromPlace, entryFromListRecipe, entryFromDbRecipe } from '../lib/guide-entry-builders';
+import { cityFromAddress, cityFromAddressComponents } from '../lib/city';
 import { GuideLiveEditor } from './guide/GuideLiveEditor';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import './GuideCreatorSheet.css';
@@ -465,7 +467,6 @@ const StepAdd: React.FC<{
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [importedListIds, setImportedListIds] = useState<Set<string>>(new Set());
   const [ratedFilter, setRatedFilter] = useState('');
   const [recipesFilter, setRecipesFilter] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -520,21 +521,32 @@ const StepAdd: React.FC<{
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [trimmedSearch, active]);
 
+  // A list reads as "imported" when EVERY one of its refIds is already an
+  // entry — derived from the entries themselves. (The old local Set
+  // unmounted with this step, so buttons reverted to "Add all" between
+  // steps while re-pressing silently no-oped on the dedupe.)
+  const listRefIds = (l: CustomList): string[] =>
+    isRecipes ? (l.recipes || []).map((r) => r.id) : (l.restaurantIds || []);
+  const isListImported = (l: CustomList): boolean => {
+    const ids = listRefIds(l);
+    return ids.length > 0 && ids.every((id) => addedRefIds.has(id));
+  };
+
   const toggleList = (l: CustomList) => {
-    const imported = importedListIds.has(l.id);
-    if (isRecipes) {
-      if (imported) onRemoveByRefIds((l.recipes || []).map((r) => r.id));
-      else if (l.recipes) onAddListRecipes(l.recipes);
+    if (isListImported(l)) {
+      // Un-import removes only entries no OTHER imported list still
+      // references — a shared refId used to vanish from both.
+      const referencedElsewhere = new Set(
+        lists
+          .filter((other) => other.id !== l.id && isListImported(other))
+          .flatMap((other) => listRefIds(other)),
+      );
+      onRemoveByRefIds(listRefIds(l).filter((id) => !referencedElsewhere.has(id)));
+    } else if (isRecipes) {
+      if (l.recipes) onAddListRecipes(l.recipes);
     } else {
-      if (imported) onRemoveByRefIds(l.restaurantIds || []);
-      else onAddRestaurantsFromList(l);
+      onAddRestaurantsFromList(l);
     }
-    setImportedListIds((prev) => {
-      const next = new Set(prev);
-      if (imported) next.delete(l.id);
-      else next.add(l.id);
-      return next;
-    });
   };
 
   const searchPill = (value: string, onChange: (v: string) => void, placeholder: string, busy?: boolean, autoFocus?: boolean) => (
@@ -637,7 +649,7 @@ const StepAdd: React.FC<{
     ) : (
       <div className="gcx-rows">
         {relevantLists.map((l) => {
-          const isImported = importedListIds.has(l.id);
+          const isImported = isListImported(l);
           const count = isRecipes ? (l.recipes?.length || 0) : l.restaurantIds.length;
           return (
             <div key={l.id} className={`gcx-list-card${isImported ? ' is-added' : ''}`}>
@@ -1278,6 +1290,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const accountIsPublic = profile?.is_public ?? true;
 
   const [step, setStep] = useState<Step>('basics');
+  // Per-step scroll offsets for the wizard body — saved as the user scrolls,
+  // restored when a step is revisited (a validation jump back to Basics used
+  // to land at the top with the offending field out of view). A step never
+  // visited restores to 0, so forward navigation still starts at the top.
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const stepScrollsRef = useRef<Partial<Record<Step, number>>>({});
+  useLayoutEffect(() => {
+    const el = bodyScrollRef.current;
+    if (el) el.scrollTop = stepScrollsRef.current[step] ?? 0;
+  }, [step]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [type, setType] = useState<GuideType>('restaurants');
   const [source, setSource] = useState<SourceMode>('search');
@@ -1350,7 +1372,32 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setBusy(false);
     setPublishedGuide(null);
     setLiveEditOpen(false);
+    // Snapshot the just-initialized content so a backdrop click can tell
+    // "untouched" from "has unsaved work" (see handleBackdropClick).
+    initialSigRef.current = JSON.stringify(initialGuide ? {
+      type: initialGuide.type, title: initialGuide.title, subtitle: initialGuide.subtitle,
+      intro: initialGuide.intro, city: initialGuide.city || '', tags: initialGuide.tags,
+      coverPhoto: initialGuide.coverPhoto, visibility: initialGuide.visibility,
+      includePhotos: initialGuide.includePhotos, entries: initialGuide.entries, theme: initialGuide.theme,
+    } : {
+      type: seed?.type || 'restaurants', title: seed?.title || '', subtitle: '', intro: '', city: '',
+      tags: [] as string[], coverPhoto: '', visibility: accountIsPublic ? 'public' : 'private',
+      includePhotos: true, entries: [] as GuideEntry[], theme: undefined,
+    });
   }, [open, initialGuide?.id]);
+
+  // Backdrop click used to call onClose() unconditionally — one stray click
+  // outside the desktop sheet silently discarded the entire unsaved guide
+  // (state re-seeds on the next open). Confirm when the content changed.
+  const initialSigRef = useRef('');
+  const handleBackdropClick = () => {
+    const currentSig = JSON.stringify({
+      type, title, subtitle, intro, city, tags, coverPhoto, visibility, includePhotos, entries, theme,
+    });
+    if (currentSig !== initialSigRef.current
+      && !window.confirm('Discard your unsaved changes to this guide?')) return;
+    onClose();
+  };
 
   // Resolve the author profile once per signed-in user — used by the
   // Live Editor's hero/author panel for sensible defaults.
@@ -1400,61 +1447,23 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setStep(STEPS_ORDER[Math.max(currentStepIdx - 1, 0)]);
   };
 
-  /* ── Entry assembly (unchanged data spine) ────────────────────── */
+  /* ── Entry assembly — thin delegates over lib/guide-entry-builders,
+        the shared builders the Live Editor's picker also uses. The wizard
+        used to keep private copies that never captured city (so guides
+        never matched Location pages via entry matching) nor cuisine/price
+        for Places entries. ────────────────────────────────────────── */
 
-  const addEntryFromRating = (r: RestaurantRating): GuideEntry => {
-    const meta = getRestaurantInfo(r.restaurantId);
-    const subtitleStr = [r.cuisine, r.price].filter(Boolean).join(' · ');
-    const fromExplicit = (r.favoriteDishes || []).map((s) => s.trim()).filter(Boolean);
-    const fromPhotos = (r.photos || [])
-      .filter((p) => p.isFavorite && p.caption?.trim())
-      .map((p) => p.caption.trim());
-    const seen = new Set<string>();
-    const allDishes: string[] = [];
-    for (const d of [...fromExplicit, ...fromPhotos]) {
-      const key = d.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); allDishes.push(d); }
-    }
-    return {
-      id: newEntryId(),
-      refId: r.restaurantId,
-      name: r.name,
-      subtitle: subtitleStr,
-      cuisine: r.cuisine || undefined,
-      price: r.price || undefined,
-      image: r.photos?.[0]?.url || r.image || '',
-      score: r.score,
-      notes: r.notes?.trim() || undefined,
-      mustOrder: allDishes.length > 0 ? allDishes : undefined,
-      neighborhood: meta?.neighborhood,
-      hours: meta?.hours?.[0]?.split(': ')[1],
-    };
-  };
+  const addEntryFromRating = (r: RestaurantRating): GuideEntry =>
+    entryFromRating(r, getRestaurantInfo(r.restaurantId));
 
   const addEntryFromPlace = (p: PlaceResult): GuideEntry => {
+    // Prefer the user's own rating when they've scored this place.
     const existingRating = ratings.find((r) => r.restaurantId === p.id);
-    if (existingRating) return addEntryFromRating(existingRating);
-    return {
-      id: newEntryId(),
-      refId: p.id,
-      name: p.name,
-      subtitle: [p.types?.[0]?.replace(/_/g, ' '), priceLevelToString(p.priceLevel)].filter(Boolean).join(' · '),
-      image: p.photoUrl || '',
-      score: undefined,
-    };
+    return existingRating ? addEntryFromRating(existingRating) : entryFromPlace(p);
   };
 
-  const addEntryFromListRecipe = (r: ListRecipe): GuideEntry => ({
-    id: newEntryId(),
-    refId: r.id,
-    name: r.title,
-    subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
-    image: r.coverPhoto || r.photos?.[0]?.url || '',
-    score: r.score,
-    totalTime: (r.prepTime || 0) + (r.cookTime || 0),
-    difficulty: r.difficulty,
-    authorId: user?.id,
-  });
+  const addEntryFromListRecipe = (r: ListRecipe): GuideEntry =>
+    entryFromListRecipe(r, user?.id);
 
   // Recipes in the cloud `recipes` table don't carry a score directly,
   // but the user may have logged a matching home meal (HomeMeal.score)
@@ -1488,18 +1497,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     return s;
   }, [ratings, restaurantMeta]);
 
-  const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry => ({
-    id: newEntryId(),
-    refId: r.id,
-    name: r.title,
-    subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
-    cuisine: r.cuisine || undefined,
-    image: r.photos?.[0] || '',
-    score: homeMealScores.get((r.title || '').trim().toLowerCase()),
-    totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
-    difficulty: r.difficulty,
-    authorId: r.userId,
-  });
+  const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry =>
+    entryFromDbRecipe(r, homeMealScores.get((r.title || '').trim().toLowerCase()));
 
   const addedRefIds = useMemo(() => new Set(entries.map((e) => e.refId)), [entries]);
 
@@ -1522,8 +1521,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           refId: rid,
           name: meta.name,
           subtitle: [meta.cuisine, meta.price].filter(Boolean).join(' · '),
+          cuisine: meta.cuisine || undefined,
+          price: meta.price || undefined,
           image: meta.image || '',
           neighborhood: meta.neighborhood,
+          city: cityFromAddressComponents(meta.addressComponents) || cityFromAddress(meta.address) || undefined,
         } as GuideEntry;
       }
       return null;
@@ -1731,13 +1733,15 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
 
   /* ── Render ───────────────────────────────────────────────────── */
 
-  if (!open) return null;
-
   // Live edit needs the guide's substance: a title and at least one entry.
   const liveEditUnlocked = title.trim().length > 0 && entries.length > 0;
 
+  // The open gate lives INSIDE AnimatePresence — an early `return null`
+  // above it unmounted the whole tree the instant `open` flipped, so the
+  // sheet hard-popped away instead of playing its slide-down exit.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         key="guide-creator-backdrop"
         initial={{ opacity: 0 }}
@@ -1748,7 +1752,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           'fixed inset-0 bg-black/55 backdrop-blur-sm z-[120] flex justify-center',
           phoneMode ? 'items-end' : 'items-center p-6',
         )}
-        onClick={onClose}
+        onClick={handleBackdropClick}
       >
         <motion.div
           key="guide-creator-sheet"
@@ -1797,14 +1801,24 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           </div>
 
           {/* ── Scrollable step body ── */}
-          <motion.div layoutScroll className="gcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
-            <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            layoutScroll
+            ref={bodyScrollRef}
+            onScroll={(e) => { stepScrollsRef.current[step] = e.currentTarget.scrollTop; }}
+            className="gcx-body"
+            style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}
+          >
+            {/* popLayout + a short crossfade: the outgoing step pops out of
+                layout and fades WHILE the incoming one fades in — the old
+                mode="wait" fade-out-then-in left ~0.3s of blank sheet
+                between steps. */}
+            <AnimatePresence mode="popLayout" initial={false}>
               <motion.div
                 key={step}
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16, ease: 'easeOut' }}
               >
                 {step === 'basics' && (
                   <StepBasics
@@ -1976,11 +1990,12 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           />
         </motion.div>
       </motion.div>
+      )}
 
       {/* Live Editor overlay — portals itself to document.body so it
           escapes the wizard's stacking context. Render conditionally so
           we don't pay the cost when it isn't open. */}
-      {liveEditOpen && (
+      {open && liveEditOpen && (
         <GuideLiveEditor
           open={liveEditOpen}
           data={liveEditData}

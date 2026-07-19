@@ -1,4 +1,5 @@
 import React from 'react';
+import { scoreTintStyle } from '../../lib/score';
 
 /**
  * Soft tiered score circle with an inset ring — the score treatment from the
@@ -16,10 +17,10 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
   className,
 }) => {
   if (score === undefined || score === null || score <= 0) return null;
-  const tier =
-    score >= 8 ? { bg: '#ecfdf5', ring: 'rgba(16,185,129,0.5)', text: '#059669' }
-    : score >= 5 ? { bg: '#fffbeb', ring: 'rgba(245,158,11,0.55)', text: '#b45309' }
-    : { bg: '#fef2f2', ring: 'rgba(239,68,68,0.5)', text: '#dc2626' };
+  // Token-backed tier pack (lib/score → --color-score-* in index.css):
+  // tint fill + ring + readable text, all adapting in dark mode.
+  const pack = scoreTintStyle(score);
+  const tier = { bg: pack.background, ring: pack.ring, text: pack.color };
   return (
     <div
       className={className}
@@ -28,7 +29,7 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
         width: size,
         height: size,
         borderRadius: 9999,
-        background: onPhoto ? '#fff' : tier.bg,
+        background: onPhoto ? 'var(--color-paper)' : tier.bg,
         boxShadow: onPhoto
           ? `0 2px 10px rgba(0,0,0,0.16), inset 0 0 0 1.5px ${tier.ring}`
           : `inset 0 0 0 1.5px ${tier.ring}`,

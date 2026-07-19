@@ -449,15 +449,19 @@ export const AddReelModal: React.FC = () => {
   }, [editingReel, recipePickList, pickedRecipeId]);
 
   // ── Video selection ──
-  const onPickFile = async (file: File | null) => {
-    if (!file) return;
+  /** Validate + stage a picked file. Returns true only when the file was
+   *  ACCEPTED — callers that advance the wizard must check this, or a
+   *  rejected pick lands the user on an empty step 2 with the validation
+   *  message left behind on step 1. */
+  const onPickFile = async (file: File | null): Promise<boolean> => {
+    if (!file) return false;
     setValidationMsg(null);
     setErrorMsg(null);
     const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp|qt|hevc)$/i;
     const looksLikeVideo = file.type.startsWith('video/') || VIDEO_EXT_RE.test(file.name);
     if (!looksLikeVideo) {
       setValidationMsg('Please pick a video file.');
-      return;
+      return false;
     }
     let duration: number;
     try {
@@ -465,11 +469,11 @@ export const AddReelModal: React.FC = () => {
     } catch (err) {
       console.warn('[AddReel] probe failed:', err);
       setValidationMsg("Couldn't read this video — try exporting to MP4 (H.264) and uploading again.");
-      return;
+      return false;
     }
     if (duration > REEL_MAX_DURATION_SECONDS + 0.5) {
       setValidationMsg(`Video is ${duration.toFixed(0)}s — reels are limited to ${REEL_MAX_DURATION_SECONDS}s.`);
-      return;
+      return false;
     }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(file);
@@ -480,6 +484,7 @@ export const AddReelModal: React.FC = () => {
     setVideoEdits(DEFAULT_EDIT_STATE);
     // Drag-drop / web file-input picks now also wait for the user to
     // tap Next, matching the inline native-grid behaviour.
+    return true;
   };
 
   const clearVideo = () => {
@@ -502,8 +507,10 @@ export const AddReelModal: React.FC = () => {
       const { path, mimeType } = await PhotoLibrary.getMedia({ id: nativePick.id });
       const ext = mimeType.split('/')[1] || 'mov';
       const file = await nativePathToFile(path, `reel-${nativePick.id}.${ext}`, mimeType);
-      await onPickFile(file);
-      return true;
+      // Only report success when validation actually accepted the file —
+      // returning true unconditionally advanced the wizard to an empty
+      // step 2 while the rejection message stayed behind on step 1.
+      return await onPickFile(file);
     } catch (err) {
       console.warn('[AddReel] native materialize failed:', err);
       setValidationMsg("Couldn't load that video — try another.");
@@ -768,7 +775,7 @@ export const AddReelModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full h-full bg-[#16120e] text-white flex flex-col overflow-hidden"
+            className="relative w-full h-full bg-media-canvas text-white flex flex-col overflow-hidden"
           >
             <input
               ref={fileInputRef}
@@ -1112,7 +1119,7 @@ export const AddReelModal: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
-                              className="w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
+                              className="hit-44 w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
                               aria-label="Clear location"
                             >
                               <X size={12} />
@@ -1439,6 +1446,8 @@ export const AddReelModal: React.FC = () => {
                       setLocationFocused={setLocationFocused}
                       locationSuggestions={locationSuggestions}
                       locationWrapRef={locationWrapRef}
+                      audio={audio}
+                      setAudio={setAudio}
                       isPublic={isPublic}
                       setIsPublic={setIsPublic}
                     />
@@ -1938,13 +1947,15 @@ const Step3Details: React.FC<{
   setLocationFocused: (v: boolean) => void;
   locationSuggestions: HomeLocation[];
   locationWrapRef: React.RefObject<HTMLDivElement | null>;
+  audio: string;
+  setAudio: (v: string) => void;
   isPublic: boolean;
   setIsPublic: (v: boolean) => void;
 }> = ({
   videoUrl, existingVideoUrl, caption, setCaption,
   locationLabel, setLocationLabel, pickedLocation, onPickLocation, onClearLocation,
   locationFocused, setLocationFocused, locationSuggestions, locationWrapRef,
-  isPublic, setIsPublic,
+  audio, setAudio, isPublic, setIsPublic,
 }) => {
   const previewSrc = videoUrl ?? existingVideoUrl ?? null;
 
@@ -2032,6 +2043,23 @@ const Step3Details: React.FC<{
               </motion.ul>
             )}
           </AnimatePresence>
+        </div>
+      </section>
+
+      {/* Audio — the phone layout has always had this; without it desktop
+          reels could only ever post "Original audio". */}
+      <section>
+        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Audio</label>
+        <div className="flex items-center gap-2 h-11 rounded-full bg-on-surface/[0.05] focus-within:bg-on-surface/[0.08] px-3 transition-colors">
+          <Music2 size={15} className="text-on-surface/45 flex-shrink-0" />
+          <input
+            type="text"
+            value={audio}
+            onChange={(e) => setAudio(e.target.value)}
+            placeholder="Original audio"
+            maxLength={60}
+            className="flex-1 bg-transparent outline-none text-sm min-w-0"
+          />
         </div>
       </section>
 

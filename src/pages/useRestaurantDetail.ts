@@ -16,6 +16,7 @@ import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMi
 mapboxgl.workerClass = MapboxWorker;
 
 import { MAPBOX_TOKEN } from '../lib/keys';
+import { buildDirectionsUrl } from '../lib/directions';
 import { useBlobPhotos } from '../lib/useBlobPhotos';
 
 // The base64→blob conversion + cache moved to the shared useBlobPhotos hook
@@ -117,12 +118,15 @@ export function useRestaurantDetail() {
       style: 'mapbox://styles/mapbox/light-v11',
       center: [p.lng, p.lat],
       zoom: 15,
-      interactive: true,
+      // Decorative locator only (matches RestaurantPanel): both page
+      // variants cover the canvas with a full-bleed "open full map"
+      // button, so pan/zoom and a NavigationControl would be dead chrome
+      // the user can see but never reach.
+      interactive: false,
     });
     attachMapErrorFallback(map, el);
     mapRef.current = map;
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
     new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([p.lng, p.lat]).addTo(map);
 
     // ResizeObserver keeps the canvas in sync with the container size
@@ -253,6 +257,9 @@ export function useRestaurantDetail() {
       lat: place.lat,
       lng: place.lng,
       addressComponents: place.addressComponents,
+      // The details fetch already carries hours — write them (with a
+      // freshness stamp) so cards stop serving a stale cached schedule.
+      ...(place.hours != null ? { hours: place.hours, hoursFetchedAt: Date.now() } : {}),
     });
   }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cacheRestaurantMeta]);
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
@@ -396,7 +403,13 @@ export function useRestaurantDetail() {
     [communityPhotos, photoBlobMap],
   );
   const directionsUrl = place
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`
+    ? buildDirectionsUrl({
+        placeId: place.id,
+        address: place.fullAddress || place.address,
+        name: place.name,
+        lat: place.lat,
+        lng: place.lng,
+      }) || ''
     : '';
   const mapsUrl = place
     ? `https://www.google.com/maps/place/?q=place_id:${place.id}`

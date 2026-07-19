@@ -40,6 +40,7 @@ import {
   getFriends,
   getFriendsPublicHomeMeals,
   getAllPublicHomeMeals,
+  getCircleRatingsForRestaurant,
   type UserProfile,
   type FriendHomeMeal,
 } from '../lib/supabase-community';
@@ -367,8 +368,9 @@ export const AppAssistant: React.FC = () => {
   // Gate by route + auth — assistant lives only inside the signed-in app.
   const hidden = !auth.isSignedIn || !auth.profileComplete || shouldHideAssistant(location.pathname, settings.phoneMode);
 
-  /* ── Build the user context for the system prompt ───────────── */
-  const userContext = useMemo<UserContext | undefined>(() => {
+  /* ── Build the fallback user context for the system prompt (pages
+       can publish a richer one — see below) ─────────────────────── */
+  const fallbackUserContext = useMemo<UserContext | undefined>(() => {
     if (!auth.profile) return undefined;
     const ctx: UserContext = {};
     if (auth.profile.display_name) ctx.displayName = auth.profile.display_name;
@@ -423,14 +425,14 @@ export const AppAssistant: React.FC = () => {
     return ctx;
   }, [auth.profile, lists.ratings, lists.wishlist, recipes.myRecipes]);
 
-  /* ── knownPlaces (rated + wishlist) — augmented with the
-       location-page's visible pool when published ─────────────── */
-  const knownPlaces = useMemo<ScoredPlace[]>(() => {
+  /* ── knownPlaces (rated + wishlist) — the page-published build is
+       preferred below when present ───────────────────────────────── */
+  const fallbackKnownPlaces = useMemo<ScoredPlace[]>(() => {
     return buildKnownPlaces(lists.ratings, lists.wishlist);
   }, [lists.ratings, lists.wishlist]);
 
   /* ── Filter out stub recipes for the recipe-card lookup ──────── */
-  const chatRecipesAll = useMemo(() => {
+  const fallbackRecipesAll = useMemo(() => {
     const seen = new Set<string>();
     const out: typeof recipes.myRecipes = [];
     for (const r of recipes.myRecipes) {
@@ -443,6 +445,14 @@ export const AppAssistant: React.FC = () => {
     }
     return out;
   }, [recipes.myRecipes]);
+
+  /* ── Prefer the page-published personalization over the local
+       fallbacks. LocationPage builds a much richer context (friends,
+       followed experts, circle signals, meta-enriched neighborhoods)
+       that used to be computed and then dropped on the floor. ────── */
+  const userContext = pageContext?.userContext ?? fallbackUserContext;
+  const knownPlaces = pageContext?.knownPlaces ?? fallbackKnownPlaces;
+  const chatRecipesAll = pageContext?.recipes ?? fallbackRecipesAll;
 
   /* ── Community recipes cache + lazy loader ───────────────────────
      The search_community_recipes tool needs access to TWO data
@@ -804,9 +814,10 @@ export const AppAssistant: React.FC = () => {
       if (city) {
         filtered = filtered.filter((p) => (p.home_city || '').toLowerCase().includes(city));
       }
-      // If filters wiped everything, fall back to the unfiltered list
-      // so the model still has something to surface.
-      if (filtered.length === 0) filtered = profiles;
+      // Honest empties: when the filters match nobody, say so — silently
+      // substituting the unfiltered list made the model present
+      // non-matching experts as matches.
+      if (filtered.length === 0) return [];
       return filtered.slice(0, 8).map((p) => ({
         username: p.username,
         displayName: p.display_name || p.username,
@@ -820,9 +831,13 @@ export const AppAssistant: React.FC = () => {
   }, []);
 
   const handleGetCircleRatings = useCallback(async (restaurantId: string): Promise<AssistantCircleRating[]> => {
+    // LocationPage supplies a preloaded-signals version; everywhere else
+    // run the direct per-restaurant query. Returning a hardcoded [] here
+    // used to make the model tell users "no one in your circle rated
+    // this" on every page but /location — plausibly false.
     if (pageContext?.onGetCircleRatings) return pageContext.onGetCircleRatings(restaurantId);
-    return [];
-  }, [pageContext]);
+    return getCircleRatingsForRestaurant(auth.user?.id, restaurantId);
+  }, [pageContext, auth.user?.id]);
 
   /* ── Action handlers ───────────────────────────────────────── */
   const handleNavigate = useCallback((path: string): ActionResult => {
@@ -839,9 +854,8 @@ export const AppAssistant: React.FC = () => {
    *  modal users get when tapping the "+" button on a restaurant
    *  card. Used for both open_rating_modal and
    *  open_add_restaurant_modal because the unified modal is the
-   *  canonical rate / log / wishlist surface; the standalone
-   *  RatingModal (lists.openRatingModal) is a legacy variant we
-   *  don't want the assistant to surface. */
+   *  canonical rate / log / wishlist surface (the old standalone
+   *  RatingModal has been retired). */
   const handleOpenRatingModal = useCallback((restaurantId: string): ActionResult => {
     const meta = buildRestaurantMetaFromId(restaurantId, lists.restaurantMeta, lists.ratings, lists.wishlist, pageContext);
     if (!meta) {

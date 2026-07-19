@@ -239,18 +239,28 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     setLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    const result = await generateRecipe(finalPrompt, controller.signal, {
-      difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
-      constraints: composeConstraints(),
-    });
-    // Cancelled — the user already moved on; don't flash an error.
-    if (controller.signal.aborted) return;
-    abortRef.current = null;
-    setLoading(false);
-    if (result.ok && result.meal) {
-      onGenerated(result.meal, { prompt: describeRequest() || finalPrompt, rawInput: result.recipe });
-    } else {
-      setError(result.error || 'Something went wrong. Try again.');
+    try {
+      const result = await generateRecipe(finalPrompt, controller.signal, {
+        difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
+        constraints: composeConstraints(),
+      });
+      // Cancelled — the user already moved on; don't flash an error.
+      if (controller.signal.aborted) return;
+      abortRef.current = null;
+      setLoading(false);
+      if (result.ok && result.meal) {
+        onGenerated(result.meal, { prompt: describeRequest() || finalPrompt, rawInput: result.recipe });
+      } else {
+        setError(result.error || 'Something went wrong. Try again.');
+      }
+    } catch (err) {
+      // A throw anywhere in the stream/normalize path used to strand the
+      // spinner forever — surface it as a retryable error instead.
+      if (controller.signal.aborted) return;
+      abortRef.current = null;
+      setLoading(false);
+      console.warn('[AiRecipeGenerator] generate failed:', err);
+      setError('Something went wrong. Try again.');
     }
   };
 
@@ -261,8 +271,9 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter submits; Shift+Enter inserts a newline.
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter submits; Shift+Enter inserts a newline. IME confirm-Enter
+    // commits the composition instead of submitting.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleGenerate();
     }

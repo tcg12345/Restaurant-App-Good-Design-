@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase, supabaseConfigured } from '../lib/supabase';
-import { isNativeRuntime, signInWithOAuthNative } from '../lib/native-oauth';
+import { supabase, supabaseConfigured, SESSION_STORAGE_KEY } from '../lib/supabase';
+import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
+import { canonicalShareUrl } from '../lib/native-share';
+import { readStoredSession } from '../lib/auth-storage';
 import type { User, Session } from '@supabase/supabase-js';
 
 /** Race a promise against a timeout. Used to make sure a hung Supabase
@@ -63,12 +65,22 @@ interface AuthContextType {
   verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
-  /** True while a verified-by-code signup still needs its password chosen.
+  /** True while a verified-by-code signup still needs its password chosen —
+   *  or while a forgot-password recovery session needs its new password.
    *  App.tsx keeps rendering the Auth screen (setpassword step) until
    *  completePasswordSetup clears it. Survives an app relaunch. */
   needsPasswordSetup: boolean;
-  /** Set the password for a code-verified signup (auth.updateUser). */
+  /** Why the set-password screen is showing: a verify-first signup choosing
+   *  its first password, or a forgot-password link setting a new one. Only
+   *  meaningful while needsPasswordSetup is true. */
+  passwordSetupMode: 'signup' | 'recovery';
+  /** Set the password for a code-verified signup or a password-recovery
+   *  session (auth.updateUser). */
   completePasswordSetup: (password: string) => Promise<{ error: string | null }>;
+  /** Email a password-reset link (auth.resetPasswordForEmail). The link
+   *  redirects to /reset-password on the public web origin, which reopens
+   *  the app on the set-new-password screen. */
+  requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   /** Start an OAuth sign-in (e.g. Google). Redirects the browser to the
    *  provider and back to the app, where the session is picked up by
    *  `onAuthStateChange`. Returns an error only when the redirect itself
@@ -82,6 +94,11 @@ interface AuthContextType {
    *  reviewer). Drives the admin-only settings entry + /admin/verification;
    *  real enforcement is server-side (RLS + RPC checks). */
   isAdmin: boolean;
+  /** Tri-state admin check: 'unknown' until the allowlist probe resolves
+   *  (it runs AFTER profile load, up to ~8 s on slow networks), then
+   *  true/false. Admin-gated pages must show a spinner while 'unknown' —
+   *  gating on !isAdmin alone flashed "not available" at real admins. */
+  adminChecked: boolean | 'unknown';
   /** Probe whether an email is already registered. Tri-state on purpose:
    *  'yes' / 'no' when the check succeeds, and 'unknown' when it fails
    *  (RPC error / timeout). Callers MUST treat 'unknown' as "couldn't tell,
@@ -147,13 +164,16 @@ const AuthContext = createContext<AuthContextType>({
   verifyEmailCode: async () => ({ error: null }),
   resendVerificationCode: async () => ({ error: null }),
   needsPasswordSetup: false,
+  passwordSetupMode: 'signup',
   completePasswordSetup: async () => ({ error: null }),
+  requestPasswordReset: async () => ({ error: null }),
   signInWithOAuth: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
   pendingRequestCount: 0,
   refreshPendingRequests: async () => {},
   isAdmin: false,
+  adminChecked: 'unknown',
   checkEmailExists: async () => 'unknown',
 });
 
@@ -167,13 +187,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminChecked, setAdminChecked] = useState<boolean | 'unknown'>('unknown');
+  // Key value doubles as the mode: '1' = verify-first signup choosing its
+  // first password, 'recovery' = forgot-password link setting a new one.
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState<boolean>(() => {
-    try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === '1'; } catch { return false; }
-  });
-  const markNeedsPassword = useCallback((on: boolean) => {
-    setNeedsPasswordSetup(on);
     try {
-      if (on) localStorage.setItem(NEEDS_PASSWORD_KEY, '1');
+      const v = localStorage.getItem(NEEDS_PASSWORD_KEY);
+      return v === '1' || v === 'recovery';
+    } catch { return false; }
+  });
+  const [passwordSetupMode, setPasswordSetupMode] = useState<'signup' | 'recovery'>(() => {
+    try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === 'recovery' ? 'recovery' : 'signup'; } catch { return 'signup'; }
+  });
+  const markNeedsPassword = useCallback((on: boolean, mode: 'signup' | 'recovery' = 'signup') => {
+    setNeedsPasswordSetup(on);
+    setPasswordSetupMode(mode);
+    try {
+      if (on) localStorage.setItem(NEEDS_PASSWORD_KEY, mode === 'recovery' ? 'recovery' : '1');
       else localStorage.removeItem(NEEDS_PASSWORD_KEY);
     } catch { /* storage unavailable */ }
   }, []);
@@ -222,54 +252,109 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPendingRequestCount(0);
     }
     try {
-      setIsAdmin(await withTimeout(isAppAdmin(), 8000, 'isAppAdmin'));
+      const admin = await withTimeout(isAppAdmin(), 8000, 'isAppAdmin');
+      setIsAdmin(admin);
+      setAdminChecked(admin);
     } catch {
+      // The probe itself failed (timeout) — resolve to false so gated pages
+      // don't spin forever, but only after the full timeout, never a flash.
       setIsAdmin(false);
+      setAdminChecked(false);
     }
   }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) {
       setLoading(false);
+      setAdminChecked(false);
       return;
     }
 
     let mounted = true;
 
     (async () => {
+      let u: User | null = null;
       try {
+        // Native cold start caused BY the OAuth redirect (iOS killed the app
+        // while the user was in the provider sheet): finish the PKCE code
+        // exchange BEFORE the session check, or the completed sign-in
+        // evaporates and the user lands back on the auth screen. No-op on
+        // web and on ordinary launches.
+        if (isNativeRuntime()) {
+          try {
+            await withTimeout(completeOAuthFromLaunchUrl(), 8000, 'oauth launch-url');
+          } catch { /* proceed with the normal signed-out boot */ }
+        }
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession(),
           6000,
           'auth.getSession',
         );
-        if (!mounted) return;
-        const u = session?.user ?? null;
-        // Account switched on this device — purge stale caches + reload
-        // before any provider sees the new identity.
-        if (u && guardDeviceAccount(u.id)) return;
-        setUser(u);
-        if (u) { clearGuest(); await loadProfile(u.id); }
+        u = session?.user ?? null;
       } catch {
-        // Session check failed / timed out — fall through to signed-out so
-        // the splash clears and the user lands on the auth screen instead
-        // of being stuck.
+        // getSession failed or timed out. NOT proof the user is signed out —
+        // on a cold start with an expired access token this call needs a
+        // network round-trip, so flaky connections land here all the time.
+        // The stored-session fallback below decides what that means.
       }
+      if (!mounted) return;
+      // Stale-while-revalidate identity: when getSession couldn't produce a
+      // session (timeout, offline refresh, transient 5xx) the refresh token
+      // is usually still sitting in storage — the user IS signed in, just
+      // not refreshed yet. Booting them onto the sign-in screen anyway was
+      // the "app constantly signs me out" bug. Adopt the persisted user and
+      // let the auto-refresh ticker repair the tokens in the background; a
+      // genuinely revoked session comes back as a SIGNED_OUT event (supabase
+      // removes the stored entry on definitive auth failures) and signs out
+      // for real.
+      if (!u) {
+        const stored = await readStoredSession(SESSION_STORAGE_KEY);
+        u = stored?.user ?? null;
+      }
+      if (!mounted) return;
+      // Account switched on this device — purge stale caches + reload
+      // before any provider sees the new identity.
+      if (u && guardDeviceAccount(u.id)) return;
+      // Password-recovery landing: the reset email redirects to
+      // /reset-password (getSession above already finished the PKCE
+      // ?code= exchange via detectSessionInUrl). With a session present,
+      // hold the Auth screen on its set-new-password step; either way
+      // clean the path so the SPA router never sees the one-off route.
+      if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
+        if (u) markNeedsPassword(true, 'recovery');
+        try { window.history.replaceState({}, '', '/'); } catch { /* noop */ }
+      }
+      setUser(u);
+      if (u) { clearGuest(); await loadProfile(u.id); }
       if (mounted) setLoading(false);
     })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: string, session: Session | null) => {
+      (event: string, session: Session | null) => {
         const u = session?.user ?? null;
         if (u && guardDeviceAccount(u.id)) return;
-        setUser(u);
-        if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); }
+        // Belt-and-braces for the /reset-password path check above: implicit
+        // (#access_token) recovery links surface as this event instead.
+        if (event === 'PASSWORD_RECOVERY' && u) markNeedsPassword(true, 'recovery');
+        if (u) {
+          setUser(u);
+          clearGuest();
+          loadProfile(u.id);
+        } else if (event === 'SIGNED_OUT') {
+          // Only an explicit sign-out (user action, or supabase clearing a
+          // definitively revoked session) drops the identity.
+          setUser(null);
+          setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); setAdminChecked(false);
+        }
+        // Any other null-session event (INITIAL_SESSION emitted while a
+        // token refresh is failing transiently) keeps the current identity —
+        // clearing it here was another way the app "signed you out" on a
+        // bad connection. Real revocations always arrive as SIGNED_OUT.
       }
     );
 
     return () => { mounted = false; subscription.unsubscribe(); };
-  }, [loadProfile, clearGuest]);
+  }, [loadProfile, clearGuest, markNeedsPassword]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -403,6 +488,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [markNeedsPassword]);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      // canonicalShareUrl: inside the native shell window.location.origin is
+      // capacitor://localhost — the emailed link must land on the public web
+      // app (VITE_PUBLIC_WEB_ORIGIN), where the boot-time /reset-password
+      // check opens the set-new-password screen. The path must be on the
+      // Supabase project's redirect-URL allowlist.
+      const { error } = await withTimeout(
+        supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: canonicalShareUrl('/reset-password'),
+        }),
+        12000,
+        'auth.resetPasswordForEmail',
+      );
+      if (error) {
+        return {
+          error: /rate|seconds/i.test(error.message)
+            ? 'A reset email was sent recently — wait a minute before requesting another.'
+            : error.message,
+        };
+      }
+      return { error: null };
+    } catch {
+      return { error: 'Could not send the reset email. Check your connection and try again.' };
+    }
+  }, []);
+
   const resendVerificationCode = useCallback(async (email: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     try {
@@ -466,6 +579,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfileError(false);
     setPendingRequestCount(0);
     setIsAdmin(false);
+    setAdminChecked(false);
   }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
@@ -510,7 +624,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, passwordSetupMode, completePasswordSetup, requestPasswordReset }}>
       {children}
     </AuthContext.Provider>
   );

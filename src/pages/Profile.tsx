@@ -14,13 +14,14 @@ import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from '../contexts/ToastContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, removeFollower, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
-import { cn } from '../lib/utils';
+import { cn, parseVisitDate } from '../lib/utils';
 import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
@@ -60,10 +61,8 @@ const TOP_RATED_GRADIENT = 'from-stone-700 via-stone-800 to-stone-950';
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
 function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
-  if (r.visitDate) {
-    const d = new Date(r.visitDate);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
-  }
+  const d = parseVisitDate(r.visitDate);
+  if (d) return d.toISOString();
   if (typeof r.createdAt === 'number' && Number.isFinite(r.createdAt)) {
     const d = new Date(r.createdAt);
     if (!Number.isNaN(d.getTime())) return d.toISOString();
@@ -386,8 +385,7 @@ type TopListConfig =
   | { type: 'cuisine'; value: string }
   | { type: 'city'; value: string }
   | { type: 'price'; value: string }
-  | { type: 'tag'; value: string }
-  | { type: 'wouldReturn' };
+  | { type: 'tag'; value: string };
 
 type TopListCustomization = {
   hidden: string[];
@@ -403,31 +401,28 @@ const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-$
 const MIN_LIST_SIZE = 4;
 
 const topListKey = (c: TopListConfig): string => {
-  if (c.type === 'overall' || c.type === 'wouldReturn') return c.type;
+  if (c.type === 'overall') return c.type;
   return `${c.type}:${c.value}`;
 };
 
 const topListLabel = (c: TopListConfig): string => {
   if (c.type === 'overall') return 'Overall';
-  if (c.type === 'wouldReturn') return 'Would return';
   return c.value;
 };
 
 const topListPlainLabel = (c: TopListConfig): string => {
   if (c.type === 'overall') return 'Top 10 overall';
-  if (c.type === 'wouldReturn') return 'Top 10 · Would return';
   if (c.type === 'city') return `Top 10 in ${c.value}`;
   return `Top 10 · ${c.value}`;
 };
 
-const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[]; wouldReturn?: boolean }): boolean => {
+const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[] }): boolean => {
   switch (c.type) {
     case 'overall': return true;
     case 'cuisine': return r.cuisine === c.value;
     case 'city': return cityFromAddress(r.address || '') === c.value;
     case 'price': return r.price === c.value;
     case 'tag': return Array.isArray(r.tags) && r.tags.includes(c.value);
-    case 'wouldReturn': return r.wouldReturn === true;
   }
 };
 
@@ -438,7 +433,6 @@ const topListMetaText = (
   const city = cityFromAddress(r.address || '');
   switch (c.type) {
     case 'overall':
-    case 'wouldReturn':
     case 'tag':
       return undefined; // default cuisine · price · city
     case 'cuisine':
@@ -715,6 +709,7 @@ const EditTopListsSheet: React.FC<{
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount, isAdmin } = useAuth();
+  const { showToast } = useToast();
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
@@ -809,7 +804,7 @@ export const Profile: React.FC = () => {
     const ok = await deleteReel(confirmDeleteReelId);
     setDeletingReel(false);
     setConfirmDeleteReelId(null);
-    if (!ok) alert("Couldn't delete that reel. Try again.");
+    if (!ok) showToast("Couldn't delete that reel. Try again.");
   };
   const onConfirmDeletePost = async () => {
     if (!confirmDeletePostId) return;
@@ -817,7 +812,7 @@ export const Profile: React.FC = () => {
     const ok = await deletePost(confirmDeletePostId);
     setDeletingPost(false);
     setConfirmDeletePostId(null);
-    if (!ok) alert("Couldn't delete that post. Try again.");
+    if (!ok) showToast("Couldn't delete that post. Try again.");
   };
   const onConfirmDeleteGuide = async () => {
     if (!confirmDeleteGuideId) return;
@@ -825,7 +820,7 @@ export const Profile: React.FC = () => {
     const ok = await deleteGuide(confirmDeleteGuideId);
     setDeletingGuide(false);
     setConfirmDeleteGuideId(null);
-    if (!ok) { alert("Couldn't delete that guide. Try again."); return; }
+    if (!ok) { showToast("Couldn't delete that guide. Try again."); return; }
     setMyGuides((prev) => prev.filter((g) => g.id !== confirmDeleteGuideId));
   };
   const onToggleGuideVisibility = async (guideId: string, nextIsPublic: boolean) => {
@@ -840,7 +835,7 @@ export const Profile: React.FC = () => {
     ));
     const ok = await setGuideVisibility(guideId, next);
     if (!ok) {
-      alert("Couldn't update that guide's visibility. Try again.");
+      showToast("Couldn't update that guide's visibility. Try again.");
       void refreshMyGuides();
     }
   };
@@ -911,13 +906,15 @@ export const Profile: React.FC = () => {
   // Loads the right user list for the active stat popup (followers or
   // following). Skips when the popup isn't a people one. Reuses the
   // last-loaded list while a new fetch is in flight so the popup never
-  // flashes empty between opens.
+  // flashes empty between opens — but only when the cached list is for the
+  // SAME popup type (a followers list must never masquerade as following).
+  const popupPeopleForRef = useRef<null | 'followers' | 'following'>(null);
   useEffect(() => {
     if (statPopup !== 'followers' && statPopup !== 'following') return;
     if (!user?.id) return;
     let cancelled = false;
     setPopupLoading(true);
-    setPopupPeople(null);
+    if (popupPeopleForRef.current !== statPopup) setPopupPeople(null);
     (async () => {
       const ids = statPopup === 'followers'
         ? await getFollowerIds(user.id)
@@ -925,6 +922,7 @@ export const Profile: React.FC = () => {
       if (cancelled) return;
       if (ids.length === 0) {
         setPopupPeople([]);
+        popupPeopleForRef.current = statPopup;
         setPopupLoading(false);
         return;
       }
@@ -934,6 +932,7 @@ export const Profile: React.FC = () => {
       // when the underlying query is ordered.
       const list = ids.map((id) => profMap[id]).filter(Boolean) as UserProfile[];
       setPopupPeople(list);
+      popupPeopleForRef.current = statPopup;
       setPopupLoading(false);
     })();
     return () => { cancelled = true; };
@@ -952,9 +951,9 @@ export const Profile: React.FC = () => {
       setPopupPeople((prev) => (prev ? prev.filter((p) => p.user_id !== followerId) : prev));
       setFollowers((f) => Math.max(0, f - 1));
     } else {
-      alert("Couldn't remove that follower. Try again.");
+      showToast("Couldn't remove that follower. Try again.");
     }
-  }, [user?.id, removingFollower]);
+  }, [user?.id, removingFollower, showToast]);
 
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -1132,24 +1131,22 @@ export const Profile: React.FC = () => {
       .slice(0, 6);
   }, [ratings]);
 
-  /** Counts per (cuisine / city / price / tag / wouldReturn) — used both
-   *  to seed auto-generated lists and to gate which slices the user can
-   *  add from the editor (must have MIN_LIST_SIZE+ matches). */
+  /** Counts per (cuisine / city / price / tag) — used both to seed
+   *  auto-generated lists and to gate which slices the user can add
+   *  from the editor (must have MIN_LIST_SIZE+ matches). */
   const categoryCounts = useMemo(() => {
     const cuisine = new Map<string, number>();
     const city = new Map<string, number>();
     const price = new Map<string, number>();
     const tag = new Map<string, number>();
-    let wouldReturn = 0;
     ratings.forEach((r) => {
       if (r.cuisine) cuisine.set(r.cuisine, (cuisine.get(r.cuisine) || 0) + 1);
       const c = cityFromAddress(r.address || '');
       if (c) city.set(c, (city.get(c) || 0) + 1);
       if (r.price) price.set(r.price, (price.get(r.price) || 0) + 1);
       if (Array.isArray(r.tags)) r.tags.forEach((t) => { if (t) tag.set(t, (tag.get(t) || 0) + 1); });
-      if (r.wouldReturn) wouldReturn += 1;
     });
-    return { cuisine, city, price, tag, wouldReturn };
+    return { cuisine, city, price, tag };
   }, [ratings]);
 
   /** Auto-seeded configs: overall + any cuisine / city above the
@@ -1221,9 +1218,6 @@ export const Profile: React.FC = () => {
       .sort((a, b) => b.count - a.count);
 
     const status: Array<{ config: TopListConfig; label: string; count: number }> = [];
-    if (categoryCounts.wouldReturn >= MIN_LIST_SIZE && !visibleKeys.has('wouldReturn')) {
-      status.push({ config: { type: 'wouldReturn' }, label: 'Would return', count: categoryCounts.wouldReturn });
-    }
     // Overall is always present in autoConfigs unless explicitly hidden;
     // expose it from the editor too so a hidden overall can be restored.
     if (!visibleKeys.has('overall') && ratings.length >= MIN_LIST_SIZE) {
@@ -2579,7 +2573,9 @@ export const Profile: React.FC = () => {
                       ))}
                     </ul>
                   )
-                ) : popupLoading ? (
+                ) : popupLoading && !popupPeople ? (
+                  // Spinner only when there's nothing cached — a re-open
+                  // revalidates behind the kept list instead of flashing.
                   <div className="py-14 flex flex-col items-center text-center">
                     <div className="w-6 h-6 rounded-full border-2 border-on-surface/15 border-t-primary animate-spin" />
                     <p className="text-xs text-on-surface/45 mt-3">Loading…</p>

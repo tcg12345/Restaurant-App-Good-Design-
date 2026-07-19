@@ -8,16 +8,16 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
+import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreHex } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
-import { GuideCard } from '../components/GuideCard';
+import { getGuidesForFeed, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -106,25 +106,6 @@ async function applyCoverPhotos(
 // scoreCandidates / cache keys all read a stable value every render.
 const REC_RADIUS_MILES = 8;
 
-const RecRefreshButton: React.FC<{
-  onRefresh: () => void;
-  refreshing: boolean;
-}> = ({ onRefresh, refreshing }) => (
-  <button
-    type="button"
-    onClick={onRefresh}
-    disabled={refreshing}
-    aria-label="Refresh recommendations"
-    title="Refresh recommendations"
-    className={cn(
-      'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
-      refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
-    )}
-  >
-    <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
-  </button>
-);
-
 // Max age we'll trust a Supabase cache entry before throwing it out and
 // building a fresh preference-weighted pool from scratch.
 const HOME_RECS_CACHE_TTL = 2 * 24 * 60 * 60 * 1000; // 2 days
@@ -146,6 +127,7 @@ function shuffleInPlace<T>(arr: T[]): T[] {
 
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
+import { useViewportSize } from '../lib/useViewportSize';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -292,15 +274,6 @@ const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; 
     ? <Link to={to} className={cls}>{inner}</Link>
     : <button type="button" onClick={onClick} className={cls}>{inner}</button>;
 };
-
-/** Stable hash → 0-360 hue. Used to derive a consistent gradient color
- *  per restaurant/recipe id so the placeholder image area has visual
- *  variety without needing real photos. */
-function hashToHue(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
 
 /** The phone home's location control — a real button that unmistakably
  *  reads as tappable (the old eyebrow-text trigger looked like static copy). */
@@ -537,7 +510,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [mapPanelWidth]);
-  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals, restaurantMeta } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals, restaurantMeta } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -579,12 +552,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const gs = await getGuidesForFeed({ limit: 60 });
       if (cancelled) return;
       const authorIds = Array.from(new Set(gs.map((g) => g.userId)));
-      const authors = authorIds.length > 0 ? await getProfilesByIds(authorIds) : {};
+      const [authors, saveCounts] = await Promise.all([
+        authorIds.length > 0 ? getProfilesByIds(authorIds) : Promise.resolve({}),
+        getGuideSaveCounts(gs.map((g) => g.id)),
+      ]);
       if (cancelled) return;
       const dayMs = 86400000;
       setBrowseGuides(gs.map((g) => {
         const t = Date.parse(g.updatedAt || '');
-        const a = authors[g.userId];
+        const a = (authors as Record<string, { display_name?: string; username?: string }>)[g.userId];
         return {
           id: g.id,
           title: g.title.trim() || 'Untitled guide',
@@ -592,6 +568,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           image: g.coverPhoto || '',
           count: g.entries.length,
           daysAgo: Number.isNaN(t) ? 0 : Math.max(0, Math.floor((Date.now() - t) / dayMs)),
+          saves: saveCounts[g.id],
         };
       }));
     })();
@@ -912,21 +889,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Collapsed height: just the drag handle + the "Discover" title peeking at the
   // bottom, so the map gets almost the whole screen. Drag up for the list.
   const PEEK_HEIGHT = 104;
-  const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  // Safe-area inset at the top (status bar / notch), read once. The map sheet's
-  // top edge never rises above this, so it can't slide under the notch.
-  const safeTopRef = useRef<number | null>(null);
-  if (safeTopRef.current === null) {
-    safeTopRef.current = typeof window !== 'undefined'
+  // Live viewport height — a read-once window.innerHeight froze the sheet
+  // geometry per mount, so rotating (iPad especially) left the peek/half
+  // snap points computed for the OLD orientation until a remount.
+  const { height: viewportHeight } = useViewportSize();
+  const FULL_HEIGHT = viewportHeight;
+  // Safe-area inset at the top (status bar / notch). Re-read whenever the
+  // viewport changes: rotation flips the inset between notch-edge and
+  // side-bezel values, and the old read-once ref could cache a 0 measured
+  // before the first paint forever.
+  const safeTop = useMemo(() => (
+    typeof window !== 'undefined'
       ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat-top')) || 0)
-      : 0;
-  }
+      : 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [viewportHeight]);
   // On the map page the sheet is a true bottom sheet: it expands to ~88% of the
   // screen (its tallest state, 'half') but its top always stays clear of the
   // safe area — it can never reach a full-screen state or slide into the notch.
   // The top edge sits at the larger of 12% of the screen or the safe-area inset
   // plus a small gap. Home has no map underneath, so it keeps the 85% partial.
-  const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTopRef.current + 12);
+  const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTop + 12);
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
@@ -951,9 +934,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
-  const NEARBY_INITIAL = 4;
-  const NEARBY_INCREMENT = 12;
-  const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
   const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
   // ── Home-page location anchor ──
@@ -984,9 +964,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     const key = `${homeLocation.lat.toFixed(4)},${homeLocation.lng.toFixed(4)}`;
     if (lastLocKeyRef.current && lastLocKeyRef.current !== key) {
+      // The fade is lifted by the settle-watcher effects below (when the
+      // refetched recs land, or a cap fires) — a fixed 450ms here lifted it
+      // while the refetch was still in flight, so content popped anyway.
       setHomeLocationRefreshing(true);
-      const t = window.setTimeout(() => setHomeLocationRefreshing(false), 450);
-      return () => window.clearTimeout(t);
     }
     lastLocKeyRef.current = key;
   }, [homeLocation]);
@@ -1012,8 +993,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // anything else that needs preference-weighted picks share the same weighting
   // math (score-centered around 7, wishlist nudges, list-name → tag signals).
   const userPreferences = useMemo<TasteProfile>(
-    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews),
-    [myLocalRatings, wishlist, myLists, recentViews],
+    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews, getTasteQuiz(profile)),
+    [myLocalRatings, wishlist, myLists, recentViews, profile],
   );
 
   // Radius scope for the Recommended For You row (miles). Persisted so the
@@ -1021,34 +1002,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // the post-score distance penalty in scoreCandidates. Now a constant
   // after the chip picker was removed; see REC_RADIUS_MILES above.
   const recRadiusMiles = REC_RADIUS_MILES;
-
-  // Manual refresh for the Recommended For You row. Drops every cache layer
-  // for the current location (session + Supabase) so the next fetch goes
-  // straight to Google with the picked radius. Resets the dedup/cursor refs
-  // so a refetched batch can re-add the same place ids cleanly. The nonce
-  // bump is what re-runs the orchestrating effect.
-  const refreshRecs = useCallback(() => {
-    if (!homeLocation) return;
-    const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-    delete sessionRecsCache[locKey];
-    if (userId && supabaseConfigured) {
-      // Fire-and-forget — we don't block the user on a cache delete.
-      supabase.from('home_rec_cache')
-        .delete().eq('user_id', userId).eq('location_key', locKey)
-        .then(undefined, () => { /* ignore */ });
-    }
-    recsFetchedRef.current = false;
-    recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
-    setApiRecommendations([]);
-    setRecRefreshNonce((n) => n + 1);
-  }, [homeLocation, userId]);
-
-  // Bumped by the refresh button. The orchestrating recs effect lists this in
-  // its deps so we get a re-fetch even when nothing else changed (location +
-  // radius + prefs all the same), after we've torn down the cached pool.
-  const [recRefreshNonce, setRecRefreshNonce] = useState(0);
 
   // Social signals for scoreCandidates — refetched once per (userId, home city)
   // change and reused across every load-more batch. expertRecRestaurantIds is
@@ -1063,14 +1016,29 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
-  const [recsLoading, setRecsLoading] = useState(false);
-  // In-flight guard for loadMoreRecommendations. A ref (not state) so rapid
-  // successive calls can't double-fire a batch while a render is pending.
-  const recsLoadingMoreRef = useRef(false);
   const recsFetchedRef = useRef(false);
-  const recsQueryCursorRef = useRef(0);
-  const recsExhaustedRef = useRef(false);
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
+
+  // ── Location-swap fade settle-watchers ──
+  // The fade set on a home-location change lifts when the refetched recs
+  // actually LAND, instead of on a fixed 450ms timer that expired while the
+  // fetch was still in flight (the fade lifted, then the rail popped). The
+  // cap covers zero-result locations and failed fetches; desktop home never
+  // fetches recs (its feed re-sorts synchronously from props), so it keeps
+  // a short fixed fade via the cap.
+  useEffect(() => {
+    if (!homeLocationRefreshing) return;
+    const cap = window.setTimeout(
+      () => setHomeLocationRefreshing(false),
+      usingDesktopHeader ? 450 : 2500,
+    );
+    return () => window.clearTimeout(cap);
+  }, [homeLocationRefreshing, usingDesktopHeader]);
+  useEffect(() => {
+    // Non-empty results landing = the refetch settled. The rec effect
+    // resets to [] as it starts, so empty updates must not lift the fade.
+    if (apiRecommendations.length > 0) setHomeLocationRefreshing(false);
+  }, [apiRecommendations]);
   // Monotonic token for the orchestrating effect's async chains — a reset
   // (radius change, prefs hydration, refresh) can start a new chain while an
   // older one is mid-flight, and the stale one must not clobber the results.
@@ -1120,11 +1088,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
     return () => { cancelled = true; };
   }, [recommendations, mode, communityPrices]);
-
-  // User's top rated restaurants
-  const topRated = useMemo(() => {
-    return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
-  }, [myLocalRatings]);
 
   // ── Recipes For You ──
   // Pull the friend / expert / public pools once on sign-in. Each pool is
@@ -1218,31 +1181,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, 8);
   }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
-
-  // Map each city the user eats in to a representative lat/lng, computed as
-  // the centroid of that city's high-rated community ratings. Used so that
-  // per-city queries pull results from THAT city instead of wherever the
-  // Discover map happens to be centered.
-  const cityCoordMap = useMemo(() => {
-    const acc: Record<string, { lat: number; lng: number; count: number }> = {};
-    for (const r of myRatings) {
-      if (Number(r.score) < 7) continue;
-      if (r.lat == null || r.lng == null) continue;
-      if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) continue;
-      const city = extractCityState(r.address || '', r.address || '');
-      if (!city) continue;
-      const cur = acc[city];
-      if (!cur) acc[city] = { lat: r.lat, lng: r.lng, count: 1 };
-      else {
-        cur.lat = (cur.lat * cur.count + r.lat) / (cur.count + 1);
-        cur.lng = (cur.lng * cur.count + r.lng) / (cur.count + 1);
-        cur.count++;
-      }
-    }
-    const out: Record<string, { lat: number; lng: number }> = {};
-    for (const [k, v] of Object.entries(acc)) out[k] = { lat: v.lat, lng: v.lng };
-    return out;
-  }, [myRatings]);
 
   // Thin wrapper around buildCandidateQueries — Map passes a city override
   // from the home-location dropdown; the engine treats it as target.label so
@@ -1420,12 +1358,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setHomeLocationRefreshing(true);
     setHomeLocation(loc);
     saveLastSelectedLocation(loc);
-    // Reset the rec cursor so useEffect below refetches from scratch.
+    // Reset the rec guards so the effect below refetches from scratch. The
+    // fade clears when that refetch actually settles (watchers above), not
+    // on a fixed timer.
     recsFetchedRef.current = false;
     recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
-    window.setTimeout(() => setHomeLocationRefreshing(false), 450);
   }, [homeLocation]);
 
   // "Use current location" from the picker — returns a Promise so the picker
@@ -1476,8 +1413,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (prev === '' && sig !== '' && recsFetchedRef.current) {
       recsFetchedRef.current = false;
       recsSeenIdsRef.current = new Set();
-      recsQueryCursorRef.current = 0;
-      recsExhaustedRef.current = false;
     }
   }, [userPreferences.topCuisines, mode]);
 
@@ -1500,9 +1435,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // results or clear the spinner.
     const runId = ++recsRunIdRef.current;
     recsSeenIdsRef.current = new Set();
-    recsQueryCursorRef.current = 0;
-    recsExhaustedRef.current = false;
-    setRecsLoading(true);
     setApiRecommendations([]);
 
     // Force the queries to target the selected home city so the API doesn't
@@ -1529,13 +1461,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // Cached pools may have been built under a wider radius — enforce the
       // current chip value before anything hits the screen.
       const merged = filterByRadius(combined);
-      // Seed the dedup set so loadMore doesn't re-surface these.
+      // Seed the dedup set so a later batch doesn't re-surface these.
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
       // Apply community cover photos. This is non-blocking from the user's
       // perspective — we set the recs immediately so the cards render
       // placeholders, then swap in cover photos as soon as Supabase returns.
       setApiRecommendations(merged);
-      setRecsLoading(false);
       applyCoverPhotos(merged, uid).then((withCovers) => {
         if (recsRunIdRef.current !== runId) return;
         setApiRecommendations((prev) => {
@@ -1545,11 +1476,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           return withCovers;
         });
       });
-      // Set the cursor past the initial batch so loadMoreRecommendations can
-      // continue fetching deeper queries (Tier 3 / 4 / 5) when the user
-      // scrolls past the cached pool — that's what keeps the row infinite.
-      recsExhaustedRef.current = false;
-      recsQueryCursorRef.current = 5;
     };
 
     const runLiveFetch = async () => {
@@ -1562,7 +1488,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         // cached pool covers enough variety that reshuffling on reload
         // actually produces visibly different recs without any more calls.
         const initialBatch = queries.slice(0, 5);
-        recsQueryCursorRef.current = initialBatch.length;
         let fresh = await fetchRecBatch(initialBatch);
         // The personalised queries are cuisine-specific ("best $$ Ramen in
         // Austin, TX"); when the user's top cuisines happen to be niche in
@@ -1576,9 +1501,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             `popular restaurants in ${homeCityOverride}`,
           ];
           fresh = await fetchRecBatch(fallbackQueries);
-          // Advance the cursor past the fallbacks so load-more doesn't
-          // immediately re-issue them.
-          recsQueryCursorRef.current += fallbackQueries.length;
         }
         // Stamp cover photos onto the results BEFORE caching so returning
         // users get them straight out of cache on the next visit.
@@ -1614,7 +1536,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       if (recsRunIdRef.current !== runId) return; // superseded by a newer run
       const shuffled = shuffleInPlace([...withCovers]);
       setApiRecommendations(shuffled);
-      setRecsLoading(false);
       if (uid && locKey && homeLocation && withCovers.length > 0) {
         const entry: HomeRecCacheEntry = {
           places: withCovers,
@@ -1705,12 +1626,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           // Cache miss or stale — live fetch.
           await runLiveFetch();
           } catch (err) {
-            // Never leave the spinner stuck: if any step in the cache-check
-            // or fallback live fetch throws (network error, Places auth
-            // hiccup, etc.), clear the loading flag and let the UI render
-            // the empty state rather than spinning forever.
+            // Failures just leave the section rendering its empty state.
             console.warn('[Recs] live fetch failed:', err);
-            if (recsRunIdRef.current === runId) setRecsLoading(false);
           }
         })();
         return;
@@ -1718,59 +1635,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
 
     // Anonymous home — just run the live path. The .catch here mirrors the
-    // logged-in path: an unhandled rejection from runLiveFetch otherwise
-    // leaves the section stuck on the spinner.
+    // logged-in path so a rejection never surfaces as an unhandled error.
     runLiveFetch().catch((err) => {
       console.warn('[Recs] live fetch failed:', err);
-      if (recsRunIdRef.current === runId) setRecsLoading(false);
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce, usingDesktopHeader]);
-
-  // Load more recommendations — called when a consumer wants to extend the
-  // pool past the initial batch. Fetches one query at a time and writes
-  // every batch back into both caches so the user's next reload of this
-  // city already has the extended pool. The in-flight guard is a REF, not
-  // state: state lags a render behind rapid successive calls (e.g. scroll
-  // handlers), which used to let batches double-fire.
-  const loadMoreRecommendations = useCallback(async () => {
-    if (recsLoadingMoreRef.current || recsExhaustedRef.current) return;
-    if (mode !== 'home' || !homeLocation) return;
-    const homeCityOverride = homeLocation.label.split(',').slice(0, 2).join(', ').trim();
-    const queries = buildRecQueries(homeCityOverride);
-    if (recsQueryCursorRef.current >= queries.length) {
-      recsExhaustedRef.current = true;
-      return;
-    }
-    recsLoadingMoreRef.current = true;
-    try {
-      const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
-      recsQueryCursorRef.current += batch.length;
-      const fresh = await fetchRecBatch(batch);
-      if (fresh.length === 0) return;
-      const freshWithCovers = await applyCoverPhotos(fresh, userId);
-      setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
-      // Persist newly-surfaced places into the cache so future reloads of
-      // this city get them without another Places call.
-      if (userId) {
-        const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-        const prefsHash = recPrefsHashForProfile(userPreferences, Math.round(recRadiusMiles * 1609.34));
-        const existing = sessionRecsCache[locKey]?.places || [];
-        const mergedPool = [...existing, ...freshWithCovers]
-          .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
-        sessionRecsCache[locKey] = {
-          places: mergedPool,
-          preferencesHash: prefsHash,
-          updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
-        };
-        saveHomeRecsCache(
-          userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
-          prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
-        );
-      }
-    } finally {
-      recsLoadingMoreRef.current = false;
-    }
-  }, [buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, usingDesktopHeader]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -1780,9 +1649,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const getFilteredPlaces = useCallback((allPlaces: PlaceResult[], sort: SortOption, price: number): PlaceResult[] => {
     let filtered = allPlaces;
 
-    // Filter by price
+    // Filter by price. priceLevel < 1 means UNKNOWN (Google returned no
+    // price) — keep those under a price filter rather than silently
+    // dropping them (the server-side nearby path keeps them too).
     if (price > 0) {
-      filtered = filtered.filter((p) => p.priceLevel === price);
+      filtered = filtered.filter((p) => p.priceLevel === price || p.priceLevel < 1);
     }
 
     // Filter by Michelin distinction (client-side; read from the ref so this
@@ -1808,7 +1679,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         sorted.sort((a, b) => b.rating - a.rating);
         break;
       case 'price_low':
-        sorted.sort((a, b) => a.priceLevel - b.priceLevel);
+        // Unknown price (< 1) sorts LAST — it isn't "cheaper than $".
+        sorted.sort((a, b) =>
+          (a.priceLevel >= 1 ? a.priceLevel : Infinity) - (b.priceLevel >= 1 ? b.priceLevel : Infinity));
         break;
       case 'price_high':
         sorted.sort((a, b) => b.priceLevel - a.priceLevel);
@@ -1826,6 +1699,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // rarely overlaps the Michelin set — so source matching restaurants from the
   // bundled dataset directly and merge them into the result list (deduped by
   // name+proximity). Awaits the dataset load so it works on the first search.
+  // Call BEFORE getFilteredPlaces so the injected entries participate in the
+  // chosen sort instead of trailing at the bottom.
+  //
+  // Cap the injections at the nearest MICHELIN_MERGE_CAP (michelinNearbySync
+  // returns nearest-first) — a wide radius over a dense guide city (Paris)
+  // would otherwise flood hundreds of synthetic markers onto the map.
+  const MICHELIN_MERGE_CAP = 30;
   const mergeMichelinResults = useCallback(async (
     googlePlaces: PlaceResult[],
     centerLat: number,
@@ -1841,13 +1721,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       passesMichelinFilter(sel, p.name, p.lat, p.lng, p.fullAddress || p.address));
     const radiusMi = Math.min(radiusMeters / 1609.34, 31); // cap ~50 km
     const price = filtersRef.current.selectedPrice;
+    let added = 0;
     for (const m of michelinNearbySync(centerLat, centerLng, radiusMi, sel)) {
+      if (added >= MICHELIN_MERGE_CAP) break;
       if (price > 0 && m.priceTier !== price) continue;
       const dup = kept.some((p) =>
         p.name.toLowerCase() === m.name.toLowerCase()
         && havMi(p.lat, p.lng, m.lat, m.lng) < 0.12);
       if (dup) continue;
       kept.push(michelinToPlaceResult(m));
+      added++;
     }
     return kept;
   }, []);
@@ -1871,7 +1754,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const createMarkerElement = useCallback((place: PlaceResult) => {
     const userScore = userRatingMapRef.current[place.id] || 0;
     const score = userScore > 0 ? userScore : (place.rating > 0 ? place.rating * 2 : 0);
-    const color = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : score > 0 ? '#ef4444' : '#94a3b8';
+    const color = score > 0 ? scoreHex(score) : '#94a3b8';
     const label = score > 0
       ? `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`
       : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
@@ -2031,8 +1914,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price, undefined, abort.signal);
-      let sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
-      sorted = await mergeMichelinResults(sorted, center.lat, center.lng, radius);
+      // Merge Michelin dataset entries FIRST so they participate in the sort.
+      const merged = await mergeMichelinResults(results, center.lat, center.lng, radius);
+      const sorted = getFilteredPlaces(merged, filtersRef.current.sortBy, 0); // price already filtered server-side
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(sorted);
       syncMarkers(sorted);
@@ -2157,8 +2041,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
       const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction, undefined, abort.signal);
-      let filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
-      filtered = await mergeMichelinResults(filtered, lat, lng, searchRadius);
+      // Merge Michelin dataset entries FIRST so they participate in the sort.
+      const merged = await mergeMichelinResults(results, lat, lng, searchRadius);
+      const filtered = getFilteredPlaces(merged, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setPlaces(filtered);
       syncMarkers(filtered);
@@ -2325,6 +2210,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       zoom: initialZoom,
       attributionControl: false,
     });
+    // Compact attribution — required by Mapbox ToS on every map.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
 
     mapRef.current = map;
@@ -2631,6 +2518,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [searchQuery, discoverSearchActive, handleSearch]);
 
+  // Emptying the desktop panel query by ANY means exits search mode — the
+  // X button restored the browse results, but backspacing to empty left
+  // discoverSearchActive on with the previous query's places/markers and
+  // no re-search (the debounce above early-returns on an empty query).
+  // Fires only on a non-empty → empty TRANSITION so merely focusing the
+  // field (which enters search mode with an empty query) is untouched, and
+  // only for the panel flow — the sheet's search overlay (showSearchInput)
+  // deliberately stays in search mode to show recent views.
+  const prevSearchQueryRef = useRef('');
+  useEffect(() => {
+    const prev = prevSearchQueryRef.current;
+    prevSearchQueryRef.current = searchQuery;
+    if (searchQuery.trim() || !prev.trim()) return;
+    if (mapMode !== 'discover' || !discoverSearchActive || showSearchInput) return;
+    setDiscoverSearchActive(false);
+    if (preSearchPlacesRef.current.length > 0) {
+      setPlaces(preSearchPlacesRef.current);
+      syncMarkersRef.current?.(preSearchPlacesRef.current);
+    }
+  }, [searchQuery, mapMode, discoverSearchActive, showSearchInput]);
+
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
     isMarkerSelectedRef.current = true;
@@ -2763,11 +2671,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (!showsWishlist) return;
     const missing = wishlistRatings.filter((r) => (!r.lat || !r.lng) && r.address && !wishlistGeoTriedRef.current.has(r.restaurant_id));
     if (missing.length === 0) return;
-    missing.forEach((r) => wishlistGeoTriedRef.current.add(r.restaurant_id));
     let cancelled = false;
     (async () => {
       for (const r of missing) {
         if (cancelled) break;
+        // Mark "tried" only when an id is actually ATTEMPTED — bulk-marking
+        // the whole batch up front meant a cancelled effect (e.g. switching
+        // map modes mid-backfill) permanently skipped the untried remainder
+        // for the session, leaving those hearts unplotted.
+        wishlistGeoTriedRef.current.add(r.restaurant_id);
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`);
@@ -3094,7 +3006,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
         } else {
           // Rated item — score color with the rating in white
-          fillColor = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : '#ef4444';
+          fillColor = scoreHex(score);
           iconHtml = `<span style="font-size:${Math.round(markerSize * 0.32)}px;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`;
         }
       }
@@ -3228,7 +3140,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // reference. White score, filled circle.
   const mapScoreCircle = (s?: number) => {
     if (s == null || s <= 0) return null;
-    const bg = s >= 8 ? '#10b981' : s >= 5 ? '#f59e0b' : '#ef4444';
+    const bg = scoreHex(s);
     return (
       <div
         className="grid flex-shrink-0 place-items-center rounded-full font-serif font-bold tabular-nums text-white"
@@ -3954,7 +3866,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     <div
       ref={rootRef}
       className={cn(
-        "relative h-screen w-full overflow-hidden bg-muted",
+        // 100dvh (not h-screen): the sheet's snap geometry is computed from
+        // the live viewport height, so the root must track it too or the
+        // two disagree after rotation. RecommendationsBrowser already
+        // sizes itself this way.
+        "relative h-[100dvh] w-full overflow-hidden bg-muted",
         // Desktop map mode lays out as a horizontal flex row so the new
         // results sidebar takes the left strip and the map fills the rest.
         isDesktopMapMode && "flex",
@@ -4543,10 +4459,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
             >
 
-              {/* Search results in full state */}
+              {/* Search results in full state. The full-screen spinner only
+                  shows when there's nothing to keep on screen — while a new
+                  debounce cycle is in flight the PREVIOUS results stay
+                  rendered, dimmed, so typing doesn't flash the whole list
+                  out and in on every keystroke. */}
               {discoverSearchActive && (
                 <div className="mt-4">
-                  {isSearching ? (
+                  {isSearching && places.length === 0 ? (
                     <div className="flex items-center justify-center py-16">
                       <Loader2 size={24} className="text-primary animate-spin" />
                       <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
@@ -4613,9 +4533,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-serif font-bold">Results</h2>
-                        <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">{places.length} found</span>
+                        <span className="flex items-center gap-2 text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                          {isSearching && <Loader2 size={12} className="text-primary animate-spin" />}
+                          {places.length} found
+                        </span>
                       </div>
-                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                      <div className={cn("grid gap-3 transition-opacity", isSearching && "opacity-50", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
                         {places.map((place) => {
                           const props = placeToCardProps(place);
                           return (
@@ -5168,7 +5091,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           {mapMode === 'recipes' && (
             friendRecipesLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={24} className="text-emerald-600 animate-spin" />
+                <Loader2 size={24} className="text-recipes animate-spin" />
                 <span className="ml-3 text-sm text-on-surface/50 font-medium">Loading recipes...</span>
               </div>
             ) : friendRecipes.length === 0 ? (
@@ -5196,11 +5119,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       onClick={() => navigate(`/meal/${meal.userId}/${meal.id}`)}
                       className="w-full flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group text-left"
                     >
-                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-recipes-tint self-center">
                         {cover ? (
                           <img src={cover} alt={meal.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-emerald-300">
+                          <div className="w-full h-full flex items-center justify-center text-recipes/50">
                             <ChefHat size={22} />
                           </div>
                         )}
@@ -5209,7 +5132,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{meal.name}</h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {totalLabel && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/80">{totalLabel}</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-recipes-ink/80">{totalLabel}</span>
                           )}
                           {totalLabel && meal.difficulty && <span className="text-on-surface/20">·</span>}
                           {meal.difficulty && (
@@ -5217,7 +5140,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           )}
                         </div>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className="w-4 h-4 rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700 flex items-center justify-center flex-shrink-0">
+                          <span className="w-4 h-4 rounded-full bg-recipes-tint text-[8px] font-bold text-recipes-ink flex items-center justify-center flex-shrink-0">
                             {authorInitial}
                           </span>
                           <span className="text-[11px] text-on-surface/40 truncate">{authorName}</span>
@@ -5237,8 +5160,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           {mapMode === 'discover' && (
             <div className="space-y-4">
                   {/* ── Search mode content ── */}
+                  {/* Same keep-previous-results treatment as the home
+                      search: the full spinner only when there's nothing
+                      rendered yet; otherwise dim the stale list. */}
                   {discoverSearchActive ? (
-                    isSearching ? (
+                    isSearching && places.length === 0 ? (
                       <div className="flex items-center justify-center py-12">
                         <Loader2 size={24} className="text-primary animate-spin" />
                         <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
@@ -5259,9 +5185,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <>
                         <div className="flex items-center justify-between pt-2">
                           <h2 className="text-sm font-serif font-bold">Results</h2>
-                          <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                          <span className="flex items-center gap-1.5 text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">
+                            {isSearching && <Loader2 size={11} className="text-primary animate-spin" />}
+                            {places.length} found
+                          </span>
                         </div>
-                        <div className="divide-y divide-on-surface/[0.06]">
+                        <div className={cn('divide-y divide-on-surface/[0.06] transition-opacity', isSearching && 'opacity-50')}>
                           {places.map((place) => renderPlaceCard(place))}
                         </div>
                       </>

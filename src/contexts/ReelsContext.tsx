@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
 import { createToggleQueue } from '../lib/toggle-queue';
+import { isFollowingUser } from '../lib/supabase-community';
 import {
   listReels,
   createReel as cloudCreateReel,
@@ -80,6 +81,10 @@ function pickFromPool<T>(pool: T[], seed: string): T {
 
 const DEFAULT_BG = 'from-stone-900 via-amber-900 to-stone-900';
 
+/** Exported for surfaces that batch-fetch reels outside the feed (e.g. the
+ *  Activity "Comments" grid) and need the same UI mapping the feed uses. */
+export function reelRowToUi(row: ReelRow): Reel { return rowToUi(row); }
+
 function rowToUi(row: ReelRow): Reel {
   const username = row.author?.username || row.userId.slice(0, 8);
   return {
@@ -125,6 +130,10 @@ interface ReelsContextValue {
    * "nothing here yet" empty state. */
   loadError: boolean;
   refreshReels: () => Promise<void>;
+  /** Fetch the next keyset page and append it. No-op while one is in flight
+   *  or when the feed is exhausted. */
+  loadMoreReels: () => Promise<void>;
+  hasMoreReels: boolean;
 
   postReel: (input: {
     file: File;
@@ -153,7 +162,8 @@ interface ReelsContextValue {
   /** Resolves to null when the fetch failed (vs [] for "no comments"). */
   loadComments: (reelId: string) => Promise<ReelComment[] | null>;
   addComment: (reelId: string, body: string, parentId?: string | null) => Promise<ReelComment | null>;
-  deleteComment: (reelId: string, commentId: string) => Promise<boolean>;
+  /** `removedCount` = 1 + the comment's replies (DB cascades parent_id). */
+  deleteComment: (reelId: string, commentId: string, removedCount?: number) => Promise<boolean>;
 
   // Modal
   addReelModalOpen: boolean;
@@ -173,6 +183,16 @@ interface ReelsContextValue {
   openCommentsReelId: string | null;
   openCommentsSheet: (reelId: string) => void;
   closeCommentsSheet: () => void;
+
+  // Follow state, shared across every slide of the same author. Keyed by
+  // author userId — per-slide state let following on one slide leave the
+  // same author's other slides stale, and re-queried the DB per slide.
+  followingByUser: Record<string, boolean>;
+  /** Resolve (once) whether the viewer follows this author; no-op when
+   *  already known or in flight. */
+  ensureFollowState: (authorId: string) => void;
+  /** Write-through used by optimistic follow toggles (and rollbacks). */
+  setFollowState: (authorId: string, following: boolean) => void;
 
   // For owner-only actions
   currentUserId: string | null;
@@ -198,13 +218,56 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [editingReelId, setEditingReelId] = useState<string | null>(null);
   const [openCommentsReelId, setOpenCommentsReelId] = useState<string | null>(null);
 
+  // Shared author-follow map (see the interface comment). The ref mirrors
+  // the state so ensureFollowState can dedupe without re-creating itself,
+  // and the in-flight set stops N near-window slides of the same author
+  // from each firing the same lookup.
+  const [followingByUser, setFollowingByUser] = useState<Record<string, boolean>>({});
+  const followingByUserRef = useRef<Record<string, boolean>>({});
+  const followFetchesRef = useRef<Set<string>>(new Set());
+  const ensureFollowState = useCallback((authorId: string) => {
+    const viewer = userIdRef.current;
+    if (!viewer || !authorId || viewer === authorId) return;
+    if (authorId in followingByUserRef.current || followFetchesRef.current.has(authorId)) return;
+    followFetchesRef.current.add(authorId);
+    isFollowingUser(viewer, authorId)
+      .then((yes) => {
+        followingByUserRef.current = { ...followingByUserRef.current, [authorId]: yes };
+        setFollowingByUser(followingByUserRef.current);
+      })
+      .catch(() => { /* transient — retried next time a slide asks */ })
+      .finally(() => { followFetchesRef.current.delete(authorId); });
+  }, []);
+  const setFollowState = useCallback((authorId: string, following: boolean) => {
+    followingByUserRef.current = { ...followingByUserRef.current, [authorId]: following };
+    setFollowingByUser(followingByUserRef.current);
+  }, []);
+  // The map is the VIEWER's follow graph — drop it when the account changes.
+  useEffect(() => {
+    followingByUserRef.current = {};
+    followFetchesRef.current.clear();
+    setFollowingByUser({});
+  }, [userId]);
+
+  // Keyset pagination: the feed loads a page at a time instead of one
+  // hard-capped window (older reels simply didn't exist past row 100, and
+  // every refresh re-downloaded everything). The cursor is the last row of
+  // the previous page; like/save state batches per page inside listReels.
+  const PAGE_SIZE = 30;
+  const [hasMoreReels, setHasMoreReels] = useState(true);
+  const reelsCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
+  const loadingMoreRef = useRef(false);
+
   const refreshReels = useCallback(async () => {
     if (!supabaseConfigured) return;
     setLoading(true);
     try {
-      const rows = await listReels({ viewerId: userIdRef.current, limit: 100 });
+      const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE });
       if (rows) {
         setReels(rows.map(rowToUi));
+        const last = rows[rows.length - 1];
+        reelsCursorRef.current = last ? { createdAt: last.createdAt, id: last.id } : null;
+        setHasMoreReels(rows.length >= PAGE_SIZE);
         setLoadError(false);
         // Heal posters for older reels that never had one, in the background.
         // As each lands, swap that reel's gradient for the captured frame.
@@ -219,6 +282,33 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setLoadError(true);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadMoreReels = useCallback(async () => {
+    if (!supabaseConfigured || loadingMoreRef.current) return;
+    const before = reelsCursorRef.current;
+    if (!before) return;
+    loadingMoreRef.current = true;
+    try {
+      const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE, before });
+      if (!rows) return;
+      const last = rows[rows.length - 1];
+      if (last) reelsCursorRef.current = { createdAt: last.createdAt, id: last.id };
+      setHasMoreReels(rows.length >= PAGE_SIZE);
+      if (rows.length > 0) {
+        setReels((prev) => {
+          const seen = new Set(prev.map((r) => r.id));
+          return [...prev, ...rows.filter((r) => !seen.has(r.id)).map(rowToUi)];
+        });
+        void backfillReelPosters(rows, (reelId, localUrl) => {
+          setReels((prev) => prev.map((r) => (r.id === reelId && !r.posterUrl ? { ...r, posterUrl: localUrl } : r)));
+        });
+      }
+    } catch (err) {
+      console.warn('[Reels] load more failed:', err);
+    } finally {
+      loadingMoreRef.current = false;
     }
   }, []);
 
@@ -248,9 +338,17 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       attempts += 1;
       const fresh = await cloudGetReel(reelId).catch(() => null);
       if (fresh && fresh.muxStatus === 'ready' && fresh.muxPlaybackId) {
-        setReels((prev) => prev.map((r) => (r.id === reelId
-          ? { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, muxTokens: fresh.muxTokens || undefined, posterUrl: fresh.posterUrl || r.posterUrl }
-          : r)));
+        setReels((prev) => prev.map((r) => {
+          if (r.id !== reelId) return r;
+          const nextPoster = fresh.posterUrl || r.posterUrl;
+          // The local processing poster is a blob: object URL — release it
+          // once the real Mux poster replaces it (revoking twice is a no-op,
+          // so a StrictMode re-run of this updater is harmless).
+          if (nextPoster !== r.posterUrl && r.posterUrl?.startsWith('blob:')) {
+            try { URL.revokeObjectURL(r.posterUrl); } catch { /* noop */ }
+          }
+          return { ...r, muxStatus: 'ready', muxPlaybackId: fresh.muxPlaybackId, muxTokens: fresh.muxTokens || undefined, posterUrl: nextPoster };
+        }));
         return;
       }
       if (fresh && fresh.muxStatus === 'errored') {
@@ -383,10 +481,13 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return c;
   }, []);
 
-  const deleteComment = useCallback(async (reelId: string, commentId: string): Promise<boolean> => {
+  // `removedCount` = 1 + the comment's replies: parent_id cascades in the
+  // DB (migration 057), so deleting a parent removes N+1 rows — the badge
+  // used to drop by only 1 and drift until the next full load.
+  const deleteComment = useCallback(async (reelId: string, commentId: string, removedCount = 1): Promise<boolean> => {
     const ok = await cloudDeleteComment(commentId);
     if (ok) {
-      setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, comments: Math.max(0, r.comments - 1) } : r));
+      setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, comments: Math.max(0, r.comments - removedCount) } : r));
     }
     return ok;
   }, []);
@@ -429,6 +530,8 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loading,
     loadError,
     refreshReels,
+    loadMoreReels,
+    hasMoreReels,
     postReel,
     toggleLike,
     toggleSave,
@@ -448,6 +551,9 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     openCommentsReelId,
     openCommentsSheet,
     closeCommentsSheet,
+    followingByUser,
+    ensureFollowState,
+    setFollowState,
     currentUserId: userId,
   };
 

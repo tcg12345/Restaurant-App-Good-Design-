@@ -102,16 +102,33 @@ describe('buildTasteProfile', () => {
     expect(stale.cuisineScore['Thai']).toBeGreaterThan(recent.cuisineScore['Thai'] * 0.34);
   });
 
-  it('wouldReturn amplifies praise; "high score but never again" is dampened', () => {
-    const returner = profileFrom([rating({ restaurantId: 'a', cuisine: 'Thai', score: 9, wouldReturn: true })]);
-    const oneOff = profileFrom([rating({ restaurantId: 'a', cuisine: 'Thai', score: 9, wouldReturn: false })]);
-    expect(returner.cuisineScore['Thai']).toBeGreaterThan(oneOff.cuisineScore['Thai']);
+  it('onboarding quiz cuisines act as priors for new accounts and fade with real ratings', () => {
+    // Fresh account, no ratings — the three quiz picks ARE the profile.
+    const fresh = buildTasteProfile([], [], [], [], { cuisines: ['Italian', 'Japanese', 'Thai'] });
+    expect(fresh.cuisineScore['Italian']).toBeGreaterThan(0);
+    expect(fresh.topCuisines).toEqual(expect.arrayContaining(['Italian', 'Japanese', 'Thai']));
+    // Prior beats a wishlist hint but stays below an enthusiastic rating.
+    const withRating = buildTasteProfile(
+      [rating({ restaurantId: 'a', cuisine: 'Mexican', score: 9.5 })],
+      [wish({ restaurantId: 'w', cuisine: 'French' })],
+      [], [],
+      { cuisines: ['Italian'] },
+    );
+    expect(withRating.cuisineScore['Italian']).toBeGreaterThan(withRating.cuisineScore['French']);
+    expect(withRating.cuisineScore['Mexican']).toBeGreaterThan(withRating.cuisineScore['Italian']);
+    // Ten real ratings later the stated preference has fully faded.
+    const seasoned = buildTasteProfile(
+      Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `r${i}`, cuisine: 'Mexican', score: 8 })),
+      [], [], [],
+      { cuisines: ['Italian'] },
+    );
+    expect(seasoned.cuisineScore['Italian'] ?? 0).toBe(0);
   });
 
-  it('low scores with no intent to return go negative', () => {
+  it('clear low scores go negative', () => {
     const p = profileFrom([
       rating({ restaurantId: 'good', cuisine: 'Thai', score: 9 }),
-      rating({ restaurantId: 'bad', cuisine: 'Steakhouse', score: 3, wouldReturn: false }),
+      rating({ restaurantId: 'bad', cuisine: 'Steakhouse', score: 3 }),
     ]);
     expect(p.cuisineScore['Steakhouse']).toBeLessThan(0);
   });

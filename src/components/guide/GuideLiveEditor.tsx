@@ -132,7 +132,10 @@ export const GuideLiveEditor: React.FC<GuideLiveEditorProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Inner surfaces (AddEntryPicker, the image-URL popover) preventDefault
+    // on THEIR Escape — honoring it here keeps one Esc from closing both
+    // the popover and the whole editor.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -649,8 +652,11 @@ const Inspector: React.FC<{
         <button
           type="button"
           className="gle-insp-reset"
-          onClick={() => setTheme(() => ({ ...DEFAULT_THEME }))}
-          title="Reset all customization"
+          // Reset styling ONLY — authorOverrides hold user-TYPED author
+          // name/bio copy (renderText routes author.name/bio there);
+          // wiping them with the theme deleted written text with no undo.
+          onClick={() => setTheme((t) => ({ ...DEFAULT_THEME, authorOverrides: t.authorOverrides }))}
+          title="Reset all styling (keeps your written author text)"
         >
           <RotateCcw size={13} /><span>Reset all</span>
         </button>

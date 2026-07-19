@@ -19,8 +19,9 @@ import React, {
 } from 'react';
 import type { ScoredPlace } from '../lib/recommendations';
 import type { RestaurantMeta } from './ListsContext';
-import type { ChatFilters } from '../lib/location-chat-client';
+import type { ChatFilters, UserContext } from '../lib/location-chat-client';
 import type { AssistantUser, AssistantCircleRating } from '../components/LocationChat';
+import type { Recipe } from './RecipesContext';
 
 export interface AssistantPageContext {
   /** Filtered restaurant pool the user is looking at on this page. */
@@ -51,6 +52,16 @@ export interface AssistantPageContext {
    *  to the chat when you're actually on the map page. Pass `null`/`[]` to
    *  clear the override and return to the normal area results. */
   onAssistantPlaces?: (places: ScoredPlace[]) => void;
+  /** Page-built rich user context (meta-enriched neighborhoods, friends,
+   *  followed experts, circle signals). AppAssistant prefers this over
+   *  the minimal context it can build itself, so the system prompt's
+   *  personalization sections ("Mira has this at 9.4") can fire. */
+  userContext?: UserContext;
+  /** Page-built card-lookup places (rated + wishlist synthesized, with
+   *  the page's cuisine hints). */
+  knownPlaces?: ScoredPlace[];
+  /** Stub-filtered recipe lookup table for recipe cards. */
+  recipes?: Recipe[];
 }
 
 interface AssistantContextValue {

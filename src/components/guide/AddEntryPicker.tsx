@@ -54,12 +54,20 @@ export const AddEntryPicker: React.FC<AddEntryPickerProps> = ({ type, existingRe
     const onDoc = (e: MouseEvent) => {
       if (popRef.current && !popRef.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // Capture phase so this fires BEFORE the editor's window-level Escape
+    // handler; preventDefault + stopPropagation claim the keypress so one
+    // Esc closes only the popover, not the whole editor.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    };
     document.addEventListener('mousedown', onDoc);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [open]);
 

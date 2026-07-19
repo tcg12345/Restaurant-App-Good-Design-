@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { parseIngredientLine, displayAmount } from '../lib/ingredient-parsing';
 import { processPhoto } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type Recipe, type RecipeIngredient, type PhotoItem } from '../contexts/ListsContext';
@@ -142,6 +143,23 @@ export const AddRecipeModal: React.FC = () => {
 
   const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
 
+  // Bulk paste: a multi-line ingredient list pasted into the name field
+  // parses each line ("2 cups flour") through the shared parser and adds
+  // them all — matching the Advanced builder's "paste a list" feature.
+  // Single-line pastes behave like normal typing.
+  const onIngredientPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !text.includes('\n')) return;
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    const parsed = lines.map((line) => {
+      const r = parseIngredientLine(line);
+      return { name: r?.name || line, amount: r?.amount ? displayAmount(r.amount) : '', unit: r?.unit ?? '' };
+    });
+    setIngredients((prev) => [...prev, ...parsed]);
+  };
+
   const addStep = () => {
     if (!newStep.trim()) return;
     setSteps((prev) => [...prev, newStep.trim()]);
@@ -234,7 +252,7 @@ export const AddRecipeModal: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
@@ -419,15 +437,13 @@ export const AddRecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
-              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
-                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
                     {/* Add ingredient form — flat inputs */}
                     <div className="mb-5 space-y-2">
                       <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
-                        placeholder="Ingredient name"
+                        placeholder="Ingredient name (paste a list to add several)" onPaste={onIngredientPaste}
                         className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                       <div className="flex gap-2">
                         <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
@@ -460,7 +476,7 @@ export const AddRecipeModal: React.FC = () => {
                                 {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
                                 <span className="font-normal">{ing.name}</span>
                               </p>
-                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                              <button onClick={() => removeIngredient(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
                                 <X size={14} />
                               </button>
                             </li>
@@ -503,7 +519,7 @@ export const AddRecipeModal: React.FC = () => {
                               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {idx + 1}</p>
                               <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step}</p>
                             </div>
-                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
+                            <button onClick={() => removeStep(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
                           </li>
@@ -547,7 +563,7 @@ export const AddRecipeModal: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
-                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                  className="hit-44 absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                   aria-label="Remove photo"
                                 >
                                   <X size={10} className="text-white" strokeWidth={2.5} />

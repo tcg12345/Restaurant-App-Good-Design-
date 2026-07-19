@@ -87,6 +87,27 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
       }, 300);
     };
 
+    // The non-passive touchmove is bound ONLY while a qualifying gesture is
+    // being tracked (started at the top of the page scroller) and unbound
+    // on end/cancel/disqualification — same pattern as SwipeBackContainer.
+    // A permanently-bound non-passive window listener forced EVERY scroll
+    // frame app-wide through the main thread, killing threaded scrolling.
+    let moveBound = false;
+    const bindMove = () => {
+      if (moveBound) return;
+      moveBound = true;
+      window.addEventListener('touchmove', onMove, { passive: false });
+    };
+    const unbindMove = () => {
+      if (!moveBound) return;
+      moveBound = false;
+      window.removeEventListener('touchmove', onMove);
+    };
+    const stopTracking = () => {
+      tracking = false;
+      unbindMove();
+    };
+
     const onStart = (e: TouchEvent) => {
       if (refreshing || e.touches.length !== 1) return;
       if (scrollTop() > 0) return; // not at the top
@@ -97,25 +118,27 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
       pulling = false;
       dist = 0;
       bubble.style.transition = '';
+      bindMove();
     };
 
-    const onMove = (e: TouchEvent) => {
+    function onMove(e: TouchEvent) {
       if (!tracking || refreshing) return;
       const dy = e.touches[0].clientY - startY;
       const dx = e.touches[0].clientX - startX;
       if (!pulling) {
-        if (dy <= 0) { tracking = false; return; } // scrolling up → release
-        if (Math.abs(dx) > Math.abs(dy)) { tracking = false; return; } // horizontal swipe
+        if (dy <= 0) { stopTracking(); return; } // scrolling up → release
+        if (Math.abs(dx) > Math.abs(dy)) { stopTracking(); return; } // horizontal swipe
         if (dy < 6) return; // wait until the intent is clearly vertical
-        if (scrollTop() > 0) { tracking = false; return; } // drifted off the top
+        if (scrollTop() > 0) { stopTracking(); return; } // drifted off the top
         pulling = true;
       }
       e.preventDefault(); // own the gesture; stop any page movement
       dist = Math.min(MAX_PULL, dy * RESISTANCE);
       paint(dist);
-    };
+    }
 
     const onEnd = () => {
+      unbindMove();
       if (!tracking || refreshing) return;
       if (pulling && dist >= THRESHOLD) {
         refreshing = true;
@@ -136,12 +159,11 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
     };
 
     window.addEventListener('touchstart', onStart, { passive: true });
-    window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onEnd, { passive: true });
     window.addEventListener('touchcancel', onEnd, { passive: true });
     return () => {
       window.removeEventListener('touchstart', onStart);
-      window.removeEventListener('touchmove', onMove);
+      unbindMove();
       window.removeEventListener('touchend', onEnd);
       window.removeEventListener('touchcancel', onEnd);
     };

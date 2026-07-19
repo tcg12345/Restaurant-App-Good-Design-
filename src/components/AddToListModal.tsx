@@ -56,7 +56,7 @@ export const AddToListModal: React.FC = () => {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl max-h-[70vh] overflow-y-auto"
+            className="bg-surface w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl max-h-[70vh] overflow-y-auto kb-pad"
           >
             {/* Header */}
             <div className="sticky top-0 bg-surface/95 backdrop-blur-sm px-5 pt-safe-5 pb-3 border-b border-on-surface/8 z-10">

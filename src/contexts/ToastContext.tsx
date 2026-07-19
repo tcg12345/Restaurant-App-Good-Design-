@@ -79,7 +79,11 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <AnimatePresence>
+      {/* mode="wait": there is ONE toast slot, so a second showToast swaps
+          the keyed element — the default sync mode rendered old-exit and
+          new-enter at the same fixed position (a brief pileup). "wait"
+          holds the newcomer the ~150ms the exit takes, a clean handoff. */}
+      <AnimatePresence mode="wait">
         {toast && (
           <motion.div
             key={toast.id}
@@ -90,9 +94,16 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             onClick={dismiss}
             className={cn(
               'fixed left-1/2 -translate-x-1/2 z-[300] pointer-events-auto cursor-pointer',
-              // Sit above the bottom nav. Phone mode the nav is taller and
+              // Sit above the bottom nav — and above the native keyboard
+              // when it's open (--kb-height, 0 on web/closed), else a toast
+              // fired while typing is invisible behind the keys. The CSS
+              // transition makes it glide if the keyboard moves while the
+              // toast is up; motion animates transform/opacity, not bottom,
+              // so the two don't fight. Phone mode the nav is taller and
               // pinned inside the phone frame, so lift the toast a bit more.
-              phoneMode ? 'bottom-24' : 'bottom-24 sm:bottom-10',
+              '[transition:bottom_0.25s_cubic-bezier(0.22,1,0.36,1)]',
+              'bottom-[calc(6rem+var(--kb-height,0px))]',
+              !phoneMode && 'sm:bottom-[calc(2.5rem+var(--kb-height,0px))]',
             )}
           >
             <div

@@ -7,6 +7,20 @@ import { fetchLocationDataForPlace } from './places';
  *  lookup failed (bad/synthetic id, offline). */
 const attempted = new Set<string>();
 
+/** Cached hours older than this are refetched — restaurants change their
+ *  schedules, and a meta entry written once used to keep stale Open/Closed
+ *  answers forever. */
+export const HOURS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Are this meta entry's cached hours present AND recent enough to trust?
+ *  Entries stamped before `hoursFetchedAt` existed count as stale so they
+ *  get refreshed (once) too. */
+export function hasFreshHours(meta: { hours?: string[]; hoursFetchedAt?: number } | undefined): boolean {
+  return meta?.hours !== undefined
+    && meta.hoursFetchedAt !== undefined
+    && Date.now() - meta.hoursFetchedAt < HOURS_MAX_AGE_MS;
+}
+
 /** Cap the burst so switching on a filter over a huge list can't fan out
  *  hundreds of details calls at once. Deliberately generous: a typical
  *  rated list fits entirely, and the details cache makes repeats free. */
@@ -35,7 +49,7 @@ export function useWarmHoursForFilter(ids: Array<string | undefined>, active: bo
     if (!active) return;
     const missing: string[] = [];
     for (const id of ids) {
-      if (!id || attempted.has(id) || restaurantMeta[id]?.hours !== undefined) continue;
+      if (!id || attempted.has(id) || hasFreshHours(restaurantMeta[id])) continue;
       missing.push(id);
       if (missing.length >= WARM_CAP) break;
     }
@@ -52,9 +66,14 @@ export function useWarmHoursForFilter(ids: Array<string | undefined>, active: bo
           ...(neighborhood ? { neighborhood } : {}),
           ...(lat != null ? { lat } : {}),
           ...(lng != null ? { lng } : {}),
-          // Empty array = "asked, none published" so we never refetch.
-          ...(hours != null ? { hours } : {}),
+          // Empty array = "asked, none published"; the timestamp keeps it
+          // trusted for HOURS_MAX_AGE_MS, then one refetch.
+          ...(hours != null ? { hours, hoursFetchedAt: Date.now() } : {}),
         });
+      }).catch((err) => {
+        // Warming is best-effort; an unexpected rejection must not surface
+        // as an unhandled-promise error.
+        console.warn('[useWarmHours] hours warm failed for', id, err);
       });
     }
     return () => { cancelled = true; };

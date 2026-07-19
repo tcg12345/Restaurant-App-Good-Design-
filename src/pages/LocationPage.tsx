@@ -35,11 +35,13 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { getTasteQuiz } from '../lib/taste-quiz';
+import { scoreHex, scoreTintStyle } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { shareExternally } from '../lib/native-share';
+import { shareExternally, canonicalShareUrl } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
-import { useRecipes } from '../contexts/RecipesContext';
+import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
   searchPlacesByTextPaged,
@@ -87,8 +89,8 @@ import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { MichelinMark } from '../components/MichelinBadge';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
-import type { MichelinChatHit } from '../components/LocationChat';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
+import type { UserContext } from '../lib/location-chat-client';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -101,7 +103,7 @@ import {
 } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
-import { getGuidesForLocation, type Guide as GuideRow } from '../lib/supabase-guides';
+import { getGuidesForLocation, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
 import { HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 
@@ -344,13 +346,11 @@ function buildMiniMapBounds(lat: number, lng: number): mapboxgl.LngLatBoundsLike
   ];
 }
 
-// Marker pin background colour, mapped to the same green/amber/red
-// scale the list-row score badges use so the map reads at a glance.
+// Marker pin background colour — the shared score-tier hexes (lib/score),
+// so the map reads on the same scale as the list-row score badges.
 function miniMapMarkerColor(googleRating: number): string {
   const score = googleRating * 2;
-  if (score >= 8) return '#2E7D5C';
-  if (score >= 5) return '#C28F3A';
-  if (score > 0) return '#A8392A';
+  if (score > 0) return scoreHex(score);
   return '#8C8278';
 }
 
@@ -511,6 +511,17 @@ export const LocationPage: React.FC = () => {
     [guideRows, guideAuthorName],
   );
 
+  // Real bookmark counts for the browse popup (guide_save_counts RPC).
+  const [guideSaveCounts, setGuideSaveCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (guideRows.length === 0) { setGuideSaveCounts({}); return; }
+    let cancelled = false;
+    getGuideSaveCounts(guideRows.map((g) => g.id)).then((counts) => {
+      if (!cancelled) setGuideSaveCounts(counts);
+    });
+    return () => { cancelled = true; };
+  }, [guideRows]);
+
   // Same guides, shaped for the "Browse all" popup.
   const browseGuides = useMemo<BrowseGuide[]>(
     () => guideRows.map((g) => ({
@@ -520,8 +531,9 @@ export const LocationPage: React.FC = () => {
       image: g.coverPhoto || '',
       count: g.entries.length,
       daysAgo: daysSinceIso(g.updatedAt),
+      saves: guideSaveCounts[g.id],
     })),
-    [guideRows, guideAuthorName],
+    [guideRows, guideAuthorName, guideSaveCounts],
   );
 
   // User's taste profile, reused to score every batch we fetch. `recentViews`
@@ -529,12 +541,12 @@ export const LocationPage: React.FC = () => {
   // affects a skip-set, and the cost of occasionally re-showing a recent view
   // on this page is negligible.
   const profile = useMemo(
-    () => buildTasteProfile(ratings, wishlist, lists, []),
+    () => buildTasteProfile(ratings, wishlist, lists, [], getTasteQuiz(myProfile)),
     // michelinReady is a rebuild trigger: the profile's michelinTaste shares
     // are gated on the dataset index inside the builder, so the profile must
     // be rebuilt once the index loads (same pattern as the recs popup).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ratings, wishlist, lists, michelinReady],
+    [ratings, wishlist, lists, michelinReady, myProfile],
   );
 
   // Social scoring signals, fetched once per (user, city). These feed
@@ -1542,6 +1554,10 @@ export const LocationPage: React.FC = () => {
       // user picked — same radius the list uses, so the two views agree.
       maxBounds: buildMiniMapBounds(init.lat, init.lng),
     });
+    // Compact attribution: Mapbox ToS requires it on every map. The CSS
+    // (LocationPage.css) pins the ctrl corners to the visible slice of
+    // the cropped mini-map canvas.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
     map.on('load', () => {
@@ -1738,19 +1754,8 @@ export const LocationPage: React.FC = () => {
   // recommendations toward the user's taste history, friends, and
   // followed experts. Strictly read-only — same data already shown
   // throughout the app, just packaged for the model.
-  const chatUserContext = useMemo(() => {
-    const ctx: {
-      displayName?: string;
-      username?: string;
-      homeCity?: string;
-      topCuisines?: string[];
-      topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
-      wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
-      recipes?: Array<{ title: string; cuisine?: string }>;
-      friends?: Array<{ displayName: string; username?: string }>;
-      followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
-      circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
-    } = {};
+  const chatUserContext = useMemo<UserContext>(() => {
+    const ctx: UserContext = {};
     if (myProfile?.display_name) ctx.displayName = myProfile.display_name;
     if (myProfile?.username) ctx.username = myProfile.username;
     if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
@@ -2070,51 +2075,6 @@ export const LocationPage: React.FC = () => {
     }
   }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
 
-  // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
-  // Local-only (no Google/web). Resolves the city to coords (geocoding a
-  // different city than the current page when Claude passes one), then either
-  // looks up a specific name or pulls everything nearby for the distinctions.
-  const handleChatMichelin = useCallback(async (opts: {
-    distinctions?: string[]; city?: string; name?: string; limit?: number;
-  }): Promise<MichelinChatHit[]> => {
-    const toHit = (m: MichelinInfo): MichelinChatHit => ({
-      ...michelinToPlaceResult(m),
-      recScore: 0,
-      sources: ['google'],
-      michelinDistinction: michelinDistinctionLabel(m),
-      guideUrl: m.guideUrl,
-      cuisineText: m.cuisine,
-      priceText: michelinPriceDisplay(m),
-    });
-    try {
-      // Name lookup: bias toward the resolved city/current coords.
-      let anchorLat = hasCoords ? lat : undefined;
-      let anchorLng = hasCoords ? lng : undefined;
-      const targetCity = opts.city?.trim();
-      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== shortCityName.toLowerCase();
-      if (isOtherCity) {
-        try {
-          const geo = await geocodePlace(targetCity!);
-          if (geo) { anchorLat = geo.lat; anchorLng = geo.lng; }
-        } catch { /* fall back to current coords */ }
-      }
-
-      if (opts.name) {
-        const found = await michelinByName(opts.name, anchorLat, anchorLng, Math.min(opts.limit ?? 5, 10));
-        return found.map(toHit);
-      }
-
-      if (anchorLat == null || anchorLng == null) return [];
-      // Generous radius so "Michelin in NYC" covers the whole metro.
-      const results = await michelinNearby(anchorLat, anchorLng, 12, opts.distinctions ?? []);
-      const cap = Math.min(opts.limit ?? 40, 80);
-      return results.slice(0, cap).map(toHit);
-    } catch (err) {
-      console.error('[LocationPage] handleChatMichelin error:', err);
-      return [];
-    }
-  }, [hasCoords, lat, lng, shortCityName]);
-
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
   // tight radius, zoom out = wider) and runs a broad query mix at the
@@ -2245,7 +2205,10 @@ export const LocationPage: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => { void shareExternally({ title: cityDisplay, url: window.location.href }); }}
+            // canonicalShareUrl: window.location.href inside the native shell
+            // is capacitor://localhost/… — build the link from the public web
+            // origin + the page's path instead.
+            onClick={() => { void shareExternally({ title: cityDisplay, url: canonicalShareUrl(window.location.pathname + window.location.search) }); }}
             className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
             style={{ color: 'var(--ink-2)' }}
             aria-label="Share"
@@ -2800,7 +2763,7 @@ export const LocationPage: React.FC = () => {
                   height: '13px',
                   borderRadius: '9999px',
                   flexShrink: 0,
-                  background: openNow ? '#10b981' : 'rgba(var(--overlay-ink), 0.25)',
+                  background: openNow ? 'var(--color-score-high)' : 'rgba(var(--overlay-ink), 0.25)',
                   transition: 'background-color .15s ease',
                 }}
               >
@@ -3181,10 +3144,12 @@ export const LocationPage: React.FC = () => {
         }}
         origin={origin}
         onSearchRestaurants={handleChatSearch}
-        onSearchMichelin={handleChatMichelin}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
         onAssistantPlaces={handleAssistantPlaces}
+        userContext={chatUserContext}
+        knownPlaces={chatKnownPlaces}
+        recipes={chatRecipesAll}
       />
     </div>
   );
@@ -3214,6 +3179,9 @@ interface LocationPageAssistantPublisherProps {
   onLookupUser: (query: string) => Promise<Array<{ username: string; displayName?: string; bio?: string; isExpert?: boolean; homeCity?: string }>>;
   onGetCircleRatings: (restaurantId: string) => Promise<Array<{ username: string; displayName?: string; isExpert?: boolean; isFriend?: boolean; score?: number; notes?: string }>>;
   onAssistantPlaces: (places: ScoredPlace[]) => void;
+  userContext: UserContext;
+  knownPlaces: ScoredPlace[];
+  recipes: DbRecipe[];
 }
 
 const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherProps> = (props) => {
@@ -3228,6 +3196,9 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     onLookupUser: props.onLookupUser,
     onGetCircleRatings: props.onGetCircleRatings,
     onAssistantPlaces: props.onAssistantPlaces,
+    userContext: props.userContext,
+    knownPlaces: props.knownPlaces,
+    recipes: props.recipes,
   }), [
     props.visible,
     props.restaurantMeta,
@@ -3239,6 +3210,9 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     props.onLookupUser,
     props.onGetCircleRatings,
     props.onAssistantPlaces,
+    props.userContext,
+    props.knownPlaces,
+    props.recipes,
   ]);
   useSetAssistantPageContext(ctx);
   return null;
@@ -3842,18 +3816,18 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // weekdayDescriptions against the current time (replaces the old score-based
   // heuristic). `open: null` (no hours data) hides the status chip entirely.
   const status = getOpenStatus(meta?.hours);
-  const statusColor = status.open ? '#059669' : '#c2410c';
-  const dotColor = status.open ? '#10b981' : '#ef4444';
+  const statusColor = status.open ? 'var(--color-score-high-ink)' : 'var(--color-score-low-ink)';
+  const dotColor = status.open ? 'var(--color-score-high)' : 'var(--color-score-low)';
 
   // "3.6 mi · 22 min" — distance + drive time (walk as fallback).
   const timePart = driveLabel || walkLabel || '';
   const distLine = distLabel ? (timePart ? `${distLabel}  ·  ${timePart}` : distLabel) : timePart;
 
-  // Soft tiered score circle with an inset ring (per the redesign).
-  const tier =
-    score >= 8 ? { bg: '#ecfdf5', ring: 'rgba(16,185,129,0.5)', text: '#059669' }
-    : score >= 5 ? { bg: '#fffbeb', ring: 'rgba(245,158,11,0.55)', text: '#b45309' }
-    : { bg: '#fef2f2', ring: 'rgba(239,68,68,0.5)', text: '#dc2626' };
+  // Soft tiered score circle with an inset ring (per the redesign). The
+  // token-backed pack from lib/score adapts in dark mode — same treatment
+  // as ScoreRing.
+  const tierPack = scoreTintStyle(score);
+  const tier = { bg: tierPack.background, ring: tierPack.ring, text: tierPack.color };
   const scoreBadge = (size: number) => ({
     width: size, height: size, borderRadius: 9999,
     background: score > 0 ? tier.bg : 'var(--bg-2)',
@@ -3903,7 +3877,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
         <>
           {(cuisine || priceLabel) && <span style={{ color: 'var(--muted-2)' }}> · </span>}
           <span style={{ color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            <span style={{ color: '#f59e0b' }}>★</span> {place.rating.toFixed(1)}
+            <span style={{ color: 'var(--color-score-mid)' }}>★</span> {place.rating.toFixed(1)}
           </span>
         </>
       )}

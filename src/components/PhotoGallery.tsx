@@ -94,7 +94,7 @@ export const PhotoGallery: React.FC<{
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         {...dragProps}
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-0 bg-surface flex flex-col"
+        className="absolute inset-0 bg-surface flex flex-col kb-pad"
       >
         {/* Header */}
         <div className="flex-shrink-0 pt-safe-4 pb-2 px-5">
