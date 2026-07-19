@@ -2740,10 +2740,11 @@ const AddToNightSheet: React.FC<{
     ? ratings.filter((r) => r.name.toLowerCase().includes(ratedSearch.toLowerCase()) || r.cuisine.toLowerCase().includes(ratedSearch.toLowerCase()))
     : ratings;
 
-  if (!open) return null;
-
+  // Gate INSIDE AnimatePresence — an early `return null` unmounted the sheet
+  // the instant `open` flipped, skipping the slide-down exit entirely.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
@@ -2956,6 +2957,7 @@ const AddToNightSheet: React.FC<{
           </AnimatePresence>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 };
@@ -3432,10 +3434,11 @@ const CreateTripSheet: React.FC<{
 
   const nightCount = startDate && endDate ? getNightCount(startDate, endDate) : 0;
 
-  if (!open) return null;
-
+  // Same open-inside-AnimatePresence gate as AddToNightSheet — the early
+  // `return null` hard-popped the sheet away with no slide-down.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -3609,6 +3612,7 @@ const CreateTripSheet: React.FC<{
           </div>
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 };

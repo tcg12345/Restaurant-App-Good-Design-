@@ -159,6 +159,9 @@
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 22px 20px 0;
+  /* Anchor for the step crossfade: AnimatePresence popLayout positions the
+     exiting step absolutely, which needs this box as its offset parent. */
+  position: relative;
 }
 
 .gcx-stack {

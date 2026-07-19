@@ -17,7 +17,7 @@
  * from ratings / places / recipes, saveGuide persistence with a stable
  * upfront id, and the Live Editor round-trip.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
@@ -1288,6 +1288,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const accountIsPublic = profile?.is_public ?? true;
 
   const [step, setStep] = useState<Step>('basics');
+  // Per-step scroll offsets for the wizard body — saved as the user scrolls,
+  // restored when a step is revisited (a validation jump back to Basics used
+  // to land at the top with the offending field out of view). A step never
+  // visited restores to 0, so forward navigation still starts at the top.
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const stepScrollsRef = useRef<Partial<Record<Step, number>>>({});
+  useLayoutEffect(() => {
+    const el = bodyScrollRef.current;
+    if (el) el.scrollTop = stepScrollsRef.current[step] ?? 0;
+  }, [step]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [type, setType] = useState<GuideType>('restaurants');
   const [source, setSource] = useState<SourceMode>('search');
@@ -1766,13 +1776,15 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
 
   /* ── Render ───────────────────────────────────────────────────── */
 
-  if (!open) return null;
-
   // Live edit needs the guide's substance: a title and at least one entry.
   const liveEditUnlocked = title.trim().length > 0 && entries.length > 0;
 
+  // The open gate lives INSIDE AnimatePresence — an early `return null`
+  // above it unmounted the whole tree the instant `open` flipped, so the
+  // sheet hard-popped away instead of playing its slide-down exit.
   return (
     <AnimatePresence>
+      {open && (
       <motion.div
         key="guide-creator-backdrop"
         initial={{ opacity: 0 }}
@@ -1832,14 +1844,24 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           </div>
 
           {/* ── Scrollable step body ── */}
-          <motion.div layoutScroll className="gcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
-            <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            layoutScroll
+            ref={bodyScrollRef}
+            onScroll={(e) => { stepScrollsRef.current[step] = e.currentTarget.scrollTop; }}
+            className="gcx-body"
+            style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}
+          >
+            {/* popLayout + a short crossfade: the outgoing step pops out of
+                layout and fades WHILE the incoming one fades in — the old
+                mode="wait" fade-out-then-in left ~0.3s of blank sheet
+                between steps. */}
+            <AnimatePresence mode="popLayout" initial={false}>
               <motion.div
                 key={step}
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16, ease: 'easeOut' }}
               >
                 {step === 'basics' && (
                   <StepBasics
@@ -2011,11 +2033,12 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           />
         </motion.div>
       </motion.div>
+      )}
 
       {/* Live Editor overlay — portals itself to document.body so it
           escapes the wizard's stacking context. Render conditionally so
           we don't pay the cost when it isn't open. */}
-      {liveEditOpen && (
+      {open && liveEditOpen && (
         <GuideLiveEditor
           open={liveEditOpen}
           data={liveEditData}

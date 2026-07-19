@@ -12,7 +12,7 @@
 // State: single useReducer so localStorage draft persistence is just a
 // JSON snapshot; the reducer is rebuildable from any saved snapshot.
 
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { localISODate } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
@@ -636,6 +636,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const [currentStep, setCurrentStep] = useState(() =>
     typeof initialStep === 'number' ? Math.max(0, Math.min(LAST_STEP, initialStep)) : 0,
   );
+  // Per-step scroll offsets for the wizard body — saved as the user scrolls,
+  // restored when a step is revisited. Matters most for the failed-publish
+  // jump (setCurrentStep(firstStep) below), which used to land the user at
+  // the top of the step with the offending field somewhere out of view.
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const stepScrollsRef = useRef<Record<number, number>>({});
+  useLayoutEffect(() => {
+    const el = bodyScrollRef.current;
+    if (el) el.scrollTop = stepScrollsRef.current[currentStep] ?? 0;
+  }, [currentStep]);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [showResume, setShowResume] = useState(false);
   const [resumeSlot, setResumeSlot] = useState<ResumeSlot | null>(null);
@@ -1013,7 +1023,12 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       </div>
 
       {/* ── Scrollable step body ── */}
-      <div className="rcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
+      <div
+        className="rcx-body"
+        ref={bodyScrollRef}
+        onScroll={(e) => { stepScrollsRef.current[currentStep] = e.currentTarget.scrollTop; }}
+        style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}
+      >
         <div key={currentStep} className="rcx-step-anim">
           {renderStep()}
           {showValidation && !validation.ok && (
