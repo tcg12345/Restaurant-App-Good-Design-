@@ -41,7 +41,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally, canonicalShareUrl } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
-import { useRecipes } from '../contexts/RecipesContext';
+import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
   searchPlacesByTextPaged,
@@ -89,8 +89,8 @@ import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { getOpenStatus } from '../lib/useRestaurantLocationLabel';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { MichelinMark } from '../components/MichelinBadge';
-import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId, michelinNearby, michelinByName, michelinDistinctionLabel, type MichelinInfo } from '../lib/michelin';
-import type { MichelinChatHit } from '../components/LocationChat';
+import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
+import type { UserContext } from '../lib/location-chat-client';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import {
@@ -1754,19 +1754,8 @@ export const LocationPage: React.FC = () => {
   // recommendations toward the user's taste history, friends, and
   // followed experts. Strictly read-only — same data already shown
   // throughout the app, just packaged for the model.
-  const chatUserContext = useMemo(() => {
-    const ctx: {
-      displayName?: string;
-      username?: string;
-      homeCity?: string;
-      topCuisines?: string[];
-      topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
-      wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
-      recipes?: Array<{ title: string; cuisine?: string }>;
-      friends?: Array<{ displayName: string; username?: string }>;
-      followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
-      circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
-    } = {};
+  const chatUserContext = useMemo<UserContext>(() => {
+    const ctx: UserContext = {};
     if (myProfile?.display_name) ctx.displayName = myProfile.display_name;
     if (myProfile?.username) ctx.username = myProfile.username;
     if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
@@ -2085,51 +2074,6 @@ export const LocationPage: React.FC = () => {
       return [];
     }
   }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
-
-  // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
-  // Local-only (no Google/web). Resolves the city to coords (geocoding a
-  // different city than the current page when Claude passes one), then either
-  // looks up a specific name or pulls everything nearby for the distinctions.
-  const handleChatMichelin = useCallback(async (opts: {
-    distinctions?: string[]; city?: string; name?: string; limit?: number;
-  }): Promise<MichelinChatHit[]> => {
-    const toHit = (m: MichelinInfo): MichelinChatHit => ({
-      ...michelinToPlaceResult(m),
-      recScore: 0,
-      sources: ['google'],
-      michelinDistinction: michelinDistinctionLabel(m),
-      guideUrl: m.guideUrl,
-      cuisineText: m.cuisine,
-      priceText: michelinPriceDisplay(m),
-    });
-    try {
-      // Name lookup: bias toward the resolved city/current coords.
-      let anchorLat = hasCoords ? lat : undefined;
-      let anchorLng = hasCoords ? lng : undefined;
-      const targetCity = opts.city?.trim();
-      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== shortCityName.toLowerCase();
-      if (isOtherCity) {
-        try {
-          const geo = await geocodePlace(targetCity!);
-          if (geo) { anchorLat = geo.lat; anchorLng = geo.lng; }
-        } catch { /* fall back to current coords */ }
-      }
-
-      if (opts.name) {
-        const found = await michelinByName(opts.name, anchorLat, anchorLng, Math.min(opts.limit ?? 5, 10));
-        return found.map(toHit);
-      }
-
-      if (anchorLat == null || anchorLng == null) return [];
-      // Generous radius so "Michelin in NYC" covers the whole metro.
-      const results = await michelinNearby(anchorLat, anchorLng, 12, opts.distinctions ?? []);
-      const cap = Math.min(opts.limit ?? 40, 80);
-      return results.slice(0, cap).map(toHit);
-    } catch (err) {
-      console.error('[LocationPage] handleChatMichelin error:', err);
-      return [];
-    }
-  }, [hasCoords, lat, lng, shortCityName]);
 
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
@@ -3200,10 +3144,12 @@ export const LocationPage: React.FC = () => {
         }}
         origin={origin}
         onSearchRestaurants={handleChatSearch}
-        onSearchMichelin={handleChatMichelin}
         onLookupUser={handleLookupUser}
         onGetCircleRatings={handleGetCircleRatings}
         onAssistantPlaces={handleAssistantPlaces}
+        userContext={chatUserContext}
+        knownPlaces={chatKnownPlaces}
+        recipes={chatRecipesAll}
       />
     </div>
   );
@@ -3233,6 +3179,9 @@ interface LocationPageAssistantPublisherProps {
   onLookupUser: (query: string) => Promise<Array<{ username: string; displayName?: string; bio?: string; isExpert?: boolean; homeCity?: string }>>;
   onGetCircleRatings: (restaurantId: string) => Promise<Array<{ username: string; displayName?: string; isExpert?: boolean; isFriend?: boolean; score?: number; notes?: string }>>;
   onAssistantPlaces: (places: ScoredPlace[]) => void;
+  userContext: UserContext;
+  knownPlaces: ScoredPlace[];
+  recipes: DbRecipe[];
 }
 
 const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherProps> = (props) => {
@@ -3247,6 +3196,9 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     onLookupUser: props.onLookupUser,
     onGetCircleRatings: props.onGetCircleRatings,
     onAssistantPlaces: props.onAssistantPlaces,
+    userContext: props.userContext,
+    knownPlaces: props.knownPlaces,
+    recipes: props.recipes,
   }), [
     props.visible,
     props.restaurantMeta,
@@ -3258,6 +3210,9 @@ const LocationPageAssistantPublisher: React.FC<LocationPageAssistantPublisherPro
     props.onLookupUser,
     props.onGetCircleRatings,
     props.onAssistantPlaces,
+    props.userContext,
+    props.knownPlaces,
+    props.recipes,
   ]);
   useSetAssistantPageContext(ctx);
   return null;

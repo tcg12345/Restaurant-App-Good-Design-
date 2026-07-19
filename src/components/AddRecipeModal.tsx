@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { parseIngredientLine, displayAmount } from '../lib/ingredient-parsing';
 import { processPhoto } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type Recipe, type RecipeIngredient, type PhotoItem } from '../contexts/ListsContext';
@@ -141,6 +142,23 @@ export const AddRecipeModal: React.FC = () => {
   };
 
   const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+
+  // Bulk paste: a multi-line ingredient list pasted into the name field
+  // parses each line ("2 cups flour") through the shared parser and adds
+  // them all — matching the Advanced builder's "paste a list" feature.
+  // Single-line pastes behave like normal typing.
+  const onIngredientPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !text.includes('\n')) return;
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    const parsed = lines.map((line) => {
+      const r = parseIngredientLine(line);
+      return { name: r?.name || line, amount: r?.amount ? displayAmount(r.amount) : '', unit: r?.unit ?? '' };
+    });
+    setIngredients((prev) => [...prev, ...parsed]);
+  };
 
   const addStep = () => {
     if (!newStep.trim()) return;
@@ -419,15 +437,13 @@ export const AddRecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
-              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
-                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
                     {/* Add ingredient form — flat inputs */}
                     <div className="mb-5 space-y-2">
                       <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
-                        placeholder="Ingredient name"
+                        placeholder="Ingredient name (paste a list to add several)" onPaste={onIngredientPaste}
                         className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                       <div className="flex gap-2">
                         <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}

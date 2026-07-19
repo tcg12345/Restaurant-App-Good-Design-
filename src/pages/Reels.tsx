@@ -1981,7 +1981,6 @@ export const Reels: React.FC = () => {
     loadError: postsLoadError, refreshPosts,
     loadMorePosts, hasMorePosts,
     togglePostLike, togglePostSave, deletePost,
-    setPostVisibility: _setPostVisibility,
     openAddPostModal,
     openPostCommentsSheet, closePostCommentsSheet, openPostCommentsId,
     loadPostComments, addPostComment, deletePostComment,

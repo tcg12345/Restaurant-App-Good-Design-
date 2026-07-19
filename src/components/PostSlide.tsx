@@ -687,6 +687,12 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                     </div>
                   )}
 
+                  {/* Audio — collected by both composers; reels always showed
+                      theirs, posts silently dropped it. */}
+                  {post.audioLabel && (
+                    <p className="mb-3 text-white/70 text-[12px] font-mono truncate">♪ {post.audioLabel}</p>
+                  )}
+
                   {/* Stop propagation so tapping the attached card navigates
                       to the restaurant/recipe instead of collapsing. */}
                   <div onClick={(e) => e.stopPropagation()}>

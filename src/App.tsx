@@ -608,7 +608,7 @@ const AppContent: React.FC = () => {
             // real underneath it. The spring stays for tapped navigation.
             transition={instantNav ? { duration: 0 } : { type: 'spring', damping: 20, stiffness: 100 }}
           >
-            <BottomNav collapsible={isMapPage} />
+            <BottomNav />
           </motion.div>
         )}
       </AnimatePresence>

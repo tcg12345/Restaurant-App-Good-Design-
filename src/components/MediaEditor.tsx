@@ -701,15 +701,19 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
   // Default the tab to the most useful one for the media type.
   const [tab, setTab] = useState<Tab>(active?.mediaType === 'video' ? 'trim' : 'crop');
 
+  // Filter-swatch preview: the source for photos, the first extracted
+  // frame for videos (videos used to show a generic gradient).
+  const swatchPreview = useSwatchPreview(active);
+
   // Which text overlay is selected for editing (Text tab). Reset when
   // the active item changes so we never edit a stale overlay.
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   useEffect(() => { setSelectedTextId(null); }, [active?.key]);
 
-  // When the active media type changes, snap to a sensible default tab.
+  // When the active media type changes, snap off tabs the new type
+  // doesn't have (photos have no trim; crop applies to both).
   useEffect(() => {
     if (!active) return;
-    if (active.mediaType === 'video' && (tab === 'crop')) setTab('trim');
     if (active.mediaType === 'photo' && tab === 'trim') setTab('crop');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.key, active?.mediaType]);
@@ -838,7 +842,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                       overlay so the user still sees what their crop
                       looks like, but without grab handles getting
                       in the way of the photo. */}
-                {isActive && tab === 'crop' && it.mediaType === 'photo' ? (
+                {isActive && tab === 'crop' ? (
                   <InteractiveCropOverlay
                     crop={it.edits.crop}
                     natural={naturalSizes[it.key]}
@@ -908,7 +912,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
       {/* Tabs */}
       <div className="flex items-center justify-center gap-1 rounded-full bg-on-surface/[0.05] p-1">
         {([
-          { id: 'crop',   icon: Crop,    label: 'Crop',    show: active.mediaType === 'photo' },
+          { id: 'crop',   icon: Crop,    label: 'Crop',    show: true },
           { id: 'trim',   icon: Scissors,label: 'Trim',    show: active.mediaType === 'video' },
           { id: 'adjust', icon: Sun,     label: 'Adjust',  show: true },
           { id: 'filter', icon: Sparkles,label: 'Filters', show: true },
@@ -950,7 +954,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
             <FilterTab
               edits={edits}
               setEdits={setEdits}
-              previewUrl={active.mediaType === 'photo' ? active.previewUrl : undefined}
+              previewUrl={swatchPreview}
             />
           )}
           {tab === 'text' && (
@@ -1940,6 +1944,29 @@ async function extractFrames(
   return out;
 }
 
+/** Preview URL for swatches/chips: photos use the source directly; videos
+ *  use the first extracted filmstrip frame (shared cache with TrimTab). */
+function useSwatchPreview(item: EditableItem | null | undefined): string | undefined {
+  const isVideo = item?.mediaType === 'video';
+  const previewUrl = item?.previewUrl;
+  const durationSeconds = item?.durationSeconds;
+  const [frame, setFrame] = useState<string | undefined>(() => (
+    isVideo && previewUrl ? framesCacheGet(previewUrl)?.[0] : undefined
+  ));
+  useEffect(() => {
+    if (!isVideo || !previewUrl) { setFrame(undefined); return; }
+    const cached = framesCacheGet(previewUrl);
+    if (cached?.[0]) { setFrame(cached[0]); return; }
+    setFrame(undefined);
+    let cancelled = false;
+    extractFrames(previewUrl, Math.max(MIN_TRIM_SECONDS, durationSeconds ?? 0), (i, url) => {
+      if (!cancelled && i === 0) setFrame(url);
+    }).catch(() => { /* swatches fall back to the gradient */ });
+    return () => { cancelled = true; };
+  }, [isVideo, previewUrl, durationSeconds]);
+  return isVideo ? frame : previewUrl;
+}
+
 const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Partial<EditState>) => void }> = ({ item, edits, setEdits }) => {
   const duration = Math.max(MIN_TRIM_SECONDS, item.durationSeconds ?? 0);
   const trim = edits.trim ?? { start: 0, end: duration };
@@ -2271,7 +2298,7 @@ export const EditorStage: React.FC<{
           onNatural={handleNatural}
         />
       )}
-      {tab === 'crop' && item.mediaType === 'photo' && onEditsChange ? (
+      {tab === 'crop' && onEditsChange ? (
         <InteractiveCropOverlay
           crop={item.edits.crop}
           natural={natural}
@@ -2309,12 +2336,13 @@ export const EditorControls: React.FC<{
 }> = ({ item, tab, onTabChange, onEditsChange, selectedTextId, onSelectTextId, natural }) => {
   const edits = item.edits;
   const setEdits = (next: Partial<EditState>) => onEditsChange({ ...edits, ...next });
+  const swatchPreview = useSwatchPreview(item);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-center gap-1 rounded-full bg-on-surface/[0.05] p-1">
         {([
-          { id: 'crop',   icon: Crop,     label: 'Crop',    show: item.mediaType === 'photo' },
+          { id: 'crop',   icon: Crop,     label: 'Crop',    show: true },
           { id: 'trim',   icon: Scissors, label: 'Trim',    show: item.mediaType === 'video' },
           { id: 'adjust', icon: Sun,      label: 'Adjust',  show: true },
           { id: 'filter', icon: Sparkles, label: 'Filters', show: true },
@@ -2355,7 +2383,7 @@ export const EditorControls: React.FC<{
             <FilterTab
               edits={edits}
               setEdits={setEdits}
-              previewUrl={item.mediaType === 'photo' ? item.previewUrl : undefined}
+              previewUrl={swatchPreview}
               grid
             />
           )}

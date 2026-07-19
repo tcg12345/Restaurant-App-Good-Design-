@@ -114,6 +114,24 @@ export interface Recipe {
   sourceAuthorId?: string;
   sourceAuthorName?: string;
   sourceAuthorUsername?: string;
+  /** The original meal's id when this is a saved copy. Together with
+   *  sourceAuthorId this is the STABLE save identity — matching on title
+   *  meant repeat saves duplicated and renames broke membership. */
+  sourceMealId?: string;
+  /* Advanced-builder fields, carried on list copies so the detail page's
+     cooked-list fallback renders the full rich recipe instead of a
+     degraded flat one when the canonical HomeMeal is gone (original
+     deleted / made private). Optional — flat recipes never set them. */
+  introParagraph?: string;
+  course?: string[];
+  chillTime?: number;
+  yieldDescription?: string;
+  ingredientGroups?: RecipeIngredientGroup[];
+  equipment?: string[];
+  notes?: RecipeNote[];
+  stepDetails?: RecipeStepDetail[];
+  stepGroups?: RecipeStepGroup[];
+  linkedRecipes?: LinkedRecipeRef[];
 }
 
 export interface CustomList {
@@ -325,6 +343,9 @@ export interface HomeMeal {
   sourceAuthorId?: string;
   sourceAuthorName?: string;
   sourceAuthorUsername?: string;
+  /** The original meal's id when this is a saved copy — the stable save
+   *  identity (see Recipe.sourceMealId). */
+  sourceMealId?: string;
 }
 
 interface ListsContextValue {
@@ -844,15 +865,25 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
     sourceAuthorId: r.sourceAuthorId,
     sourceAuthorName: r.sourceAuthorName,
     sourceAuthorUsername: r.sourceAuthorUsername,
+    sourceMealId: r.sourceMealId,
+    introParagraph: r.introParagraph,
+    course: r.course,
+    chillTime: r.chillTime,
+    yieldDescription: r.yieldDescription,
+    ingredientGroups: r.ingredientGroups,
+    equipment: r.equipment,
+    notes: r.notes,
+    stepDetails: r.stepDetails,
+    stepGroups: r.stepGroups,
+    linkedRecipes: r.linkedRecipes,
   };
 }
 
-// Inverse of recipeToHomeMeal: collapse a HomeMeal into the lighter
-// list-Recipe shape stored on home-cooking lists. Rich advanced fields
-// (ingredientGroups / stepDetails / notes / equipment) don't exist on
-// the list-Recipe type — they stay on the canonical HomeMeal in the
-// "All Recipes" pool, which is what the detail page reads. The list
-// only needs enough to render its card (title, cuisine, time, score).
+// Inverse of recipeToHomeMeal: collapse a HomeMeal into the list-Recipe
+// shape stored on home-cooking lists. Advanced-builder fields ride along
+// so the detail page's cooked-list fallback (which renders from this copy
+// when the canonical HomeMeal is private/deleted) shows the full rich
+// recipe instead of a degraded flat one.
 function homeMealToRecipe(m: HomeMeal): Recipe {
   return {
     id: m.id,
@@ -874,6 +905,17 @@ function homeMealToRecipe(m: HomeMeal): Recipe {
     sourceAuthorId: m.sourceAuthorId,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
+    sourceMealId: m.sourceMealId,
+    introParagraph: m.introParagraph,
+    course: m.course,
+    chillTime: m.chillTime,
+    yieldDescription: m.yieldDescription,
+    ingredientGroups: m.ingredientGroups,
+    equipment: m.equipment,
+    notes: m.notes,
+    stepDetails: m.stepDetails,
+    stepGroups: m.stepGroups,
+    linkedRecipes: m.linkedRecipes,
   };
 }
 

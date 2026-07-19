@@ -564,17 +564,18 @@ export const AddPostModal: React.FC = () => {
   };
 
   // Run on Next-button tap: materialize every staged MediaItem and hand
-  // the resulting Files to onPickFiles (which validates videos, appends
-  // to items, and is followed by an explicit advance). Returns true if
-  // we got at least as far as calling onPickFiles.
+  // the resulting Files to onPickFiles (which validates videos and appends
+  // to items). Returns true only when at least one file was ACCEPTED —
+  // "we called onPickFiles" used to count as success, which advanced the
+  // wizard to an empty step 2 while the validation message stayed behind.
   const materializeNativePicks = async (): Promise<boolean> => {
     if (nativePicks.length === 0) return false;
     setNativeMaterializing(true);
     try {
       const files = await readStagedNativeFiles();
-      await onPickFiles(files);
+      const accepted = await onPickFiles(files);
       setNativePicks([]);
-      return true;
+      return accepted > 0;
     } catch (err) {
       console.warn('[AddPost] native materialize failed:', err);
       setValidationMsg("Couldn't load one of the selected items — try again.");

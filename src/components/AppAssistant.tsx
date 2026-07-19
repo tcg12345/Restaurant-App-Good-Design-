@@ -368,8 +368,9 @@ export const AppAssistant: React.FC = () => {
   // Gate by route + auth — assistant lives only inside the signed-in app.
   const hidden = !auth.isSignedIn || !auth.profileComplete || shouldHideAssistant(location.pathname, settings.phoneMode);
 
-  /* ── Build the user context for the system prompt ───────────── */
-  const userContext = useMemo<UserContext | undefined>(() => {
+  /* ── Build the fallback user context for the system prompt (pages
+       can publish a richer one — see below) ─────────────────────── */
+  const fallbackUserContext = useMemo<UserContext | undefined>(() => {
     if (!auth.profile) return undefined;
     const ctx: UserContext = {};
     if (auth.profile.display_name) ctx.displayName = auth.profile.display_name;
@@ -424,14 +425,14 @@ export const AppAssistant: React.FC = () => {
     return ctx;
   }, [auth.profile, lists.ratings, lists.wishlist, recipes.myRecipes]);
 
-  /* ── knownPlaces (rated + wishlist) — augmented with the
-       location-page's visible pool when published ─────────────── */
-  const knownPlaces = useMemo<ScoredPlace[]>(() => {
+  /* ── knownPlaces (rated + wishlist) — the page-published build is
+       preferred below when present ───────────────────────────────── */
+  const fallbackKnownPlaces = useMemo<ScoredPlace[]>(() => {
     return buildKnownPlaces(lists.ratings, lists.wishlist);
   }, [lists.ratings, lists.wishlist]);
 
   /* ── Filter out stub recipes for the recipe-card lookup ──────── */
-  const chatRecipesAll = useMemo(() => {
+  const fallbackRecipesAll = useMemo(() => {
     const seen = new Set<string>();
     const out: typeof recipes.myRecipes = [];
     for (const r of recipes.myRecipes) {
@@ -444,6 +445,14 @@ export const AppAssistant: React.FC = () => {
     }
     return out;
   }, [recipes.myRecipes]);
+
+  /* ── Prefer the page-published personalization over the local
+       fallbacks. LocationPage builds a much richer context (friends,
+       followed experts, circle signals, meta-enriched neighborhoods)
+       that used to be computed and then dropped on the floor. ────── */
+  const userContext = pageContext?.userContext ?? fallbackUserContext;
+  const knownPlaces = pageContext?.knownPlaces ?? fallbackKnownPlaces;
+  const chatRecipesAll = pageContext?.recipes ?? fallbackRecipesAll;
 
   /* ── Community recipes cache + lazy loader ───────────────────────
      The search_community_recipes tool needs access to TWO data

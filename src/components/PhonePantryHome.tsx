@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Bookmark, ChefHat, ChevronRight, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
+import { Bookmark, ChefHat, ChevronRight, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
@@ -446,73 +446,6 @@ const RecipeListCard: React.FC<{ list: CustomList; onClick: () => void }> = ({ l
   );
 };
 
-// Kept for potential future use — the recipe grid card used to show
-// individual meals. The new layout reaches them via the "All Recipes"
-// essential or the recipe sub-list detail view, so the export is unused
-// here. Leaving the component in case a future view wants it.
-export const RecipeCard: React.FC<{ meal: HomeMeal; onClick: () => void }> = ({ meal, onClick }) => {
-  const cover = meal.coverPhoto || meal.photos?.[0]?.url || '';
-  const total = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-  const color = colorForId(meal.id);
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between active:scale-[0.98] transition-transform"
-      style={cover ? undefined : { backgroundImage: `linear-gradient(135deg, ${color.from}, ${color.to})` }}
-    >
-      {cover && (
-        <>
-          <img
-            src={cover}
-            alt={meal.name}
-            className="absolute inset-0 w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/15" />
-        </>
-      )}
-      <div className="relative flex items-start justify-between">
-        {meal.score > 0 ? (
-          <span
-            className={cn(
-              'w-9 h-9 rounded-full border flex items-center justify-center font-bold text-[12px] tabular-nums shadow-md shadow-black/20',
-              scoreBadgeBg(meal.score),
-              scoreColor(meal.score),
-            )}
-          >
-            {meal.score.toFixed(1)}
-          </span>
-        ) : (
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">
-            Recipe
-          </span>
-        )}
-        {!cover && <ChefHat size={20} className="text-white/85" />}
-      </div>
-      <div className="relative">
-        <p className="text-white font-serif font-bold text-[18px] leading-tight line-clamp-2">{meal.name}</p>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-white/80">
-          {total > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Clock size={10} />
-              {formatDuration(total)}
-            </span>
-          )}
-          {meal.cuisine && total > 0 && <span className="text-white/40">·</span>}
-          {meal.cuisine && <span>{meal.cuisine}</span>}
-          {meal.difficulty && !meal.cuisine && total === 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Flame size={10} />
-              {meal.difficulty}
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-};
 
 function formatDuration(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);

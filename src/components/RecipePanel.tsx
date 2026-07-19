@@ -578,17 +578,24 @@ const RecipePanelBody: React.FC<{
     [lists],
   );
 
+  const sourceMealId = meal?.id || recipe.id;
+
   const isInMyRecipes = useMemo(() => {
     if (!meal) return false;
     return homeMeals.some(
-      (m) => m.name === meal.name && (m.description || '').includes(ORIGIN_TAG),
+      (m) => (m.sourceMealId
+        ? m.sourceMealId === sourceMealId && m.sourceAuthorId === authorId
+        // Legacy copies (pre-sourceMealId): title + origin-tag heuristic.
+        : m.name === meal.name && (m.description || '').includes(ORIGIN_TAG)),
     );
-  }, [homeMeals, meal, ORIGIN_TAG]);
+  }, [homeMeals, meal, ORIGIN_TAG, sourceMealId, authorId]);
 
   const isInList = (listId: string): boolean => {
     const list = recipeLists.find((l) => l.id === listId);
     if (!list?.recipes) return false;
-    return list.recipes.some((r) => r.title === recipeTitle);
+    return list.recipes.some((r) => (r.sourceMealId
+      ? r.sourceMealId === sourceMealId && r.sourceAuthorId === authorId
+      : r.title === recipeTitle));
   };
 
   const totalSavedCount = useMemo(() => {
@@ -615,6 +622,10 @@ const RecipePanelBody: React.FC<{
     score: 0,
     isPrivate: true,
     createdAt: Date.now(),
+    sourceAuthorId: authorId,
+    sourceAuthorName: author?.display_name || undefined,
+    sourceAuthorUsername: author?.username || undefined,
+    sourceMealId,
   });
 
   const saveToMyRecipes = () => {
@@ -640,6 +651,10 @@ const RecipePanelBody: React.FC<{
       cuisine: meal.cuisine,
       ingredients: meal.ingredients,
       steps: meal.steps,
+      sourceAuthorId: authorId,
+      sourceAuthorName: author?.display_name || undefined,
+      sourceAuthorUsername: author?.username || undefined,
+      sourceMealId,
     };
     createHomeMeal(copy);
   };
@@ -661,7 +676,9 @@ const RecipePanelBody: React.FC<{
     const list = recipeLists.find((l) => l.id === id);
     if (!list) return;
     if (isInList(id)) {
-      const existing = list.recipes?.find((r) => r.title === recipeTitle);
+      const existing = list.recipes?.find((r) => (r.sourceMealId
+        ? r.sourceMealId === sourceMealId && r.sourceAuthorId === authorId
+        : r.title === recipeTitle));
       if (existing) {
         removeRecipe(id, existing.id);
         showToast(`Removed from ${list.name}`);

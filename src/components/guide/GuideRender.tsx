@@ -268,9 +268,8 @@ export interface EditorAdapter {
   };
   /** Override the chip list renderer (editor mode adds inline add/remove). */
   renderChips?: (props: { values: string[]; onChange?: (next: string[]) => void; placeholder?: string; chipClass?: string; readOnly: boolean }) => ReactNode;
-  /** Override score / price inline renderers. */
+  /** Override the score inline renderer. */
   renderScore?: (props: { value: number; onChange?: (v: number) => void; readOnly: boolean }) => ReactNode;
-  renderPrice?: (props: { value: string; onChange?: (v: string) => void; readOnly: boolean }) => ReactNode;
 }
 
 const defaultImage: NonNullable<EditorAdapter['renderImage']> = ({ src, alt, className, style }) => (
@@ -285,9 +284,6 @@ const defaultChips: NonNullable<EditorAdapter['renderChips']> = ({ values, chipC
 
 const defaultScore: NonNullable<EditorAdapter['renderScore']> = ({ value }) =>
   <span className="gle-score-num">{value.toFixed(1)}</span>;
-
-const defaultPrice: NonNullable<EditorAdapter['renderPrice']> = ({ value }) =>
-  <span className="gle-price">{value}</span>;
 
 /* ─────────────────────────────────────────────────────────────────
    Hero

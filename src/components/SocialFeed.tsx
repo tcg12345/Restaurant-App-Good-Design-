@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
-import { ShareRecipeSheet } from './ShareRecipeSheet';
+
 import { ShareDialog } from './ShareDialog';
 import { CommentsBody } from '../pages/Reels';
 import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
@@ -1763,9 +1763,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )}
       </div>
 
-      <ShareRecipeSheet
+      <ShareDialog
         open={!!shareRecipeData}
-        recipe={shareRecipeData}
+        payload={shareRecipeData ? { sharedRecipe: shareRecipeData } : null}
         onClose={() => setShareRecipeData(null)}
       />
 

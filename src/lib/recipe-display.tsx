@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, type LucideIcon } from 'lucide-react';
+import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, RotateCcw, type LucideIcon } from 'lucide-react';
 import { cn } from './utils';
 import { normalizeQuantityToken } from './ingredient-parsing';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -362,7 +362,7 @@ interface RecipeIngredientListProps {
  * RecipesContext so it survives in-session navigation.
  */
 export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings, compact }) => {
-  const { getCheckedIngredients, toggleIngredientCheck } = useRecipes();
+  const { getCheckedIngredients, toggleIngredientCheck, clearIngredientChecks } = useRecipes();
   const checked = getCheckedIngredients(recipeKey);
   const ratio = servings?.scale ?? 1;
 
@@ -406,6 +406,21 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
         </div>
       )}
 
+      {/* Checked state persists across sessions (RecipesContext) so a
+          half-shopped list survives navigation — which also meant checks
+          from the LAST cook accumulated forever with no way to reset. */}
+      {checked.size > 0 && (
+        <div className="flex justify-end pb-1">
+          <button
+            type="button"
+            onClick={() => clearIngredientChecks(recipeKey)}
+            className="hit-44-y inline-flex items-center gap-1.5 text-[12px] font-semibold text-on-surface/50 hover:text-on-surface transition-colors"
+          >
+            <RotateCcw size={12} />
+            Reset checks ({checked.size})
+          </button>
+        </div>
+      )}
       <ul className={cn(
         compact
           // Dotted hairline between rows in the compact variant.

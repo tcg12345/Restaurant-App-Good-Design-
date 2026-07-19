@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Search, Clock, Users, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { parseIngredientLine, displayAmount } from '../lib/ingredient-parsing';
 import { processPhoto } from '../lib/images';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeStep } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -134,7 +135,6 @@ export const RecipeModal: React.FC = () => {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
     setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
   };
-  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const movePhoto = (from: number, to: number) => {
     setPhotos((prev) => {
       const next = [...prev];
@@ -157,6 +157,23 @@ export const RecipeModal: React.FC = () => {
   };
 
   const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+
+  // Bulk paste: a multi-line ingredient list pasted into the name field
+  // parses each line ("2 cups flour") through the shared parser and adds
+  // them all — matching the Advanced builder's "paste a list" feature.
+  // Single-line pastes behave like normal typing.
+  const onIngredientPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !text.includes('\n')) return;
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) return;
+    e.preventDefault();
+    const parsed = lines.map((line) => {
+      const r = parseIngredientLine(line);
+      return { name: r?.name || line, amount: r?.amount ? displayAmount(r.amount) : '', unit: r?.unit ?? '' };
+    });
+    setIngredients((prev) => [...prev, ...parsed]);
+  };
 
   const addStep = () => {
     if (!stepText.trim()) return;
@@ -283,7 +300,18 @@ export const RecipeModal: React.FC = () => {
                               className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
                               <Camera size={14} className="text-white" />
                             </button>
-                            <button onClick={() => setCoverPhoto('')}
+                            <button
+                              onClick={() => {
+                                // Explicit promotion: pull the first gallery
+                                // photo into the cover slot so the user SEES
+                                // the recipe's next cover (the save used to
+                                // promote it silently — photos[0] is the
+                                // cover by storage convention).
+                                setPhotos((prev) => {
+                                  setCoverPhoto(prev.length > 0 ? prev[0].url : '');
+                                  return prev.length > 0 ? prev.slice(1) : prev;
+                                });
+                              }}
                               className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
                               <X size={14} className="text-white" />
                             </button>
@@ -428,17 +456,15 @@ export const RecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
-              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
-                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
                     {/* Add ingredient form — flat inputs, no card chrome */}
                     <div className="mb-5 space-y-2">
                       <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)} ref={ingNameFocusRef}
-                        placeholder="Ingredient name"
+                        placeholder="Ingredient name (paste a list to add several)"
                         className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
-                        onKeyDown={(e) => e.key === 'Enter' && addIngredient()} />
+                        onKeyDown={(e) => e.key === 'Enter' && addIngredient()} onPaste={onIngredientPaste} />
                       <div className="flex gap-2">
                         <input type="text" value={ingAmount} onChange={(e) => setIngAmount(e.target.value)}
                           placeholder="Amount" className="flex-1 bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
@@ -610,13 +636,6 @@ export const RecipeModal: React.FC = () => {
                         </div>
                         {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
                           <div className="px-5 pt-4 pb-2 mt-0.5 border-t border-on-surface/[0.06] space-y-3">
-                            <input
-                              type="text"
-                              value={photos[selectedPhotoIdx].caption}
-                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
-                              placeholder="Add a caption…"
-                              className="w-full bg-on-surface/[0.04] rounded-full px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
-                            />
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => {

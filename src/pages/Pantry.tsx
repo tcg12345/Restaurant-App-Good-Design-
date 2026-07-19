@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
-import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
+import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
 import { moveWithinCustomOrder } from '../lib/customOrder';
@@ -648,17 +648,12 @@ const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: st
 const RestaurantRow: React.FC<{
   restaurantId: string;
   name: string;
-  image: string;
   cuisine: string;
   price: string;
   address: string;
   score?: number;
   /** Position in the list (1-based) — shown as the rank prefix/gutter. */
   rank?: number;
-  tags?: string[];
-  notes?: string;
-  visitDate?: string;
-  listBadges?: { emoji: string; name: string }[];
   onEdit?: () => void;
   onRemove?: () => void;
   removeLabel?: string;
@@ -1386,7 +1381,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -2273,14 +2268,10 @@ const ListDetailView: React.FC<{
                     restaurantId={id}
                     rank={idx + 1}
                     name={info?.name ?? id}
-                    image={info?.image ?? ''}
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
                     address={info?.address ?? ''}
                     score={rating?.score}
-                    tags={rating?.tags}
-                    notes={rating?.notes}
-                    visitDate={rating?.visitDate}
                     onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
@@ -2349,11 +2340,9 @@ const ListDetailView: React.FC<{
                       key={id}
                       restaurantId={id}
                       name={info?.name ?? id}
-                      image={info?.image ?? ''}
                       cuisine={info?.cuisine ?? ''}
                       price={info?.price ?? ''}
                       address={info?.address}
-                      notes={wishItem?.notes}
                       onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                     />
                   ))}
@@ -2647,9 +2636,8 @@ const AddToNightSheet: React.FC<{
   ratings: RestaurantRating[];
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
-  rateRestaurant: (rating: RestaurantRating) => void;
   onClose: () => void;
-}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, onClose }) => {
   const { phoneMode } = useSettings();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
@@ -2972,14 +2960,13 @@ const TripsTab: React.FC<{
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   updateTripRestaurant: (tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => void;
   removeRestaurantFromTrip: (tripId: string, restaurantId: string, night: number) => void;
-  rateRestaurant: (rating: RestaurantRating) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   ratings: RestaurantRating[];
   onBack: () => void;
   autoCreate?: boolean;
   onAutoCreateHandled?: () => void;
-}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
+}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -3250,7 +3237,6 @@ const TripsTab: React.FC<{
           ratings={ratings}
           addRestaurantToTrip={addRestaurantToTrip}
           openAddRestaurantModal={openAddRestaurantModal}
-          rateRestaurant={rateRestaurant}
           onClose={() => setAddNightSheetOpen(false)}
         />
       </div>
@@ -3635,7 +3621,6 @@ const HOME_MEAL_TAGS = ['Comfort Food', 'Healthy', 'Quick & Easy', 'Baking', 'Da
 
 const HomeCookingTab: React.FC<{
   meals: HomeMeal[];
-  onCreateMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
   onUpdateMeal: (id: string, updates: Partial<HomeMeal>) => void;
   onDeleteMeal: (id: string) => void;
   onOpenModal: (meal?: HomeMeal) => void;
@@ -3646,7 +3631,7 @@ const HomeCookingTab: React.FC<{
   // tab strip + back via the Restaurants tab — skip the local back
   // button + duplicate header to avoid two layers of chrome.
   hideHeader?: boolean;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
+}> = ({ meals, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -4247,9 +4232,9 @@ const HomeCookingTab: React.FC<{
     );
 
     const shareSheet = (
-      <ShareRecipeSheet
+      <ShareDialog
         open={!!shareRecipeData}
-        recipe={shareRecipeData}
+        payload={shareRecipeData ? { sharedRecipe: shareRecipeData } : null}
         onClose={() => setShareRecipeData(null)}
       />
     );
@@ -5213,184 +5198,6 @@ const RecipeFilterSheet: React.FC<{
   );
 };
 
-/* ── Reusable bottom-sheet pickers ──
-   These three sheets render the same kind of pop-up the rated view's
-   City / Cuisine / Price / Sort pills open. Extracted so the wishlist
-   (and any future list view) can reuse them with its own state. */
-
-const FilterListSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  placeholder: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-}> = ({ open, onClose, title, placeholder, options, selected, onToggle }) => {
-  const { phoneMode } = useSettings();
-  const [search, setSearch] = useState('');
-  useEffect(() => { if (!open) setSearch(''); }, [open]);
-  const q = search.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn(
-              'fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden',
-              phoneMode ? 'max-h-[92vh]' : 'max-h-[70vh]',
-            )}
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              <h3 className="font-serif font-bold text-lg">{title}</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            <div className="px-5 pt-3 pb-2 flex-shrink-0">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input
-                  type="text"
-                  placeholder={placeholder}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
-              {filtered.length === 0 ? (
-                <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
-              ) : filtered.map((opt) => {
-                const isSelected = selected.includes(opt);
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => onToggle(opt)}
-                    className={cn(
-                      'w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/[0.05] text-left transition-colors',
-                      isSelected ? 'text-primary bg-primary/[0.03]' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
-                    )}
-                  >
-                    <span className="text-sm font-medium">{opt}</span>
-                    {isSelected && <Check size={16} className="text-primary" />}
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-const PricePickerSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  value: string | null;
-  onChange: (v: string | null) => void;
-}> = ({ open, onClose, value, onChange }) => {
-  const { phoneMode } = useSettings();
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="px-5 pt-3 pb-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-serif font-bold text-base">Price Range</h3>
-                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
-                  <X size={14} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="flex gap-2">
-                {['$', '$$', '$$$', '$$$$'].map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => { onChange(value === p ? null : p); onClose(); }}
-                    className={cn(
-                      'flex-1 py-3 rounded-xl text-sm font-bold transition-all border-2',
-                      value === p ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                    )}
-                  >{p}</button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-const SortPickerSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  value: string;
-  onChange: (v: string) => void;
-  options: ReadonlyArray<readonly [string, string]>;
-}> = ({ open, onClose, value, onChange, options }) => {
-  const { phoneMode } = useSettings();
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="px-5 pt-3 pb-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-serif font-bold text-base">Sort By</h3>
-                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
-                  <X size={14} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                {options.map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => { onChange(key); onClose(); }}
-                    className={cn(
-                      'w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left',
-                      value === key ? 'bg-primary/5 text-primary' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
-                    )}
-                  >
-                    <span className="text-sm font-medium">{label}</span>
-                    {value === key && <Check size={16} className="text-primary" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
 /* ── Combined Restaurants/Recipes tab + list-selector ──
    The active tab carries the current list info (emoji + name + count
    + chevron) and toggles a dropdown when clicked. The inactive tab
@@ -5607,7 +5414,7 @@ const SortPickerContent: React.FC<{
 );
 
 // Searchable scrollable list — used inside CityPill + CuisinePill
-// popovers. Lighter chrome than FilterListSheet (no big header bar).
+// popovers. Lighter chrome than a full bottom sheet (no big header bar).
 const SearchableMultiSelect: React.FC<{
   placeholder: string;
   options: string[];
@@ -5864,10 +5671,9 @@ export const Pantry: React.FC = () => {
     lists, createList,
     ratings, openAddRestaurantModal, removeRating,
     wishlist, restaurantMeta,
-    getListsForRestaurant,
     trips, createTrip, updateTrip, deleteTrip,
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
-    rateRestaurant, cacheRestaurantMeta, addToList,
+    cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
@@ -6434,7 +6240,6 @@ export const Pantry: React.FC = () => {
         ) : showHomeCooking ? (
           <HomeCookingTab
             meals={homeMeals}
-            onCreateMeal={createHomeMeal}
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
@@ -6455,7 +6260,6 @@ export const Pantry: React.FC = () => {
             addRestaurantToTrip={addRestaurantToTrip}
             updateTripRestaurant={updateTripRestaurant}
             removeRestaurantFromTrip={removeRestaurantFromTrip}
-            rateRestaurant={rateRestaurant}
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
@@ -6794,7 +6598,6 @@ export const Pantry: React.FC = () => {
                 {filteredRatings.length > 0 ? (
                   <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch" : phoneMode ? "divide-y divide-on-surface/[0.06]" : "space-y-2.5"}>
                     {filteredRatings.map((r, idx) => {
-                      const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
                       return (sortBy !== 'custom' && effectiveViewMode === 'grid') ? (
                         <RestaurantGridCard
@@ -6855,15 +6658,10 @@ export const Pantry: React.FC = () => {
                               restaurantId={r.restaurantId}
                               rank={isCustom ? undefined : idx + 1}
                               name={r.name}
-                              image={r.image}
                               cuisine={r.cuisine}
                               price={r.price}
                               address={r.address}
                               score={r.score}
-                              tags={r.tags}
-                              notes={r.notes}
-                              visitDate={r.visitDate}
-                              listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
                               onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                               onRemove={() => removeRating(r.restaurantId)}
                               showMichelin={michelinFilter.length > 0}

@@ -9,7 +9,7 @@
  *   that opens a popover for the URL plus optional fit / position /
  *   brightness / saturation controls.
  * - `<EditableChips>` is a chip list with inline add + per-chip remove.
- * - `<EditableScore>` and `<EditablePrice>` are popover-based numeric/
+ * - `<EditableScore>` is a popover-based numeric
  *   symbolic inline editors.
  * - `<SectionChrome>` is the hover toolbar that sits at the top of each
  *   major section in the editor and gives the user a settings + hide
@@ -466,43 +466,6 @@ export const EditableScore: React.FC<{ value: number; onChange: (v: number) => v
             />
             <span className={cn('gle-score-val', cls)}>{value.toFixed(1)}</span>
           </div>
-        </div>
-      )}
-    </span>
-  );
-};
-
-/* ────────────────────────────────────────────────────────────────
-   Editable price
-   ──────────────────────────────────────────────────────────────── */
-
-export const EditablePrice: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
-  return (
-    <span className="gle-price-wrap" ref={ref}>
-      <button type="button" className="gle-price-trigger" onClick={() => setOpen((v) => !v)}>
-        {value || '$'}
-        <ChevronDown size={11} />
-      </button>
-      {open && (
-        <div className="gle-price-pop">
-          {(['$', '$$', '$$$', '$$$$'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={cn('gle-price-opt', value === p && 'on')}
-              onClick={() => { onChange(p); setOpen(false); }}
-            >
-              {p}
-            </button>
-          ))}
         </div>
       )}
     </span>
