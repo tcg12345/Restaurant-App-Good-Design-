@@ -50,16 +50,17 @@ export type PantryTab = 'restaurants' | 'recipes';
 
 // Deterministic color palette so a list's tile color is stable across
 // renders without storing one on the model. Hash the id, mod into the
-// palette. Tones are warm/muted to match the screenshot.
+// palette. Hexes live in index.css (@theme --color-tile-*) so all tile
+// colors have one home; consumed via var() in inline gradients here.
 const LIST_PALETTE: Array<{ from: string; to: string }> = [
-  { from: '#7B9CC4', to: '#506E92' }, // dusty blue
-  { from: '#8E6C82', to: '#604858' }, // dusty purple
-  { from: '#7A9270', to: '#506049' }, // forest green
-  { from: '#C2725D', to: '#8D4A3C' }, // rust
-  { from: '#D4A85A', to: '#A07F39' }, // gold
-  { from: '#9C7A5A', to: '#71583E' }, // tan
-  { from: '#5F8C8A', to: '#41615F' }, // teal
-  { from: '#B16A6A', to: '#82494B' }, // brick
+  { from: 'var(--color-tile-blue)', to: 'var(--color-tile-blue-deep)' },
+  { from: 'var(--color-tile-purple)', to: 'var(--color-tile-purple-deep)' },
+  { from: 'var(--color-tile-green)', to: 'var(--color-tile-green-deep)' },
+  { from: 'var(--color-tile-rust)', to: 'var(--color-tile-rust-deep)' },
+  { from: 'var(--color-tile-gold)', to: 'var(--color-tile-gold-deep)' },
+  { from: 'var(--color-tile-tan)', to: 'var(--color-tile-tan-deep)' },
+  { from: 'var(--color-tile-teal)', to: 'var(--color-tile-teal-deep)' },
+  { from: 'var(--color-tile-brick)', to: 'var(--color-tile-brick-deep)' },
 ];
 
 function colorForId(id: string) {
@@ -272,7 +273,7 @@ const RatedCard: React.FC<{ count: number; topScores: number[]; onClick: () => v
     <button
       type="button"
       onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#2C2826] to-[#161311] active:scale-[0.98] transition-transform"
+      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-rated to-tile-rated-deep active:scale-[0.98] transition-transform"
     >
       <div className="flex items-start justify-between">
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55 bg-white/10 px-2 py-0.5 rounded-full">
@@ -284,7 +285,7 @@ const RatedCard: React.FC<{ count: number; topScores: number[]; onClick: () => v
               <div
                 key={i}
                 className={cn(
-                  'w-9 h-9 rounded-full border ring-2 ring-[#2C2826] flex items-center justify-center font-bold text-[12px] tabular-nums',
+                  'w-9 h-9 rounded-full border ring-2 ring-tile-rated flex items-center justify-center font-bold text-[12px] tabular-nums',
                   scoreBadgeBg(s),
                   scoreColor(s),
                 )}
@@ -309,7 +310,7 @@ const WishlistCard: React.FC<{ count: number; onClick: () => void }> = ({ count,
   <button
     type="button"
     onClick={onClick}
-    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#D26A4A] to-[#A8482E] active:scale-[0.98] transition-transform"
+    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-wish to-tile-wish-deep active:scale-[0.98] transition-transform"
   >
     <div className="flex items-start justify-between">
       <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">
@@ -335,7 +336,7 @@ const AllRecipesCard: React.FC<{ count: number; topMeal?: HomeMeal; onClick: () 
     <button
       type="button"
       onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#2F4A39] to-[#15281D] active:scale-[0.98] transition-transform"
+      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-recipes to-tile-recipes-deep active:scale-[0.98] transition-transform"
     >
       {cover && (
         <>
@@ -345,7 +346,7 @@ const AllRecipesCard: React.FC<{ count: number; topMeal?: HomeMeal; onClick: () 
             className="absolute inset-0 w-full h-full object-cover opacity-50"
             referrerPolicy="no-referrer"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#15281D]/95 via-[#15281D]/55 to-[#15281D]/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-tile-recipes-deep/95 via-tile-recipes-deep/55 to-tile-recipes-deep/30" />
         </>
       )}
       <div className="relative flex items-start justify-between">
@@ -372,7 +373,7 @@ const WantToCookCard: React.FC<{ count: number; onClick: () => void }> = ({ coun
   <button
     type="button"
     onClick={onClick}
-    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#C68F3A] to-[#8E5E1F] active:scale-[0.98] transition-transform"
+    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-cook to-tile-cook-deep active:scale-[0.98] transition-transform"
   >
     <div className="flex items-start justify-between">
       <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">

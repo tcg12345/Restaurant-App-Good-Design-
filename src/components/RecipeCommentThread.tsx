@@ -11,6 +11,7 @@ import {
   type RecipeComment,
 } from '../lib/supabase-recipes';
 import { cn } from '../lib/utils';
+import { avatarHue } from '../lib/avatar';
 
 /**
  * Real comment thread for a recipe / home meal, keyed by `targetId` (the meal
@@ -32,11 +33,6 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function hueOf(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = ((h * 31) + id.charCodeAt(i)) | 0;
-  return Math.abs(h) % 360;
-}
 
 interface Props {
   targetId: string;
@@ -141,7 +137,7 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
       <div
         className={cn('rounded-full grid place-items-center text-white font-bold flex-shrink-0',
           isReply ? 'w-7 h-7 text-[11px]' : 'w-8 h-8 text-[12px]')}
-        style={{ background: `hsl(${hueOf(c.user_id)} 50% 45%)` }}
+        style={{ background: `hsl(${avatarHue(c.user_id)} 50% 45%)` }}
       >
         {nameOf(c.user_id).charAt(0).toUpperCase()}
       </div>

@@ -1228,7 +1228,7 @@ export const AddPostModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full h-full bg-[#16120e] text-white flex flex-col overflow-hidden"
+            className="relative w-full h-full bg-media-canvas text-white flex flex-col overflow-hidden"
           >
             <input
               ref={fileInputRef}
@@ -1964,7 +1964,7 @@ export const AddPostModal: React.FC = () => {
               />
 
               {/* Media canvas (left) */}
-              <div className="flex-1 min-w-0 relative bg-[#16120e] flex items-center justify-center overflow-hidden">
+              <div className="flex-1 min-w-0 relative bg-media-canvas flex items-center justify-center overflow-hidden">
                 {activeItem ? (
                   <>
                     <motion.div

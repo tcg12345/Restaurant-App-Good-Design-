@@ -33,6 +33,20 @@ export interface ExternalShareInput {
 const PUBLIC_WEB_ORIGIN = (import.meta.env.VITE_PUBLIC_WEB_ORIGIN as string | undefined)?.replace(/\/+$/, '') || '';
 
 /**
+ * Build a canonical share URL for an in-app path ("/guides/123", "/r/reel-x").
+ * Prefers the configured public web origin so links built inside the native
+ * shell are real https URLs; falls back to the current origin, which is
+ * already public on the web build. (A capacitor:// fallback from an
+ * unconfigured native build is still caught by shareableUrl at share time.)
+ */
+export function canonicalShareUrl(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  if (PUBLIC_WEB_ORIGIN) return `${PUBLIC_WEB_ORIGIN}${p}`;
+  if (typeof window !== 'undefined') return `${window.location.origin}${p}`;
+  return p;
+}
+
+/**
  * Reduce an arbitrary URL down to one the OS share sheet will accept.
  * Public http(s) links pass through; `capacitor://`/localhost links are
  * rewritten onto PUBLIC_WEB_ORIGIN when configured, otherwise dropped so we

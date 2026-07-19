@@ -631,7 +631,7 @@ const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: st
       {s.label && (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? 'var(--color-score-high)' : 'var(--color-score-low)' }} />
-          <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
+          <span className="font-bold" style={{ color: s.open ? 'var(--color-score-high-ink)' : 'var(--color-score-low-ink)' }}>{s.label}</span>
         </span>
       )}
       {s.detail && <span className="truncate font-medium text-on-surface/40">{s.detail}</span>}
@@ -779,7 +779,7 @@ const RestaurantRow: React.FC<{
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#7a7a79' }}
+                style={{ background: 'var(--color-swipe-neutral)' }}
                 aria-label="Edit"
               >
                 <Edit3 size={19} />
@@ -790,7 +790,7 @@ const RestaurantRow: React.FC<{
               <button
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#c0392b' }}
+                style={{ background: 'var(--color-danger)' }}
                 aria-label="Delete"
               >
                 <Trash2 size={19} />
@@ -4908,7 +4908,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onToggleVisibility?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: isPrivate ? '#5c6144' : '#9a8f89' }}
+                style={{ background: isPrivate ? 'var(--color-olive)' : 'var(--color-swipe-muted)' }}
                 aria-label={isPrivate ? 'Make public' : 'Make private'}
               >
                 {isPrivate ? <Globe size={19} /> : <Lock size={19} />}
@@ -4919,7 +4919,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#7a7a79' }}
+                style={{ background: 'var(--color-swipe-neutral)' }}
                 aria-label="Edit"
               >
                 <Edit3 size={19} />
@@ -4930,7 +4930,7 @@ const RecipeRow: React.FC<RecipeCardData & {
               <button
                 onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
                 className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: '#c0392b' }}
+                style={{ background: 'var(--color-danger)' }}
                 aria-label="Delete"
               >
                 <Trash2 size={19} />

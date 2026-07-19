@@ -768,7 +768,7 @@ export const AddReelModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full h-full bg-[#16120e] text-white flex flex-col overflow-hidden"
+            className="relative w-full h-full bg-media-canvas text-white flex flex-col overflow-hidden"
           >
             <input
               ref={fileInputRef}

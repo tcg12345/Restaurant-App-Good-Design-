@@ -433,6 +433,9 @@ export const RestaurantPanelBody: React.FC<{
       interactive: false,
       attributionControl: false,
     });
+    // Mapbox ToS requires attribution on every map, decorative locators
+    // included — keep it, but compact so it stays out of the title's way.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, el);
     mapInstanceRef.current = map;
     new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
@@ -519,14 +522,9 @@ export const RestaurantPanelBody: React.FC<{
           <motion.div
             key={`${snapshot.id}-${lat}-${lng}`}
             ref={mapContainerRef}
-            // Arbitrary-variant Tailwind classes hide the Mapbox logo and
-            // attribution chrome that would otherwise sit over the title.
-            // The map is decorative in this context (non-interactive, used
-            // as a locator), so the attribution moves to the full detail
-            // page where the interactive map lives.
             // The saturate filter quiets the cartography slightly so it
             // reads as warm gray rather than bright pastel.
-            className="absolute inset-x-0 top-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
+            className="absolute inset-x-0 top-0"
             style={{ width: '100%', height: 204, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
           />
         ) : snapshot.image ? (

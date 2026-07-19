@@ -2206,6 +2206,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       zoom: initialZoom,
       attributionControl: false,
     });
+    // Compact attribution — required by Mapbox ToS on every map.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
 
     mapRef.current = map;
@@ -5085,7 +5087,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           {mapMode === 'recipes' && (
             friendRecipesLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={24} className="text-emerald-600 animate-spin" />
+                <Loader2 size={24} className="text-recipes animate-spin" />
                 <span className="ml-3 text-sm text-on-surface/50 font-medium">Loading recipes...</span>
               </div>
             ) : friendRecipes.length === 0 ? (
@@ -5113,11 +5115,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       onClick={() => navigate(`/meal/${meal.userId}/${meal.id}`)}
                       className="w-full flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group text-left"
                     >
-                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-recipes-tint self-center">
                         {cover ? (
                           <img src={cover} alt={meal.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-emerald-300">
+                          <div className="w-full h-full flex items-center justify-center text-recipes/50">
                             <ChefHat size={22} />
                           </div>
                         )}
@@ -5126,7 +5128,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{meal.name}</h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {totalLabel && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/80">{totalLabel}</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-recipes-ink/80">{totalLabel}</span>
                           )}
                           {totalLabel && meal.difficulty && <span className="text-on-surface/20">·</span>}
                           {meal.difficulty && (
@@ -5134,7 +5136,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           )}
                         </div>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <span className="w-4 h-4 rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700 flex items-center justify-center flex-shrink-0">
+                          <span className="w-4 h-4 rounded-full bg-recipes-tint text-[8px] font-bold text-recipes-ink flex items-center justify-center flex-shrink-0">
                             {authorInitial}
                           </span>
                           <span className="text-[11px] text-on-surface/40 truncate">{authorName}</span>

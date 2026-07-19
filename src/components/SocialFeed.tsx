@@ -18,6 +18,7 @@ import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
   getFriendsPublicHomeMeals, getFollowedExpertIds, getExpertProfiles,
+  followPublicAccount,
   activityTimestamp, isEditedActivity,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
@@ -209,6 +210,23 @@ const SuggestionsRail: React.FC<{
   const navigate = useNavigate();
   const { isWishlisted } = useLists();
 
+  // Follow directly from the rail card. The card itself is a profile
+  // <Link>, so the button must cancel both the router navigation
+  // (stopPropagation) and the anchor's native activation (preventDefault).
+  // Suggested profiles are experts (public accounts), so the follow is
+  // immediate — no request/approval leg.
+  const [followPending, setFollowPending] = useState<Set<string>>(new Set());
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+  const followSuggested = useCallback(async (target: UserProfile, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!userId || followPending.has(target.user_id) || followedIds.has(target.user_id)) return;
+    setFollowPending((prev) => new Set(prev).add(target.user_id));
+    const ok = await followPublicAccount(userId, target.user_id);
+    setFollowPending((prev) => { const next = new Set(prev); next.delete(target.user_id); return next; });
+    if (ok) setFollowedIds((prev) => new Set(prev).add(target.user_id));
+  }, [userId, followPending, followedIds]);
+
   useEffect(() => {
     let cancelled = false;
     getExpertProfiles().then((profiles) => {
@@ -316,9 +334,14 @@ const SuggestionsRail: React.FC<{
                           </>
                         ) : 'Friend pick'}
                       </span>
-                      <span className="text-[11px] font-bold text-primary group-hover:underline underline-offset-2 flex-shrink-0">
-                        Follow
-                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => { void followSuggested(p, e); }}
+                        disabled={!userId || followPending.has(p.user_id) || followedIds.has(p.user_id)}
+                        className="hit-44 text-[11px] font-bold text-primary hover:underline underline-offset-2 flex-shrink-0 disabled:opacity-60 disabled:no-underline"
+                      >
+                        {followedIds.has(p.user_id) ? 'Following' : 'Follow'}
+                      </button>
                     </div>
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className={cn('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>

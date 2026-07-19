@@ -165,7 +165,10 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        phoneMode ? 'bg-white text-stone-900' : 'bg-on-surface text-surface',
+        // media-white/-ink: the phone pill sits on glass over the photo, so it
+        // stays literal white with fixed dark text (the bg-white → paper remap
+        // would turn it near-black under hardcoded dark text in dark mode).
+        phoneMode ? 'bg-media-white text-media-ink' : 'bg-on-surface text-surface',
       )}>View</span>
     </button>
   );
@@ -649,7 +652,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                     'hit-44-y px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                     isFollowing
                       ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
-                      : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
+                      : 'bg-media-white text-media-ink hover:opacity-90',
                   )}
                 >
                   {isFollowing ? 'Unfollow' : 'Follow'}

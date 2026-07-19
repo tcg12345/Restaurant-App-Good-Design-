@@ -4,6 +4,7 @@ import { BookOpen, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Guide } from '../lib/supabase-guides';
 import type { UserProfile } from '../lib/supabase-community';
+import { avatarHue } from '../lib/avatar';
 
 /**
  * "Guides for you" — the horizontal guides rail, extracted from the Discover
@@ -13,12 +14,6 @@ import type { UserProfile } from '../lib/supabase-community';
  * trails otherwise, so guide creation stays one tap away.
  */
 
-/** Stable hue per author id — colored monogram avatars without photos. */
-function hashToHue(str: string): number {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
 
 interface GuidesRailProps {
   guides: Guide[];
@@ -69,7 +64,7 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
         const author = authors[g.userId];
         const authorName = author?.display_name || author?.username || 'someone';
         const authorInitial = authorName.charAt(0).toUpperCase();
-        const authorHue = hashToHue(g.userId || authorName);
+        const authorHue = avatarHue(g.userId || authorName);
         return (
           <Link key={g.id} to={`/guides/${g.id}`} className="flex-shrink-0 snap-start group w-[160px]">
             <article className="card-surface card-surface-hover flex flex-col">

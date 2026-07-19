@@ -18,6 +18,7 @@ import { useSignInModal } from '../contexts/SignInModalContext';
 import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, setGuidePublished, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
+import { canonicalShareUrl } from '../lib/native-share';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import {
@@ -343,7 +344,7 @@ export const GuideDetail: React.FC = () => {
             avgScore: guide.avgScore,
           },
         }}
-        externalShareUrl={typeof window !== 'undefined' ? `${window.location.origin}/guides/${guide.id}` : undefined}
+        externalShareUrl={canonicalShareUrl(`/guides/${guide.id}`)}
       />
 
       <GuideThemeScope theme={theme}>

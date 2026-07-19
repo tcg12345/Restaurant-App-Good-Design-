@@ -381,7 +381,7 @@ const PostSurface: React.FC<{
   const sheetMax = Math.max(sheetH, rootH); // full detent covers the canvas
 
   return (
-    <div ref={rootRef} className="relative h-full flex flex-col bg-[#16120e] text-white overflow-hidden">
+    <div ref={rootRef} className="relative h-full flex flex-col bg-media-canvas text-white overflow-hidden">
       <input
         ref={inputRef}
         type="file"

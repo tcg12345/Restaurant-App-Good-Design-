@@ -14,6 +14,16 @@ export function pickAvatarColor(userId: string): string {
   return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
 }
 
+/** Stable hue (0–360) for a user id (fall back to a name only when no id
+ *  exists). One hash for every hsl() monogram avatar — guide rails, recipe
+ *  reviews, comment threads — so the same user gets the same hue on every
+ *  surface instead of a per-file variant of this function. */
+export function avatarHue(key: string): number {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return ((h % 360) + 360) % 360;
+}
+
 /** 1–2 letter initials from a display name. */
 export function initialsFor(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

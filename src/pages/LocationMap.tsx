@@ -360,6 +360,8 @@ export const LocationMap: React.FC = () => {
       attributionControl: false,
       maxBounds: initial.hasCoords ? buildBboxBounds(initial.lat, initial.lng) : undefined,
     });
+    // Compact attribution — required by Mapbox ToS on every map.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, containerRef.current);
     mapRef.current = map;
     map.on('load', () => {

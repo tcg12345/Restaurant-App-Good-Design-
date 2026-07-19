@@ -82,7 +82,7 @@ const RestaurantShareCard: React.FC<{
   const titleCls = isMe ? 'text-white' : 'text-on-surface';
   const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
   const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const tagCls = isMe ? 'bg-white/18 text-white/95' : 'bg-primary/8 text-primary';
+  const tagCls = isMe ? 'bg-white/20 text-white/95' : 'bg-primary/8 text-primary';
 
   return (
     <button
@@ -155,8 +155,8 @@ const RecipeShareCard: React.FC<{
   const titleCls = isMe ? 'text-white' : 'text-on-surface';
   const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
   const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const accentCls = isMe ? 'text-white/90' : 'text-emerald-700';
-  const pillCls = isMe ? 'bg-white/18 text-white/95' : 'bg-emerald-100 text-emerald-700/85';
+  const accentCls = isMe ? 'text-white/90' : 'text-recipes-ink';
+  const pillCls = isMe ? 'bg-white/20 text-white/95' : 'bg-recipes-tint text-recipes-ink/85';
   const neutralPillCls = isMe ? 'bg-white/12 text-white/80' : 'bg-on-surface/5 text-on-surface/50';
 
   return (
@@ -618,7 +618,7 @@ const NewChatSheet: React.FC<{
                   return (
                     <button key={friend.id} onClick={() => toggleFriend(friend.id)}
                       className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                        selected ? "bg-primary/3" : "hover:bg-on-surface/3 active:bg-on-surface/[0.05]")}>
+                        selected ? "bg-primary/5" : "hover:bg-on-surface/3 active:bg-on-surface/[0.05]")}>
                       <PersonAvatar name={friend.name} userId={friend.id} size={44} />
                       <div className="flex-1 min-w-0">
                         <p className={cn("text-[15px] font-semibold truncate", selected ? "text-primary" : "text-on-surface")}>{friend.name}</p>
@@ -1224,7 +1224,10 @@ const FriendRow: React.FC<{ friend: FriendLite; profiles: Record<string, UserPro
         <p className="text-[14.5px] font-semibold text-on-surface/85 truncate">{friend.name.split(' ')[0] || friend.name}</p>
         <p className="text-[12px] text-on-surface/45 truncate">{friend.username ? `@${friend.username}` : 'Tap to message'}</p>
       </div>
-      <span className="flex-shrink-0 text-[11px] font-bold tracking-wide text-primary bg-primary/[0.08] px-3 py-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">Message</span>
+      {/* Hover-reveal only where hover exists — on touch (iPad in the
+          desktop layout) the pill stays visible at reduced emphasis, else
+          the affordance is undiscoverable. */}
+      <span className="flex-shrink-0 text-[11px] font-bold tracking-wide text-primary bg-primary/[0.08] px-3 py-1 rounded-full opacity-70 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity">Message</span>
     </button>
   );
 };

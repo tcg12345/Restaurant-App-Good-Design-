@@ -449,9 +449,19 @@
   top: 0;
 }
 .location-page-root .minimap-canvas .mapboxgl-canvas { outline: none; }
+/* Mapbox ToS requires the attribution + logo on every map, so the ctrl
+   corners stay visible; the map init uses a compact attribution control
+   to keep the chrome small. The collapsed mini-map crops its canvas
+   (top: -175px), so pin the bottom corners to the *visible* bottom edge
+   rather than the cropped-away canvas bottom. */
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-left,
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-right {
-  display: none;
+  bottom: 175px;
+  transition: bottom .5s cubic-bezier(.22,1,.36,1);
+}
+.location-page-root .minimap.is-expanded .minimap-canvas .mapboxgl-ctrl-bottom-left,
+.location-page-root .minimap.is-expanded .minimap-canvas .mapboxgl-ctrl-bottom-right {
+  bottom: 0;
 }
 
 /* Restaurant markers — small coloured pills with the score on them.

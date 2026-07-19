@@ -429,16 +429,16 @@ export const UserProfile: React.FC = () => {
           content.appendChild(name);
           if (r.cuisine) {
             const cuisine = document.createElement('div');
-            cuisine.style.cssText = 'font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;';
+            cuisine.style.cssText = 'font-size:10px;color:var(--color-primary);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;';
             cuisine.textContent = r.cuisine;
             content.appendChild(cuisine);
           }
           if (r.score) {
             const scoreRow = document.createElement('div');
             scoreRow.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:2px;';
-            scoreRow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+            scoreRow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" style="fill:var(--color-primary)" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
             const scoreText = document.createElement('span');
-            scoreText.style.cssText = 'font-size:12px;font-weight:700;color:#9f3012;';
+            scoreText.style.cssText = 'font-size:12px;font-weight:700;color:var(--color-primary);';
             scoreText.textContent = Number(r.score).toFixed(1);
             scoreRow.appendChild(scoreText);
             if (r.price) {
@@ -588,7 +588,7 @@ export const UserProfile: React.FC = () => {
       return (
         <button
           onClick={handleUnfollow}
-          className={cn(base, 'bg-[var(--color-paper)] text-on-surface border border-[var(--color-line-2)] hover:bg-primary/5 hover:border-primary hover:text-primary')}
+          className={cn(base, 'bg-paper text-on-surface border border-line-2 hover:bg-primary/5 hover:border-primary hover:text-primary')}
         >
           <Check size={14} /> Following
         </button>
@@ -596,7 +596,7 @@ export const UserProfile: React.FC = () => {
     }
     if (followSent) {
       return (
-        <button disabled className={cn(base, 'bg-on-surface/[0.06] text-[var(--color-ink-3)] cursor-default')}>
+        <button disabled className={cn(base, 'bg-on-surface/[0.06] text-ink-3 cursor-default')}>
           Requested
         </button>
       );
@@ -745,8 +745,8 @@ export const UserProfile: React.FC = () => {
 
   // Count of restaurants visible under the current filters/cuisine.
   const countLabel = (
-    <span className="text-[11px] font-bold tracking-[0.16em] uppercase text-[var(--color-ink-4)]">
-      <strong className="text-[var(--color-ink-2)] font-bold tabular-nums">{filteredRatings.length}</strong>{' '}
+    <span className="text-[11px] font-bold tracking-[0.16em] uppercase text-ink-4">
+      <strong className="text-ink-2 font-bold tabular-nums">{filteredRatings.length}</strong>{' '}
       {filterCuisine ? `${filterCuisine} · ` : ''}{filteredRatings.length === 1 ? 'Restaurant' : 'Restaurants'} rated
     </span>
   );
@@ -754,11 +754,11 @@ export const UserProfile: React.FC = () => {
   // Centered empty state used across the desktop content tabs.
   const desktopEmpty = (title: string, message: string, icon: React.ReactNode = <ImageIcon size={26} strokeWidth={1.8} />) => (
     <div className="flex flex-col items-center justify-center text-center py-24">
-      <div className="w-16 h-16 rounded-full bg-on-surface/[0.05] grid place-items-center text-[var(--color-ink-4)] mb-4">
+      <div className="w-16 h-16 rounded-full bg-on-surface/[0.05] grid place-items-center text-ink-4 mb-4">
         {icon}
       </div>
       <div className="font-serif text-[20px] font-bold text-on-surface">{title}</div>
-      <div className="text-[14px] font-medium text-[var(--color-ink-3)] mt-1.5 max-w-xs">{message}</div>
+      <div className="text-[14px] font-medium text-ink-3 mt-1.5 max-w-xs">{message}</div>
     </div>
   );
 
@@ -773,7 +773,7 @@ export const UserProfile: React.FC = () => {
         <div className="max-w-[1180px] mx-auto px-12 pt-6">
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink-3)] px-3 py-2 -ml-3 rounded-full hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors"
+            className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-ink-3 px-3 py-2 -ml-3 rounded-full hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors"
           >
             <ArrowLeft size={18} /> Back
           </button>
@@ -793,8 +793,8 @@ export const UserProfile: React.FC = () => {
               <div
                 className="relative w-[100px] h-[100px] rounded-full grid place-items-center mb-5"
                 style={{
-                  background: 'linear-gradient(150deg, #f4ddd2, #f7e6dc)',
-                  boxShadow: 'inset 0 0 0 1px rgba(159,48,18,0.10)',
+                  background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))',
+                  boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)',
                 }}
               >
                 <span className="font-serif font-bold text-[46px] leading-none text-primary">
@@ -806,7 +806,7 @@ export const UserProfile: React.FC = () => {
                 {profile.display_name}
               </h1>
 
-              <div className="flex items-center gap-2 mt-2 text-[14px] font-semibold text-[var(--color-ink-3)] flex-wrap">
+              <div className="flex items-center gap-2 mt-2 text-[14px] font-semibold text-ink-3 flex-wrap">
                 <span>@{profile.username}</span>
                 {profile.is_verified && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10.5px] font-bold uppercase tracking-wider text-primary">
@@ -814,7 +814,7 @@ export const UserProfile: React.FC = () => {
                   </span>
                 )}
                 {!profile.is_public && !profile.is_verified && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--color-ink-4)]">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-4">
                     <Lock size={11} /> Private
                   </span>
                 )}
@@ -827,13 +827,13 @@ export const UserProfile: React.FC = () => {
               )}
 
               {profile.bio && canView && (
-                <p className="mt-3.5 text-[15px] leading-relaxed text-[var(--color-ink-2)] max-w-[300px] text-pretty">
+                <p className="mt-3.5 text-[15px] leading-relaxed text-ink-2 max-w-[300px] text-pretty">
                   {profile.bio}
                 </p>
               )}
 
               {profile.home_city && (
-                <div className="flex items-center gap-1.5 mt-3.5 text-[13px] font-semibold text-[var(--color-ink-3)]">
+                <div className="flex items-center gap-1.5 mt-3.5 text-[13px] font-semibold text-ink-3">
                   <MapPin size={15} strokeWidth={2.2} className="text-primary" />
                   {profile.home_city}
                 </div>
@@ -856,7 +856,7 @@ export const UserProfile: React.FC = () => {
                     type="button"
                     title="Message"
                     onClick={() => navigate('/messages')}
-                    className="w-12 h-12 flex-none rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-[var(--color-ink-2)] transition-colors"
+                    className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                   >
                     <Send size={18} />
                   </button>
@@ -864,7 +864,7 @@ export const UserProfile: React.FC = () => {
                     type="button"
                     title={copied ? 'Link copied' : 'Share profile'}
                     onClick={handleShare}
-                    className="w-12 h-12 flex-none rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-[var(--color-ink-2)] transition-colors"
+                    className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                   >
                     {copied ? <Check size={18} className="text-primary" /> : <Share2 size={18} />}
                   </button>
@@ -873,7 +873,7 @@ export const UserProfile: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleShare}
-                  className="h-12 flex-1 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface hover:bg-on-surface/[0.04] hover:border-[var(--color-ink-2)] transition-colors"
+                  className="h-12 flex-1 rounded-full bg-paper border border-line-2 inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                 >
                   {copied ? <><Check size={16} className="text-primary" /> Link copied</> : <><Share2 size={16} /> Share profile</>}
                 </button>
@@ -881,7 +881,7 @@ export const UserProfile: React.FC = () => {
             </div>
 
             {/* stats */}
-            <div className="flex items-stretch mt-7 py-[18px] border-y border-[var(--color-line)]">
+            <div className="flex items-stretch mt-7 py-[18px] border-y border-line">
               {[
                 { n: userRatings.length, l: 'Ratings' },
                 { n: publicHomeMeals.length, l: 'Cooked' },
@@ -892,11 +892,11 @@ export const UserProfile: React.FC = () => {
                   key={it.l}
                   className={cn(
                     'flex-1 flex flex-col items-start pr-2',
-                    i === 0 ? 'pl-0' : 'pl-4 border-l border-[var(--color-line)]',
+                    i === 0 ? 'pl-0' : 'pl-4 border-l border-line',
                   )}
                 >
                   <span className="font-serif text-[22px] font-bold leading-none tracking-[-0.01em] text-on-surface tabular-nums">{it.n}</span>
-                  <span className="text-[9.5px] font-bold tracking-[0.14em] uppercase text-[var(--color-ink-4)] mt-1.5">{it.l}</span>
+                  <span className="text-[9.5px] font-bold tracking-[0.14em] uppercase text-ink-4 mt-1.5">{it.l}</span>
                 </div>
               ))}
             </div>
@@ -918,7 +918,7 @@ export const UserProfile: React.FC = () => {
             {canView ? (
               <>
                 {/* tabs + map view */}
-                <div className="flex items-stretch gap-3 border-b border-[var(--color-line)] mb-7">
+                <div className="flex items-stretch gap-3 border-b border-line mb-7">
                   <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0 flex-1">
                     {tabs.map((t) => {
                       const active = viewTab === t.key;
@@ -932,12 +932,12 @@ export const UserProfile: React.FC = () => {
                             active ? 'border-primary' : 'border-transparent',
                           )}
                         >
-                          <span className={cn('text-[15px] whitespace-nowrap', active ? 'font-bold text-on-surface' : 'font-semibold text-[var(--color-ink-3)] hover:text-[var(--color-ink-2)]')}>
+                          <span className={cn('text-[15px] whitespace-nowrap', active ? 'font-bold text-on-surface' : 'font-semibold text-ink-3 hover:text-ink-2')}>
                             {t.label}
                           </span>
                           <span className={cn(
                             'text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full',
-                            active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-[var(--color-ink-4)]',
+                            active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-ink-4',
                           )}>
                             {t.count}
                           </span>
@@ -948,7 +948,7 @@ export const UserProfile: React.FC = () => {
                   {userRatings.length > 0 && viewTab === 'restaurants' && (
                     <button
                       onClick={() => setShowMapPage(true)}
-                      className="flex-none self-center mb-2 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] text-[13px] font-semibold text-on-surface hover:bg-on-surface/[0.04] transition-colors"
+                      className="flex-none self-center mb-2 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-paper border border-line-2 text-[13px] font-semibold text-on-surface hover:bg-on-surface/[0.04] transition-colors"
                     >
                       <MapIcon size={15} className="text-primary" /> Map view
                     </button>
@@ -961,16 +961,16 @@ export const UserProfile: React.FC = () => {
                     {/* toolbar: search + sort */}
                     <div className="flex items-center gap-3 mb-4">
                       <div className="relative flex-1 flex items-center">
-                        <Search size={17} className="absolute left-5 text-[var(--color-ink-3)]" />
+                        <Search size={17} className="absolute left-5 text-ink-3" />
                         <input
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder="Search restaurants, neighborhoods…"
-                          className="w-full h-[46px] pl-12 pr-11 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] focus:border-[var(--color-ink-2)] focus:outline-none focus:ring-4 focus:ring-on-surface/[0.04] text-[14px] font-medium text-on-surface placeholder:text-[var(--color-ink-3)] transition-colors"
+                          className="w-full h-[46px] pl-12 pr-11 rounded-full bg-paper border border-line-2 focus:border-ink-2 focus:outline-none focus:ring-4 focus:ring-on-surface/[0.04] text-[14px] font-medium text-on-surface placeholder:text-ink-3 transition-colors"
                         />
                         {searchQuery && (
-                          <button onClick={() => setSearchQuery('')} className="absolute right-4 text-[var(--color-ink-3)] hover:text-on-surface" title="Clear">
+                          <button onClick={() => setSearchQuery('')} className="absolute right-4 text-ink-3 hover:text-on-surface" title="Clear">
                             <X size={15} />
                           </button>
                         )}
@@ -980,15 +980,15 @@ export const UserProfile: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setSortOpen((o) => !o)}
-                          className="h-[46px] px-5 inline-flex items-center gap-2 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] text-[13.5px] font-semibold text-on-surface hover:border-[var(--color-ink-2)] whitespace-nowrap transition-colors"
+                          className="h-[46px] px-5 inline-flex items-center gap-2 rounded-full bg-paper border border-line-2 text-[13.5px] font-semibold text-on-surface hover:border-ink-2 whitespace-nowrap transition-colors"
                         >
-                          <ArrowUpDown size={15} className="text-[var(--color-ink-3)]" />
-                          <span className="text-[var(--color-ink-3)]">Sort</span>
+                          <ArrowUpDown size={15} className="text-ink-3" />
+                          <span className="text-ink-3">Sort</span>
                           {sortLabel[sortBy]}
-                          <ChevronDown size={14} className={cn('text-[var(--color-ink-3)] transition-transform', sortOpen && 'rotate-180')} />
+                          <ChevronDown size={14} className={cn('text-ink-3 transition-transform', sortOpen && 'rotate-180')} />
                         </button>
                         {sortOpen && (
-                          <div className="absolute top-[calc(100%+8px)] right-0 z-20 min-w-[180px] py-1.5 rounded-2xl bg-[var(--color-paper)] border border-[var(--color-line)] shadow-[var(--shadow-popup)]">
+                          <div className="absolute top-[calc(100%+8px)] right-0 z-20 min-w-[180px] py-1.5 rounded-2xl bg-paper border border-line shadow-[var(--shadow-popup)]">
                             {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((s) => (
                               <button
                                 key={s}
@@ -1011,7 +1011,7 @@ export const UserProfile: React.FC = () => {
                           'h-[46px] px-5 rounded-full inline-flex items-center gap-2 text-[13.5px] font-semibold transition-colors whitespace-nowrap flex-none',
                           activeFilterCount > 0
                             ? 'bg-on-surface text-surface border border-on-surface'
-                            : 'bg-[var(--color-paper)] border border-[var(--color-line-2)] text-on-surface hover:border-[var(--color-ink-2)]',
+                            : 'bg-paper border border-line-2 text-on-surface hover:border-ink-2',
                         )}
                       >
                         <SlidersHorizontal size={15} /> Filter
@@ -1032,7 +1032,7 @@ export const UserProfile: React.FC = () => {
                             'h-9 px-4 rounded-full text-[13px] font-semibold border flex-none transition-colors',
                             !filterCuisine
                               ? 'bg-on-surface text-surface border-on-surface'
-                              : 'bg-[var(--color-paper)] border-[var(--color-line-2)] text-on-surface hover:border-[var(--color-ink-2)]',
+                              : 'bg-paper border-line-2 text-on-surface hover:border-ink-2',
                           )}
                         >
                           All cuisines
@@ -1045,7 +1045,7 @@ export const UserProfile: React.FC = () => {
                               'h-9 px-4 rounded-full text-[13px] font-semibold border flex-none transition-colors',
                               filterCuisine === c
                                 ? 'bg-on-surface text-surface border-on-surface'
-                                : 'bg-[var(--color-paper)] border-[var(--color-line-2)] text-on-surface hover:border-[var(--color-ink-2)]',
+                                : 'bg-paper border-line-2 text-on-surface hover:border-ink-2',
                             )}
                           >
                             {c}
@@ -1064,7 +1064,7 @@ export const UserProfile: React.FC = () => {
                         <Search size={26} strokeWidth={1.8} />,
                       )
                     ) : (
-                      <div className="border-t border-[var(--color-line)] mt-2">
+                      <div className="border-t border-line mt-2">
                         {filteredRatings.map((r) => (
                           <ProfileRestaurantRowMinimal
                             key={r.id}
@@ -1086,8 +1086,8 @@ export const UserProfile: React.FC = () => {
                     desktopEmpty('No recipes yet', `When ${profile.display_name} shares a meal, it'll show up here.`)
                   ) : (
                     <>
-                      <div className="mb-2 text-[11px] font-bold tracking-[0.16em] uppercase text-[var(--color-ink-4)]">
-                        <strong className="text-[var(--color-ink-2)] font-bold tabular-nums">{publicHomeMeals.length}</strong>{' '}
+                      <div className="mb-2 text-[11px] font-bold tracking-[0.16em] uppercase text-ink-4">
+                        <strong className="text-ink-2 font-bold tabular-nums">{publicHomeMeals.length}</strong>{' '}
                         {publicHomeMeals.length === 1 ? 'Recipe' : 'Recipes'} cooked &amp; rated
                       </div>
                       <ul className="flex flex-col">
@@ -1123,10 +1123,10 @@ export const UserProfile: React.FC = () => {
             ) : (
               <section className="max-w-md mx-auto text-center pt-10 pb-20 px-6">
                 <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center mb-4">
-                  <Lock size={26} className="text-[var(--color-ink-3)]" />
+                  <Lock size={26} className="text-ink-3" />
                 </div>
                 <h3 className="font-serif text-[22px] font-bold text-on-surface mb-2">This account is private</h3>
-                <p className="text-[14px] leading-relaxed text-[var(--color-ink-3)] mb-7">
+                <p className="text-[14px] leading-relaxed text-ink-3 mb-7">
                   {followSent
                     ? <>Your follow request is pending. Once {profile.display_name} approves it, you'll see their ratings, recipes, posts and activity.</>
                     : <>Follow {profile.display_name} to see their ratings, recipes, posts and activity. They'll need to approve your request.</>}
@@ -1148,11 +1148,11 @@ export const UserProfile: React.FC = () => {
   // Centered empty state for the mobile content tabs.
   const mobileEmpty = (title: string, message: string) => (
     <div className="text-center py-16 px-8">
-      <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center text-[var(--color-ink-4)] mb-4">
+      <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center text-ink-4 mb-4">
         <ImageIcon size={26} strokeWidth={1.8} />
       </div>
       <div className="font-serif text-[19px] font-bold text-on-surface">{title}</div>
-      <div className="text-[13.5px] font-medium text-[var(--color-ink-3)] mt-1.5">{message}</div>
+      <div className="text-[13.5px] font-medium text-ink-3 mt-1.5">{message}</div>
     </div>
   );
 
@@ -1188,7 +1188,7 @@ export const UserProfile: React.FC = () => {
       <div className="flex flex-col items-center text-center px-6 pt-2">
         <div
           className="w-[84px] h-[84px] rounded-full grid place-items-center mb-3.5"
-          style={{ background: 'linear-gradient(150deg, #f4ddd2, #f7e6dc)', boxShadow: 'inset 0 0 0 1px rgba(159,48,18,0.10)' }}
+          style={{ background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)' }}
         >
           <span className="font-serif font-bold text-[38px] leading-none text-primary">
             {profile.display_name.charAt(0).toUpperCase()}
@@ -1197,7 +1197,7 @@ export const UserProfile: React.FC = () => {
         <h1 className="font-serif text-[27px] font-bold leading-none tracking-[-0.02em] text-on-surface max-w-full truncate px-2">
           {profile.display_name}
         </h1>
-        <div className="flex items-center justify-center gap-2 mt-1.5 text-[13px] font-semibold text-[var(--color-ink-4)] flex-wrap">
+        <div className="flex items-center justify-center gap-2 mt-1.5 text-[13px] font-semibold text-ink-4 flex-wrap">
           <span>@{profile.username}</span>
           {profile.is_verified && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10px] font-bold uppercase tracking-wider text-primary">
@@ -1205,13 +1205,13 @@ export const UserProfile: React.FC = () => {
             </span>
           )}
           {!profile.is_public && !profile.is_verified && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--color-ink-4)]">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-4">
               <Lock size={10} /> Private
             </span>
           )}
         </div>
         {profile.bio && canView && (
-          <p className="mt-3 text-[14px] leading-relaxed text-[var(--color-ink-2)] max-w-[300px] text-pretty">
+          <p className="mt-3 text-[14px] leading-relaxed text-ink-2 max-w-[300px] text-pretty">
             {profile.bio}
           </p>
         )}
@@ -1221,7 +1221,7 @@ export const UserProfile: React.FC = () => {
           </p>
         )}
         {profile.home_city && (
-          <div className="flex items-center gap-1.5 mt-2.5 text-[12.5px] font-semibold text-[var(--color-ink-3)]">
+          <div className="flex items-center gap-1.5 mt-2.5 text-[12.5px] font-semibold text-ink-3">
             <MapPin size={14} strokeWidth={2.2} className="text-primary" /> {profile.home_city}
           </div>
         )}
@@ -1239,7 +1239,7 @@ export const UserProfile: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/messages')}
-            className="w-12 h-12 flex-none rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] grid place-items-center text-on-surface active:bg-on-surface/[0.05] transition-colors"
+            className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface active:bg-on-surface/[0.05] transition-colors"
             aria-label="Message"
           >
             <Send size={18} />
@@ -1250,7 +1250,7 @@ export const UserProfile: React.FC = () => {
           <button
             type="button"
             onClick={handleShare}
-            className="w-full h-12 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface active:bg-on-surface/[0.05] transition-colors"
+            className="w-full h-12 rounded-full bg-paper border border-line-2 inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface active:bg-on-surface/[0.05] transition-colors"
           >
             {copied ? <><Check size={16} className="text-primary" /> Link copied</> : <><Share2 size={16} /> Share profile</>}
           </button>
@@ -1258,16 +1258,16 @@ export const UserProfile: React.FC = () => {
       ) : null}
 
       {/* stats */}
-      <div className="flex items-stretch mx-6 mt-[22px] py-4 border-y border-[var(--color-line)]">
+      <div className="flex items-stretch mx-6 mt-[22px] py-4 border-y border-line">
         {[
           { n: userRatings.length, l: 'Ratings' },
           { n: publicHomeMeals.length, l: 'Cooked' },
           { n: followers, l: 'Followers' },
           { n: following, l: 'Following' },
         ].map((it, i) => (
-          <div key={it.l} className={cn('flex-1 flex flex-col items-center', i > 0 && 'border-l border-[var(--color-line)]')}>
+          <div key={it.l} className={cn('flex-1 flex flex-col items-center', i > 0 && 'border-l border-line')}>
             <span className="font-serif text-[20px] font-bold leading-none text-on-surface tabular-nums">{it.n}</span>
-            <span className="text-[8.5px] font-bold tracking-[0.1em] uppercase text-[var(--color-ink-4)] mt-1.5">{it.l}</span>
+            <span className="text-[8.5px] font-bold tracking-[0.1em] uppercase text-ink-4 mt-1.5">{it.l}</span>
           </div>
         ))}
       </div>
@@ -1275,7 +1275,7 @@ export const UserProfile: React.FC = () => {
       {canView ? (
         <>
           {/* tabs */}
-          <div className="mt-6 border-b border-[var(--color-line)]">
+          <div className="mt-6 border-b border-line">
             <div className="flex gap-1 overflow-x-auto scrollbar-hide px-6">
               {tabs.map((t) => {
                 const active = viewTab === t.key;
@@ -1289,12 +1289,12 @@ export const UserProfile: React.FC = () => {
                       active ? 'border-primary' : 'border-transparent',
                     )}
                   >
-                    <span className={cn('text-[14px]', active ? 'font-bold text-on-surface' : 'font-semibold text-[var(--color-ink-3)]')}>
+                    <span className={cn('text-[14px]', active ? 'font-bold text-on-surface' : 'font-semibold text-ink-3')}>
                       {t.label}
                     </span>
                     <span className={cn(
                       'text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-full',
-                      active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-[var(--color-ink-4)]',
+                      active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-ink-4',
                     )}>
                       {t.count}
                     </span>
@@ -1309,23 +1309,23 @@ export const UserProfile: React.FC = () => {
             <>
               <div className="flex items-center gap-2.5 px-6 pt-4 pb-3">
                 <div className="relative flex-1 flex items-center min-w-0">
-                  <Search size={16} className="absolute left-4 text-[var(--color-ink-3)]" />
+                  <Search size={16} className="absolute left-4 text-ink-3" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search restaurants…"
-                    className="w-full h-11 pl-11 pr-9 rounded-full bg-[var(--color-paper)] border border-[var(--color-line-2)] focus:border-[var(--color-ink-2)] focus:outline-none text-[13.5px] font-medium text-on-surface placeholder:text-[var(--color-ink-3)]"
+                    className="w-full h-11 pl-11 pr-9 rounded-full bg-paper border border-line-2 focus:border-ink-2 focus:outline-none text-[13.5px] font-medium text-on-surface placeholder:text-ink-3"
                   />
                   {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} className="absolute right-3.5 text-[var(--color-ink-3)]" aria-label="Clear"><X size={14} /></button>
+                    <button onClick={() => setSearchQuery('')} className="absolute right-3.5 text-ink-3" aria-label="Clear"><X size={14} /></button>
                   )}
                 </div>
                 <button
                   onClick={() => setFiltersOpen(true)}
                   className={cn(
                     'relative w-11 h-11 flex-none rounded-full grid place-items-center border',
-                    activeFilterCount > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-[var(--color-paper)] border-[var(--color-line-2)] text-on-surface',
+                    activeFilterCount > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
                   )}
                   aria-label="Filter"
                 >
@@ -1340,7 +1340,7 @@ export const UserProfile: React.FC = () => {
                 <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 pb-1">
                   <button
                     onClick={() => setFilterCuisine(null)}
-                    className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', !filterCuisine ? 'bg-on-surface text-surface border-on-surface' : 'bg-[var(--color-paper)] border-[var(--color-line-2)] text-on-surface')}
+                    className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', !filterCuisine ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface')}
                   >
                     All cuisines
                   </button>
@@ -1348,7 +1348,7 @@ export const UserProfile: React.FC = () => {
                     <button
                       key={c}
                       onClick={() => setFilterCuisine(filterCuisine === c ? null : c)}
-                      className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', filterCuisine === c ? 'bg-on-surface text-surface border-on-surface' : 'bg-[var(--color-paper)] border-[var(--color-line-2)] text-on-surface')}
+                      className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', filterCuisine === c ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface')}
                     >
                       {c}
                     </button>
@@ -1356,15 +1356,15 @@ export const UserProfile: React.FC = () => {
                 </div>
               )}
 
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-ink-4)] px-6 pt-4">
-                <strong className="text-[var(--color-ink-2)] font-bold tabular-nums">{filteredRatings.length}</strong>{' '}
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-4 px-6 pt-4">
+                <strong className="text-ink-2 font-bold tabular-nums">{filteredRatings.length}</strong>{' '}
                 {filterCuisine ? `${filterCuisine} · ` : ''}{filteredRatings.length === 1 ? 'Restaurant' : 'Restaurants'} rated
               </div>
 
               {filteredRatings.length === 0 ? (
                 <div className="text-center py-16 px-6">
                   <div className="font-serif text-[19px] font-bold text-on-surface mb-1">No restaurants match</div>
-                  <div className="text-[13.5px] text-[var(--color-ink-3)]">Try a different cuisine or clear your search.</div>
+                  <div className="text-[13.5px] text-ink-3">Try a different cuisine or clear your search.</div>
                 </div>
               ) : (
                 <div className="px-6 pt-1.5">
@@ -1390,8 +1390,8 @@ export const UserProfile: React.FC = () => {
               mobileEmpty('No recipes yet', `When ${profile.display_name} shares a meal, it'll show up here.`)
             ) : (
               <div className="px-6 pt-4">
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--color-ink-4)] mb-1.5">
-                  <strong className="text-[var(--color-ink-2)] font-bold tabular-nums">{publicHomeMeals.length}</strong>{' '}
+                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-4 mb-1.5">
+                  <strong className="text-ink-2 font-bold tabular-nums">{publicHomeMeals.length}</strong>{' '}
                   {publicHomeMeals.length === 1 ? 'Recipe' : 'Recipes'} cooked &amp; rated
                 </div>
                 <ul className="flex flex-col">
@@ -1444,10 +1444,10 @@ export const UserProfile: React.FC = () => {
       ) : (
         <section className="text-center pt-12 pb-20 px-8">
           <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center mb-4">
-            <Lock size={26} className="text-[var(--color-ink-3)]" />
+            <Lock size={26} className="text-ink-3" />
           </div>
           <h3 className="font-serif text-[20px] font-bold text-on-surface mb-1.5">This account is private</h3>
-          <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-3)] mb-6">
+          <p className="text-[13.5px] leading-relaxed text-ink-3 mb-6">
             {followSent
               ? <>Your follow request is pending. Once {profile.display_name} approves it, you'll see their ratings, recipes, posts and activity.</>
               : <>Follow {profile.display_name} to see their ratings, recipes, posts and activity. They'll need to approve your request.</>}

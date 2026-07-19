@@ -11,6 +11,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
+import { canonicalShareUrl } from '../lib/native-share';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { MuxReelMedia, type ActiveReelMedia } from '../components/MuxReelMedia';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
@@ -190,10 +191,10 @@ const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onCli
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        // bg-media-white: the phone pill sits on glass over the video, so it
-        // stays literal white — the paper remap made it near-black under its
-        // hardcoded text-stone-900 in dark mode.
-        phoneMode ? 'bg-media-white text-stone-900' : 'bg-on-surface text-surface',
+        // media-white/-ink: the phone pill sits on glass over the video, so it
+        // stays literal white with fixed dark text — the paper remap made it
+        // near-black under hardcoded dark text in dark mode.
+        phoneMode ? 'bg-media-white text-media-ink' : 'bg-on-surface text-surface',
       )}>View</span>
     </button>
   );
@@ -656,7 +657,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
                 'hit-44-y px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                 isFollowing
                   ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
-                  : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
+                  : 'bg-media-white text-media-ink hover:opacity-90',
               )}
             >
               {isFollowing ? 'Unfollow' : 'Follow'}
@@ -2027,6 +2028,15 @@ export const Reels: React.FC = () => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
+  // "Share via…" deep link for the item being shared. Without this the
+  // dialog falls back to window.location.href (/reels — or a capacitor://
+  // URL on native), so a specific reel/post shared without its /r/<key>
+  // link. Matches the FeedItem.key format the /r/:focusKey route parses.
+  const externalShareUrl = sharePayload?.sharedReel
+    ? canonicalShareUrl(`/r/reel-${sharePayload.sharedReel.reelId}`)
+    : sharePayload?.sharedPost
+      ? canonicalShareUrl(`/r/post-${sharePayload.sharedPost.postId}`)
+      : undefined;
   // Tapping a featured-restaurant card on a reel/post opens this side panel
   // instead of navigating to /restaurant/:id. Set to the restaurant snapshot
   // attached to the card so the panel can render immediately while it fetches
@@ -2884,6 +2894,7 @@ export const Reels: React.FC = () => {
         <ShareDialog
           open={!!sharePayload}
           payload={sharePayload}
+          externalShareUrl={externalShareUrl}
           onClose={() => setSharePayload(null)}
         />
 
@@ -2931,6 +2942,7 @@ export const Reels: React.FC = () => {
       <ShareDialog
         open={!!sharePayload}
         payload={sharePayload}
+        externalShareUrl={externalShareUrl}
         onClose={() => setSharePayload(null)}
       />
 

@@ -52,18 +52,13 @@ import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
+import { avatarHue } from '../lib/avatar';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuidLike = (v: string): boolean => UUID_RE.test(v);
 
 const DIFFICULTY_LABEL: Record<string, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
-// Hash a string to a stable hue 0–360. Used for avatar gradients.
-const hashToHue = (s: string): number => {
-  let h = 0;
-  for (let i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
-  return h;
-};
 
 // Reviews persist as one `notes` string. Titled reviews are marked with an
 // invisible sentinel (U+2063) before the headline — the old bare
@@ -1207,7 +1202,7 @@ export const RecipePage: React.FC = () => {
     : 'Home cook';
   const authorInitial = (authorName[0] || '?').toUpperCase();
   const authorInitials = authorName.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || 'A';
-  const authorHue = hashToHue(data.ownerId || authorName);
+  const authorHue = avatarHue(data.ownerId || authorName);
   const authorBg = `hsl(${authorHue} 45% 38%)`;
   const authorUsername = authorProfile?.username || data.sourceAuthorUsername || '';
 
@@ -1843,7 +1838,7 @@ export const RecipePage: React.FC = () => {
             {related.map((r) => {
               const ra = relatedAuthors[r.userId];
               const rAuthor = ra?.display_name || ra?.username || 'Chef';
-              const rHue = hashToHue(r.userId || rAuthor);
+              const rHue = avatarHue(r.userId || rAuthor);
               const rTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
               const rCover = r.photos?.[0] || '';
               return (
@@ -2402,7 +2397,7 @@ const ReviewCard: React.FC<{
     ? (currentUserName || 'You')
     : (profile?.display_name || profile?.username || 'Anonymous');
   const initial = (name[0] || '?').toUpperCase();
-  const hue = hashToHue(review.userId || name);
+  const hue = avatarHue(review.userId || name);
   const date = review.createdAt
     ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'just now';
@@ -2966,7 +2961,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             {related.map((r) => {
               const ra = relatedAuthors[r.userId];
               const rAuthor = ra?.display_name || ra?.username || 'Chef';
-              const rHue = hashToHue(r.userId || rAuthor);
+              const rHue = avatarHue(r.userId || rAuthor);
               const rTime = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
               const rCover = r.photos?.[0] || '';
               return (
@@ -3108,7 +3103,7 @@ const MobileReviewCard: React.FC<{
     ? (currentUserName || 'You')
     : (profile?.display_name || profile?.username || 'Anonymous');
   const initial = (name[0] || '?').toUpperCase();
-  const hue = hashToHue(review.userId || name);
+  const hue = avatarHue(review.userId || name);
   const date = review.createdAt
     ? new Date(review.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : 'just now';

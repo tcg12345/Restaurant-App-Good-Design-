@@ -14,6 +14,7 @@ import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from '../contexts/ToastContext';
 import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, removeFollower, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
@@ -713,6 +714,7 @@ const EditTopListsSheet: React.FC<{
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount, isAdmin } = useAuth();
+  const { showToast } = useToast();
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
@@ -807,7 +809,7 @@ export const Profile: React.FC = () => {
     const ok = await deleteReel(confirmDeleteReelId);
     setDeletingReel(false);
     setConfirmDeleteReelId(null);
-    if (!ok) alert("Couldn't delete that reel. Try again.");
+    if (!ok) showToast("Couldn't delete that reel. Try again.");
   };
   const onConfirmDeletePost = async () => {
     if (!confirmDeletePostId) return;
@@ -815,7 +817,7 @@ export const Profile: React.FC = () => {
     const ok = await deletePost(confirmDeletePostId);
     setDeletingPost(false);
     setConfirmDeletePostId(null);
-    if (!ok) alert("Couldn't delete that post. Try again.");
+    if (!ok) showToast("Couldn't delete that post. Try again.");
   };
   const onConfirmDeleteGuide = async () => {
     if (!confirmDeleteGuideId) return;
@@ -823,7 +825,7 @@ export const Profile: React.FC = () => {
     const ok = await deleteGuide(confirmDeleteGuideId);
     setDeletingGuide(false);
     setConfirmDeleteGuideId(null);
-    if (!ok) { alert("Couldn't delete that guide. Try again."); return; }
+    if (!ok) { showToast("Couldn't delete that guide. Try again."); return; }
     setMyGuides((prev) => prev.filter((g) => g.id !== confirmDeleteGuideId));
   };
   const onToggleGuideVisibility = async (guideId: string, nextIsPublic: boolean) => {
@@ -838,7 +840,7 @@ export const Profile: React.FC = () => {
     ));
     const ok = await setGuideVisibility(guideId, next);
     if (!ok) {
-      alert("Couldn't update that guide's visibility. Try again.");
+      showToast("Couldn't update that guide's visibility. Try again.");
       void refreshMyGuides();
     }
   };
@@ -954,9 +956,9 @@ export const Profile: React.FC = () => {
       setPopupPeople((prev) => (prev ? prev.filter((p) => p.user_id !== followerId) : prev));
       setFollowers((f) => Math.max(0, f - 1));
     } else {
-      alert("Couldn't remove that follower. Try again.");
+      showToast("Couldn't remove that follower. Try again.");
     }
-  }, [user?.id, removingFollower]);
+  }, [user?.id, removingFollower, showToast]);
 
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');

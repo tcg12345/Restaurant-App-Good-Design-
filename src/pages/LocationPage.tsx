@@ -37,7 +37,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreHex, scoreTintStyle } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { shareExternally } from '../lib/native-share';
+import { shareExternally, canonicalShareUrl } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantMeta } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -1541,6 +1541,10 @@ export const LocationPage: React.FC = () => {
       // user picked — same radius the list uses, so the two views agree.
       maxBounds: buildMiniMapBounds(init.lat, init.lng),
     });
+    // Compact attribution: Mapbox ToS requires it on every map. The CSS
+    // (LocationPage.css) pins the ctrl corners to the visible slice of
+    // the cropped mini-map canvas.
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
     map.on('load', () => {
@@ -2244,7 +2248,10 @@ export const LocationPage: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => { void shareExternally({ title: cityDisplay, url: window.location.href }); }}
+            // canonicalShareUrl: window.location.href inside the native shell
+            // is capacitor://localhost/… — build the link from the public web
+            // origin + the page's path instead.
+            onClick={() => { void shareExternally({ title: cityDisplay, url: canonicalShareUrl(window.location.pathname + window.location.search) }); }}
             className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
             style={{ color: 'var(--ink-2)' }}
             aria-label="Share"
