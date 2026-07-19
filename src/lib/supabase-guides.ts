@@ -671,6 +671,29 @@ export async function getGuidesForLocation(opts: {
 }
 
 /** Add a saved-bookmark for the caller against a guide. */
+/** Bookmark counts for a batch of guides, keyed by guide id. Backed by the
+ *  guide_save_counts RPC (migration 061) since saved_guides rows are only
+ *  readable by their owner. Guides with zero saves are simply absent.
+ *  Returns {} on failure so callers render "no stat" rather than a fake 0. */
+export async function getGuideSaveCounts(guideIds: string[]): Promise<Record<string, number>> {
+  if (!supabaseConfigured || guideIds.length === 0) return {};
+  try {
+    const { data, error } = await supabase.rpc('guide_save_counts', { guide_ids: guideIds });
+    if (error) {
+      console.warn('[Supabase] getGuideSaveCounts error:', error.message);
+      return {};
+    }
+    const out: Record<string, number> = {};
+    for (const row of (data || []) as Array<{ guide_id: string; saves: number }>) {
+      out[row.guide_id] = Number(row.saves) || 0;
+    }
+    return out;
+  } catch (err) {
+    console.warn('[Supabase] getGuideSaveCounts exception:', err);
+    return {};
+  }
+}
+
 export async function saveGuideBookmark(userId: string, guideId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {

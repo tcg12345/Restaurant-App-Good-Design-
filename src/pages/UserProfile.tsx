@@ -855,7 +855,7 @@ export const UserProfile: React.FC = () => {
                   <button
                     type="button"
                     title="Message"
-                    onClick={() => navigate('/messages')}
+                    onClick={() => navigate('/messages', { state: { openUserId: profile.user_id } })}
                     className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                   >
                     <Send size={18} />
@@ -1238,7 +1238,7 @@ export const UserProfile: React.FC = () => {
           {renderFollowButton('sidebar')}
           <button
             type="button"
-            onClick={() => navigate('/messages')}
+            onClick={() => navigate('/messages', { state: { openUserId: profile.user_id } })}
             className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface active:bg-on-surface/[0.05] transition-colors"
             aria-label="Message"
           >

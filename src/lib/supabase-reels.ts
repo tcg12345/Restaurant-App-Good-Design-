@@ -459,9 +459,14 @@ export async function listReels(opts: {
   /** Keyset cursor: return rows strictly OLDER than this (created_at, id)
    *  pair — pass the last row of the previous page to fetch the next one. */
   before?: { createdAt: string; id: string };
+  /** Batch-get exactly these reels (e.g. everything the user commented on)
+   *  instead of a feed window. Overrides kind/before; newest first. */
+  ids?: string[];
 }): Promise<ReelRow[] | null> {
   if (!supabaseConfigured) return [];
-  const { kind, limit = 50, viewerId, before } = opts;
+  const { kind, viewerId, before, ids } = opts;
+  const limit = ids ? ids.length : (opts.limit ?? 50);
+  if (ids && ids.length === 0) return [];
 
   // Public feed — every reel regardless of author or follow state. Do not
   // add a `user_id` / friends filter here: the product is "discover what
@@ -474,8 +479,9 @@ export async function listReels(opts: {
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(limit);
-  if (kind) query = query.eq('kind', kind);
-  if (before) {
+  if (ids) query = query.in('id', ids);
+  if (kind && !ids) query = query.eq('kind', kind);
+  if (before && !ids) {
     query = query.or(`created_at.lt."${before.createdAt}",and(created_at.eq."${before.createdAt}",id.lt."${before.id}")`);
   }
 

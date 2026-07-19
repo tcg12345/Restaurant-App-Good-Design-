@@ -28,8 +28,8 @@ export interface BrowseGuide {
   count: number;
   /** Days since last update — drives the recency sort + "Updated" label. */
   daysAgo: number;
-  /** Bookmark count. Optional — real guides don't track this yet, so the
-   *  stat is hidden when absent. */
+  /** Bookmark count from saved_guides (guide_save_counts RPC). Absent
+   *  while loading or on failure — the stat hides rather than faking 0. */
   saves?: number;
 }
 

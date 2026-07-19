@@ -247,6 +247,68 @@ export async function getFriendsStats(userId: string, restaurantId: string): Pro
   } catch (err) { console.error('[Community] getFriendsStats exception:', err); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
 }
 
+export interface CircleRatingHit {
+  username: string;
+  displayName?: string;
+  isExpert?: boolean;
+  isFriend?: boolean;
+  score?: number;
+  notes?: string;
+}
+
+/**
+ * Friends' + verified experts' ratings for ONE restaurant — the global,
+ * page-independent implementation behind the assistant's get_circle_ratings
+ * tool. LocationPage overrides it with its preloaded signals map; every
+ * other surface runs this direct query so the model never asserts "no one
+ * in your circle rated this" from an unwired stub.
+ */
+export async function getCircleRatingsForRestaurant(
+  userId: string | null | undefined,
+  restaurantId: string,
+): Promise<CircleRatingHit[]> {
+  const id = restaurantId.trim();
+  if (!supabaseConfigured || !id) return [];
+  try {
+    const [friendRes, ratingRes] = await Promise.all([
+      userId
+        ? supabase.from('user_friends').select('friend_id').eq('user_id', userId)
+        : Promise.resolve({ data: [] as Array<{ friend_id: string }> }),
+      supabase.from('community_ratings')
+        .select('*')
+        .eq('restaurant_id', id)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (ratingRes.error) {
+      console.warn('[Community] getCircleRatingsForRestaurant error:', ratingRes.error.message);
+      return [];
+    }
+    const friendIds = new Set(((friendRes.data || []) as Array<{ friend_id: string }>).map((f) => f.friend_id));
+    const rows = (ratingRes.data || []) as CommunityRating[];
+    if (rows.length === 0) return [];
+    const raterIds = Array.from(new Set(rows.map((r) => r.user_id)));
+    const profiles = await getProfilesByIds(raterIds);
+    return rows
+      .filter((r) => friendIds.has(r.user_id) || !!profiles[r.user_id]?.is_verified)
+      .map((r) => {
+        const prof = profiles[r.user_id];
+        const score = Number(r.score);
+        return {
+          username: prof?.username || '',
+          displayName: prof?.display_name || prof?.username || 'Unknown',
+          isExpert: !!prof?.is_verified,
+          isFriend: friendIds.has(r.user_id),
+          score: Number.isFinite(score) && score > 0 ? score : undefined,
+          notes: r.notes || undefined,
+        };
+      });
+  } catch (err) {
+    console.warn('[Community] getCircleRatingsForRestaurant exception:', err);
+    return [];
+  }
+}
+
 /**
  * Remove a user's community photos for a restaurant.
  */

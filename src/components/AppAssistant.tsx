@@ -40,6 +40,7 @@ import {
   getFriends,
   getFriendsPublicHomeMeals,
   getAllPublicHomeMeals,
+  getCircleRatingsForRestaurant,
   type UserProfile,
   type FriendHomeMeal,
 } from '../lib/supabase-community';
@@ -804,9 +805,10 @@ export const AppAssistant: React.FC = () => {
       if (city) {
         filtered = filtered.filter((p) => (p.home_city || '').toLowerCase().includes(city));
       }
-      // If filters wiped everything, fall back to the unfiltered list
-      // so the model still has something to surface.
-      if (filtered.length === 0) filtered = profiles;
+      // Honest empties: when the filters match nobody, say so — silently
+      // substituting the unfiltered list made the model present
+      // non-matching experts as matches.
+      if (filtered.length === 0) return [];
       return filtered.slice(0, 8).map((p) => ({
         username: p.username,
         displayName: p.display_name || p.username,
@@ -820,9 +822,13 @@ export const AppAssistant: React.FC = () => {
   }, []);
 
   const handleGetCircleRatings = useCallback(async (restaurantId: string): Promise<AssistantCircleRating[]> => {
+    // LocationPage supplies a preloaded-signals version; everywhere else
+    // run the direct per-restaurant query. Returning a hardcoded [] here
+    // used to make the model tell users "no one in your circle rated
+    // this" on every page but /location — plausibly false.
     if (pageContext?.onGetCircleRatings) return pageContext.onGetCircleRatings(restaurantId);
-    return [];
-  }, [pageContext]);
+    return getCircleRatingsForRestaurant(auth.user?.id, restaurantId);
+  }, [pageContext, auth.user?.id]);
 
   /* ── Action handlers ───────────────────────────────────────── */
   const handleNavigate = useCallback((path: string): ActionResult => {

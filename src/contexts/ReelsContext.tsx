@@ -81,6 +81,10 @@ function pickFromPool<T>(pool: T[], seed: string): T {
 
 const DEFAULT_BG = 'from-stone-900 via-amber-900 to-stone-900';
 
+/** Exported for surfaces that batch-fetch reels outside the feed (e.g. the
+ *  Activity "Comments" grid) and need the same UI mapping the feed uses. */
+export function reelRowToUi(row: ReelRow): Reel { return rowToUi(row); }
+
 function rowToUi(row: ReelRow): Reel {
   const username = row.author?.username || row.userId.slice(0, 8);
   return {

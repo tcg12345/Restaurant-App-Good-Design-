@@ -48,11 +48,14 @@ export const ProfileGuideCard: React.FC<{ guide: Guide }> = ({ guide }) => {
           <h4 className="font-serif font-semibold text-white text-[16px] leading-tight line-clamp-2 mb-1 drop-shadow">
             {guide.title}
           </h4>
-          {(guide.subtitle || guide.avgScore != null) && (
+          {(guide.subtitle || guide.avgScore != null || (guide.readMinutes ?? 0) > 0) && (
             <div className="flex items-center gap-2 text-[11px] font-semibold text-white/85">
               {guide.subtitle && <span className="truncate">{guide.subtitle}</span>}
+              {(guide.readMinutes ?? 0) > 0 && (
+                <span className="flex-shrink-0 tabular-nums text-white/75">~{guide.readMinutes} min</span>
+              )}
               {guide.avgScore != null && (
-                <span className="inline-flex items-center gap-1 ml-auto flex-shrink-0">
+                <span className="inline-flex items-center gap-1 ml-auto flex-shrink-0 tabular-nums">
                   <Star size={11} className="fill-white" />
                   {guide.avgScore.toFixed(1)}
                 </span>

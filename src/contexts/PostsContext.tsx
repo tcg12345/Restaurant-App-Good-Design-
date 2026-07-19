@@ -53,6 +53,10 @@ export interface Post extends PostRow {
   hasRecipe: boolean;
 }
 
+/** Exported for surfaces that batch-fetch posts outside the feed (e.g. the
+ *  Activity "Comments" grid) and need the same decoration the feed applies. */
+export function postRowToUi(row: PostRow): Post { return decoratePost(row); }
+
 function decoratePost(row: PostRow): Post {
   let hasR = false, hasRec = false;
   for (const it of row.items) {

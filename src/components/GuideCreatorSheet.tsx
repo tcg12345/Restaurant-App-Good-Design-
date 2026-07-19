@@ -32,7 +32,9 @@ import { useToast } from '../contexts/ToastContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide, type GuideTheme } from '../lib/supabase-guides';
-import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, type PlaceResult } from '../lib/places';
+import { entryFromRating, entryFromPlace, entryFromListRecipe, entryFromDbRecipe } from '../lib/guide-entry-builders';
+import { cityFromAddress, cityFromAddressComponents } from '../lib/city';
 import { GuideLiveEditor } from './guide/GuideLiveEditor';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import './GuideCreatorSheet.css';
@@ -1445,61 +1447,23 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setStep(STEPS_ORDER[Math.max(currentStepIdx - 1, 0)]);
   };
 
-  /* ── Entry assembly (unchanged data spine) ────────────────────── */
+  /* ── Entry assembly — thin delegates over lib/guide-entry-builders,
+        the shared builders the Live Editor's picker also uses. The wizard
+        used to keep private copies that never captured city (so guides
+        never matched Location pages via entry matching) nor cuisine/price
+        for Places entries. ────────────────────────────────────────── */
 
-  const addEntryFromRating = (r: RestaurantRating): GuideEntry => {
-    const meta = getRestaurantInfo(r.restaurantId);
-    const subtitleStr = [r.cuisine, r.price].filter(Boolean).join(' · ');
-    const fromExplicit = (r.favoriteDishes || []).map((s) => s.trim()).filter(Boolean);
-    const fromPhotos = (r.photos || [])
-      .filter((p) => p.isFavorite && p.caption?.trim())
-      .map((p) => p.caption.trim());
-    const seen = new Set<string>();
-    const allDishes: string[] = [];
-    for (const d of [...fromExplicit, ...fromPhotos]) {
-      const key = d.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); allDishes.push(d); }
-    }
-    return {
-      id: newEntryId(),
-      refId: r.restaurantId,
-      name: r.name,
-      subtitle: subtitleStr,
-      cuisine: r.cuisine || undefined,
-      price: r.price || undefined,
-      image: r.photos?.[0]?.url || r.image || '',
-      score: r.score,
-      notes: r.notes?.trim() || undefined,
-      mustOrder: allDishes.length > 0 ? allDishes : undefined,
-      neighborhood: meta?.neighborhood,
-      hours: meta?.hours?.[0]?.split(': ')[1],
-    };
-  };
+  const addEntryFromRating = (r: RestaurantRating): GuideEntry =>
+    entryFromRating(r, getRestaurantInfo(r.restaurantId));
 
   const addEntryFromPlace = (p: PlaceResult): GuideEntry => {
+    // Prefer the user's own rating when they've scored this place.
     const existingRating = ratings.find((r) => r.restaurantId === p.id);
-    if (existingRating) return addEntryFromRating(existingRating);
-    return {
-      id: newEntryId(),
-      refId: p.id,
-      name: p.name,
-      subtitle: [p.types?.[0]?.replace(/_/g, ' '), priceLevelToString(p.priceLevel)].filter(Boolean).join(' · '),
-      image: p.photoUrl || '',
-      score: undefined,
-    };
+    return existingRating ? addEntryFromRating(existingRating) : entryFromPlace(p);
   };
 
-  const addEntryFromListRecipe = (r: ListRecipe): GuideEntry => ({
-    id: newEntryId(),
-    refId: r.id,
-    name: r.title,
-    subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
-    image: r.coverPhoto || r.photos?.[0]?.url || '',
-    score: r.score,
-    totalTime: (r.prepTime || 0) + (r.cookTime || 0),
-    difficulty: r.difficulty,
-    authorId: user?.id,
-  });
+  const addEntryFromListRecipe = (r: ListRecipe): GuideEntry =>
+    entryFromListRecipe(r, user?.id);
 
   // Recipes in the cloud `recipes` table don't carry a score directly,
   // but the user may have logged a matching home meal (HomeMeal.score)
@@ -1533,18 +1497,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     return s;
   }, [ratings, restaurantMeta]);
 
-  const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry => ({
-    id: newEntryId(),
-    refId: r.id,
-    name: r.title,
-    subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
-    cuisine: r.cuisine || undefined,
-    image: r.photos?.[0] || '',
-    score: homeMealScores.get((r.title || '').trim().toLowerCase()),
-    totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
-    difficulty: r.difficulty,
-    authorId: r.userId,
-  });
+  const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry =>
+    entryFromDbRecipe(r, homeMealScores.get((r.title || '').trim().toLowerCase()));
 
   const addedRefIds = useMemo(() => new Set(entries.map((e) => e.refId)), [entries]);
 
@@ -1567,8 +1521,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           refId: rid,
           name: meta.name,
           subtitle: [meta.cuisine, meta.price].filter(Boolean).join(' · '),
+          cuisine: meta.cuisine || undefined,
+          price: meta.price || undefined,
           image: meta.image || '',
           neighborhood: meta.neighborhood,
+          city: cityFromAddressComponents(meta.addressComponents) || cityFromAddress(meta.address) || undefined,
         } as GuideEntry;
       }
       return null;

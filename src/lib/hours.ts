@@ -62,6 +62,35 @@ function parseTime(raw: string): number | null {
 /** Parse Google `weekdayDescriptions` into open intervals. Robust to "Closed",
  *  "Open 24 hours", multiple periods per day, en/em/hyphen dashes, and
  *  overnight spans (end ≤ start ⇒ rolls past midnight). */
+/**
+ * Compress Google's 7 weekdayDescriptions lines into one durable summary
+ * string ("Mon–Fri 11 AM – 10 PM · Sat–Sun 10 AM – 11 PM"). Used where a
+ * single persisted line has to describe the whole week (guide entries) —
+ * snapshotting only `hours[0]` stored Monday's hours no matter when the
+ * reader looks. Day prefixes are stripped on the first colon, so lines
+ * without the "Day: " shape degrade to their own text instead of breaking.
+ */
+export function weeklyHoursSummary(hours: string[] | undefined | null): string | undefined {
+  if (!hours || hours.length === 0) return undefined;
+  const stripDay = (line: string): string => {
+    const idx = line.indexOf(':');
+    return (idx >= 0 ? line.slice(idx + 1) : line).trim();
+  };
+  // Non-standard shape (not one line per weekday) — best effort first line.
+  if (hours.length !== 7) return stripDay(hours[0]) || undefined;
+  const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const parts = hours.map(stripDay);
+  const groups: Array<{ from: number; to: number; text: string }> = [];
+  for (let i = 0; i < 7; i++) {
+    const g = groups[groups.length - 1];
+    if (g && g.text === parts[i] && g.to === i - 1) g.to = i;
+    else groups.push({ from: i, to: i, text: parts[i] });
+  }
+  return groups
+    .map((g) => `${DAY_ABBR[g.from]}${g.to > g.from ? `–${DAY_ABBR[g.to]}` : ''} ${g.text}`)
+    .join(' · ');
+}
+
 export function parseWeekdayHours(hours: string[] | undefined | null): Interval[] {
   if (!hours || hours.length === 0) return [];
   const out: Interval[] = [];

@@ -17,8 +17,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
-import { GuideCard } from '../components/GuideCard';
+import { getGuidesForFeed, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -553,12 +552,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const gs = await getGuidesForFeed({ limit: 60 });
       if (cancelled) return;
       const authorIds = Array.from(new Set(gs.map((g) => g.userId)));
-      const authors = authorIds.length > 0 ? await getProfilesByIds(authorIds) : {};
+      const [authors, saveCounts] = await Promise.all([
+        authorIds.length > 0 ? getProfilesByIds(authorIds) : Promise.resolve({}),
+        getGuideSaveCounts(gs.map((g) => g.id)),
+      ]);
       if (cancelled) return;
       const dayMs = 86400000;
       setBrowseGuides(gs.map((g) => {
         const t = Date.parse(g.updatedAt || '');
-        const a = authors[g.userId];
+        const a = (authors as Record<string, { display_name?: string; username?: string }>)[g.userId];
         return {
           id: g.id,
           title: g.title.trim() || 'Untitled guide',
@@ -566,6 +568,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           image: g.coverPhoto || '',
           count: g.entries.length,
           daysAgo: Number.isNaN(t) ? 0 : Math.max(0, Math.floor((Date.now() - t) / dayMs)),
+          saves: saveCounts[g.id],
         };
       }));
     })();

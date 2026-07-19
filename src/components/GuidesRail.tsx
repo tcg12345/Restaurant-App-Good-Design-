@@ -99,6 +99,14 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
                   </span>
                   <span>by {authorName}</span>
                 </div>
+                {((g.readMinutes ?? 0) > 0 || g.avgScore != null) && (
+                  <div className="mt-1 text-[10.5px] font-medium text-on-surface/45 tabular-nums">
+                    {[
+                      (g.readMinutes ?? 0) > 0 ? `~${g.readMinutes} min` : null,
+                      g.avgScore != null ? `avg ${g.avgScore.toFixed(1)}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </div>
+                )}
               </div>
             </article>
           </Link>

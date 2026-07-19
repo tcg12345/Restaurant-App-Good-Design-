@@ -598,10 +598,15 @@ export async function listPosts(opts: {
   /** Keyset cursor: return rows strictly OLDER than this (created_at, id)
    *  pair — pass the last row of the previous page to fetch the next one. */
   before?: { createdAt: string; id: string };
+  /** Batch-get exactly these posts (e.g. everything the user commented on)
+   *  instead of a feed window. Overrides userIds/before; newest first. */
+  ids?: string[];
 }): Promise<PostRow[] | null> {
   if (!supabaseConfigured) return [];
-  const { limit = 50, viewerId, userIds, before } = opts;
+  const { viewerId, userIds, before, ids } = opts;
+  const limit = ids ? ids.length : (opts.limit ?? 50);
   if (userIds && userIds.length === 0) return [];
+  if (ids && ids.length === 0) return [];
 
   // (created_at, id) keyset filter — id breaks same-instant ties.
   const beforeFilter = before
@@ -615,7 +620,7 @@ export async function listPosts(opts: {
   const IN_CHUNK = 150;
   let data: unknown[] | null = null;
   let error: { message: string } | null = null;
-  if (userIds && userIds.length > IN_CHUNK) {
+  if (userIds && !ids && userIds.length > IN_CHUNK) {
     const merged: unknown[] = [];
     for (let i = 0; i < userIds.length; i += IN_CHUNK) {
       let q = supabase.from('posts')
@@ -636,8 +641,9 @@ export async function listPosts(opts: {
   } else {
     let q = supabase.from('posts')
       .select('*, post_items(*), post_likes(count), post_saves(count), post_comments(count)');
-    if (userIds) q = q.in('user_id', userIds);
-    if (beforeFilter) q = q.or(beforeFilter);
+    if (ids) q = q.in('id', ids);
+    if (userIds && !ids) q = q.in('user_id', userIds);
+    if (beforeFilter && !ids) q = q.or(beforeFilter);
     const res = await q
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })

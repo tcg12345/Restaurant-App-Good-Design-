@@ -9,7 +9,7 @@ import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, t
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { supabase, supabaseConfigured } from '../lib/supabase';
@@ -1157,7 +1157,7 @@ const ChatView: React.FC<{
               <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><Store size={15} /></span>
               <span className="min-w-0">
                 <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share restaurant</span>
-                <span className="block text-[10.5px] text-on-surface/45 truncate">Yours · full DB</span>
+                <span className="block text-[10.5px] text-on-surface/45 truncate">Your reviews · the full database</span>
               </span>
             </button>
             <button onClick={() => setRecipePickerOpen(true)}
@@ -1165,7 +1165,7 @@ const ChatView: React.FC<{
               <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><ChefHat size={15} /></span>
               <span className="min-w-0">
                 <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share recipe</span>
-                <span className="block text-[10.5px] text-on-surface/45 truncate">Yours · 1,200+ recipes</span>
+                <span className="block text-[10.5px] text-on-surface/45 truncate">Your cookbook · community recipes</span>
               </span>
             </button>
           </div>
@@ -1656,6 +1656,26 @@ export const Messages: React.FC = () => {
     if (existing) { setActiveConversationId(existing.id); setDraftFriendId(null); }
     else { setActiveConversationId(null); setDraftFriendId(friendId); }
   };
+
+  // Deep link from a profile's "Message" button: navigate('/messages',
+  // { state: { openUserId } }) lands directly in that person's thread
+  // (drafting one if it doesn't exist) instead of dumping the user on the
+  // list to re-find them. State is consumed once and cleared so back/
+  // refresh doesn't re-trigger the jump.
+  const location = useLocation();
+  const openUserId = (location.state as { openUserId?: string } | null)?.openUserId;
+  useEffect(() => {
+    if (!openUserId) return;
+    autoSelectedRef.current = true; // beat the open-most-recent auto-select
+    const existing = findDirectConversation(openUserId);
+    if (existing) { setActiveConversationId(existing.id); setDraftFriendId(null); }
+    else { setActiveConversationId(null); setDraftFriendId(openUserId); }
+    // The target may not be a friend/participant yet — make sure the chat
+    // header can show their name instead of "New message".
+    getProfilesByIds([openUserId]).then((profs) => setProfiles((prev) => ({ ...prev, ...profs })));
+    navigate('/messages', { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openUserId]);
   const clearSelection = () => { setActiveConversationId(null); setDraftFriendId(null); };
   const onConversationCreated = (id: string) => { setDraftFriendId(null); setActiveConversationId(id); };
 

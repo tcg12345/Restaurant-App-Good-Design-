@@ -16,6 +16,7 @@ export interface GuideCardData {
   entryCount: number;
   type: 'restaurants' | 'recipes';
   avgScore?: number | null;
+  readMinutes?: number | null;
 }
 
 export const GuideCard: React.FC<{
@@ -61,6 +62,14 @@ export const GuideCard: React.FC<{
         <p className="text-white/75 text-[9.5px] font-medium mt-0.5 truncate">
           {guide.authorName ? `by ${guide.authorName} · ` : ''}{guide.entryCount} {guide.type === 'recipes' ? 'recipes' : 'spots'}
         </p>
+        {(guide.readMinutes != null || guide.avgScore != null) && (
+          <p className="text-white/60 text-[9.5px] font-medium mt-0.5 truncate tabular-nums">
+            {[
+              guide.readMinutes != null && guide.readMinutes > 0 ? `~${guide.readMinutes} min` : null,
+              guide.avgScore != null ? `avg ${guide.avgScore.toFixed(1)}` : null,
+            ].filter(Boolean).join(' · ')}
+          </p>
+        )}
       </div>
     </div>
   );

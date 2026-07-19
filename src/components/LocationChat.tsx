@@ -760,19 +760,46 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
 
 interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
 
-/** Suggestion cards for the empty state, biased by active filters. `prompt`
- *  is sent to the model; `title` / `subtitle` drive the horizontal card. */
+/** Suggestion cards for the empty state. Every slot derives from the live
+ *  context — active cuisine/neighborhood/price filters plus time of day —
+ *  so the cards read as "about this search", not boilerplate. `prompt` is
+ *  sent to the model; `title` / `subtitle` drive the horizontal card. */
 function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
   const cuisineLabel = (filters.cuisines?.[0] && (
     GOOGLE_TYPE_TO_CUISINE_LABEL[filters.cuisines[0]] || ''
   )) || '';
+  const cuisineLc = cuisineLabel.toLowerCase();
+  const hood = filters.neighborhoods?.[0] || '';
+  const area = hood || shortCity;
+  const priceTier = filters.price && filters.price >= 1 && filters.price <= 4 ? filters.price : 0;
+  const priceSigns = priceTier > 0 ? '$'.repeat(priceTier) : '';
+  // Meal slot from the device clock — the user is usually planning the
+  // next meal, not an abstract one.
+  const hour = new Date().getHours();
+  const meal = hour < 11
+    ? { key: 'breakfast', title: 'Breakfast', subtitle: 'morning spots' }
+    : hour < 15
+      ? { key: 'lunch', title: 'Lunch now', subtitle: 'good for midday' }
+      : hour < 22
+        ? { key: 'dinner tonight', title: 'Dinner tonight', subtitle: 'evening picks' }
+        : { key: 'late-night food', title: 'Late night', subtitle: 'still serving' };
   return [
     cuisineLabel
-      ? { prompt: `Best ${cuisineLabel.toLowerCase()} spots in ${shortCity}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${shortCity}` }
-      : { prompt: `Best date night spots in ${shortCity}`, title: 'Date night', subtitle: `romantic spots in ${shortCity}` },
-    { prompt: 'Hidden gems most people miss', title: 'Hidden gems', subtitle: 'underrated local favorites' },
-    { prompt: 'Where to go for a casual lunch', title: 'Casual lunch', subtitle: 'easy midday bites' },
-    { prompt: 'Something quick under $20', title: 'Under $20', subtitle: 'quick & budget-friendly' },
+      ? { prompt: `Best ${cuisineLc} spots in ${area}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${area}` }
+      : { prompt: `Best date night spots in ${area}`, title: 'Date night', subtitle: `romantic spots in ${area}` },
+    {
+      prompt: `Hidden gems most people miss in ${area}`,
+      title: 'Hidden gems',
+      subtitle: hood ? `underrated in ${hood}` : 'underrated local favorites',
+    },
+    {
+      prompt: `Where should I go for ${meal.key}${cuisineLc ? ` — ideally ${cuisineLc}` : ''} in ${area}?`,
+      title: meal.title,
+      subtitle: cuisineLabel ? `${meal.subtitle} · ${cuisineLabel}` : meal.subtitle,
+    },
+    priceTier > 0
+      ? { prompt: `Best ${priceSigns} ${cuisineLc || 'restaurants'} in ${area}`, title: `Best ${priceSigns}`, subtitle: 'matches your price filter' }
+      : { prompt: `Something quick under $20 in ${area}`, title: 'Under $20', subtitle: 'quick & budget-friendly' },
   ];
 }
 
@@ -2327,6 +2354,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           { role: 'user', content: toolResultsForApi },
         ];
       }
+
+      // Reaching here means MAX_AGENTIC_TURNS ran out while the model was
+      // still calling tools — anything it did (searches, opened modals,
+      // navigation) already happened, but no closing text followed. Fill
+      // the trailing empty assistant turn so the user isn't left staring
+      // at silent side effects.
+      const capNote = "I've done what I can in this turn — ask a follow-up if you'd like me to keep going.";
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant' && last.blocks.length === 0) {
+          next[next.length - 1] = { role: 'assistant', blocks: [{ type: 'text', text: capNote }] };
+          return next;
+        }
+        return [...next, { role: 'assistant', blocks: [{ type: 'text', text: capNote }] }];
+      });
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Something went wrong');
