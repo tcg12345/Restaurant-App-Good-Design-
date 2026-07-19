@@ -5,6 +5,7 @@ import { signInWithAppleNative } from '../lib/native-apple';
 import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
+import { canonicalShareUrl } from '../lib/native-share';
 import type { User, Session } from '@supabase/supabase-js';
 
 /** Race a promise against a timeout. Used to make sure a hung Supabase
@@ -63,12 +64,22 @@ interface AuthContextType {
   verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
-  /** True while a verified-by-code signup still needs its password chosen.
+  /** True while a verified-by-code signup still needs its password chosen —
+   *  or while a forgot-password recovery session needs its new password.
    *  App.tsx keeps rendering the Auth screen (setpassword step) until
    *  completePasswordSetup clears it. Survives an app relaunch. */
   needsPasswordSetup: boolean;
-  /** Set the password for a code-verified signup (auth.updateUser). */
+  /** Why the set-password screen is showing: a verify-first signup choosing
+   *  its first password, or a forgot-password link setting a new one. Only
+   *  meaningful while needsPasswordSetup is true. */
+  passwordSetupMode: 'signup' | 'recovery';
+  /** Set the password for a code-verified signup or a password-recovery
+   *  session (auth.updateUser). */
   completePasswordSetup: (password: string) => Promise<{ error: string | null }>;
+  /** Email a password-reset link (auth.resetPasswordForEmail). The link
+   *  redirects to /reset-password on the public web origin, which reopens
+   *  the app on the set-new-password screen. */
+  requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   /** Start an OAuth sign-in (e.g. Google). Redirects the browser to the
    *  provider and back to the app, where the session is picked up by
    *  `onAuthStateChange`. Returns an error only when the redirect itself
@@ -152,7 +163,9 @@ const AuthContext = createContext<AuthContextType>({
   verifyEmailCode: async () => ({ error: null }),
   resendVerificationCode: async () => ({ error: null }),
   needsPasswordSetup: false,
+  passwordSetupMode: 'signup',
   completePasswordSetup: async () => ({ error: null }),
+  requestPasswordReset: async () => ({ error: null }),
   signInWithOAuth: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -174,13 +187,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminChecked, setAdminChecked] = useState<boolean | 'unknown'>('unknown');
+  // Key value doubles as the mode: '1' = verify-first signup choosing its
+  // first password, 'recovery' = forgot-password link setting a new one.
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState<boolean>(() => {
-    try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === '1'; } catch { return false; }
-  });
-  const markNeedsPassword = useCallback((on: boolean) => {
-    setNeedsPasswordSetup(on);
     try {
-      if (on) localStorage.setItem(NEEDS_PASSWORD_KEY, '1');
+      const v = localStorage.getItem(NEEDS_PASSWORD_KEY);
+      return v === '1' || v === 'recovery';
+    } catch { return false; }
+  });
+  const [passwordSetupMode, setPasswordSetupMode] = useState<'signup' | 'recovery'>(() => {
+    try { return localStorage.getItem(NEEDS_PASSWORD_KEY) === 'recovery' ? 'recovery' : 'signup'; } catch { return 'signup'; }
+  });
+  const markNeedsPassword = useCallback((on: boolean, mode: 'signup' | 'recovery' = 'signup') => {
+    setNeedsPasswordSetup(on);
+    setPasswordSetupMode(mode);
+    try {
+      if (on) localStorage.setItem(NEEDS_PASSWORD_KEY, mode === 'recovery' ? 'recovery' : '1');
       else localStorage.removeItem(NEEDS_PASSWORD_KEY);
     } catch { /* storage unavailable */ }
   }, []);
@@ -271,6 +293,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Account switched on this device — purge stale caches + reload
         // before any provider sees the new identity.
         if (u && guardDeviceAccount(u.id)) return;
+        // Password-recovery landing: the reset email redirects to
+        // /reset-password (getSession above already finished the PKCE
+        // ?code= exchange via detectSessionInUrl). With a session present,
+        // hold the Auth screen on its set-new-password step; either way
+        // clean the path so the SPA router never sees the one-off route.
+        if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
+          if (u) markNeedsPassword(true, 'recovery');
+          try { window.history.replaceState({}, '', '/'); } catch { /* noop */ }
+        }
         setUser(u);
         if (u) { clearGuest(); await loadProfile(u.id); }
       } catch {
@@ -282,9 +313,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: string, session: Session | null) => {
+      (event: string, session: Session | null) => {
         const u = session?.user ?? null;
         if (u && guardDeviceAccount(u.id)) return;
+        // Belt-and-braces for the /reset-password path check above: implicit
+        // (#access_token) recovery links surface as this event instead.
+        if (event === 'PASSWORD_RECOVERY' && u) markNeedsPassword(true, 'recovery');
         setUser(u);
         if (u) { clearGuest(); loadProfile(u.id); }
         else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); setAdminChecked(false); }
@@ -292,7 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     return () => { mounted = false; subscription.unsubscribe(); };
-  }, [loadProfile, clearGuest]);
+  }, [loadProfile, clearGuest, markNeedsPassword]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -426,6 +460,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [markNeedsPassword]);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      // canonicalShareUrl: inside the native shell window.location.origin is
+      // capacitor://localhost — the emailed link must land on the public web
+      // app (VITE_PUBLIC_WEB_ORIGIN), where the boot-time /reset-password
+      // check opens the set-new-password screen. The path must be on the
+      // Supabase project's redirect-URL allowlist.
+      const { error } = await withTimeout(
+        supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: canonicalShareUrl('/reset-password'),
+        }),
+        12000,
+        'auth.resetPasswordForEmail',
+      );
+      if (error) {
+        return {
+          error: /rate|seconds/i.test(error.message)
+            ? 'A reset email was sent recently — wait a minute before requesting another.'
+            : error.message,
+        };
+      }
+      return { error: null };
+    } catch {
+      return { error: 'Could not send the reset email. Check your connection and try again.' };
+    }
+  }, []);
+
   const resendVerificationCode = useCallback(async (email: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     try {
@@ -534,7 +596,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, completePasswordSetup }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, passwordSetupMode, completePasswordSetup, requestPasswordReset }}>
       {children}
     </AuthContext.Provider>
   );

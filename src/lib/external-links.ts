@@ -10,6 +10,7 @@ import { Browser } from '@capacitor/browser';
  */
 export const SUPPORT_URL = 'https://tcg12345.github.io/gourmetcanvas-support/support';
 export const PRIVACY_URL = 'https://tcg12345.github.io/gourmetcanvas-support/privacy';
+export const TERMS_URL = 'https://tcg12345.github.io/gourmetcanvas-support/terms';
 
 /**
  * Open an external URL the native way. On iOS/Capacitor this presents an

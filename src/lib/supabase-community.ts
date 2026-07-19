@@ -437,6 +437,28 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   } catch { return null; }
 }
 
+/**
+ * True when the username is already claimed by ANOTHER account. Head-count
+ * query on the lowercased handle (saveProfile stores usernames lowercased),
+ * so no profile rows cross the wire. Returns `null` when the check itself
+ * fails (offline / RLS / timeout) — callers must treat that as "couldn't
+ * tell" and fall back to the submit-time 23505 backstop, never as
+ * "available".
+ */
+export async function isUsernameTaken(username: string, excludeUserId?: string): Promise<boolean | null> {
+  const uname = username.toLowerCase().trim();
+  if (!supabaseConfigured || !uname) return null;
+  try {
+    let q = supabase.from('user_profiles')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('username', uname);
+    if (excludeUserId) q = q.neq('user_id', excludeUserId);
+    const { count, error } = await q;
+    if (error) return null;
+    return (count ?? 0) > 0;
+  } catch { return null; }
+}
+
 export async function saveProfile(
   userId: string,
   displayName: string,
