@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { supabase, supabaseConfigured } from '../lib/supabase';
+import { supabase, supabaseConfigured, SESSION_STORAGE_KEY } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
 import { clearLocalAppData } from '../lib/supabase-account';
 import { canonicalShareUrl } from '../lib/native-share';
+import { readStoredSession } from '../lib/auth-storage';
 import type { User, Session } from '@supabase/supabase-js';
 
 /** Race a promise against a timeout. Used to make sure a hung Supabase
@@ -272,6 +273,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     (async () => {
+      let u: User | null = null;
       try {
         // Native cold start caused BY the OAuth redirect (iOS killed the app
         // while the user was in the provider sheet): finish the PKCE code
@@ -288,27 +290,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           6000,
           'auth.getSession',
         );
-        if (!mounted) return;
-        const u = session?.user ?? null;
-        // Account switched on this device — purge stale caches + reload
-        // before any provider sees the new identity.
-        if (u && guardDeviceAccount(u.id)) return;
-        // Password-recovery landing: the reset email redirects to
-        // /reset-password (getSession above already finished the PKCE
-        // ?code= exchange via detectSessionInUrl). With a session present,
-        // hold the Auth screen on its set-new-password step; either way
-        // clean the path so the SPA router never sees the one-off route.
-        if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
-          if (u) markNeedsPassword(true, 'recovery');
-          try { window.history.replaceState({}, '', '/'); } catch { /* noop */ }
-        }
-        setUser(u);
-        if (u) { clearGuest(); await loadProfile(u.id); }
+        u = session?.user ?? null;
       } catch {
-        // Session check failed / timed out — fall through to signed-out so
-        // the splash clears and the user lands on the auth screen instead
-        // of being stuck.
+        // getSession failed or timed out. NOT proof the user is signed out —
+        // on a cold start with an expired access token this call needs a
+        // network round-trip, so flaky connections land here all the time.
+        // The stored-session fallback below decides what that means.
       }
+      if (!mounted) return;
+      // Stale-while-revalidate identity: when getSession couldn't produce a
+      // session (timeout, offline refresh, transient 5xx) the refresh token
+      // is usually still sitting in storage — the user IS signed in, just
+      // not refreshed yet. Booting them onto the sign-in screen anyway was
+      // the "app constantly signs me out" bug. Adopt the persisted user and
+      // let the auto-refresh ticker repair the tokens in the background; a
+      // genuinely revoked session comes back as a SIGNED_OUT event (supabase
+      // removes the stored entry on definitive auth failures) and signs out
+      // for real.
+      if (!u) {
+        const stored = await readStoredSession(SESSION_STORAGE_KEY);
+        u = stored?.user ?? null;
+      }
+      if (!mounted) return;
+      // Account switched on this device — purge stale caches + reload
+      // before any provider sees the new identity.
+      if (u && guardDeviceAccount(u.id)) return;
+      // Password-recovery landing: the reset email redirects to
+      // /reset-password (getSession above already finished the PKCE
+      // ?code= exchange via detectSessionInUrl). With a session present,
+      // hold the Auth screen on its set-new-password step; either way
+      // clean the path so the SPA router never sees the one-off route.
+      if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
+        if (u) markNeedsPassword(true, 'recovery');
+        try { window.history.replaceState({}, '', '/'); } catch { /* noop */ }
+      }
+      setUser(u);
+      if (u) { clearGuest(); await loadProfile(u.id); }
       if (mounted) setLoading(false);
     })();
 
@@ -319,9 +336,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Belt-and-braces for the /reset-password path check above: implicit
         // (#access_token) recovery links surface as this event instead.
         if (event === 'PASSWORD_RECOVERY' && u) markNeedsPassword(true, 'recovery');
-        setUser(u);
-        if (u) { clearGuest(); loadProfile(u.id); }
-        else { setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); setAdminChecked(false); }
+        if (u) {
+          setUser(u);
+          clearGuest();
+          loadProfile(u.id);
+        } else if (event === 'SIGNED_OUT') {
+          // Only an explicit sign-out (user action, or supabase clearing a
+          // definitively revoked session) drops the identity.
+          setUser(null);
+          setProfile(null); setProfileError(false); setPendingRequestCount(0); setIsAdmin(false); setAdminChecked(false);
+        }
+        // Any other null-session event (INITIAL_SESSION emitted while a
+        // token refresh is failing transiently) keeps the current identity —
+        // clearing it here was another way the app "signed you out" on a
+        // bad connection. Real revocations always arrive as SIGNED_OUT.
       }
     );
 
