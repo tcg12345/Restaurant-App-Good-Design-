@@ -468,7 +468,7 @@ export const RecipeModal: React.FC = () => {
                                 {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
                                 <span className="font-normal">{ing.name}</span>
                               </p>
-                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                              <button onClick={() => removeIngredient(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
                                 <X size={14} />
                               </button>
                             </li>
@@ -510,7 +510,7 @@ export const RecipeModal: React.FC = () => {
                               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {step.order}</p>
                               <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step.text}</p>
                             </div>
-                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
+                            <button onClick={() => removeStep(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
                           </li>
@@ -598,7 +598,7 @@ export const RecipeModal: React.FC = () => {
                                   onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
                                   aria-label="Delete photo"
                                   className={cn(
-                                    "absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
+                                    "hit-44 absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
                                     isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                   )}
                                 >

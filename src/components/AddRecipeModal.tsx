@@ -460,7 +460,7 @@ export const AddRecipeModal: React.FC = () => {
                                 {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
                                 <span className="font-normal">{ing.name}</span>
                               </p>
-                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                              <button onClick={() => removeIngredient(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
                                 <X size={14} />
                               </button>
                             </li>
@@ -503,7 +503,7 @@ export const AddRecipeModal: React.FC = () => {
                               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {idx + 1}</p>
                               <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step}</p>
                             </div>
-                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
+                            <button onClick={() => removeStep(idx)} className="hit-44 p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
                           </li>
@@ -547,7 +547,7 @@ export const AddRecipeModal: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
-                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                  className="hit-44 absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                   aria-label="Remove photo"
                                 >
                                   <X size={10} className="text-white" strokeWidth={2.5} />

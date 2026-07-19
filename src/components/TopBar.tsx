@@ -45,7 +45,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   const backButton = (
     <button
       onClick={handleBack}
-      className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+      className="hit-44 w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
       aria-label="Back to Explore"
     >
       <ArrowLeft size={20} />
@@ -56,7 +56,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
     <div className="flex items-center gap-2">
       {rightAction}
       <button
-        className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
+        className="hit-44 w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
         onClick={() => navigate('/messages')}
         aria-label="Messages"
       >
@@ -69,7 +69,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
       </button>
       {!isCirclePage && (
         <button
-          className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
+          className="hit-44 w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative"
           onClick={() => navigate('/circle')}
           aria-label="Your Circle"
         >

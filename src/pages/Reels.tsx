@@ -653,7 +653,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
               onClick={onToggleFollow}
               disabled={followBusy}
               className={cn(
-                'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
+                'hit-44-y px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                 isFollowing
                   ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
                   : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
@@ -1613,7 +1613,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           <button
             type="button"
             onClick={() => onDeleteOne(c.id)}
-            className={cn('p-1 hover:text-rose-500', muteCls)}
+            className={cn('hit-44 p-1 hover:text-rose-500', muteCls)}
             aria-label="Delete comment"
           >
             <Trash2 size={14} />

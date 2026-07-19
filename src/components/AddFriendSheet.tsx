@@ -210,7 +210,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
               <button
                 type="button"
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
+                className="hit-44 w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
                 aria-label="Close"
               >
                 <X size={15} className="text-on-surface/60" />
@@ -286,7 +286,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                             type="button"
                             onClick={() => handleAccept(p)}
                             disabled={isPending}
-                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+                            className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
                           >
                             {isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
                             Accept
@@ -296,7 +296,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                             type="button"
                             onClick={() => followUser(p)}
                             disabled={isPending}
-                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+                            className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
                           >
                             {isPending ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
                             Follow back
@@ -306,7 +306,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                             type="button"
                             onClick={() => followUser(p)}
                             disabled={isPending}
-                            className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+                            className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
                           >
                             {isPending ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
                             Add

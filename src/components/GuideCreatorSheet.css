@@ -859,6 +859,17 @@
 }
 
 .gcx-icon-btn:hover { border-color: var(--gcx-ink); color: var(--gcx-ink); }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.gcx-icon-btn { position: relative; }
+.gcx-icon-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 
 .gcx-icon-btn.is-on {
   background: var(--gcx-ink);

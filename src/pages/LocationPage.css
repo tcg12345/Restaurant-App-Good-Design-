@@ -232,8 +232,22 @@
   transition: background-color .18s ease, color .18s ease;
 }
 .location-page-root .fb-back:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.location-page-root .fb-back { position: relative; }
+.location-page-root .fb-back::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .location-page-root .fb-back svg { width: 18px; height: 18px; }
 .location-page-root .fb-chip {
+  /* ≥44pt vertical hit area (chips sit side by side, so no sideways
+     expansion — it would overlap the neighbours). */
+  position: relative;
   display: inline-flex; align-items: center; gap: 7px;
   height: 34px; padding: 0 12px;
   border-radius: 999px;
@@ -248,6 +262,15 @@
 .location-page-root .fb-chip:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
 .location-page-root .fb-chip.active {
   background: var(--ink); color: var(--bg);
+}
+.location-page-root .fb-chip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: max(100%, 44px);
+  transform: translateY(-50%);
 }
 .location-page-root .fb-chip svg { width: 13px; height: 13px; opacity: .8; }
 .location-page-root .fb-chip .count {
@@ -2256,6 +2279,17 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   letter-spacing: 0.01em;
   transition: background .15s, color .15s;
 }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.lp-chat-model-pill { position: relative; }
+.lp-chat-model-pill::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .lp-chat-model-pill:hover {
   background: rgba(28, 24, 22, 0.08);
   color: var(--ink);
@@ -2976,6 +3010,17 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   transition: background .15s, color .15s;
   flex-shrink: 0;
 }
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.lp-chat-head-action { position: relative; }
+.lp-chat-head-action::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
 .lp-chat-head-action:hover {
   background: rgba(28, 24, 22, 0.06);
   color: var(--ink);
@@ -3135,6 +3180,17 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
 .lp-chat-history-item:hover .lp-chat-history-delete,
 .lp-chat-history-item:focus-within .lp-chat-history-delete {
   opacity: 1;
+}
+/* 44pt hit-area expansion (Apple HIG) — invisible tap overlay. */
+.lp-chat-history-delete { position: relative; }
+.lp-chat-history-delete::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
 }
 .lp-chat-history-delete:hover {
   background: rgba(168, 57, 42, 0.12);

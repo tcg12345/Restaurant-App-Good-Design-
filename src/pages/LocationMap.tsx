@@ -8,7 +8,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { ArrowLeft, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, MapPin, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { scoreBadgeBg, scoreColor } from '../lib/score';
+import { scoreBadgeBg, scoreColor, scoreHex } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -135,9 +135,9 @@ const scoreBadgeClass = (score: number): string => {
 function markerColor(googleRating: number): string {
   // Google's 0–5 scale → the app's 0–10 scale = rating × 2.
   const score = googleRating * 2;
-  if (score >= 8) return '#10b981'; // emerald-500
-  if (score >= 5) return '#f59e0b'; // amber-500
-  if (score > 0) return '#ef4444';  // red-500
+  // Shared warm score-tier hexes (lib/score) — every map uses the same
+  // marker palette as the score chips.
+  if (score > 0) return scoreHex(score);
   return '#6b7280';                  // gray-500 for unrated
 }
 

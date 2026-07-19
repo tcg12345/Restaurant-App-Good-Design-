@@ -9,7 +9,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreHex } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
@@ -1750,7 +1750,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const createMarkerElement = useCallback((place: PlaceResult) => {
     const userScore = userRatingMapRef.current[place.id] || 0;
     const score = userScore > 0 ? userScore : (place.rating > 0 ? place.rating * 2 : 0);
-    const color = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : score > 0 ? '#ef4444' : '#94a3b8';
+    const color = score > 0 ? scoreHex(score) : '#94a3b8';
     const label = score > 0
       ? `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`
       : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
@@ -3000,7 +3000,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
         } else {
           // Rated item — score color with the rating in white
-          fillColor = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : '#ef4444';
+          fillColor = scoreHex(score);
           iconHtml = `<span style="font-size:${Math.round(markerSize * 0.32)}px;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`;
         }
       }
@@ -3134,7 +3134,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // reference. White score, filled circle.
   const mapScoreCircle = (s?: number) => {
     if (s == null || s <= 0) return null;
-    const bg = s >= 8 ? '#10b981' : s >= 5 ? '#f59e0b' : '#ef4444';
+    const bg = scoreHex(s);
     return (
       <div
         className="grid flex-shrink-0 place-items-center rounded-full font-serif font-bold tabular-nums text-white"

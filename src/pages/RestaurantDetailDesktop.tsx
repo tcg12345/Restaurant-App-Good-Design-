@@ -27,6 +27,7 @@ import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
+import { scoreHex } from '../lib/score';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -49,12 +50,11 @@ function timeAgo(date: string): string {
 }
 
 /* ── Small shared styling helpers for the redesign ──────────────────────
-   Score colours follow the design-system palette (emerald ≥ 8 / amber 5–7
-   / red < 5) — the same tiers the score rings use elsewhere in the app. */
-const SCORE_HIGH = '#10b981';
-const SCORE_MID = '#f59e0b';
-const SCORE_LOW = '#ef4444';
-const scoreColor = (s: number) => (s >= 8 ? SCORE_HIGH : s >= 5 ? SCORE_MID : SCORE_LOW);
+   Score colours follow the shared tier palette (lib/score → the
+   --color-score-* tokens): high ≥ 8 / mid 5–7 / low < 5. This file
+   appends alpha nibbles to the value (`${scoreColor(s)}24`), which a
+   var() string can't do, so it uses the literal scoreHex mirror. */
+const scoreColor = (s: number) => scoreHex(s);
 /** Soft card surface used throughout the page. */
 const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
 /** Section heading (serif, matches the reference). */

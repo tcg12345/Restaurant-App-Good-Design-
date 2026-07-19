@@ -1,4 +1,5 @@
 import React from 'react';
+import { scoreTintStyle } from '../../lib/score';
 
 /**
  * Soft tiered score circle with an inset ring — the score treatment from the
@@ -16,13 +17,10 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
   className,
 }) => {
   if (score === undefined || score === null || score <= 0) return null;
-  // Tier tint/text ride the --tier-* tokens (index.css) so the chip tracks
-  // dark mode — the old inline pastel hexes glowed on a dark card. Ring
-  // colors are mid-saturation and read fine on both themes.
-  const tier =
-    score >= 8 ? { bg: 'var(--tier-good-bg)', ring: 'rgba(16,185,129,0.5)', text: 'var(--tier-good-text)' }
-    : score >= 5 ? { bg: 'var(--tier-mid-bg)', ring: 'rgba(245,158,11,0.55)', text: 'var(--tier-mid-text)' }
-    : { bg: 'var(--tier-low-bg)', ring: 'rgba(239,68,68,0.5)', text: 'var(--tier-low-text)' };
+  // Token-backed tier pack (lib/score → --color-score-* in index.css):
+  // tint fill + ring + readable text, all adapting in dark mode.
+  const pack = scoreTintStyle(score);
+  const tier = { bg: pack.background, ring: pack.ring, text: pack.color };
   return (
     <div
       className={className}

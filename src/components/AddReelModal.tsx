@@ -1112,7 +1112,7 @@ export const AddReelModal: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
-                              className="w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
+                              className="hit-44 w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
                               aria-label="Clear location"
                             >
                               <X size={12} />

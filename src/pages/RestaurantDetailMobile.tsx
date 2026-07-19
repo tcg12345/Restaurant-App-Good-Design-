@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -278,7 +278,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
   /* ── Score-color helpers — kept on the app's score thresholds
      (≥8 / ≥5 / <5) so chips and discs stay consistent across the page. ── */
-  const chipBg = (s: number) => (s >= 8 ? 'bg-green-600' : s >= 5 ? 'bg-amber-600' : 'bg-red-500');
+  const chipBg = (s: number) => scoreChipBg(s);
   // Soft-tinted score pill for friend chips in "From your circle".
   const softChip = (s: number) => (s >= 8 ? 'bg-green-100 text-green-700' : s >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600');
 
@@ -317,7 +317,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <button
             onClick={() => navigate(-1)}
             aria-label="Back"
-            className="pointer-events-auto w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+            className="hit-44 pointer-events-auto w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
           </button>
@@ -325,14 +325,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={() => { if (place) toggleWishlist(wishMeta); }}
               aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-              className="w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-primary text-primary' : ''} />
             </button>
             <button
               onClick={() => { if (place) setChatShareTarget(buildShareTarget()); }}
               aria-label="Share"
-              className="w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Share2 size={16} />
             </button>
@@ -456,7 +456,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <button
                       key={i}
                       onClick={(e) => { e.stopPropagation(); heroSlideTo(i); }}
-                      className="flex-shrink-0 h-full flex items-center justify-center"
+                      className="hit-44-y flex-shrink-0 h-full flex items-center justify-center"
                       style={{ width: SLOT }}
                       aria-label={`Show photo ${i + 1}`}
                       tabIndex={scale === 0 ? -1 : 0}
@@ -480,14 +480,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={(e) => { e.stopPropagation(); heroSlide(-1); }}
               aria-label="Previous photo"
-              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+              className="hit-44 absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); heroSlide(1); }}
               aria-label="Next photo"
-              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+              className="hit-44 absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
             >
               <ChevronRight size={20} />
             </button>
@@ -530,7 +530,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta, 'new-visit')}
                         aria-label="Re-rate"
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
                       >
                         <Star size={17} />
                       </button>
@@ -538,7 +538,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta)}
                         aria-label="You've rated this — view your rating"
-                        className="w-[38px] h-[38px] rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
                       >
                         <Check size={18} strokeWidth={2.5} />
                       </button>
@@ -549,7 +549,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(wishMeta)}
                         aria-label="Add rating"
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
                       >
                         <Plus size={18} />
                       </button>
@@ -557,7 +557,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => toggleWishlist(wishMeta)}
                         aria-label={isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-                        className="w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
+                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
                       >
                         <Bookmark size={17} className={isWishlisted(place.id) ? 'fill-primary text-primary' : 'text-ink-2'} />
                       </button>
@@ -676,10 +676,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          const discGradient = (s: number) =>
-            s >= 8 ? 'linear-gradient(145deg,#26AC74,#138257)'
-              : s >= 5 ? 'linear-gradient(145deg,#E7A93B,#C9821B)'
-                : 'linear-gradient(145deg,#E0584A,#C13B2E)';
+          const discGradient = (s: number) => scoreGradient(s);
           const discShadow = (s: number) =>
             `0 5px 14px ${s >= 8 ? 'rgba(20,135,90,0.32)' : s >= 5 ? 'rgba(201,130,27,0.30)' : 'rgba(193,59,46,0.30)'}, inset 0 1px 0 rgba(255,255,255,0.4), inset 0 0 0 1px rgba(255,255,255,0.08)`;
 
@@ -861,7 +858,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                 <MessageCircle size={16} /> Reply
                               </button>
                             </div>
-                            <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="hit-44-y inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
                               Full review <ChevronRight size={13} />
                             </button>
                           </div>
@@ -903,7 +900,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                     <p className="italic text-on-surface/75 mt-2.5 pl-[52px]" style={{ fontFamily: '"Newsreader", serif', fontSize: '14.5px', lineHeight: 1.5 }}>
                                       "{r.notes}"
                                     </p>
-                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)} className="mt-2 ml-[52px] inline-flex items-center gap-1 text-primary" style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)} className="hit-44-y mt-2 ml-[52px] inline-flex items-center gap-1 text-primary" style={{ fontSize: '12.5px', fontWeight: 600 }}>
                                       Full review <ChevronRight size={11} />
                                     </button>
                                   </motion.div>
@@ -1380,6 +1377,11 @@ export const RestaurantDetailMobile: React.FC = () => {
           <span className="max-w-[60vw] truncate">{place.address}</span>
         </div>
       </section>
+
+      {/* Safe-area spacer — the page used to end flush with the map, which
+          put the address pill and Mapbox attribution under the iPhone home
+          indicator (the bottom nav is hidden on /restaurant/*). */}
+      <div className="bg-surface pb-safe" aria-hidden="true" />
 
       {/* Photo Gallery Bottom Sheet */}
       <AnimatePresence>

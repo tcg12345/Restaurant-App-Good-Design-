@@ -561,7 +561,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
               onClick={() => goTo(idx)}
               aria-label={`Go to item ${idx + 1}`}
               className={cn(
-                'h-1 rounded-full transition-all',
+                'hit-44-y h-1 rounded-full transition-all',
                 idx === activeIdx ? 'w-6 bg-white' : 'w-1.5 bg-white/45',
               )}
             />
@@ -646,7 +646,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                   onClick={onToggleFollow}
                   disabled={followBusy}
                   className={cn(
-                    'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
+                    'hit-44-y px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                     isFollowing
                       ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
                       : 'bg-[#fff] text-[#1c1816] hover:opacity-90',

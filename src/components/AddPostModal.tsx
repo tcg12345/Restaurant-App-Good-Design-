@@ -1351,7 +1351,7 @@ export const AddPostModal: React.FC = () => {
                           <span
                             key={it.key}
                             className={cn(
-                              'w-1.5 h-1.5 rounded-full transition-colors',
+                              'hit-44-y w-1.5 h-1.5 rounded-full transition-colors',
                               it.key === activeKey ? 'bg-media-white' : 'bg-white/35',
                             )}
                           />

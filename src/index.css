@@ -38,6 +38,30 @@
   --color-olive: #5c6144;
   --color-clay: #9f3012;
   --color-persimmon: #e85a2c;
+
+  /* ── Score tier system ──
+     The ONE palette for every score-coded surface — chips, rings, map
+     markers, gradients. Four competing palettes used to render the same
+     tier differently across the detail pages, lists and maps; this warm
+     brand set (formerly only the LocationPage markers) replaces them all.
+     lib/score.ts is the only module that should map a numeric score to
+     these tokens — never hardcode the hexes. Variants:
+       (base)   solid fills — markers, chips with white text
+       -tint    soft chip fill (flips to a low-alpha tint in dark)
+       -ink     readable text on surface/tint (lightens in dark)
+       -bright  text over dark media/gradients (same in both themes) */
+  --color-score-high: #2e7d5c;
+  --color-score-mid: #c28f3a;
+  --color-score-low: #a8392a;
+  --color-score-high-tint: #eaf2ef;
+  --color-score-mid-tint: #f8f1e7;
+  --color-score-low-tint: #f6ebea;
+  --color-score-high-ink: #2e7d5c;
+  --color-score-mid-ink: #8f6626;
+  --color-score-low-ink: #a8392a;
+  --color-score-high-bright: #5fbe93;
+  --color-score-mid-bright: #e0b064;
+  --color-score-low-bright: #e58273;
 }
 
 /* ── Dark mode overrides ──────────────────────────────────────────────
@@ -59,6 +83,14 @@
   --color-ink-2: #c2c2c2;
   --color-ink-3: #8a8a8a;
   --color-ink-4: #5d5d5d;
+  /* Score tiers: solids stay put (fills under white text); tints become
+     low-alpha washes over the dark card and inks lighten for contrast. */
+  --color-score-high-tint: rgba(64, 145, 108, 0.16);
+  --color-score-mid-tint: rgba(194, 143, 58, 0.15);
+  --color-score-low-tint: rgba(190, 82, 66, 0.16);
+  --color-score-high-ink: #6fc49b;
+  --color-score-mid-ink: #d9a855;
+  --color-score-low-ink: #e08273;
 }
 
 .dark {
@@ -183,29 +215,6 @@
   background-color: #ffffff;
 }
 
-/* Score-tier chip tints (ScoreRing, the LocationPage list rows). These were
-   inline pastel hexes (#ecfdf5 / #fffbeb / #fef2f2) that bypassed dark mode
-   entirely — a glowing mint chip on a dark card. Dark values are low-alpha
-   tints of the tier hue (they composite over the card/paper beneath) with
-   lightened text; the mid-saturation ring colors read fine on both themes
-   and stay inline. */
-:root {
-  --tier-good-bg: #ecfdf5;
-  --tier-good-text: #059669;
-  --tier-mid-bg: #fffbeb;
-  --tier-mid-text: #b45309;
-  --tier-low-bg: #fef2f2;
-  --tier-low-text: #dc2626;
-}
-.dark {
-  --tier-good-bg: rgba(16, 185, 129, 0.14);
-  --tier-good-text: #34d399;
-  --tier-mid-bg: rgba(245, 158, 11, 0.14);
-  --tier-mid-text: #fbbf24;
-  --tier-low-bg: rgba(239, 68, 68, 0.15);
-  --tier-low-text: #f87171;
-}
-
 /* Tiny gray accents that read as "almost transparent on cream" lose
    contrast on a dark page; bump them so the rounded delete confirmation
    buttons / muted chips remain visible. */
@@ -242,7 +251,7 @@
 /* Expose the iOS safe-area-inset-top as a CSS variable so JS-side scroll
    math (e.g. RecipeMobileSectionNav's scroll-to handler) can read it via
    getComputedStyle. env() can't be read directly from JS. */
-:root { --sat-top: env(safe-area-inset-top, 0px); }
+:root { --sat-top: env(safe-area-inset-top, 0px); --sat-bottom: env(safe-area-inset-bottom, 0px); }
 
 /* Height of the *visible* viewport (above the on-screen keyboard), published
    by native-keyboard.ts from the VisualViewport API on iOS. Full-screen
@@ -303,6 +312,39 @@
   .kb-bottom {
     bottom: var(--kb-height, 0px);
     transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* ── 44pt minimum tap target (Apple HIG) ──
+     Expands a small control's HIT AREA without changing its visuals: an
+     invisible ::after overlay centred on the control, at least 44×44.
+     The element becomes position:relative. Don't apply inside another
+     interactive element (the overlay would steal the parent's taps), and
+     prefer .hit-44-y in tight horizontal rows (dots, pills side by side)
+     where full-width expansion would overlap the neighbours. */
+  /* :where() keeps the position default at zero specificity so an explicit
+     `absolute`/`fixed` utility on the same element still wins — the overlay
+     just needs the element to be positioned SOMEHOW. */
+  :where(.hit-44, .hit-44-y) {
+    position: relative;
+  }
+  .hit-44::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  /* Vertical-only variant: full control width, ≥44px tall. */
+  .hit-44-y::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: max(100%, 44px);
+    transform: translateY(-50%);
   }
 }
 

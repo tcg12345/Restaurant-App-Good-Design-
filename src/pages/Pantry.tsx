@@ -630,7 +630,7 @@ const StatusLine: React.FC<{ hours?: string[]; trailing?: string; className?: st
     >
       {s.label && (
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? '#10b981' : '#ef4444' }} />
+          <span className="h-[7px] w-[7px] flex-shrink-0 rounded-full" style={{ background: s.open ? 'var(--color-score-high)' : 'var(--color-score-low)' }} />
           <span className="font-bold" style={{ color: s.open ? '#059669' : '#c2410c' }}>{s.label}</span>
         </span>
       )}
@@ -1032,7 +1032,7 @@ const WishlistGridCard: React.FC<{
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
               aria-label="Remove from wishlist"
               title="Remove from wishlist"
-              className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
+              className="hit-44 flex-shrink-0 w-8 h-8 rounded-full bg-primary/[0.08] text-primary flex items-center justify-center hover:bg-primary/[0.14] active:scale-95 transition-all"
             >
               <Bookmark size={15} className="fill-primary" />
             </button>
@@ -3192,7 +3192,7 @@ const TripsTab: React.FC<{
                               </div>
                             )}
                             <button onClick={() => removeRestaurantFromTrip(selectedTrip.id, r.restaurantId, r.night)}
-                              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
+                              className="hit-44 w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
                               <X size={11} />
                             </button>
                           </div>
@@ -5449,7 +5449,7 @@ const FilterPill: React.FC<{
     type="button"
     onClick={onClick}
     className={cn(
-      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      'hit-44-y inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
       active
         ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
         : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
@@ -5469,7 +5469,7 @@ const FilterPill: React.FC<{
         onClick={(e) => { e.stopPropagation(); onClear(); }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
         aria-label="Clear"
-        className="ml-0.5 text-current/70 hover:text-current"
+        className="ml-0.5 p-2 -m-1.5 text-current/70 hover:text-current"
       >
         <X size={10} />
       </span>
@@ -6834,7 +6834,7 @@ export const Pantry: React.FC = () => {
                                   that opens /reorder (real touch drag). */}
                               {!phoneMode && (
                                 <button
-                                  className="touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
+                                  className="hit-44 touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
                                   onPointerDown={() => setDragIdx(idx)}
                                   onPointerUp={() => {
                                     if (dragIdx !== null && dragIdx !== idx) moveRating(dragIdx, idx);

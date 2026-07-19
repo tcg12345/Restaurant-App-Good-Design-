@@ -459,8 +459,8 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               : (reqId && !acceptedReqIds.has(reqId)) ? 'incoming'
               : followerIds.has(p.user_id) ? 'followback'
               : 'none';
-            const pillNeutral = 'inline-flex items-center gap-1.5 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 flex-shrink-0';
-            const pillPrimary = 'inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0';
+            const pillNeutral = 'hit-44-y inline-flex items-center gap-1.5 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 flex-shrink-0';
+            const pillPrimary = 'hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0';
             return (
               <li key={p.user_id} className="flex items-center gap-3">
                 <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="relative flex-shrink-0">
@@ -565,7 +565,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                         type="button"
                         onClick={() => handleAcceptRequest(r)}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                        className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
                       >
                         {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
                         Accept
@@ -575,7 +575,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                         onClick={() => handleDeclineRequest(r)}
                         disabled={busy}
                         aria-label={`Decline request from ${name}`}
-                        className="w-8 h-8 rounded-full border border-on-surface/15 grid place-items-center text-on-surface/55 hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors disabled:opacity-60"
+                        className="hit-44 w-8 h-8 rounded-full border border-on-surface/15 grid place-items-center text-on-surface/55 hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors disabled:opacity-60"
                       >
                         <X size={15} />
                       </button>
@@ -593,7 +593,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                       type="button"
                       onClick={() => handleFollowBackRequest(r)}
                       disabled={busy}
-                      className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                      className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
                     >
                       {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} strokeWidth={2.6} />}
                       Follow back
@@ -727,7 +727,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                   <button
                     type="button"
                     onClick={() => handleUnfollow(p.user_id)}
-                    className="inline-flex items-center gap-1 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
+                    className="hit-44-y inline-flex items-center gap-1 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
                   >
                     Following
                   </button>
@@ -735,7 +735,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                   <button
                     type="button"
                     onClick={() => handleFollow(p.user_id)}
-                    className="px-3 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors"
+                    className="hit-44-y px-3 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors"
                   >
                     Follow
                   </button>

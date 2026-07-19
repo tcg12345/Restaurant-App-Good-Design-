@@ -4,6 +4,7 @@ import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
 import { settleScores, normalizeScores } from '../lib/settleScores';
+import { SCORE_TIER_HEX } from '../lib/score';
 
 interface RatedItem {
   restaurantId: string;
@@ -62,8 +63,8 @@ const ReorderItem: React.FC<{
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <motion.span
           key={item.score}
-          initial={changed ? { scale: 1.3, color: '#f59e0b' } : false}
-          animate={{ scale: 1, color: changed ? '#f59e0b' : '#1a1a1a' }}
+          initial={changed ? { scale: 1.3, color: SCORE_TIER_HEX.mid } : false}
+          animate={{ scale: 1, color: changed ? SCORE_TIER_HEX.mid : '#1a1a1a' }}
           transition={{ type: 'spring', damping: 15, stiffness: 300 }}
           className="text-base font-bold tabular-nums min-w-[2rem] text-right"
         >

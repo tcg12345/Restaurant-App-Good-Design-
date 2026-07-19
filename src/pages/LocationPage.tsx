@@ -35,6 +35,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { scoreHex, scoreTintStyle } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
@@ -344,13 +345,11 @@ function buildMiniMapBounds(lat: number, lng: number): mapboxgl.LngLatBoundsLike
   ];
 }
 
-// Marker pin background colour, mapped to the same green/amber/red
-// scale the list-row score badges use so the map reads at a glance.
+// Marker pin background colour — the shared score-tier hexes (lib/score),
+// so the map reads on the same scale as the list-row score badges.
 function miniMapMarkerColor(googleRating: number): string {
   const score = googleRating * 2;
-  if (score >= 8) return '#2E7D5C';
-  if (score >= 5) return '#C28F3A';
-  if (score > 0) return '#A8392A';
+  if (score > 0) return scoreHex(score);
   return '#8C8278';
 }
 
@@ -2800,7 +2799,7 @@ export const LocationPage: React.FC = () => {
                   height: '13px',
                   borderRadius: '9999px',
                   flexShrink: 0,
-                  background: openNow ? '#10b981' : 'rgba(var(--overlay-ink), 0.25)',
+                  background: openNow ? 'var(--color-score-high)' : 'rgba(var(--overlay-ink), 0.25)',
                   transition: 'background-color .15s ease',
                 }}
               >
@@ -3842,20 +3841,18 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // weekdayDescriptions against the current time (replaces the old score-based
   // heuristic). `open: null` (no hours data) hides the status chip entirely.
   const status = getOpenStatus(meta?.hours);
-  const statusColor = status.open ? '#059669' : '#c2410c';
-  const dotColor = status.open ? '#10b981' : '#ef4444';
+  const statusColor = status.open ? 'var(--color-score-high-ink)' : 'var(--color-score-low-ink)';
+  const dotColor = status.open ? 'var(--color-score-high)' : 'var(--color-score-low)';
 
   // "3.6 mi · 22 min" — distance + drive time (walk as fallback).
   const timePart = driveLabel || walkLabel || '';
   const distLine = distLabel ? (timePart ? `${distLabel}  ·  ${timePart}` : distLabel) : timePart;
 
-  // Soft tiered score circle with an inset ring (per the redesign). Tier
-  // tint/text use the shared --tier-* tokens (index.css) so the chip tracks
-  // dark mode — same treatment as ScoreRing.
-  const tier =
-    score >= 8 ? { bg: 'var(--tier-good-bg)', ring: 'rgba(16,185,129,0.5)', text: 'var(--tier-good-text)' }
-    : score >= 5 ? { bg: 'var(--tier-mid-bg)', ring: 'rgba(245,158,11,0.55)', text: 'var(--tier-mid-text)' }
-    : { bg: 'var(--tier-low-bg)', ring: 'rgba(239,68,68,0.5)', text: 'var(--tier-low-text)' };
+  // Soft tiered score circle with an inset ring (per the redesign). The
+  // token-backed pack from lib/score adapts in dark mode — same treatment
+  // as ScoreRing.
+  const tierPack = scoreTintStyle(score);
+  const tier = { bg: tierPack.background, ring: tierPack.ring, text: tierPack.color };
   const scoreBadge = (size: number) => ({
     width: size, height: size, borderRadius: 9999,
     background: score > 0 ? tier.bg : 'var(--bg-2)',
@@ -3905,7 +3902,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
         <>
           {(cuisine || priceLabel) && <span style={{ color: 'var(--muted-2)' }}> · </span>}
           <span style={{ color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            <span style={{ color: '#f59e0b' }}>★</span> {place.rating.toFixed(1)}
+            <span style={{ color: 'var(--color-score-mid)' }}>★</span> {place.rating.toFixed(1)}
           </span>
         </>
       )}

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { scoreHex } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
@@ -59,7 +60,7 @@ type SortBy = 'recent' | 'highest' | 'lowest' | 'az';
 // score-coloured circle with the rating in white (green ≥8, amber 5–7, red <5),
 // falling back to a neutral pin glyph when there's no score.
 const createRatingMarkerEl = (score: number): HTMLDivElement => {
-  const color = score >= 8 ? '#10b981' : score >= 5 ? '#f59e0b' : score > 0 ? '#ef4444' : '#94a3b8';
+  const color = score > 0 ? scoreHex(score) : '#94a3b8';
   const label = score > 0
     ? `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`
     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
