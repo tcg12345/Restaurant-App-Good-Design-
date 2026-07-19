@@ -2912,6 +2912,42 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   opacity: 0.4;
   cursor: default;
 }
+/* Stop-generation variant — same slot as Send while a turn streams. */
+.lp-chat-send.is-stop {
+  background: var(--ink);
+}
+.lp-chat-send.is-stop:hover {
+  background: #b4231b;
+  transform: scale(1.05);
+}
+
+/* "Jump to latest" pill — sits at the END of the message list and sticks
+   to the scroller's bottom edge, so it only surfaces while the user is
+   scrolled up off the bottom during a stream (its flow position is below
+   the scrollport otherwise). */
+.lp-chat-jump-wrap {
+  position: sticky;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+}
+.lp-chat-jump {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
 
 /* Resize uses the browser's native CSS `resize: both` on
    .lp-chat-island — no custom handle needed. The native glyph is

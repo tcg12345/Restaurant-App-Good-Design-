@@ -475,7 +475,11 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     throw err;
   });
 
-  onProgress?.(1);
+  // Hold at ~95% while any video item is still transcoding — the bar used
+  // to hit 100% and then a "processing" spinner slide appeared anyway,
+  // which read as a lie. Photo-only posts have nothing left to do.
+  const hasVideo = items.some((it) => it.mediaType === 'video');
+  onProgress?.(hasVideo ? 0.95 : 1);
 
   // Re-fetch with embeds + signed/Mux URLs, then attach the local poster for any
   // item still transcoding so the author sees a frame immediately. Posters
@@ -495,6 +499,12 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
   localPosters.forEach((u, idx) => {
     if (u && !attached.has(idx)) URL.revokeObjectURL(u);
   });
+  // Everything ready (or the transcode already finished during the
+  // re-fetch) — the bar may complete honestly.
+  const stillProcessing = post
+    ? post.items.some((it) => it.muxStatus === 'processing')
+    : hasVideo;
+  if (!stillProcessing) onProgress?.(1);
   return post;
 }
 

@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { supabaseConfigured } from '../lib/supabase';
 import { createToggleQueue } from '../lib/toggle-queue';
+import { isFollowingUser } from '../lib/supabase-community';
 import {
   listReels,
   createReel as cloudCreateReel,
@@ -179,6 +180,16 @@ interface ReelsContextValue {
   openCommentsSheet: (reelId: string) => void;
   closeCommentsSheet: () => void;
 
+  // Follow state, shared across every slide of the same author. Keyed by
+  // author userId — per-slide state let following on one slide leave the
+  // same author's other slides stale, and re-queried the DB per slide.
+  followingByUser: Record<string, boolean>;
+  /** Resolve (once) whether the viewer follows this author; no-op when
+   *  already known or in flight. */
+  ensureFollowState: (authorId: string) => void;
+  /** Write-through used by optimistic follow toggles (and rollbacks). */
+  setFollowState: (authorId: string, following: boolean) => void;
+
   // For owner-only actions
   currentUserId: string | null;
 }
@@ -202,6 +213,37 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addReelInitialKind, setAddReelInitialKind] = useState<ReelKind | null>(null);
   const [editingReelId, setEditingReelId] = useState<string | null>(null);
   const [openCommentsReelId, setOpenCommentsReelId] = useState<string | null>(null);
+
+  // Shared author-follow map (see the interface comment). The ref mirrors
+  // the state so ensureFollowState can dedupe without re-creating itself,
+  // and the in-flight set stops N near-window slides of the same author
+  // from each firing the same lookup.
+  const [followingByUser, setFollowingByUser] = useState<Record<string, boolean>>({});
+  const followingByUserRef = useRef<Record<string, boolean>>({});
+  const followFetchesRef = useRef<Set<string>>(new Set());
+  const ensureFollowState = useCallback((authorId: string) => {
+    const viewer = userIdRef.current;
+    if (!viewer || !authorId || viewer === authorId) return;
+    if (authorId in followingByUserRef.current || followFetchesRef.current.has(authorId)) return;
+    followFetchesRef.current.add(authorId);
+    isFollowingUser(viewer, authorId)
+      .then((yes) => {
+        followingByUserRef.current = { ...followingByUserRef.current, [authorId]: yes };
+        setFollowingByUser(followingByUserRef.current);
+      })
+      .catch(() => { /* transient — retried next time a slide asks */ })
+      .finally(() => { followFetchesRef.current.delete(authorId); });
+  }, []);
+  const setFollowState = useCallback((authorId: string, following: boolean) => {
+    followingByUserRef.current = { ...followingByUserRef.current, [authorId]: following };
+    setFollowingByUser(followingByUserRef.current);
+  }, []);
+  // The map is the VIEWER's follow graph — drop it when the account changes.
+  useEffect(() => {
+    followingByUserRef.current = {};
+    followFetchesRef.current.clear();
+    setFollowingByUser({});
+  }, [userId]);
 
   // Keyset pagination: the feed loads a page at a time instead of one
   // hard-capped window (older reels simply didn't exist past row 100, and
@@ -505,6 +547,9 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     openCommentsReelId,
     openCommentsSheet,
     closeCommentsSheet,
+    followingByUser,
+    ensureFollowState,
+    setFollowState,
     currentUserId: userId,
   };
 

@@ -15,7 +15,7 @@ import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { MuxReelMedia, type ActiveReelMedia } from '../components/MuxReelMedia';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
-import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
+import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { addScrollSettleListener } from '../lib/scroll-settle';
 
@@ -258,25 +258,22 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
   const flashSeq = useRef(0);
   const triggerFlash = (kind: 'play' | 'pause') => setFlash({ kind, seq: ++flashSeq.current });
 
-  // Follow state for the reel's author. Resolved from the DB on first
-  // mount; mutated optimistically when the user taps the follow pill.
-  const [isFollowing, setIsFollowing] = useState(false);
+  // Follow state for the reel's author — read from the SHARED per-author
+  // map in ReelsContext, so following on one slide updates every other
+  // slide by the same author, and each author is looked up in the DB at
+  // most once (per-slide state re-queried on every pass through the
+  // near window and desynced across slides).
+  const { followingByUser, ensureFollowState, setFollowState } = useReels();
+  const isFollowing = followingByUser[reel.authorId] ?? false;
   const [followBusy, setFollowBusy] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    // Only resolve follow state for slides in the active window. Firing
-    // this for every reel in the feed meant a DB round trip per slide on
-    // mount — dozens to hundreds at once — saturating the connection the
-    // media loads were competing for. `near` covers the active slide and
-    // its immediate neighbours, so the pill is already resolved by the
-    // time a swipe brings it on screen.
+    // Only resolve follow state for slides in the active window — firing
+    // for every slide at mount was a DB round trip per slide. `near`
+    // covers the active slide and its neighbours, so the pill is resolved
+    // by the time a swipe brings it on screen.
     if (!near || !currentUserId || !reel.authorId || isMine) return;
-    (async () => {
-      const yes = await isFollowingUser(currentUserId, reel.authorId);
-      if (!cancelled) setIsFollowing(yes);
-    })();
-    return () => { cancelled = true; };
-  }, [near, currentUserId, reel.authorId, isMine]);
+    ensureFollowState(reel.authorId);
+  }, [near, currentUserId, reel.authorId, isMine, ensureFollowState]);
 
   const onToggleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -284,11 +281,11 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     if (isMine || followBusy) return;
     setFollowBusy(true);
     const wasFollowing = isFollowing;
-    setIsFollowing(!wasFollowing); // optimistic
+    setFollowState(reel.authorId, !wasFollowing); // optimistic — every slide updates
     const ok = wasFollowing
       ? await removeFriend(currentUserId, reel.authorId)
       : await followPublicAccount(currentUserId, reel.authorId);
-    if (!ok) setIsFollowing(wasFollowing); // rollback
+    if (!ok) setFollowState(reel.authorId, wasFollowing); // rollback
     setFollowBusy(false);
   };
 
@@ -584,7 +581,10 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
         <button
           type="button"
           onClick={onDelete}
-          className="absolute top-16 right-3 z-20 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-rose-300 hover:bg-black/60 transition-colors"
+          // Safe-area-aware top (same calc as PostSlide's page dots): a fixed
+          // top-16 collided with the TopBar's mute button on Dynamic-Island
+          // devices, where the inset alone is ~59px.
+          className="absolute top-[calc(env(safe-area-inset-top)+56px)] right-3 z-20 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-rose-300 hover:bg-black/60 transition-colors"
           aria-label="Delete reel"
         >
           <Trash2 size={16} />
@@ -597,28 +597,19 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
       )}
 
       {/* Bottom info: author row, then a collapsible block with the
-          caption + attached card. The whole region is a click-to-toggle
-          target on phone — child interactives (avatar/handle link, the
-          attached card) stop propagation so they still work normally.
+          caption + attached card. The overlay itself is pointer-events-none
+          so taps in the lower third of the slide reach the VIDEO
+          (pause/play) — only the real controls (author link, follow pill,
+          the caption block, the More pill) re-enable pointer events. The
+          old design made the whole region a toggle, which swallowed
+          pause taps as caption toggles.
           On phone the floating BottomNav sits ~70-90px above the bottom
           edge so we pad-bottom enough to clear it; desktop keeps the
           original tighter padding. */}
       {!hideDetailsOverlay && (
       <div
-        role={hasCollapsibleContent ? 'button' : undefined}
-        tabIndex={hasCollapsibleContent ? 0 : undefined}
-        onClick={() => hasCollapsibleContent && setInfoOpen((o) => !o)}
-        onKeyDown={(e) => {
-          if (!hasCollapsibleContent) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setInfoOpen((o) => !o);
-          }
-        }}
-        aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
-        aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
-          'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
+          'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
           // Padding clears the solid 50 px bottom nav + the safe-area
           // inset on a real iPhone, sitting just above the scrub bar.
           phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
@@ -627,18 +618,15 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           // with 44 px-wide buttons, so 68 px on phone leaves a
           // small visual gap.
           phoneMode && !hideActionRail ? 'pr-[68px]' : 'pr-4',
-          hasCollapsibleContent && 'cursor-pointer',
         )}
       >
         <div className="flex items-center gap-3 mb-2">
           {/* Avatar + @handle + VERIFIED chip — only this region opens the
-              author's profile. Audio label is rendered outside the
-              Link so it falls through to the toggle handler. Stop
-              propagation so the toggle doesn't also fire. */}
+              author's profile. */}
           <Link
             to={`/user/${encodeURIComponent(reel.authorUsername)}`}
             onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-3 min-w-0 group"
+            className="flex items-center gap-3 min-w-0 group pointer-events-auto"
           >
             <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', reel.authorAvatarColor)}>
               {reel.authorInitials}
@@ -665,7 +653,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
               onClick={onToggleFollow}
               disabled={followBusy}
               className={cn(
-                'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
+                'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                 isFollowing
                   ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
                   : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
@@ -683,7 +671,12 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="overflow-hidden"
+              // The collapse toggle is the CAPTION BLOCK itself, not the
+              // whole lower slide.
+              className="overflow-hidden pointer-events-auto cursor-pointer"
+              onClick={() => setInfoOpen(false)}
+              role="button"
+              aria-label="Collapse details"
             >
               {reel.caption && (
                 <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
@@ -705,6 +698,20 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Collapsed state keeps a small explicit affordance — the old
+            expand-by-tapping-anywhere is gone (those taps pause now). */}
+        {!infoOpen && hasCollapsibleContent && (
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            className="pointer-events-auto inline-flex items-center gap-1 mt-1 h-7 px-2.5 rounded-full bg-black/35 backdrop-blur text-white/85 text-[11.5px] font-semibold"
+            aria-label="Expand details"
+          >
+            More
+            <ChevronDown size={12} className="rotate-180" />
+          </button>
+        )}
       </div>
       )}
     </div>
@@ -1072,9 +1079,15 @@ const ReelProgressBar: React.FC<{
     return Number.isFinite(d) && d && d > 0 ? p * d : null;
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Touch gestures start PENDING: the scrub only claims the pointer after a
+  // small horizontal intent, so a vertical swipe that happens to start on
+  // the bar still snaps the feed (touch-action: pan-y hands it to the
+  // browser, which then fires pointercancel). Mouse keeps the immediate
+  // click-to-drag behavior.
+  const pendingTouchRef = useRef<{ x: number; y: number } | null>(null);
+
+  const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!videoEl) return;
-    e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     rectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
     wasPlayingRef.current = !videoEl.paused;
@@ -1089,16 +1102,52 @@ const ReelProgressBar: React.FC<{
     if (liveScrub) seekLive(p);
   };
 
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!videoEl) return;
+    if (e.pointerType === 'mouse') {
+      e.preventDefault();
+      beginDrag(e);
+      return;
+    }
+    pendingTouchRef.current = { x: e.clientX, y: e.clientY };
+  };
+
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging) return;
-    const p = pointerToProgress(e.clientX);
-    setDragProgress(p);
-    setHoverX(pointerToContainerX(e.clientX));
-    if (liveScrub) seekLive(p);
+    if (dragging) {
+      const p = pointerToProgress(e.clientX);
+      setDragProgress(p);
+      setHoverX(pointerToContainerX(e.clientX));
+      if (liveScrub) seekLive(p);
+      return;
+    }
+    const pending = pendingTouchRef.current;
+    if (!pending) return;
+    const dx = e.clientX - pending.x;
+    const dy = e.clientY - pending.y;
+    if (Math.abs(dx) >= 6 && Math.abs(dx) > Math.abs(dy)) {
+      // Horizontal intent — the scrub claims the gesture.
+      pendingTouchRef.current = null;
+      beginDrag(e);
+    } else if (Math.abs(dy) >= 8 && Math.abs(dy) > Math.abs(dx)) {
+      // Vertical intent — the feed's snap scroll owns it.
+      pendingTouchRef.current = null;
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragging) return;
+    const pending = pendingTouchRef.current;
+    pendingTouchRef.current = null;
+    if (!dragging) {
+      // A plain tap (down + up, no movement) seeks directly — preserves the
+      // old tap-to-seek even though touches no longer claim on pointerdown.
+      if (pending && e.type === 'pointerup' && videoEl) {
+        const t = timeFor(pointerToProgress(e.clientX));
+        if (t != null) {
+          try { videoEl.currentTime = t; } catch { /* ignore */ }
+        }
+      }
+      return;
+    }
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     rectRef.current = null;
     setDragging(false);
@@ -1135,10 +1184,13 @@ const ReelProgressBar: React.FC<{
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       className={cn(
-        'relative w-full select-none touch-none cursor-pointer group',
-        // 14 px tall hit area centred on the visible bar so the
-        // drag target is easy to grab on touch + mouse.
-        'py-[6px]',
+        // touch-pan-y (not touch-none): vertical swipes starting on the bar
+        // stay with the feed's snap scroll — the browser takes them and
+        // fires pointercancel; only horizontal intent claims the scrub.
+        'relative w-full select-none touch-pan-y cursor-pointer group',
+        // 28 px tall hit area centred on the 2 px visible bar — the old
+        // 14 px target was nearly ungrabbable right above the bottom nav.
+        'py-[13px]',
         className,
       )}
     >

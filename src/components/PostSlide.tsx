@@ -20,8 +20,9 @@ import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
+import { useReels } from '../contexts/ReelsContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
+import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { getCachedImage, loadCachedImage } from '../lib/image-cache';
 import { MuxReelMedia } from './MuxReelMedia';
 import { addScrollSettleListener } from '../lib/scroll-settle';
@@ -390,36 +391,30 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
   const [activeIdx, setActiveIdx] = useState(() => getPostItemIndex(post.id));
   const [infoOpen, setInfoOpen] = useState(true);
 
-  // Follow state for the post's author. Resolved from the DB on mount;
-  // mutated optimistically when the user taps the follow pill.
-  const [isFollowing, setIsFollowing] = useState(false);
+  // Follow state for the post's author — read from the SHARED per-author
+  // map in ReelsContext (reels and posts share the same author graph), so
+  // following on one slide updates the author's other slides and each
+  // author is looked up at most once.
+  const { followingByUser, ensureFollowState, setFollowState } = useReels();
+  const isFollowing = followingByUser[post.userId] ?? false;
   const [followBusy, setFollowBusy] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    // Only resolve follow state for slides in the active window. Firing
-    // this for every post in the feed meant a DB round trip per slide on
-    // mount — dozens to hundreds at once — saturating the connection the
-    // media loads were competing for. `near` covers the active slide and
-    // its immediate neighbours, so the pill is already resolved by the
-    // time a swipe brings it on screen.
+    // Only resolve follow state for slides in the active window — firing
+    // for every slide at mount was a DB round trip per slide.
     if (!near || !currentUserId || !post.userId || isMine) return;
-    (async () => {
-      const yes = await isFollowingUser(currentUserId, post.userId);
-      if (!cancelled) setIsFollowing(yes);
-    })();
-    return () => { cancelled = true; };
-  }, [near, currentUserId, post.userId, isMine]);
+    ensureFollowState(post.userId);
+  }, [near, currentUserId, post.userId, isMine, ensureFollowState]);
 
   const onToggleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentUserId || isMine || followBusy) return;
     setFollowBusy(true);
     const wasFollowing = isFollowing;
-    setIsFollowing(!wasFollowing);
+    setFollowState(post.userId, !wasFollowing);
     const ok = wasFollowing
       ? await removeFriend(currentUserId, post.userId)
       : await followPublicAccount(currentUserId, post.userId);
-    if (!ok) setIsFollowing(wasFollowing);
+    if (!ok) setFollowState(post.userId, wasFollowing);
     setFollowBusy(false);
   };
   const stripRef = useRef<HTMLDivElement>(null);
@@ -574,12 +569,14 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
         </div>
       )}
 
-      {/* Owner delete chip */}
+      {/* Owner delete chip — same safe-area calc as the page dots above:
+          a fixed top-16 collided with the TopBar's mute button on
+          Dynamic-Island devices (inset ≈59px). */}
       {isMine && !hideOwnerDelete && (
         <button
           type="button"
           onClick={onDelete}
-          className="absolute top-16 right-3 z-20 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-rose-300 hover:bg-black/60"
+          className="absolute top-[calc(env(safe-area-inset-top)+56px)] right-3 z-20 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-rose-300 hover:bg-black/60"
           aria-label="Delete post"
         >
           <Trash2 size={16} />
@@ -603,21 +600,12 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
           || (item?.attachedKind === 'restaurant' && !!item.restaurant)
           || (item?.attachedKind === 'recipe' && !!item.recipe);
         return (
+          // pointer-events-none: taps in the lower third reach the video
+          // (pause/play); only real controls re-enable pointer events —
+          // same treatment as ReelSlide's overlay.
           <div
-            role={hasCollapsibleContent ? 'button' : undefined}
-            tabIndex={hasCollapsibleContent ? 0 : undefined}
-            onClick={() => hasCollapsibleContent && setInfoOpen((o) => !o)}
-            onKeyDown={(e) => {
-              if (!hasCollapsibleContent) return;
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setInfoOpen((o) => !o);
-              }
-            }}
-            aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
-            aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
             className={cn(
-              'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
+              'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
               // Clears the solid 50 px bottom nav + iPhone safe-area
               // inset, sitting just above the scrub bar.
               phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
@@ -626,14 +614,13 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
               // short of the share/save/comment column instead of
               // running underneath it.
               phoneMode && !hideActionRail ? 'pr-[68px]' : 'pr-4',
-              hasCollapsibleContent && 'cursor-pointer',
             )}
           >
             <div className="flex items-center gap-3 mb-2">
               <Link
                 to={`/user/${encodeURIComponent(post.author?.username || post.userId)}`}
                 onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-3 min-w-0 group"
+                className="flex items-center gap-3 min-w-0 group pointer-events-auto"
               >
                 <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', post.author?.avatarColor || 'bg-stone-700')}>
                   {post.author?.initials || post.userId.slice(0, 2).toUpperCase()}
@@ -641,7 +628,10 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{post.author?.username || post.userId.slice(0, 8)}</span>
                   {post.author?.isExpert && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+                    // bg-media-white: sits over the post media, must stay
+                    // literal white in dark mode (the paper remap turned
+                    // it near-black with dark-red text).
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-media-white text-primary text-[10px] font-bold flex-shrink-0">
                       <VerifiedBadge size={11} />
                       VERIFIED
                     </span>
@@ -656,7 +646,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                   onClick={onToggleFollow}
                   disabled={followBusy}
                   className={cn(
-                    'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
+                    'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60 pointer-events-auto',
                     isFollowing
                       ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
                       : 'bg-[#fff] text-[#1c1816] hover:opacity-90',
@@ -674,7 +664,12 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
+                  // The collapse toggle is the caption block itself, not
+                  // the whole lower slide.
+                  className="overflow-hidden pointer-events-auto cursor-pointer"
+                  onClick={() => setInfoOpen(false)}
+                  role="button"
+                  aria-label="Collapse details"
                 >
                   {captionForItem && (
                     <p className="text-white text-[15px] font-serif italic leading-snug mb-1 line-clamp-3 max-w-[78%]">
@@ -702,6 +697,20 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Collapsed state keeps a small explicit affordance — the old
+                expand-by-tapping-anywhere is gone (those taps pause now). */}
+            {!infoOpen && hasCollapsibleContent && (
+              <button
+                type="button"
+                onClick={() => setInfoOpen(true)}
+                className="pointer-events-auto inline-flex items-center gap-1 mt-1 h-7 px-2.5 rounded-full bg-black/35 backdrop-blur text-white/85 text-[11.5px] font-semibold"
+                aria-label="Expand details"
+              >
+                More
+                <ChevronRight size={12} className="-rotate-90" />
+              </button>
+            )}
           </div>
         );
       })()}

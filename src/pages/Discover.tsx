@@ -127,6 +127,7 @@ function shuffleInPlace<T>(arr: T[]): T[] {
 
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
+import { useViewportSize } from '../lib/useViewportSize';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -884,21 +885,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Collapsed height: just the drag handle + the "Discover" title peeking at the
   // bottom, so the map gets almost the whole screen. Drag up for the list.
   const PEEK_HEIGHT = 104;
-  const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  // Safe-area inset at the top (status bar / notch), read once. The map sheet's
-  // top edge never rises above this, so it can't slide under the notch.
-  const safeTopRef = useRef<number | null>(null);
-  if (safeTopRef.current === null) {
-    safeTopRef.current = typeof window !== 'undefined'
+  // Live viewport height — a read-once window.innerHeight froze the sheet
+  // geometry per mount, so rotating (iPad especially) left the peek/half
+  // snap points computed for the OLD orientation until a remount.
+  const { height: viewportHeight } = useViewportSize();
+  const FULL_HEIGHT = viewportHeight;
+  // Safe-area inset at the top (status bar / notch). Re-read whenever the
+  // viewport changes: rotation flips the inset between notch-edge and
+  // side-bezel values, and the old read-once ref could cache a 0 measured
+  // before the first paint forever.
+  const safeTop = useMemo(() => (
+    typeof window !== 'undefined'
       ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat-top')) || 0)
-      : 0;
-  }
+      : 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [viewportHeight]);
   // On the map page the sheet is a true bottom sheet: it expands to ~88% of the
   // screen (its tallest state, 'half') but its top always stays clear of the
   // safe area — it can never reach a full-screen state or slide into the notch.
   // The top edge sits at the larger of 12% of the screen or the safe-area inset
   // plus a small gap. Home has no map underneath, so it keeps the 85% partial.
-  const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTopRef.current + 12);
+  const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTop + 12);
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
@@ -953,9 +960,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     const key = `${homeLocation.lat.toFixed(4)},${homeLocation.lng.toFixed(4)}`;
     if (lastLocKeyRef.current && lastLocKeyRef.current !== key) {
+      // The fade is lifted by the settle-watcher effects below (when the
+      // refetched recs land, or a cap fires) — a fixed 450ms here lifted it
+      // while the refetch was still in flight, so content popped anyway.
       setHomeLocationRefreshing(true);
-      const t = window.setTimeout(() => setHomeLocationRefreshing(false), 450);
-      return () => window.clearTimeout(t);
     }
     lastLocKeyRef.current = key;
   }, [homeLocation]);
@@ -1006,6 +1014,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
   const recsFetchedRef = useRef(false);
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
+
+  // ── Location-swap fade settle-watchers ──
+  // The fade set on a home-location change lifts when the refetched recs
+  // actually LAND, instead of on a fixed 450ms timer that expired while the
+  // fetch was still in flight (the fade lifted, then the rail popped). The
+  // cap covers zero-result locations and failed fetches; desktop home never
+  // fetches recs (its feed re-sorts synchronously from props), so it keeps
+  // a short fixed fade via the cap.
+  useEffect(() => {
+    if (!homeLocationRefreshing) return;
+    const cap = window.setTimeout(
+      () => setHomeLocationRefreshing(false),
+      usingDesktopHeader ? 450 : 2500,
+    );
+    return () => window.clearTimeout(cap);
+  }, [homeLocationRefreshing, usingDesktopHeader]);
+  useEffect(() => {
+    // Non-empty results landing = the refetch settled. The rec effect
+    // resets to [] as it starts, so empty updates must not lift the fade.
+    if (apiRecommendations.length > 0) setHomeLocationRefreshing(false);
+  }, [apiRecommendations]);
   // Monotonic token for the orchestrating effect's async chains — a reset
   // (radius change, prefs hydration, refresh) can start a new chain while an
   // older one is mid-flight, and the stale one must not clobber the results.
@@ -1325,10 +1354,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setHomeLocationRefreshing(true);
     setHomeLocation(loc);
     saveLastSelectedLocation(loc);
-    // Reset the rec guards so the effect below refetches from scratch.
+    // Reset the rec guards so the effect below refetches from scratch. The
+    // fade clears when that refetch actually settles (watchers above), not
+    // on a fixed timer.
     recsFetchedRef.current = false;
     recsSeenIdsRef.current = new Set();
-    window.setTimeout(() => setHomeLocationRefreshing(false), 450);
   }, [homeLocation]);
 
   // "Use current location" from the picker — returns a Promise so the picker
@@ -2481,6 +2511,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }, 500);
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [searchQuery, discoverSearchActive, handleSearch]);
+
+  // Emptying the desktop panel query by ANY means exits search mode — the
+  // X button restored the browse results, but backspacing to empty left
+  // discoverSearchActive on with the previous query's places/markers and
+  // no re-search (the debounce above early-returns on an empty query).
+  // Fires only on a non-empty → empty TRANSITION so merely focusing the
+  // field (which enters search mode with an empty query) is untouched, and
+  // only for the panel flow — the sheet's search overlay (showSearchInput)
+  // deliberately stays in search mode to show recent views.
+  const prevSearchQueryRef = useRef('');
+  useEffect(() => {
+    const prev = prevSearchQueryRef.current;
+    prevSearchQueryRef.current = searchQuery;
+    if (searchQuery.trim() || !prev.trim()) return;
+    if (mapMode !== 'discover' || !discoverSearchActive || showSearchInput) return;
+    setDiscoverSearchActive(false);
+    if (preSearchPlacesRef.current.length > 0) {
+      setPlaces(preSearchPlacesRef.current);
+      syncMarkersRef.current?.(preSearchPlacesRef.current);
+    }
+  }, [searchQuery, mapMode, discoverSearchActive, showSearchInput]);
 
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
@@ -3809,7 +3860,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     <div
       ref={rootRef}
       className={cn(
-        "relative h-screen w-full overflow-hidden bg-muted",
+        // 100dvh (not h-screen): the sheet's snap geometry is computed from
+        // the live viewport height, so the root must track it too or the
+        // two disagree after rotation. RecommendationsBrowser already
+        // sizes itself this way.
+        "relative h-[100dvh] w-full overflow-hidden bg-muted",
         // Desktop map mode lays out as a horizontal flex row so the new
         // results sidebar takes the left strip and the map fills the rest.
         isDesktopMapMode && "flex",
@@ -4398,10 +4453,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
             >
 
-              {/* Search results in full state */}
+              {/* Search results in full state. The full-screen spinner only
+                  shows when there's nothing to keep on screen — while a new
+                  debounce cycle is in flight the PREVIOUS results stay
+                  rendered, dimmed, so typing doesn't flash the whole list
+                  out and in on every keystroke. */}
               {discoverSearchActive && (
                 <div className="mt-4">
-                  {isSearching ? (
+                  {isSearching && places.length === 0 ? (
                     <div className="flex items-center justify-center py-16">
                       <Loader2 size={24} className="text-primary animate-spin" />
                       <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
@@ -4468,9 +4527,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <>
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-serif font-bold">Results</h2>
-                        <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">{places.length} found</span>
+                        <span className="flex items-center gap-2 text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                          {isSearching && <Loader2 size={12} className="text-primary animate-spin" />}
+                          {places.length} found
+                        </span>
                       </div>
-                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                      <div className={cn("grid gap-3 transition-opacity", isSearching && "opacity-50", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
                         {places.map((place) => {
                           const props = placeToCardProps(place);
                           return (
@@ -5092,8 +5154,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           {mapMode === 'discover' && (
             <div className="space-y-4">
                   {/* ── Search mode content ── */}
+                  {/* Same keep-previous-results treatment as the home
+                      search: the full spinner only when there's nothing
+                      rendered yet; otherwise dim the stale list. */}
                   {discoverSearchActive ? (
-                    isSearching ? (
+                    isSearching && places.length === 0 ? (
                       <div className="flex items-center justify-center py-12">
                         <Loader2 size={24} className="text-primary animate-spin" />
                         <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
@@ -5114,9 +5179,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <>
                         <div className="flex items-center justify-between pt-2">
                           <h2 className="text-sm font-serif font-bold">Results</h2>
-                          <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                          <span className="flex items-center gap-1.5 text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">
+                            {isSearching && <Loader2 size={11} className="text-primary animate-spin" />}
+                            {places.length} found
+                          </span>
                         </div>
-                        <div className="divide-y divide-on-surface/[0.06]">
+                        <div className={cn('divide-y divide-on-surface/[0.06] transition-opacity', isSearching && 'opacity-50')}>
                           {places.map((place) => renderPlaceCard(place))}
                         </div>
                       </>
