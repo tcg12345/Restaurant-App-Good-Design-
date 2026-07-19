@@ -50,7 +50,6 @@ export const AddRestaurantModal: React.FC = () => {
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
   const [visitDate, setVisitDate] = useState(localISODate());
-  const [wouldReturn, setWouldReturn] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
   const [priceAmount, setPriceAmount] = useState('');
@@ -110,7 +109,6 @@ export const AddRestaurantModal: React.FC = () => {
         setScore(7);
         setNotes('');
         setVisitDate(localISODate());
-        setWouldReturn(true);
         setSelectedTags([]);
         setPhotos([]);
         setFavoriteDishes([]);
@@ -122,7 +120,6 @@ export const AddRestaurantModal: React.FC = () => {
         // First-ever rating defaults to today — `''` would save as "No date".
         // Editing keeps whatever the record holds (including deliberately unset).
         setVisitDate(ex ? (ex.visitDate ?? '') : localISODate());
-        setWouldReturn(ex?.wouldReturn ?? true);
         setSelectedTags(ex?.tags ?? []);
         setPhotos(ex?.photos ?? []);
         setFavoriteDishes(ex?.favoriteDishes ?? []);
@@ -284,7 +281,7 @@ export const AddRestaurantModal: React.FC = () => {
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
         cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score: finalScore, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags, photos,
         favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
         listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
       },
@@ -448,7 +445,7 @@ export const AddRestaurantModal: React.FC = () => {
                             if (!isNewVisit) {
                               setIsNewVisit(true);
                               setScore(7); setNotes(''); setVisitDate(localISODate());
-                              setWouldReturn(true); setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
+                              setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
                             }
                           }}
                           className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
@@ -463,7 +460,7 @@ export const AddRestaurantModal: React.FC = () => {
                               const ex = getRating(restaurant.id);
                               if (ex) {
                                 setScore(ex.score); setNotes(ex.notes); setVisitDate(ex.visitDate);
-                                setWouldReturn(ex.wouldReturn); setSelectedTags(ex.tags); setPhotos(ex.photos);
+                                setSelectedTags(ex.tags); setPhotos(ex.photos);
                                 setSelectedFriends(ex.friendIds || []);
                               }
                             }

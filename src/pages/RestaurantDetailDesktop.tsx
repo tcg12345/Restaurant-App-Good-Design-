@@ -175,7 +175,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
     ...(myRating ? {
       score: myRating.score,
       notes: myRating.notes,
-      wouldReturn: myRating.wouldReturn,
       tags: myRating.tags,
       isReview: true,
     } : { isReview: false }),

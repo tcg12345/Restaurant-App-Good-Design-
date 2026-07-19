@@ -385,8 +385,7 @@ type TopListConfig =
   | { type: 'cuisine'; value: string }
   | { type: 'city'; value: string }
   | { type: 'price'; value: string }
-  | { type: 'tag'; value: string }
-  | { type: 'wouldReturn' };
+  | { type: 'tag'; value: string };
 
 type TopListCustomization = {
   hidden: string[];
@@ -402,31 +401,28 @@ const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-$
 const MIN_LIST_SIZE = 4;
 
 const topListKey = (c: TopListConfig): string => {
-  if (c.type === 'overall' || c.type === 'wouldReturn') return c.type;
+  if (c.type === 'overall') return c.type;
   return `${c.type}:${c.value}`;
 };
 
 const topListLabel = (c: TopListConfig): string => {
   if (c.type === 'overall') return 'Overall';
-  if (c.type === 'wouldReturn') return 'Would return';
   return c.value;
 };
 
 const topListPlainLabel = (c: TopListConfig): string => {
   if (c.type === 'overall') return 'Top 10 overall';
-  if (c.type === 'wouldReturn') return 'Top 10 · Would return';
   if (c.type === 'city') return `Top 10 in ${c.value}`;
   return `Top 10 · ${c.value}`;
 };
 
-const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[]; wouldReturn?: boolean }): boolean => {
+const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[] }): boolean => {
   switch (c.type) {
     case 'overall': return true;
     case 'cuisine': return r.cuisine === c.value;
     case 'city': return cityFromAddress(r.address || '') === c.value;
     case 'price': return r.price === c.value;
     case 'tag': return Array.isArray(r.tags) && r.tags.includes(c.value);
-    case 'wouldReturn': return r.wouldReturn === true;
   }
 };
 
@@ -437,7 +433,6 @@ const topListMetaText = (
   const city = cityFromAddress(r.address || '');
   switch (c.type) {
     case 'overall':
-    case 'wouldReturn':
     case 'tag':
       return undefined; // default cuisine · price · city
     case 'cuisine':
@@ -1136,24 +1131,22 @@ export const Profile: React.FC = () => {
       .slice(0, 6);
   }, [ratings]);
 
-  /** Counts per (cuisine / city / price / tag / wouldReturn) — used both
-   *  to seed auto-generated lists and to gate which slices the user can
-   *  add from the editor (must have MIN_LIST_SIZE+ matches). */
+  /** Counts per (cuisine / city / price / tag) — used both to seed
+   *  auto-generated lists and to gate which slices the user can add
+   *  from the editor (must have MIN_LIST_SIZE+ matches). */
   const categoryCounts = useMemo(() => {
     const cuisine = new Map<string, number>();
     const city = new Map<string, number>();
     const price = new Map<string, number>();
     const tag = new Map<string, number>();
-    let wouldReturn = 0;
     ratings.forEach((r) => {
       if (r.cuisine) cuisine.set(r.cuisine, (cuisine.get(r.cuisine) || 0) + 1);
       const c = cityFromAddress(r.address || '');
       if (c) city.set(c, (city.get(c) || 0) + 1);
       if (r.price) price.set(r.price, (price.get(r.price) || 0) + 1);
       if (Array.isArray(r.tags)) r.tags.forEach((t) => { if (t) tag.set(t, (tag.get(t) || 0) + 1); });
-      if (r.wouldReturn) wouldReturn += 1;
     });
-    return { cuisine, city, price, tag, wouldReturn };
+    return { cuisine, city, price, tag };
   }, [ratings]);
 
   /** Auto-seeded configs: overall + any cuisine / city above the
@@ -1225,9 +1218,6 @@ export const Profile: React.FC = () => {
       .sort((a, b) => b.count - a.count);
 
     const status: Array<{ config: TopListConfig; label: string; count: number }> = [];
-    if (categoryCounts.wouldReturn >= MIN_LIST_SIZE && !visibleKeys.has('wouldReturn')) {
-      status.push({ config: { type: 'wouldReturn' }, label: 'Would return', count: categoryCounts.wouldReturn });
-    }
     // Overall is always present in autoConfigs unless explicitly hidden;
     // expose it from the editor too so a hidden overall can be restored.
     if (!visibleKeys.has('overall') && ratings.length >= MIN_LIST_SIZE) {

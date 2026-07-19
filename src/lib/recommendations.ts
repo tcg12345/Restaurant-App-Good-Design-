@@ -159,11 +159,19 @@ function splitCuisines(raw: string): string[] {
   return raw.split(/[,/]|\s&\s/).map((s) => s.trim()).filter(Boolean);
 }
 
+/** The slice of the onboarding palette test recommendations can act on.
+ *  Structurally matches lib/taste-quiz's TasteQuizAnswers — declared here so
+ *  this pure module never imports the storage layer. */
+export interface TasteQuizSignals {
+  cuisines?: string[];
+}
+
 export function buildTasteProfile(
   ratings: RestaurantRating[],
   wishlist: WishlistItem[],
   lists: CustomList[],
   recentViews: Array<{ id: string }>,
+  quiz?: TasteQuizSignals | null,
 ): TasteProfile {
   const cuisineScore: Record<string, number> = {};
   const priceScore: Record<number, number> = {};
@@ -207,13 +215,7 @@ export function buildTasteProfile(
     // old favorites fade but never vanish — tastes drift, they don't reset.
     const ageDays = r.createdAt > 0 ? Math.max(0, (now - r.createdAt) / 86_400_000) : 0;
     const recency = Math.max(0.35, Math.pow(0.5, ageDays / 540));
-    // wouldReturn is the strongest single bit we collect: a high score they
-    // WOULDN'T repeat is a novelty, not a taste anchor; a low score they'd
-    // still return to isn't a real dislike.
-    const returnMult = centered >= 0
-      ? (r.wouldReturn ? 1.15 : 0.6)
-      : (r.wouldReturn ? 0.6 : 1.25);
-    weight *= recency * returnMult;
+    weight *= recency;
 
     const price = r.price.length;
 
@@ -265,6 +267,22 @@ export function buildTasteProfile(
     }
     if (price > 0) {
       priceScore[price] = (priceScore[price] || 0) + 0.25;
+    }
+  }
+
+  // Onboarding palette-test priors: the quiz cuisines seed the profile so a
+  // brand-new account's first Discover isn't taste-blind — the promise the
+  // quiz makes ("helps us curate") only holds if the answers count. The
+  // prior fades as real ratings accumulate (gone by 8): a stated preference
+  // is a hint; an actual scored visit is evidence.
+  const quizMass = Math.max(0, 1 - scoreN / 8);
+  if (quizMass > 0 && quiz?.cuisines) {
+    for (const label of quiz.cuisines) {
+      for (const token of splitCuisines(label)) {
+        // 2.0 at zero ratings: stronger than a wishlist hint (0.5), weaker
+        // than an enthusiastic real rating (~3).
+        cuisineScore[token] = (cuisineScore[token] || 0) + 2 * quizMass;
+      }
     }
   }
 

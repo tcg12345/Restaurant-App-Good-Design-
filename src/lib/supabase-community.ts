@@ -391,6 +391,9 @@ export interface UserProfile {
   home_city?: string | null;
   home_lat?: number | null;
   home_lng?: number | null;
+  /** Onboarding palette-test answers (migration 059) — written by
+   *  lib/taste-quiz.ts, blended into recommendations as cold-start priors. */
+  taste_profile?: unknown;
 }
 
 /** Optional home-base extras for {@link saveProfile}. Pass any subset; only

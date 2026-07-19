@@ -13,7 +13,6 @@ export interface SharedRestaurant {
   address: string;
   score?: number;       // if sharing a review
   notes?: string;       // review notes
-  wouldReturn?: boolean;
   tags?: string[];
   isReview: boolean;    // true = sharing a review, false = sharing a detail page
 }
@@ -139,6 +138,11 @@ interface ChatContextValue {
   markRead: (conversationId: string) => void;
   unreadCount: number;
   getUnreadForConversation: (conversationId: string) => number;
+  /** Other participants' last-read marks, conversationId → (userId → ms).
+   *  Backs the read receipts under sent messages; own reads live in the
+   *  internal readTimestamps state. Requires migration 060 (participants
+   *  may SELECT each other's conversation_reads rows). */
+  otherReads: Record<string, Record<string, number>>;
 }
 
 /* ── Persistence model ──
@@ -257,6 +261,15 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
   // Last-read timestamps per conversation (mirrors conversation_reads rows).
   const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
+  // Everyone ELSE's read marks per conversation — powers read receipts.
+  const [otherReads, setOtherReads] = useState<Record<string, Record<string, number>>>({});
+  const applyOtherRead = useCallback((convId: string, uid: string, atMs: number) => {
+    setOtherReads((prev) => {
+      const conv = prev[convId] || {};
+      if ((conv[uid] || 0) >= atMs) return prev;
+      return { ...prev, [convId]: { ...conv, [uid]: atMs } };
+    });
+  }, []);
 
   // Which user the current state was hydrated for — gates the cache-persist
   // effect so a user switch can never write user A's chats under B's key.
@@ -312,6 +325,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       hydratedForRef.current = null;
       setConversations([]);
       setReadTimestamps({});
+      setOtherReads({});
       return;
     }
 
@@ -348,7 +362,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ids.length > 0
             ? supabase.from('messages').select('*').in('conversation_id', ids).order('created_at', { ascending: true })
             : Promise.resolve({ data: [], error: null }),
-          supabase.from('conversation_reads').select('conversation_id, last_read_at').eq('user_id', userId),
+          ids.length > 0
+            ? supabase.from('conversation_reads').select('conversation_id, user_id, last_read_at').in('conversation_id', ids)
+            : Promise.resolve({ data: [], error: null }),
         ]);
         if (cancelled) return;
         if (msgRes.error) { console.warn('[Chat] load messages failed:', msgRes.error.message); return; }
@@ -362,12 +378,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const convs = rows.map((r) => rowToConversation(r, msgsByConv.get(r.id) || [])).sort(byNewestActivity);
 
         const read: Record<string, number> = {};
-        for (const r of (readRes.data || []) as Array<{ conversation_id: string; last_read_at: string }>) {
-          read[r.conversation_id] = parseTs(r.last_read_at);
+        const others: Record<string, Record<string, number>> = {};
+        for (const r of (readRes.data || []) as Array<{ conversation_id: string; user_id: string; last_read_at: string }>) {
+          const at = parseTs(r.last_read_at);
+          if (r.user_id === userId) read[r.conversation_id] = at;
+          else others[r.conversation_id] = { ...(others[r.conversation_id] || {}), [r.user_id]: at };
         }
 
         setConversations(convs);
         setReadTimestamps(read);
+        setOtherReads(others);
         saveToStorage(cacheKey(userId), { conversations: convs, read });
       } catch (err) {
         console.warn('[Chat] load failed:', err);
@@ -414,6 +434,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             : c));
         });
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_reads' }, (payload) => {
+        const row = payload.new as { conversation_id?: string; user_id?: string; last_read_at?: string };
+        if (!row?.conversation_id || !row.user_id || row.user_id === userId) return;
+        applyOtherRead(row.conversation_id, row.user_id, parseTs(row.last_read_at || ''));
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_reads' }, (payload) => {
+        const row = payload.new as { conversation_id?: string; user_id?: string; last_read_at?: string };
+        if (!row?.conversation_id || !row.user_id || row.user_id === userId) return;
+        applyOtherRead(row.conversation_id, row.user_id, parseTs(row.last_read_at || ''));
+      })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
         const old = payload.old as { id?: string } | null;
         if (!old?.id) return;
@@ -425,7 +455,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [userId, fetchConversation]);
+  }, [userId, fetchConversation, applyOtherRead]);
 
   // ── Remote write helpers (optimistic local state + fire-and-forget) ──
 
@@ -700,7 +730,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       conversations, createConversation, sendMessage, getConversation,
       findDirectConversation, getOrCreateDirectConversation, shareToTargets,
       deleteConversation, renameConversation, retryMessage, markRead,
-      unreadCount, getUnreadForConversation,
+      unreadCount, getUnreadForConversation, otherReads,
     }}>
       {children}
     </ChatContext.Provider>

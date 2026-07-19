@@ -12,6 +12,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { supabase, supabaseConfigured } from '../lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareRestaurantPicker } from '../components/messages/ShareRestaurantPicker';
 import { ShareRecipePicker } from '../components/messages/ShareRecipePicker';
@@ -385,7 +387,6 @@ const ShareRestaurantSheet: React.FC<{
       address: rating.address,
       score: rating.score,
       notes: rating.notes,
-      wouldReturn: rating.wouldReturn,
       tags: rating.tags,
       isReview: true,
     });
@@ -655,11 +656,18 @@ const NewChatSheet: React.FC<{
 /* ── Read-receipt helpers ── */
 type ReceiptStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
-// Delivery status comes from the message itself now: ChatContext awaits
-// each insert and marks 'sent'/'failed' (older messages loaded from the
-// server carry no status — they're delivered by definition).
-// TODO(backend): 'delivered'/'read' still need a receipts table/presence.
-const getReceiptStatus = (msg: { status?: 'sending' | 'sent' | 'failed' }): ReceiptStatus => msg.status ?? 'sent';
+// Delivery status comes from the message itself (ChatContext awaits each
+// insert and marks 'sent'/'failed'); 'read' comes from the other
+// participants' conversation_reads marks. `othersReadFloor` is the OLDEST
+// other-participant last-read for the conversation — in a 1:1 that's simply
+// the other person; in a group "Read" means everyone has seen it.
+const getReceiptStatus = (
+  msg: { status?: 'sending' | 'sent' | 'failed'; timestamp: number },
+  othersReadFloor: number,
+): ReceiptStatus => {
+  if (msg.status === 'sending' || msg.status === 'failed') return msg.status;
+  return othersReadFloor >= msg.timestamp ? 'read' : 'sent';
+};
 
 const MessageReceipt: React.FC<{ status: ReceiptStatus; onRetry?: () => void }> = ({ status, onRetry }) => {
   if (status === 'failed') {
@@ -695,6 +703,51 @@ const MessageReceipt: React.FC<{ status: ReceiptStatus; onRetry?: () => void }> 
   );
 };
 
+/**
+ * Typing presence over a Supabase broadcast channel (no table). One channel
+ * per conversation; senders emit throttled `typing` events while composing
+ * and the receiving side lights the indicator, decaying 3s after the last
+ * event so an abandoned draft goes quiet on its own.
+ */
+function useTypingPresence(convId: string | null, userId: string | null | undefined) {
+  const [otherTyping, setOtherTyping] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const lastSentRef = useRef(0);
+  const decayRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setOtherTyping(false);
+    if (!convId || !userId || !supabaseConfigured) return;
+    const ch = supabase.channel(`typing-${convId}`, { config: { broadcast: { self: false } } });
+    ch.on('broadcast', { event: 'typing' }, (payload) => {
+      const sender = (payload.payload as { userId?: string } | undefined)?.userId;
+      if (!sender || sender === userId) return;
+      setOtherTyping(true);
+      if (decayRef.current != null) window.clearTimeout(decayRef.current);
+      decayRef.current = window.setTimeout(() => setOtherTyping(false), 3000);
+    }).subscribe();
+    channelRef.current = ch;
+    return () => {
+      if (decayRef.current != null) window.clearTimeout(decayRef.current);
+      channelRef.current = null;
+      void supabase.removeChannel(ch);
+    };
+  }, [convId, userId]);
+
+  // Call on every keystroke; throttled so a fast typist sends ~1 event per
+  // 1.5s (well under the decay window, so the indicator stays lit).
+  const notifyTyping = React.useCallback(() => {
+    const ch = channelRef.current;
+    if (!ch || !userId) return;
+    const now = Date.now();
+    if (now - lastSentRef.current < 1500) return;
+    lastSentRef.current = now;
+    void ch.send({ type: 'broadcast', event: 'typing', payload: { userId } });
+  }, [userId]);
+
+  return { otherTyping, notifyTyping };
+}
+
 /* ── Typing Indicator (animated three-dot bubble) ── */
 const TypingIndicator: React.FC = () => (
   <div className="flex justify-start">
@@ -718,7 +771,7 @@ const ChatView: React.FC<{
   onBack: () => void;
   onConversationCreated?: (id: string) => void;
 }> = ({ conversation, draftFriendId, profiles, onBack, onConversationCreated }) => {
-  const { sendMessage, markRead, retryMessage, deleteConversation, renameConversation, getOrCreateDirectConversation } = useChat();
+  const { sendMessage, markRead, retryMessage, deleteConversation, renameConversation, getOrCreateDirectConversation, otherReads } = useChat();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
@@ -748,8 +801,19 @@ const ChatView: React.FC<{
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  // TODO(backend): typing presence isn't tracked yet.
-  const [isOtherTyping] = useState(false);
+  const { otherTyping: isOtherTyping, notifyTyping } = useTypingPresence(convId, user?.id);
+
+  // Read receipts: the OLDEST other-participant read mark. A message at or
+  // before this floor has been seen by everyone else in the thread (in a
+  // 1:1 that's just the other person). 0 until reads load — receipts show
+  // 'Sent' rather than guessing.
+  const othersReadFloor = useMemo(() => {
+    if (!conversation) return 0;
+    const others = conversation.participantIds.filter((id) => id !== user?.id);
+    if (others.length === 0) return 0;
+    const reads = otherReads[conversation.id] || {};
+    return Math.min(...others.map((id) => reads[id] || 0));
+  }, [conversation, otherReads, user?.id]);
 
   useEffect(() => {
     if (!convId) return;
@@ -1030,7 +1094,7 @@ const ChatView: React.FC<{
                       affordance would look delivered). */}
                   {isMe && (isLastSent || msg.status === 'failed' || msg.status === 'sending') && (
                     <MessageReceipt
-                      status={getReceiptStatus(msg)}
+                      status={getReceiptStatus(msg, othersReadFloor)}
                       onRetry={msg.status === 'failed' && convId ? () => retryMessage(convId, msg.id) : undefined}
                     />
                   )}
@@ -1107,7 +1171,7 @@ const ChatView: React.FC<{
           </div>
           {/* Input row */}
           <div className="flex items-center gap-1 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 pl-4 pr-1.5 py-1.5">
-            <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
+            <input ref={inputRef} type="text" value={text} onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }} onKeyDown={handleKeyDown}
               placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
               className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
             <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
@@ -1139,7 +1203,7 @@ const ChatView: React.FC<{
           </div>
           {/* Input row */}
           <div className="flex items-center gap-1.5 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all pl-4 pr-1.5 py-1.5">
-            <input ref={inputRef} type="text" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={handleKeyDown}
+            <input ref={inputRef} type="text" value={text} onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }} onKeyDown={handleKeyDown}
               placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
               className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
             <button onClick={handleSend} disabled={!text.trim() && !pendingShare}

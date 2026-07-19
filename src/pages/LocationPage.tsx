@@ -35,6 +35,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { getTasteQuiz } from '../lib/taste-quiz';
 import { scoreHex, scoreTintStyle } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally, canonicalShareUrl } from '../lib/native-share';
@@ -528,12 +529,12 @@ export const LocationPage: React.FC = () => {
   // affects a skip-set, and the cost of occasionally re-showing a recent view
   // on this page is negligible.
   const profile = useMemo(
-    () => buildTasteProfile(ratings, wishlist, lists, []),
+    () => buildTasteProfile(ratings, wishlist, lists, [], getTasteQuiz(myProfile)),
     // michelinReady is a rebuild trigger: the profile's michelinTaste shares
     // are gated on the dataset index inside the builder, so the profile must
     // be rebuilt once the index loads (same pattern as the recs popup).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ratings, wishlist, lists, michelinReady],
+    [ratings, wishlist, lists, michelinReady, myProfile],
   );
 
   // Social scoring signals, fetched once per (user, city). These feed

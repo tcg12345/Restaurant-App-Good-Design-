@@ -28,7 +28,6 @@ function ratingToShared(r: RestaurantRating): SharedRestaurant {
     address: r.address,
     score: r.score,
     notes: r.notes,
-    wouldReturn: r.wouldReturn,
     tags: r.tags,
     isReview: true,
   };

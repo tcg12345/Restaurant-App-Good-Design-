@@ -658,7 +658,6 @@ const RestaurantRow: React.FC<{
   tags?: string[];
   notes?: string;
   visitDate?: string;
-  wouldReturn?: boolean;
   listBadges?: { emoji: string; name: string }[];
   onEdit?: () => void;
   onRemove?: () => void;
@@ -2282,7 +2281,6 @@ const ListDetailView: React.FC<{
                     tags={rating?.tags}
                     notes={rating?.notes}
                     visitDate={rating?.visitDate}
-                    wouldReturn={rating?.wouldReturn}
                     onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
@@ -6865,7 +6863,6 @@ export const Pantry: React.FC = () => {
                               tags={r.tags}
                               notes={r.notes}
                               visitDate={r.visitDate}
-                              wouldReturn={r.wouldReturn}
                               listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
                               onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                               onRemove={() => removeRating(r.restaurantId)}

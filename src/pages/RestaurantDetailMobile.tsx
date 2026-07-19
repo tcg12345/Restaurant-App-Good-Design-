@@ -292,7 +292,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     price: priceStr,
     address: place.fullAddress || place.address,
     ...(myRating
-      ? { score: myRating.score, notes: myRating.notes, wouldReturn: myRating.wouldReturn, tags: myRating.tags, isReview: true }
+      ? { score: myRating.score, notes: myRating.notes, tags: myRating.tags, isReview: true }
       : { isReview: false }),
   });
 
@@ -1089,16 +1089,16 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           type Entry = {
             id: string; score: number; date: Date | null; notes?: string; tags?: string[];
-            photos?: { url: string }[]; wouldReturn?: boolean; trend: 'up' | 'down' | 'same' | null; isCurrent: boolean;
+            photos?: { url: string }[]; trend: 'up' | 'down' | 'same' | null; isCurrent: boolean;
           };
 
           const entries: Entry[] = [];
           entries.push({
             id: 'current', score: myRating.score, date: parseDate(myRating.visitDate), notes: myRating.notes,
-            tags: myRating.tags, photos: myRating.photos, wouldReturn: myRating.wouldReturn, trend: null, isCurrent: true,
+            tags: myRating.tags, photos: myRating.photos, trend: null, isCurrent: true,
           });
           visitHistory.forEach((v) => {
-            entries.push({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, wouldReturn: v.would_return, trend: null, isCurrent: false });
+            entries.push({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, trend: null, isCurrent: false });
           });
 
           entries.sort((a, b) => {

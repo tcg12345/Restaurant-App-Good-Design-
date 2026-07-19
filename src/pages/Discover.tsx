@@ -8,6 +8,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
+import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreHex } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
@@ -989,8 +990,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // anything else that needs preference-weighted picks share the same weighting
   // math (score-centered around 7, wishlist nudges, list-name → tag signals).
   const userPreferences = useMemo<TasteProfile>(
-    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews),
-    [myLocalRatings, wishlist, myLists, recentViews],
+    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews, getTasteQuiz(profile)),
+    [myLocalRatings, wishlist, myLists, recentViews, profile],
   );
 
   // Radius scope for the Recommended For You row (miles). Persisted so the
