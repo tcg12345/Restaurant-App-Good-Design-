@@ -16,9 +16,10 @@
 // Permission status mirrors PHPhotoLibrary.authorizationStatus:
 //   "notDetermined" | "restricted" | "denied" | "authorized" | "limited"
 //
-// Access level is .readOnly on purpose: the plugin only ever reads assets
-// (full-file exports land in the app's own temp directory), and read-only
-// gets the gentler iOS permission prompt than .readWrite would.
+// Access level is .readWrite: the plugin only ever reads assets (full-file
+// exports land in the app's own temp directory), but PhotoKit offers no
+// read-only level — PHAccessLevel is just .addOnly | .readWrite, and
+// .addOnly can't fetch assets at all.
 //
 // Setup in Xcode (one-time):
 //   1. Drag this file into the App target in Xcode's Project Navigator.
@@ -65,12 +66,12 @@ public class PhotoLibraryPlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerContr
     // MARK: - Permission
 
     @objc func checkPermission(_ call: CAPPluginCall) {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readOnly)
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         call.resolve(["status": statusString(status)])
     }
 
     @objc func requestPermission(_ call: CAPPluginCall) {
-        PHPhotoLibrary.requestAuthorization(for: .readOnly) { status in
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
             call.resolve(["status": self.statusString(status)])
         }
     }
@@ -94,7 +95,7 @@ public class PhotoLibraryPlugin: CAPPlugin, CAPBridgedPlugin, UIImagePickerContr
         let offset = call.getInt("offset") ?? 0
         let thumbnailSize = call.getInt("thumbnailSize") ?? 240
 
-        let status = PHPhotoLibrary.authorizationStatus(for: .readOnly)
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else {
             call.reject("Photo library access not granted", "PERMISSION_DENIED")
             return
