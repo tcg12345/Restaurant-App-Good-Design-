@@ -176,7 +176,10 @@ const PostMediaCarousel: React.FC<{
               key={i}
               className={cn(
                 'rounded-full transition-all w-1.5 h-1.5',
-                i === activeIdx ? 'bg-white' : 'bg-white/50',
+                // bg-media-white: dots sit over the photo — the paper remap
+                // turned the ACTIVE dot near-black in dark mode, darker
+                // than its untouched bg-white/50 siblings.
+                i === activeIdx ? 'bg-media-white' : 'bg-white/50',
               )}
             />
           ))}

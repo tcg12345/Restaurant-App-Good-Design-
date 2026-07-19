@@ -3849,11 +3849,13 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   const timePart = driveLabel || walkLabel || '';
   const distLine = distLabel ? (timePart ? `${distLabel}  ·  ${timePart}` : distLabel) : timePart;
 
-  // Soft tiered score circle with an inset ring (per the redesign).
+  // Soft tiered score circle with an inset ring (per the redesign). Tier
+  // tint/text use the shared --tier-* tokens (index.css) so the chip tracks
+  // dark mode — same treatment as ScoreRing.
   const tier =
-    score >= 8 ? { bg: '#ecfdf5', ring: 'rgba(16,185,129,0.5)', text: '#059669' }
-    : score >= 5 ? { bg: '#fffbeb', ring: 'rgba(245,158,11,0.55)', text: '#b45309' }
-    : { bg: '#fef2f2', ring: 'rgba(239,68,68,0.5)', text: '#dc2626' };
+    score >= 8 ? { bg: 'var(--tier-good-bg)', ring: 'rgba(16,185,129,0.5)', text: 'var(--tier-good-text)' }
+    : score >= 5 ? { bg: 'var(--tier-mid-bg)', ring: 'rgba(245,158,11,0.55)', text: 'var(--tier-mid-text)' }
+    : { bg: 'var(--tier-low-bg)', ring: 'rgba(239,68,68,0.5)', text: 'var(--tier-low-text)' };
   const scoreBadge = (size: number) => ({
     width: size, height: size, borderRadius: 9999,
     background: score > 0 ? tier.bg : 'var(--bg-2)',

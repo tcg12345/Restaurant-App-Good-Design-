@@ -1352,7 +1352,7 @@ export const AddPostModal: React.FC = () => {
                             key={it.key}
                             className={cn(
                               'w-1.5 h-1.5 rounded-full transition-colors',
-                              it.key === activeKey ? 'bg-white' : 'bg-white/35',
+                              it.key === activeKey ? 'bg-media-white' : 'bg-white/35',
                             )}
                           />
                         ))}
@@ -2078,7 +2078,7 @@ export const AddPostModal: React.FC = () => {
                             key={it.key}
                             className={cn(
                               'w-[7px] h-[7px] rounded-full transition-colors',
-                              it.key === activeKey ? 'bg-white' : 'bg-white/35',
+                              it.key === activeKey ? 'bg-media-white' : 'bg-white/35',
                             )}
                           />
                         ))}

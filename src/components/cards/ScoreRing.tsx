@@ -16,10 +16,13 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
   className,
 }) => {
   if (score === undefined || score === null || score <= 0) return null;
+  // Tier tint/text ride the --tier-* tokens (index.css) so the chip tracks
+  // dark mode — the old inline pastel hexes glowed on a dark card. Ring
+  // colors are mid-saturation and read fine on both themes.
   const tier =
-    score >= 8 ? { bg: '#ecfdf5', ring: 'rgba(16,185,129,0.5)', text: '#059669' }
-    : score >= 5 ? { bg: '#fffbeb', ring: 'rgba(245,158,11,0.55)', text: '#b45309' }
-    : { bg: '#fef2f2', ring: 'rgba(239,68,68,0.5)', text: '#dc2626' };
+    score >= 8 ? { bg: 'var(--tier-good-bg)', ring: 'rgba(16,185,129,0.5)', text: 'var(--tier-good-text)' }
+    : score >= 5 ? { bg: 'var(--tier-mid-bg)', ring: 'rgba(245,158,11,0.55)', text: 'var(--tier-mid-text)' }
+    : { bg: 'var(--tier-low-bg)', ring: 'rgba(239,68,68,0.5)', text: 'var(--tier-low-text)' };
   return (
     <div
       className={className}
@@ -28,7 +31,7 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
         width: size,
         height: size,
         borderRadius: 9999,
-        background: onPhoto ? '#fff' : tier.bg,
+        background: onPhoto ? 'var(--color-paper)' : tier.bg,
         boxShadow: onPhoto
           ? `0 2px 10px rgba(0,0,0,0.16), inset 0 0 0 1.5px ${tier.ring}`
           : `inset 0 0 0 1.5px ${tier.ring}`,

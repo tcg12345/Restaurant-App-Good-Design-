@@ -425,7 +425,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       tabIndex={scale === 0 ? -1 : 0}
                     >
                       <span
-                        className={cn('block h-1.5 w-1.5 rounded-full transition-all duration-300 ease-out', i === photoIndex ? 'bg-white' : 'bg-white/50')}
+                        className={cn('block h-1.5 w-1.5 rounded-full transition-all duration-300 ease-out', i === photoIndex ? 'bg-media-white' : 'bg-white/50')}
                         style={{ transform: `scale(${scale})` }}
                       />
                     </button>

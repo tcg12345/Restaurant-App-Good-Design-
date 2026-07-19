@@ -190,7 +190,10 @@ const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onCli
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        phoneMode ? 'bg-white text-stone-900' : 'bg-on-surface text-surface',
+        // bg-media-white: the phone pill sits on glass over the video, so it
+        // stays literal white — the paper remap made it near-black under its
+        // hardcoded text-stone-900 in dark mode.
+        phoneMode ? 'bg-media-white text-stone-900' : 'bg-on-surface text-surface',
       )}>View</span>
     </button>
   );
@@ -643,7 +646,10 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
               {reel.isExpert && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+                // bg-media-white, not bg-white: this chip sits over the
+                // VIDEO, so it must stay literal white in dark mode too —
+                // the paper remap turned it near-black with dark-red text.
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-media-white text-primary text-[10px] font-bold flex-shrink-0">
                   <VerifiedBadge size={11} />
                   VERIFIED
                 </span>
@@ -750,7 +756,11 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-bold text-[15px] truncate text-on-surface group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
           {reel.isExpert && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+            // Tinted, not bg-white/95: this chip sits on the LIGHT desktop
+            // side column, where a white chip was invisible in light mode
+            // and a paper-dark one near-invisible in dark. Matches the
+            // in-feed VERIFIED chip treatment.
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold flex-shrink-0">
               <VerifiedBadge size={11} />
               VERIFIED
             </span>
@@ -815,7 +825,9 @@ const DesktopPostSideDetails: React.FC<{
             @{post.author?.username || post.userId.slice(0, 8)}
           </span>
           {post.author?.isExpert && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/95 text-primary text-[10px] font-bold flex-shrink-0">
+            // Same tinted treatment as the reel-side chip above — a white
+            // chip disappears on this light column.
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold flex-shrink-0">
               <VerifiedBadge size={11} />
               VERIFIED
             </span>
