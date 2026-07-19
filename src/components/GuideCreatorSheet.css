@@ -1020,7 +1020,10 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Ride above the native keyboard — the body already pads its scroll area
+     by --kb-height, but the CTA footer itself was left behind the keys. */
+  bottom: var(--kb-height, 0px);
+  transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1375,7 +1378,10 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Same keyboard lift as .gcx-foot — the entry-detail "Done" button sat
+     under the keys while editing author notes / scores. */
+  bottom: var(--kb-height, 0px);
+  transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
   padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(to top, var(--gcx-bg) 62%, rgba(250, 249, 247, 0));
   pointer-events: none;

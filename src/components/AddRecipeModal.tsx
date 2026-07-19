@@ -234,7 +234,7 @@ export const AddRecipeModal: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"

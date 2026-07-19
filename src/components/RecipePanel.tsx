@@ -391,7 +391,10 @@ const SaveToListModal: React.FC<{
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-sm flex items-center justify-center px-4"
+      /* kb-pad shrinks the centering area to the space above the keyboard,
+         so the dialog (and its create-list input) slides up instead of the
+         bottom half sitting under the keys. */
+      className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-sm flex items-center justify-center px-4 kb-pad"
       onClick={onClose}
     >
       <motion.div
@@ -955,7 +958,7 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               {...dragProps}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
+              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative kb-pad"
               style={{ height: '92%' }}
             >
               {/* Drag-handle pill — absolute so it tucks into the top

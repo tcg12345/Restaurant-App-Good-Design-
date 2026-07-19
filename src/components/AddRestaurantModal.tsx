@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
+import { useDeferredFocus } from '../lib/useDeferredFocus';
 import { type H2HState, initH2HTieBreak, placementOrder } from '../lib/headToHeadRating';
 import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
 
@@ -70,6 +71,10 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  // Focus the sub-page fields only after the slide-in settles — a bare
+  // autoFocus popped the keyboard mid-animation and the two fought.
+  const notesFocusRef = useDeferredFocus<HTMLTextAreaElement>(page === 'notes');
+  const dishFocusRef = useDeferredFocus<HTMLInputElement>(page === 'favorite-dishes');
   // Inline rating method choice. `null` means the user hasn't picked one yet
   // and the prominent chooser is shown. Set to a concrete method on pick or
   // when there are no other ratings to compare against (slider only).
@@ -407,7 +412,7 @@ export const AddRestaurantModal: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
@@ -705,8 +710,8 @@ export const AddRestaurantModal: React.FC = () => {
               {page === 'notes' && (
                 <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} ref={notesFocusRef}
+                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8}
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
                   <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
@@ -728,7 +733,7 @@ export const AddRestaurantModal: React.FC = () => {
                         onChange={(e) => setDishDraft(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDish(dishDraft); } }}
                         placeholder="Add a dish (press Enter)…"
-                        autoFocus
+                        ref={dishFocusRef}
                         className="w-full bg-white border border-on-surface/10 rounded-full pl-10 pr-20 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
                       />
                       {dishDraft.trim() && (
@@ -991,7 +996,7 @@ export const AddRestaurantModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden kb-pad",
               phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}

@@ -254,6 +254,34 @@
      keys. `kb-open` is toggled on <html> by native-keyboard.ts and only
      while a native keyboard is showing. Mirrors the AI chat's treatment. */
   html.kb-open .msg-composer-bar { padding-bottom: 0.5rem; }
+
+  /* Keyboard-aware lift (native shell, Keyboard.resize:"none"). --kb-height
+     is published by native-keyboard.ts — the exact keyboard height the
+     moment keyboardWillShow fires, back to 0 on hide. `kb-pad` pads a
+     full-height sheet's content up so its composer clears the keys;
+     `kb-bottom` lifts a fixed/absolute footer or bar. Both ease over ~the
+     keyboard's own animation time (same curve as the LocationChat island)
+     so the surface glides with the keyboard instead of teleporting. On the
+     web --kb-height stays 0, so these are no-ops. */
+  .kb-pad {
+    padding-bottom: var(--kb-height, 0px);
+    transition: padding-bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .kb-bottom {
+    bottom: var(--kb-height, 0px);
+    transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+/* Inline composers on document-scrolled pages (feed comment/reply boxes,
+   review comment bars): with Keyboard.resize:"none" the keyboard overlays
+   the page bottom and the document has no scroll room to lift a low
+   composer clear of it — native-keyboard.ts's reveal scrollIntoView can
+   only work if there's somewhere to scroll TO. While the keyboard is up,
+   grow the document by its height. Pages with their own scroll containers
+   (sheets, panels) are untouched — they opt in via .kb-pad instead. */
+html.kb-open body {
+  padding-bottom: var(--kb-height, 0px);
 }
 
 @layer base {

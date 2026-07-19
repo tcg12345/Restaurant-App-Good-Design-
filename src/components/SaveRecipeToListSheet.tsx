@@ -96,7 +96,7 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
             transition={{ type: 'spring', damping: 26, stiffness: 300 }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface w-full sm:max-w-[440px] sm:rounded-[28px] rounded-t-[28px] max-h-[82vh] overflow-y-auto shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]"
+            className="bg-surface w-full sm:max-w-[440px] sm:rounded-[28px] rounded-t-[28px] max-h-[82vh] overflow-y-auto shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06] kb-pad"
           >
             {/* Header */}
             <div className="sticky top-0 bg-surface/95 backdrop-blur-sm px-6 pt-safe-6 pt-6 pb-5 border-b border-on-surface/[0.06] z-10">

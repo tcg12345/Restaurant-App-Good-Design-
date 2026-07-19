@@ -6,6 +6,7 @@ import { processPhoto } from '../lib/images';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeStep } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useDeferredFocus } from '../lib/useDeferredFocus';
 import type { PhotoItem } from '../contexts/ListsContext';
 
 const RECIPE_TAGS = [
@@ -58,6 +59,10 @@ export const RecipeModal: React.FC = () => {
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
+  // Focus after the sheet / sub-page entrance settles — a bare autoFocus
+  // popped the keyboard mid-animation and the two fought.
+  const titleFocusRef = useDeferredFocus<HTMLInputElement>(recipeModalOpen);
+  const ingNameFocusRef = useDeferredFocus<HTMLInputElement>(page === 'ingredients');
   const [confirmDelete, setConfirmDelete] = useState(false);
   // In-flight guards: the save/delete buttons stay tappable through a slow
   // network call otherwise — a double-tap on Save created two DB rows
@@ -246,7 +251,7 @@ export const RecipeModal: React.FC = () => {
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
@@ -296,8 +301,8 @@ export const RecipeModal: React.FC = () => {
                     {/* Title */}
                     <div className="mb-3">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Recipe Title</p>
-                      <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-                        placeholder="e.g. Grandma's Lasagna" autoFocus
+                      <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} ref={titleFocusRef}
+                        placeholder="e.g. Grandma's Lasagna"
                         className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
 
@@ -430,8 +435,8 @@ export const RecipeModal: React.FC = () => {
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
                     {/* Add ingredient form — flat inputs, no card chrome */}
                     <div className="mb-5 space-y-2">
-                      <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)}
-                        placeholder="Ingredient name" autoFocus
+                      <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)} ref={ingNameFocusRef}
+                        placeholder="Ingredient name"
                         className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
                         onKeyDown={(e) => e.key === 'Enter' && addIngredient()} />
                       <div className="flex gap-2">

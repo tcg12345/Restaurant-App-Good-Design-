@@ -408,7 +408,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'bg-surface w-full overflow-hidden flex flex-col',
+              'bg-surface w-full overflow-hidden flex flex-col kb-pad',
               phoneMode
                 ? 'h-full rounded-none'
                 : 'h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',

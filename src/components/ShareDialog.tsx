@@ -331,7 +331,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'bg-surface w-full overflow-hidden flex flex-col',
+              'bg-surface w-full overflow-hidden flex flex-col kb-pad',
               phoneMode
                 ? 'h-[88%] rounded-t-3xl'
                 : 'h-[88%] sm:max-w-md sm:max-h-[80vh] sm:h-auto rounded-t-3xl sm:rounded-3xl',
