@@ -909,13 +909,15 @@ export const Profile: React.FC = () => {
   // Loads the right user list for the active stat popup (followers or
   // following). Skips when the popup isn't a people one. Reuses the
   // last-loaded list while a new fetch is in flight so the popup never
-  // flashes empty between opens.
+  // flashes empty between opens — but only when the cached list is for the
+  // SAME popup type (a followers list must never masquerade as following).
+  const popupPeopleForRef = useRef<null | 'followers' | 'following'>(null);
   useEffect(() => {
     if (statPopup !== 'followers' && statPopup !== 'following') return;
     if (!user?.id) return;
     let cancelled = false;
     setPopupLoading(true);
-    setPopupPeople(null);
+    if (popupPeopleForRef.current !== statPopup) setPopupPeople(null);
     (async () => {
       const ids = statPopup === 'followers'
         ? await getFollowerIds(user.id)
@@ -923,6 +925,7 @@ export const Profile: React.FC = () => {
       if (cancelled) return;
       if (ids.length === 0) {
         setPopupPeople([]);
+        popupPeopleForRef.current = statPopup;
         setPopupLoading(false);
         return;
       }
@@ -932,6 +935,7 @@ export const Profile: React.FC = () => {
       // when the underlying query is ordered.
       const list = ids.map((id) => profMap[id]).filter(Boolean) as UserProfile[];
       setPopupPeople(list);
+      popupPeopleForRef.current = statPopup;
       setPopupLoading(false);
     })();
     return () => { cancelled = true; };
@@ -2577,7 +2581,9 @@ export const Profile: React.FC = () => {
                       ))}
                     </ul>
                   )
-                ) : popupLoading ? (
+                ) : popupLoading && !popupPeople ? (
+                  // Spinner only when there's nothing cached — a re-open
+                  // revalidates behind the kept list instead of flashing.
                   <div className="py-14 flex flex-col items-center text-center">
                     <div className="w-6 h-6 rounded-full border-2 border-on-surface/15 border-t-primary animate-spin" />
                     <p className="text-xs text-on-surface/45 mt-3">Loading…</p>

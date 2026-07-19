@@ -164,6 +164,51 @@ function extractStepMs(text: string): { label: string; ms: number } | null {
   return { label: parts.join(' '), ms };
 }
 
+// One step as cook mode wants it: real title/duration/tip from the
+// Advanced/AI structures when present, plus the section name it belongs to.
+interface CookStep {
+  title?: string;
+  body: string;
+  durationMin?: number;
+  tip?: string;
+  section?: string;
+}
+
+// Flattened, detail-rich step list for cook mode. Prefers stepGroups
+// (keeps section names) then stepDetails (titles, durationMin timers,
+// tips), falling back to heuristics over the flat `steps` strings —
+// stepping through the flat strings alone lost exactly the structure
+// Advanced/AI recipes carry where it matters most.
+function cookStepsFor(recipe: UnifiedRecipe): CookStep[] {
+  const groups = recipe.stepGroups;
+  if (groups && groups.length > 0) {
+    const named = groups.length > 1 || (groups[0]?.name || '').trim() !== '';
+    const out: CookStep[] = [];
+    for (const g of groups) {
+      for (const s of g.steps) {
+        out.push({ title: s.title, body: s.body, durationMin: s.durationMin, tip: s.tip, section: named ? g.name : undefined });
+      }
+    }
+    if (out.length > 0) return out;
+  }
+  if (recipe.stepDetails && recipe.stepDetails.length > 0) {
+    return recipe.stepDetails.map((s) => ({ title: s.title, body: s.body, durationMin: s.durationMin, tip: s.tip }));
+  }
+  return recipe.steps.map((text) => {
+    const split = splitStep(text);
+    return { title: split.title ?? undefined, body: split.body || text };
+  });
+}
+
+// Timer for a cook-mode step: an explicit durationMin beats the regex
+// guess over the body text.
+function cookStepTimer(s: CookStep): { label: string; ms: number } | null {
+  if (s.durationMin && s.durationMin > 0) {
+    return { label: formatMinutes(s.durationMin), ms: s.durationMin * 60_000 };
+  }
+  return extractStepMs(s.body);
+}
+
 // Format minute total. Stays in plain minutes up to 90 min; above that it
 // rolls into hours + minutes ("18 min", "90 min", "15 hr", "16 hr 48 min").
 function formatMinutes(mins: number): string {
@@ -566,8 +611,21 @@ const CookPhotosModal: React.FC<{ open: boolean; recipeId: string; onClose: () =
  *  and the existing .rd-hero-image img / .rdm-hero-img img CSS still applies. */
 const HeroGallery: React.FC<{ photos: string[]; alt: string; onEditPhotos?: () => void; editLabel?: string }> = ({ photos, alt, onEditPhotos, editLabel }) => {
   const [idx, setIdx] = useState(0);
-  useEffect(() => { setIdx(0); }, [photos.length]);
   const safe = photos.length ? Math.min(idx, photos.length - 1) : 0;
+  // Reset when the photo AT THE CURRENT INDEX changes identity, not just
+  // when the count changes — a delete-one-add-one edit keeps the length
+  // constant and used to leave the dots pointing at a stale slot.
+  // shownRef records what was actually displayed after every render, so
+  // paging with the arrows never reads as an identity change.
+  const shownRef = useRef<string | undefined>(photos[safe]);
+  useEffect(() => {
+    const nowAtIdx = photos.length ? photos[Math.min(idx, photos.length - 1)] : undefined;
+    if (nowAtIdx !== shownRef.current) setIdx(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos]);
+  useEffect(() => {
+    shownRef.current = photos.length ? photos[Math.min(idx, photos.length - 1)] : undefined;
+  });
   const go = (d: number) => setIdx((i) => (i + d + photos.length) % photos.length);
   return (
     <>
@@ -2127,9 +2185,9 @@ const CookModeTimer: React.FC<{ durationMs: number; label: string }> = ({ durati
 
 const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ recipe, onClose }) => {
   const [step, setStep] = useState(0);
-  const total = recipe.steps.length;
-  const current = recipe.steps[step] || '';
-  const split = splitStep(current);
+  const cookSteps = useMemo(() => cookStepsFor(recipe), [recipe]);
+  const total = cookSteps.length;
+  const current = cookSteps[step] ?? { body: '' };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2161,7 +2219,7 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
     );
   }
 
-  const timer = extractStepMs(current);
+  const timer = cookStepTimer(current);
 
   return (
     <div className="rd-cookmode">
@@ -2170,7 +2228,7 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
         <button type="button" className="rd-cookmode-close" onClick={onClose} aria-label="Exit (Esc)"><X /></button>
       </div>
       <div className="rd-cookmode-progress">
-        {recipe.steps.map((_, i) => (
+        {cookSteps.map((_, i) => (
           <div key={i} className={cn('rd-cm-dot', i < step && 'done', i === step && 'current')} />
         ))}
       </div>
@@ -2184,9 +2242,17 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
           )}
         </div>
         <div>
-          <div className="rd-cookmode-step-meta">Step {step + 1} of {total}</div>
-          {split.title && <h2 className="rd-cookmode-step-title">{split.title}</h2>}
-          <p className="rd-cookmode-step-body">{split.body || current}</p>
+          <div className="rd-cookmode-step-meta">
+            Step {step + 1} of {total}
+            {current.section ? ` · ${current.section}` : ''}
+          </div>
+          {current.title && <h2 className="rd-cookmode-step-title">{current.title}</h2>}
+          <p className="rd-cookmode-step-body">{current.body}</p>
+          {current.tip && (
+            <p className="rd-cookmode-step-body" style={{ marginTop: 14, opacity: 0.65, fontStyle: 'italic' }}>
+              Tip: {current.tip}
+            </p>
+          )}
         </div>
       </div>
       <div className="rd-cookmode-controls">
@@ -3070,10 +3136,10 @@ const MobileReviewCard: React.FC<{
 
 const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ recipe, onClose }) => {
   const [step, setStep] = useState(0);
-  const total = recipe.steps.length;
-  const current = recipe.steps[step] || '';
-  const split = splitStep(current);
-  const timer = extractStepMs(current);
+  const cookSteps = useMemo(() => cookStepsFor(recipe), [recipe]);
+  const total = cookSteps.length;
+  const current = cookSteps[step] ?? { body: '' };
+  const timer = cookStepTimer(current);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -3097,17 +3163,23 @@ const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> =
         <div style={{ width: 36 }} />
       </div>
       <div className="rdm-cm-progress">
-        {recipe.steps.map((_, i) => (
+        {cookSteps.map((_, i) => (
           <div key={i} className={cn('rdm-cm-dot', i < step && 'done', i === step && 'current')} />
         ))}
       </div>
       <div className="rdm-cm-body">
         <div className="rdm-cm-stepmeta">
           Step {step + 1} of {total}
+          {current.section ? ` · ${current.section}` : ''}
         </div>
         <div className="rdm-cm-num">{String(step + 1).padStart(2, '0')}</div>
-        {split.title && <h2 className="rdm-cm-step-title">{split.title}</h2>}
-        <p className="rdm-cm-step-body">{split.body || current}</p>
+        {current.title && <h2 className="rdm-cm-step-title">{current.title}</h2>}
+        <p className="rdm-cm-step-body">{current.body}</p>
+        {current.tip && (
+          <p className="rdm-cm-step-body" style={{ marginTop: 14, opacity: 0.65, fontStyle: 'italic' }}>
+            Tip: {current.tip}
+          </p>
+        )}
         {timer && (
           <div style={{ marginTop: 18 }}>
             <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />

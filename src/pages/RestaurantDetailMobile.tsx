@@ -31,6 +31,7 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
+import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 
 /** Short "last week / last month" style recency label. */
 function timeAgo(date: string): string {
@@ -97,6 +98,28 @@ export const RestaurantDetailMobile: React.FC = () => {
     }, 320);
   };
 
+  // Dot taps ride the same slide animation as arrows/swipes (they used to
+  // swap instantly). Multi-photo jumps play as ONE slide: the landing photo
+  // is loaded into the adjacent track slot for the duration (heroJump).
+  const [heroJump, setHeroJump] = useState<number | null>(null);
+  const heroSlideTo = (target: number) => {
+    if (heroG.current.busy || target === photoIndex || photos.length < 2) return;
+    const N = photos.length;
+    const forward = (target - photoIndex + N) % N;
+    const dir: 1 | -1 = forward <= N - forward ? 1 : -1;
+    heroG.current.busy = true;
+    setHeroJump(target);
+    setHeroAnimating(true);
+    setHeroDragX(dir === 1 ? -heroWidth() : heroWidth());
+    window.setTimeout(() => {
+      setPhotoIndex(target);
+      setHeroJump(null);
+      setHeroAnimating(false);
+      setHeroDragX(0);
+      heroG.current.busy = false;
+    }, 320);
+  };
+
   const onHeroTouchStart = (e: React.TouchEvent) => {
     if (heroG.current.busy) return;
     const t = e.touches[0];
@@ -150,9 +173,8 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
-  // Hours expanded by default — it's the most frequently checked info,
-  // so show it open without a tap. Local state so we don't mutate the
-  // shared hook default.
+  // Hours start collapsed — the summary row already shows the Open/Closed
+  // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
   const [flavorOpen, setFlavorOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(false);
@@ -230,9 +252,17 @@ export const RestaurantDetailMobile: React.FC = () => {
   }, [myRating?.friendIds]);
 
   if (loading) {
+    // Skeleton mirroring the page shape (hero, title, meta, review rows)
+    // instead of a bare centered spinner that popped into the full page.
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={40} className="animate-spin text-primary" />
+      <div className="min-h-screen bg-surface" aria-busy="true">
+        <div className="animate-pulse bg-on-surface/[0.06] w-full" style={{ height: '40vh', maxHeight: '46vh' }} />
+        <div className="px-5 pt-6 space-y-3">
+          <div className="animate-pulse bg-on-surface/[0.06] rounded h-7 w-3/4" />
+          <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-1/2" />
+          <LoadingSkeleton variant="text" className="pt-4" />
+          <LoadingSkeletonList count={3} variant="list-item" className="pt-4" />
+        </div>
       </div>
     );
   }
@@ -336,15 +366,22 @@ export const RestaurantDetailMobile: React.FC = () => {
             willChange: 'transform',
           }}
         >
-          {[
-            (photoIndex - 1 + photos.length) % photos.length,
-            photoIndex,
-            (photoIndex + 1) % photos.length,
-          ].map((idx, slot) => (
+          {(() => {
+            const N = photos.length;
+            const prevIdx = (photoIndex - 1 + N) % N;
+            const nextIdx = (photoIndex + 1) % N;
+            // During a dot-initiated jump the landing photo rides the slot
+            // the track is sliding toward, so a >1 jump still animates.
+            return heroJump !== null && heroJump !== photoIndex
+              ? (heroDragX < 0 ? [prevIdx, photoIndex, heroJump] : [heroJump, photoIndex, nextIdx])
+              : [prevIdx, photoIndex, nextIdx];
+          })().map((idx, slot) => (
             <button
               key={slot}
               onClick={() => { if (heroG.current.swiped) { heroG.current.swiped = false; return; } setGalleryOpen(true); }}
-              className="relative w-1/3 h-full cursor-pointer"
+              // bg placeholder so a slow hero photo doesn't paint as a
+              // hard white block while it decodes.
+              className="relative w-1/3 h-full cursor-pointer bg-on-surface/5"
               aria-label="Open photo gallery"
               aria-hidden={slot !== 1}
               tabIndex={slot === 1 ? 0 : -1}
@@ -418,7 +455,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   return (
                     <button
                       key={i}
-                      onClick={(e) => { e.stopPropagation(); setPhotoIndex(i); }}
+                      onClick={(e) => { e.stopPropagation(); heroSlideTo(i); }}
                       className="flex-shrink-0 h-full flex items-center justify-center"
                       style={{ width: SLOT }}
                       aria-label={`Show photo ${i + 1}`}
@@ -1162,36 +1199,45 @@ export const RestaurantDetailMobile: React.FC = () => {
               <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
+                  // The row is a plain div: the profile Link and the expand
+                  // toggle are SIBLINGS, not a Link nested inside a button —
+                  // that's invalid HTML, and iOS taps could both navigate
+                  // and toggle at once.
                   return (
-                    <li key={rec.id}>
-                      <button onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)} className="w-full px-4 py-4 text-left active:bg-on-surface/[0.015] transition-colors">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate">
-                                {rec.expert_name}
-                              </Link>
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={11} inline />Verified</span>
-                            </div>
+                    <li key={rec.id} className="px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link to={`/user/${rec.expert_username}`} className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate">
+                              {rec.expert_name}
+                            </Link>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={11} inline />Verified</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                            aria-expanded={isExpanded}
+                            className="block w-full text-left active:opacity-70 transition-opacity"
+                          >
                             <p className={cn('text-[13px] mt-1 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
-                          </div>
-                          <div className={cn('flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center', chipBg(Number(rec.rating)))}>
-                            <span className="text-[13px] font-bold text-white tabular-nums">{Number(rec.rating).toFixed(1)}</span>
-                          </div>
+                          </button>
                         </div>
-                        <AnimatePresence>
-                          {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                              <div className="pt-3">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>))}
-                                </div>
+                        <div className={cn('flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center', chipBg(Number(rec.rating)))}>
+                          <span className="text-[13px] font-bold text-white tabular-nums">{Number(rec.rating).toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                            <div className="pt-3">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>))}
                               </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </li>
                   );
                 })}

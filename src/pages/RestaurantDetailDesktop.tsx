@@ -27,6 +27,7 @@ import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile } from '../lib/flavorProfile';
+import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -136,9 +137,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
   }, [friendsStats.ratings, openCircleId]);
 
   if (loading) {
+    // Skeleton mirroring the page shape (hero + title/meta column) instead
+    // of a bare centered spinner that popped into the full page.
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={40} className="animate-spin text-primary" />
+      <div className="min-h-screen bg-surface px-8 pt-10" aria-busy="true">
+        <div className="max-w-5xl mx-auto grid grid-cols-2 gap-10">
+          <div className="animate-pulse bg-on-surface/[0.06] rounded-3xl aspect-[4/3]" />
+          <div className="space-y-4 pt-2">
+            <div className="animate-pulse bg-on-surface/[0.06] rounded h-8 w-3/4" />
+            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-1/2" />
+            <LoadingSkeleton variant="text" className="pt-4" />
+            <LoadingSkeletonList count={3} variant="list-item" className="pt-2" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -767,32 +778,40 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
                   const sc = Number(rec.rating);
+                  // Plain div row — the profile Link and the expand toggle
+                  // are siblings, not a Link nested inside a button (invalid
+                  // HTML; taps could both navigate and toggle).
                   return (
-                    <li key={rec.id}>
-                      <button onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)} className="w-full px-5 py-5 text-left hover:bg-on-surface/[0.015] transition-colors">
-                        <div className="flex items-start gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Link to={`/user/${rec.expert_username}`} onClick={(e) => e.stopPropagation()} className="text-base font-serif font-bold text-on-surface hover:text-primary truncate">{rec.expert_name}</Link>
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={12} inline />Verified</span>
-                            </div>
+                    <li key={rec.id} className="px-5 py-5">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link to={`/user/${rec.expert_username}`} className="text-base font-serif font-bold text-on-surface hover:text-primary truncate">{rec.expert_name}</Link>
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.15em] text-primary"><VerifiedBadge size={12} inline />Verified</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                            aria-expanded={isExpanded}
+                            className="block w-full text-left hover:opacity-80 transition-opacity"
+                          >
                             <p className={cn('text-sm mt-1.5 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
-                          </div>
-                          <div className="flex-shrink-0 w-14 h-9 rounded-md grid place-items-center" style={{ background: scoreColor(sc) }}>
-                            <span className="text-sm font-bold text-white tabular-nums">{sc.toFixed(1)}</span>
-                          </div>
+                          </button>
                         </div>
-                        <AnimatePresence>
-                          {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                              <div className="pt-3">
-                                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight dishes</p>
-                                <div className="flex flex-wrap gap-1.5">{rec.highlight_dishes.map((dish) => <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>)}</div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </button>
+                        <div className="flex-shrink-0 w-14 h-9 rounded-md grid place-items-center" style={{ background: scoreColor(sc) }}>
+                          <span className="text-sm font-bold text-white tabular-nums">{sc.toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                            <div className="pt-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight dishes</p>
+                              <div className="flex flex-wrap gap-1.5">{rec.highlight_dishes.map((dish) => <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>)}</div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </li>
                   );
                 })}

@@ -1272,17 +1272,20 @@ const RestaurantGridCard: React.FC<{
               </div>
             )}
           </div>
-          {/* Notes body — expands below the footer row */}
+          {/* Notes body — floats OVER the card as an absolutely-positioned
+              panel above the footer. Expanding in flow grew this card's
+              height, which re-laid-out the whole items-stretch grid row. */}
           <AnimatePresence initial={false}>
             {hasNotes && notesOpen && (
               <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className="overflow-hidden"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                className="absolute inset-x-2 bottom-14 z-10 rounded-xl border border-on-surface/[0.08] bg-paper px-3.5 py-3 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.28)]"
               >
-                <p className="pt-2 text-[12px] italic leading-snug text-on-surface/65 whitespace-pre-wrap">
+                <p className="max-h-36 overflow-y-auto text-[12px] italic leading-snug text-on-surface/70 whitespace-pre-wrap">
                   &ldquo;{trimmedNotes}&rdquo;
                 </p>
               </motion.div>
@@ -3258,13 +3261,24 @@ const TripsTab: React.FC<{
 
   // ── Index view ──
   return (
-    <div className={cn('relative', phoneMode && 'pt-safe-4')}>
-      {/* Back to lists */}
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={onBack} className="p-1.5 rounded-full hover:bg-on-surface/5">
+    <div className="relative">
+      {/* Standard phone top-bar layout — same row structure as the other
+          list views (back at the left, title, primary action right). */}
+      <div className="pt-safe-4 flex items-center gap-2 mb-3">
+        <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
           <ArrowLeft size={20} />
         </button>
         <h2 className="font-serif font-bold text-xl">Trips</h2>
+        {sortedTrips.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:opacity-90 transition-opacity flex-shrink-0"
+          >
+            <Plus size={15} strokeWidth={2.5} />
+            <span>New Trip</span>
+          </button>
+        )}
       </div>
 
       {sortedTrips.length === 0 ? (
@@ -3318,10 +3332,11 @@ const TripsTab: React.FC<{
         </div>
       )}
 
-      {/* FAB */}
+      {/* FAB — bottom offset includes the home-indicator inset so it
+          doesn't sit half behind the bar on notched iPhones. */}
       {sortedTrips.length > 0 && (
-        <button onClick={() => setCreateOpen(true)}
-          className="fixed bottom-24 right-6 z-40 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
+        <button onClick={() => setCreateOpen(true)} aria-label="Create trip"
+          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-6 z-40 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
           <Plane size={22} />
         </button>
       )}
@@ -6032,8 +6047,13 @@ export const Pantry: React.FC = () => {
   const regularRatingsCount = ratings.length;
   const regularWishlist = wishlist;
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
-  const hasActiveFilters = activeFilterCount > 0;
+  // Sort is NOT a filter: it never counts into the Filters badge. The Sort
+  // pill itself lights up for any non-default choice (see isNonDefaultSort)
+  // — the old rules disagreed with each other ('recent' showed nothing
+  // active while 'lowest'/'added' inflated the filter count).
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (michelinFilter.length > 0 ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
+  const isNonDefaultSort = sortBy !== 'highest';
+  const hasActiveFilters = activeFilterCount > 0 || isNonDefaultSort;
 
   // Seed custom order from current sort if empty when switching to custom
   const handleSortBy = useCallback((v: typeof sortBy) => {
@@ -6579,9 +6599,9 @@ export const Pantry: React.FC = () => {
                     onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
                   <FilterPill onClick={() => setSortDropdownOpen(true)}
                     icon={<ArrowUpDown size={11} />}
-                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
-                    active={sortBy !== 'highest' && sortBy !== 'recent'}
-                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                    label={isNonDefaultSort ? sortLabels[sortBy] : 'Sort'}
+                    active={isNonDefaultSort}
+                    onClear={isNonDefaultSort ? () => setSortBy('highest') : undefined} />
                   {hasActiveFilters && (
                     <button onClick={handleResetFilters}
                       className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
@@ -6687,9 +6707,9 @@ export const Pantry: React.FC = () => {
                   <AnchoredPill
                     pill={{
                       icon: <ArrowUpDown size={11} />,
-                      label: sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort',
-                      active: sortBy !== 'highest' && sortBy !== 'recent',
-                      onClear: (sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined,
+                      label: isNonDefaultSort ? sortLabels[sortBy] : 'Sort',
+                      active: isNonDefaultSort,
+                      onClear: isNonDefaultSort ? () => setSortBy('highest') : undefined,
                     }}
                     popoverWidth="w-[240px]"
                   >
