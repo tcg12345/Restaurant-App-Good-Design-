@@ -1116,38 +1116,39 @@
   border-bottom: 1px solid var(--border);
   padding-top: env(safe-area-inset-top, 0px);
 }
+/* App-standard chrome: borderless round back button on the left, the
+   page title centered in the serif face, icon actions on the right —
+   mirrors the profile / follow-list headers. */
 .recipes-page-root .m-header-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px 12px;
+  position: relative;
+  display: flex; align-items: center; gap: 2px;
+  padding: 8px 10px 8px;
 }
 .recipes-page-root .m-back-btn {
-  width: 36px; height: 36px;
-  border-radius: 11px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  width: 38px; height: 38px;
+  border-radius: 50%;
   display: grid; place-items: center;
   color: var(--ink);
   flex-shrink: 0;
 }
-.recipes-page-root .m-back-btn svg { width: 18px; height: 18px; }
-.recipes-page-root .m-loc {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 1px;
-}
-.recipes-page-root .m-loc-line {
-  font-size: 10px; font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.recipes-page-root .m-loc-name {
+.recipes-page-root .m-back-btn:active { background: rgba(31,26,23,0.06); }
+.recipes-page-root .m-back-btn svg { width: 20px; height: 20px; }
+.recipes-page-root .m-header-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-family: var(--serif);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-size: 17.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ink);
-  line-height: 1.05;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1;
+  margin: 0;
+  pointer-events: none;
+}
+.recipes-page-root .m-header-actions {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 2px;
 }
 .recipes-page-root .m-icon-btn {
   width: 38px; height: 38px;
@@ -1159,16 +1160,49 @@
 }
 .recipes-page-root .m-icon-btn:active { background: rgba(31,26,23,0.06); }
 .recipes-page-root .m-icon-btn svg { width: 19px; height: 19px; }
+.dark .recipes-page-root .m-back-btn:active,
+.dark .recipes-page-root .m-icon-btn:active { background: rgba(255,255,255,0.08); }
 
-/* ---- MOBILE SEARCH ---- */
-.recipes-page-root .m-search {
-  display: flex; align-items: center; gap: 9px;
-  height: 40px;
+/* ---- MOBILE SEARCH + FILTER ROW ---- */
+.recipes-page-root .m-browse-bar {
+  display: flex; align-items: center; gap: 8px;
   margin: 0 16px 12px;
+}
+.recipes-page-root .m-search {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 9px;
+  height: 42px;
   padding: 0 14px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
+}
+.recipes-page-root .m-filter-btn {
+  width: 42px; height: 42px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: grid; place-items: center;
+  color: var(--ink);
+  position: relative;
+}
+.recipes-page-root .m-filter-btn svg { width: 18px; height: 18px; }
+.recipes-page-root .m-filter-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+.recipes-page-root .m-filter-btn .badge {
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px; font-weight: 700;
+  display: grid; place-items: center;
 }
 .recipes-page-root .m-search > svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
 .recipes-page-root .m-search input {
@@ -1702,7 +1736,7 @@
 /* ---- EXPLORE (mobile) ---- */
 .recipes-page-root .m-explore { padding: 0 16px max(40px, calc(env(safe-area-inset-bottom) + 32px)); }
 .recipes-page-root .m-explore-section-head {
-  display: flex; align-items: flex-end; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
 }
 .recipes-page-root .m-explore-title {
@@ -1715,16 +1749,15 @@
   margin: 0;
 }
 .recipes-page-root .m-explore-title .accent { color: var(--accent); font-style: italic; font-weight: 500; }
-.recipes-page-root .m-explore-sub {
-  font-size: 12px; color: var(--muted);
-  margin-top: 3px;
-}
 
-/* Source tabs (horizontal scroll) */
+/* Source chips — one row, matching the chip spec used on the public
+   profile (bordered pill, solid-ink active). Meal / tags / sort moved
+   into the shared FilterSheet. */
 .recipes-page-root .m-source-tabs {
-  display: flex; gap: 6px;
+  display: flex; gap: 8px;
   padding-bottom: 12px;
   overflow-x: auto;
+  overscroll-behavior-x: none;
   scrollbar-width: none;
   margin: 0 -16px;
   padding-left: 16px;
@@ -1733,52 +1766,18 @@
 .recipes-page-root .m-source-tabs::-webkit-scrollbar { display: none; }
 .recipes-page-root .m-source-tab {
   flex-shrink: 0;
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 32px; padding: 0 12px;
+  display: inline-flex; align-items: center;
+  height: 34px; padding: 0 15px;
   border-radius: 999px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 12.5px; font-weight: 500;
-  color: var(--ink-2);
+  border: 1px solid var(--border-strong);
+  font-size: 12.5px; font-weight: 600;
+  color: var(--ink);
+  transition: background .15s, color .15s, border-color .15s;
 }
-.recipes-page-root .m-source-tab svg { width: 12px; height: 12px; }
 .recipes-page-root .m-source-tab.active {
   background: var(--ink); color: var(--bg);
   border-color: var(--ink);
-}
-.recipes-page-root .m-source-tab .badge {
-  font-size: 10px; font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg-2);
-  color: var(--ink-2);
-}
-.recipes-page-root .m-source-tab.active .badge { background: rgba(255,255,255,0.18); color: var(--bg); }
-
-/* Tag chips (horizontal scroll) */
-.recipes-page-root .m-tag-chips {
-  display: flex; gap: 6px;
-  padding-bottom: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin: 0 -16px;
-  padding-left: 16px;
-  padding-right: 16px;
-}
-.recipes-page-root .m-tag-chips::-webkit-scrollbar { display: none; }
-.recipes-page-root .m-tag-chip {
-  flex-shrink: 0;
-  height: 28px; padding: 0 11px;
-  border-radius: 999px;
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  font-size: 11.5px; font-weight: 500;
-  color: var(--ink-2);
-}
-.recipes-page-root .m-tag-chip.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 /* Result count */
