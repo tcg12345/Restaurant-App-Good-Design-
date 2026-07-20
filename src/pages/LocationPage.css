@@ -421,6 +421,9 @@
 .location-page-root .minimap.is-mobile {
   margin-left: 10px;
   margin-right: 10px;
+  /* Breathing room under the sticky header pill — the map is the first
+     thing on the page now that the big-serif hero is gone. */
+  margin-top: 10px;
   border-radius: 20px;
   border-color: #1f1a17;
 }

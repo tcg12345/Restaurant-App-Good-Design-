@@ -2174,33 +2174,35 @@ export const LocationPage: React.FC = () => {
 
   return (
     <div className="location-page-root min-h-screen pb-24">
-      {/* Mobile header — centered LOCATION eyebrow + "{city} ▾" dropdown
-          trigger and a share button. On desktop there is no separate
-          back-arrow row anymore: the back arrow lives inside the sticky
-          filter bar below, so the page chrome is one bar instead of two
-          stacked strips. */}
+      {/* Mobile header — back arrow, a centered maps-style location pill
+          (pin + city + chevron, opens the picker) and a share button.
+          The pill is the page's only location chrome; the old big-serif
+          hero below is gone. On desktop there is no separate back-arrow
+          row: the back arrow lives inside the sticky filter bar below,
+          so the page chrome is one bar instead of two stacked strips. */}
       {isMobile && (
-      <div className="sticky top-0 z-20 pt-safe-4 pb-2 px-1" style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)' }}>
-        <div className="flex items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3" style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)' }}>
+        <div className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+            className="w-10 h-10 flex items-center justify-center rounded-full transition-colors active:opacity-60"
             style={{ color: 'var(--ink-2)' }}
             aria-label="Back"
           >
             <ArrowLeft size={22} />
           </button>
-          <div className="flex-1 min-w-0 text-center">
+          <div className="flex justify-center min-w-0">
             <button
               type="button"
               onClick={() => setMobileLocationPickerOpen(true)}
-              className="inline-flex items-center gap-1 max-w-full"
-              style={{ color: 'var(--ink)' }}
+              className="inline-flex items-center gap-1.5 h-9 max-w-full pl-3 pr-2.5 rounded-full transition-[transform,background] active:scale-[0.97]"
+              style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--ink)', boxShadow: 'var(--shadow-sm)' }}
               aria-label="Change location"
             >
-              <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
-              <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
+              <MapPin size={14} strokeWidth={2.4} className="flex-none" style={{ color: 'var(--accent)' }} />
+              <span className="text-[14px] font-semibold tracking-[-0.01em] truncate">{cityDisplay}</span>
+              <ChevronDown size={14} className="flex-none" style={{ color: 'var(--muted)' }} />
             </button>
           </div>
           <button
@@ -2209,7 +2211,7 @@ export const LocationPage: React.FC = () => {
             // is capacitor://localhost/… — build the link from the public web
             // origin + the page's path instead.
             onClick={() => { void shareExternally({ title: cityDisplay, url: canonicalShareUrl(window.location.pathname + window.location.search) }); }}
-            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
+            className="w-10 h-10 flex items-center justify-center rounded-full transition-colors active:opacity-60"
             style={{ color: 'var(--ink-2)' }}
             aria-label="Share"
           >
@@ -2234,37 +2236,6 @@ export const LocationPage: React.FC = () => {
       )}
 
       <div className={cn('lp-page', isMobile && 'is-mobile')}>
-        {/* ── Mobile hero — EXPLORING eyebrow + big serif city name.
-            Desktop already gets a hero from DesktopHeader so this is
-            mobile-only. ─────────────────────────────────────────────── */}
-        {isMobile && (() => {
-          const now = new Date();
-          const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-          // Split "New York, NY" into ["New York", "NY"] so we can render
-          // the region as a smaller italic suffix next to the title.
-          const parts = cityDisplay.split(',').map((s) => s.trim()).filter(Boolean);
-          const mainName = parts[0] || cityDisplay;
-          const region = parts.length > 1 ? parts.slice(1).join(', ') : '';
-          return (
-            <section className="pt-4 pb-5 px-3">
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] flex items-center gap-2" style={{ color: 'var(--accent)' }}>
-                Exploring
-                <span style={{ color: 'var(--muted-2)' }}>·</span>
-                <span style={{ color: 'var(--muted)' }}>{timeStr}</span>
-              </p>
-              <h1 className="mt-2 font-serif font-semibold leading-[1.02] tracking-[-0.025em]" style={{ color: 'var(--ink)' }}>
-                <span className="text-[44px]">{mainName}</span>
-                {region && (
-                  <>
-                    <span className="text-[44px]" style={{ color: 'var(--muted-2)' }}>,</span>{' '}
-                    <span className="text-[32px] italic font-medium" style={{ color: 'var(--muted-2)' }}>{region}</span>
-                  </>
-                )}
-              </h1>
-            </section>
-          );
-        })()}
-
         {/* Desktop: compact city chip — the global top bar that used to
             mirror the URL's city (and open the picker) is gone, so the
             page hosts its own. Same URL-replace flow as the mobile
