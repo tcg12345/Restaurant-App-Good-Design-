@@ -1763,14 +1763,17 @@ export const Profile: React.FC = () => {
               onCta={() => openAddPostModal()}
             />
           ) : (
-            <ProfilePostsSection
-              posts={myPosts}
-              isOwn
-              onEdit={(id) => openEditPostModal(id)}
-              onDelete={(id) => setConfirmDeletePostId(id)}
-              onToggleVisibility={(id, next) => setPostVisibility(id, next)}
-              hideHeader
-            />
+            // Phone grids are full-bleed (like UserProfile) — cancel `main`'s pad.
+            <div className={phoneMode ? '-mx-5' : undefined}>
+              <ProfilePostsSection
+                posts={myPosts}
+                isOwn
+                onEdit={(id) => openEditPostModal(id)}
+                onDelete={(id) => setConfirmDeletePostId(id)}
+                onToggleVisibility={(id, next) => setPostVisibility(id, next)}
+                hideHeader
+              />
+            </div>
           )
         )}
 
@@ -1784,14 +1787,16 @@ export const Profile: React.FC = () => {
               onCta={() => openAddReelModal()}
             />
           ) : (
-            <ProfileReelsSection
-              reels={myReels}
-              isOwn
-              onEdit={(id) => openEditReelModal(id)}
-              onDelete={(id) => setConfirmDeleteReelId(id)}
-              onToggleVisibility={(id, next) => setReelVisibility(id, next)}
-              hideHeader
-            />
+            <div className={phoneMode ? '-mx-5' : undefined}>
+              <ProfileReelsSection
+                reels={myReels}
+                isOwn
+                onEdit={(id) => openEditReelModal(id)}
+                onDelete={(id) => setConfirmDeleteReelId(id)}
+                onToggleVisibility={(id, next) => setReelVisibility(id, next)}
+                hideHeader
+              />
+            </div>
           )
         )}
 
@@ -1805,14 +1810,16 @@ export const Profile: React.FC = () => {
               onCta={() => openGuideCreator()}
             />
           ) : (
-            <ProfileGuidesSection
-              guides={visibleGuides}
-              isOwn
-              onEdit={(guide) => openGuideCreator(guide)}
-              onDelete={(id) => setConfirmDeleteGuideId(id)}
-              onToggleVisibility={onToggleGuideVisibility}
-              hideHeader
-            />
+            <div className={phoneMode ? '-mx-5' : undefined}>
+              <ProfileGuidesSection
+                guides={visibleGuides}
+                isOwn
+                onEdit={(guide) => openGuideCreator(guide)}
+                onDelete={(id) => setConfirmDeleteGuideId(id)}
+                onToggleVisibility={onToggleGuideVisibility}
+                hideHeader
+              />
+            </div>
           )
         )}
 

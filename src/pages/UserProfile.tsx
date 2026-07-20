@@ -1274,9 +1274,11 @@ export const UserProfile: React.FC = () => {
 
       {canView ? (
         <>
-          {/* tabs */}
+          {/* tabs — `-mb-px` lives on the scroller (not the buttons) so the
+              scroller has zero vertical overflow; a stray 1px of scrollable
+              overflow lets iOS drag/rubber-band the whole bar diagonally. */}
           <div className="mt-6 border-b border-line">
-            <div className="flex gap-1 overflow-x-auto scrollbar-hide px-6">
+            <div className="flex gap-1 overflow-x-auto overflow-y-hidden overscroll-x-none scrollbar-hide px-6 -mb-px">
               {tabs.map((t) => {
                 const active = viewTab === t.key;
                 return (
@@ -1285,7 +1287,7 @@ export const UserProfile: React.FC = () => {
                     type="button"
                     onClick={() => setViewTab(t.key)}
                     className={cn(
-                      'inline-flex items-center gap-1.5 px-1.5 pb-3 -mb-px border-b-2 whitespace-nowrap flex-none',
+                      'inline-flex items-center gap-1.5 px-1.5 pb-3 border-b-2 whitespace-nowrap flex-none',
                       active ? 'border-primary' : 'border-transparent',
                     )}
                   >
@@ -1430,11 +1432,13 @@ export const UserProfile: React.FC = () => {
             </div>
           )}
 
-          {/* floating map button — restaurants tab only (it maps ratings) */}
+          {/* floating map button — restaurants tab only (it maps ratings).
+              Bottom-left: the global AI assistant FAB owns the bottom-right
+              corner on this page. */}
           {userRatings.length > 0 && viewTab === 'restaurants' && (
             <button
               onClick={() => setShowMapPage(true)}
-              className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform z-30"
+              className="fixed bottom-24 left-5 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform z-30"
               aria-label="Map view"
             >
               <MapIcon size={22} />
