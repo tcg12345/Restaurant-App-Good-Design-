@@ -1,10 +1,9 @@
 // Step 1 of the Advanced Recipe Builder — "The basics".
-// Name (serif underline), one-line summary, and the Time & servings
-// card: Prep and Cook side by side, each as an inline pair of
+// Name (serif underline), an optional one-line summary, and the Time &
+// servings card: Prep and Cook side by side, each as an inline pair of
 // infinitely-looping hour/minute wheels (iPhone-clock style — spin,
 // flick, tap a row, or scroll), plus a serves stepper row and a running
 // total. Minutes are per-minute precise; nothing snaps to 5s anymore.
-// The longer intro paragraph lives in the Extras section on Review.
 
 import React from 'react';
 import { Minus, Plus } from 'lucide-react';
@@ -88,7 +87,7 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
       </div>
 
       <div>
-        <div className="rcx-kicker">One-line summary</div>
+        <div className="rcx-kicker">One-line summary<span className="rcx-kicker-opt"> · optional</span></div>
         <textarea
           className="rcx-line-area"
           value={state.summary}

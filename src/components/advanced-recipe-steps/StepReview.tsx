@@ -5,9 +5,9 @@
 //     the author's profile but never on the standalone recipe page.
 //   - Visibility — Public needs a cover photo (enforced here and by
 //     publish-time validation); Private keeps it on your pantry.
-//   - Extras (collapsed): intro paragraph, yield, equipment, tags, and
-//     typed notes — everything optional lives here so the main review
-//     stays a one-screen skim.
+//   - Extras (collapsed): yield, equipment, tags, and typed notes —
+//     everything optional lives here so the main review stays a
+//     one-screen skim.
 //
 // The shell owns the Publish button and the validation panel; this step
 // just collects the publish-time inputs.
@@ -52,7 +52,7 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, draftKind }) => {
   // Extras opens automatically when any of its fields already has
   // content (editing an existing recipe shouldn't hide filled fields).
   const [extrasOpen, setExtrasOpen] = useState(
-    () => !!(state.introParagraph.trim() || state.yieldDescription.trim()
+    () => !!(state.yieldDescription.trim()
       || state.equipment.length || state.tags.length || state.notes.length),
   );
 
@@ -153,24 +153,11 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, draftKind }) => {
         >
           <ChevronRight size={14} className="rcx-more-chev" />
           Extras
-          <span className="rcx-more-sub">intro · yield · equipment · tags · notes</span>
+          <span className="rcx-more-sub">yield · equipment · tags · notes</span>
         </button>
 
         {extrasOpen && (
           <div className="rcx-more-body">
-            <div>
-              <div className="rcx-kicker">
-                Intro paragraph<span className="rcx-kicker-opt"> · optional</span>
-              </div>
-              <textarea
-                className="rcx-area"
-                value={state.introParagraph}
-                onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'introParagraph', value: e.target.value })}
-                placeholder="A longer welcome for the top of the recipe page — the story, what makes it special. Leave blank to reuse your summary."
-                rows={3}
-              />
-            </div>
-
             <div>
               <div className="rcx-kicker">
                 Yield<span className="rcx-kicker-opt"> · optional</span>

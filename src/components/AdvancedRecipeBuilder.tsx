@@ -51,8 +51,9 @@ import './RecipeBuilder.css';
 export interface AdvancedRecipeState {
   name: string;
   summary: string;
-  /** Longer "story" paragraph shown in the recipe page body. Optional —
-   *  falls back to the summary on the recipe page when blank. */
+  /** Legacy longer "story" paragraph. No longer collected or rendered —
+   *  kept in the model so editing an older recipe (or an AI/import seed
+   *  that set it) round-trips the data without loss. */
   introParagraph: string;
   cuisine: string;
   course: string[];
@@ -508,7 +509,6 @@ interface ValidationResult {
 function validate(state: AdvancedRecipeState): ValidationResult {
   const errors: ValidationResult['errors'] = [];
   if (!state.name.trim()) errors.push({ step: 0, message: 'Recipe name is required.' });
-  if (!state.summary.trim()) errors.push({ step: 0, message: 'One-line summary is required.' });
   // A cover photo is only required to publish *publicly*. Private recipes can
   // be saved to your cookbook without one.
   if (state.isPublic && !state.coverPhoto) errors.push({ step: 1, message: 'Add a cover photo to publish this recipe publicly.' });
@@ -522,13 +522,13 @@ function validate(state: AdvancedRecipeState): ValidationResult {
   return { ok: errors.length === 0, errors };
 }
 
-/** Per-step gate for the footer CTA. The basics (name + summary),
- *  Ingredients, and Method hard-block until they have real content;
- *  everything else stays passable — remaining publish requirements
- *  surface via `validate` on the Publish click. */
+/** Per-step gate for the footer CTA. The basics (name only — the summary
+ *  is optional), Ingredients, and Method hard-block until they have real
+ *  content; everything else stays passable — remaining publish
+ *  requirements surface via `validate` on the Publish click. */
 function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean } {
   if (step === 0) {
-    return { ok: !!(state.name.trim() && state.summary.trim()) };
+    return { ok: !!state.name.trim() };
   }
   if (step === 2) {
     const count = state.ingredientGroups.reduce(
@@ -764,9 +764,9 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   }, [key]);
 
   const validation = useMemo(() => validate(state), [state]);
-  // Per-step gate. When the current step blocks (no name/summary,
-  // Ingredients with nothing in it, Method with nothing in it) the CTA
-  // goes disabled and its label explains why.
+  // Per-step gate. When the current step blocks (no name, Ingredients
+  // with nothing in it, Method with nothing in it) the CTA goes
+  // disabled and its label explains why.
   const gate = useMemo(() => canLeaveStep(state, currentStep), [state, currentStep]);
 
   const handleNext = useCallback(() => {
@@ -943,7 +943,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   /* ── CTA label: the gate reason IS the label ──────────────────── */
 
   const ctaLabel =
-    currentStep === 0 ? (gate.ok ? 'Details' : 'Name & summarize to continue') :
+    currentStep === 0 ? (gate.ok ? 'Details' : 'Name your recipe to continue') :
     currentStep === 1 ? 'Ingredients' :
     currentStep === 2 ? (gate.ok ? 'Method' : 'Add at least one ingredient') :
     currentStep === 3 ? (gate.ok ? 'Review & publish' : 'Write at least one step') :

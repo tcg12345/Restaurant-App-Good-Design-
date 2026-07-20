@@ -406,30 +406,6 @@
   color: var(--ink-2);
 }
 
-/* ============ INTRO PROSE (chef's note) ============ */
-.recipe-detail-page .rd-intro {
-  max-width: 720px;
-  margin: 56px auto 64px;
-  padding: 0 32px;
-}
-.recipe-detail-page .rd-intro p {
-  font-family: var(--serif);
-  font-size: 19px;
-  line-height: 1.7;
-  color: var(--ink-2);
-  margin: 0 0 1.2em;
-  text-wrap: pretty;
-}
-.recipe-detail-page .rd-intro p:last-child { margin-bottom: 0; }
-.recipe-detail-page .rd-intro p:first-child::first-letter {
-  font-family: var(--serif);
-  font-size: 76px;
-  font-weight: 600;
-  line-height: 0.85;
-  float: left;
-  padding: 8px 12px 0 0;
-  color: var(--accent);
-}
 
 /* ============ MAIN GRID (ingredients + directions) ============ */
 .recipe-detail-page .rd-body {
@@ -2368,7 +2344,6 @@
   .recipe-detail-page .rd-hero-image { aspect-ratio: 16 / 10; max-height: 360px; }
   .recipe-detail-page .rd-stats { padding: 0 24px; }
   .recipe-detail-page .rd-actions { padding: 0 24px; }
-  .recipe-detail-page .rd-intro { padding: 0 24px; margin: 40px auto 48px; }
   .recipe-detail-page .rd-body { grid-template-columns: 1fr; gap: 40px; padding: 0 24px 60px; }
   .recipe-detail-page .rd-ingredients { position: static; max-height: none; }
   .recipe-detail-page .rd-notes-section,
@@ -2406,9 +2381,6 @@
   .recipe-detail-page .rd-action-btn.primary { padding: 0 18px; }
   .recipe-detail-page .rd-action-divider { display: none; }
   .recipe-detail-page .rd-tags { width: 100%; margin-top: 6px; }
-  .recipe-detail-page .rd-intro { padding: 0 16px; margin: 32px auto 40px; }
-  .recipe-detail-page .rd-intro p { font-size: 16px; line-height: 1.65; }
-  .recipe-detail-page .rd-intro p:first-child::first-letter { font-size: 56px; padding: 6px 10px 0 0; }
   .recipe-detail-page .rd-body { padding: 0 16px 48px; gap: 28px; }
   .recipe-detail-page .rd-ingredients { padding: 22px 22px 24px; border-radius: var(--radius-lg); }
   .recipe-detail-page .rd-section-title { font-size: 26px; }
@@ -2698,29 +2670,6 @@
   color: var(--ink-2);
 }
 
-/* ---- INTRO ---- */
-.recipe-detail-page .rdm-intro {
-  padding: 16px 18px 32px;
-  border-top: 1px solid var(--border);
-}
-.recipe-detail-page .rdm-intro p {
-  font-family: var(--serif);
-  font-size: 16px;
-  line-height: 1.65;
-  color: var(--ink-2);
-  margin: 0 0 1em;
-  text-wrap: pretty;
-}
-.recipe-detail-page .rdm-intro p:last-child { margin-bottom: 0; }
-.recipe-detail-page .rdm-intro p:first-child::first-letter {
-  font-family: var(--serif);
-  font-size: 56px;
-  font-weight: 600;
-  line-height: 0.85;
-  float: left;
-  padding: 6px 10px 0 0;
-  color: var(--accent);
-}
 
 /* ---- SECTIONS ---- */
 .recipe-detail-page .rdm-section {
