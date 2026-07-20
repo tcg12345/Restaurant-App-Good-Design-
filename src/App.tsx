@@ -50,6 +50,7 @@ import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
+import { FollowList } from './pages/FollowList';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { LocationPage } from './pages/LocationPage';
@@ -496,6 +497,11 @@ const AppContent: React.FC = () => {
           <Route path="/guides/:id/edit" element={<RequireAuthRoute reason="Sign in to edit guides"><GuideEdit /></RequireAuthRoute>} />
           <Route path="/meal/:userId/:mealId" element={<RecipePage />} />
           <Route path="/user/:username" element={<UserProfile />} />
+          {/* Instagram-style full-page follow lists (+ own rated list) —
+              one component, tab derived from the path's last segment. */}
+          <Route path="/user/:username/followers" element={<FollowList />} />
+          <Route path="/user/:username/following" element={<FollowList />} />
+          <Route path="/user/:username/rated" element={<FollowList />} />
           <Route path="/messages" element={<RequireAuthRoute reason="Sign in to message"><Messages /></RequireAuthRoute>} />
           <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
           <Route path="/location" element={<LocationPage />} />

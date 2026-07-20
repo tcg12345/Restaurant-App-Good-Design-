@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
   Shield, LifeBuoy, BadgeCheck, UploadCloud,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { TopBar } from '../components/TopBar';
-import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, removeFollower, type UserProfile } from '../lib/supabase-community';
+import { saveProfile, getFollowCounts, getExpertRecommendationCount, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -885,13 +885,7 @@ export const Profile: React.FC = () => {
   const [following, setFollowing] = useState(0);
   const [expertPickCount, setExpertPickCount] = useState(0);
 
-  // Stat popups — clicking a stat number opens a list of the matching
-  // entries (people for followers/following, restaurants for rated).
-  const [statPopup, setStatPopup] = useState<null | 'followers' | 'following' | 'rated'>(null);
-  const [popupPeople, setPopupPeople] = useState<UserProfile[] | null>(null);
-  const [popupLoading, setPopupLoading] = useState(false);
-  // Desktop vs phone — popup opens as a centered modal on wide
-  // viewports and a bottom sheet on narrow ones.
+  // Desktop vs phone — drives the sidebar-style layout on wide viewports.
   const [isWideViewport, setIsWideViewport] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
@@ -903,58 +897,6 @@ export const Profile: React.FC = () => {
   }, []);
   const isDesktop = isWideViewport && !phoneMode;
 
-  // Loads the right user list for the active stat popup (followers or
-  // following). Skips when the popup isn't a people one. Reuses the
-  // last-loaded list while a new fetch is in flight so the popup never
-  // flashes empty between opens — but only when the cached list is for the
-  // SAME popup type (a followers list must never masquerade as following).
-  const popupPeopleForRef = useRef<null | 'followers' | 'following'>(null);
-  useEffect(() => {
-    if (statPopup !== 'followers' && statPopup !== 'following') return;
-    if (!user?.id) return;
-    let cancelled = false;
-    setPopupLoading(true);
-    if (popupPeopleForRef.current !== statPopup) setPopupPeople(null);
-    (async () => {
-      const ids = statPopup === 'followers'
-        ? await getFollowerIds(user.id)
-        : (await getFriends(user.id)).map((f) => f.friend_id);
-      if (cancelled) return;
-      if (ids.length === 0) {
-        setPopupPeople([]);
-        popupPeopleForRef.current = statPopup;
-        setPopupLoading(false);
-        return;
-      }
-      const profMap = await getProfilesByIds(ids);
-      if (cancelled) return;
-      // Preserve the order of `ids` so newest follows surface first
-      // when the underlying query is ordered.
-      const list = ids.map((id) => profMap[id]).filter(Boolean) as UserProfile[];
-      setPopupPeople(list);
-      popupPeopleForRef.current = statPopup;
-      setPopupLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [statPopup, user?.id]);
-
-  // Followers I'm currently removing (revoking their follow). Directional
-  // (see removeFollower): deletes their follower→me edge so a private account
-  // can cut off someone it previously approved.
-  const [removingFollower, setRemovingFollower] = useState<Set<string>>(new Set());
-  const handleRemoveFollower = React.useCallback(async (followerId: string) => {
-    if (!user?.id || removingFollower.has(followerId)) return;
-    setRemovingFollower((prev) => new Set(prev).add(followerId));
-    const ok = await removeFollower(user.id, followerId);
-    setRemovingFollower((prev) => { const n = new Set(prev); n.delete(followerId); return n; });
-    if (ok) {
-      setPopupPeople((prev) => (prev ? prev.filter((p) => p.user_id !== followerId) : prev));
-      setFollowers((f) => Math.max(0, f - 1));
-    } else {
-      showToast("Couldn't remove that follower. Try again.");
-    }
-  }, [user?.id, removingFollower, showToast]);
-
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [accountMsg, setAccountMsg] = useState('');
@@ -963,12 +905,20 @@ export const Profile: React.FC = () => {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
-    if (user?.id) {
-      getFollowCounts(user.id).then(({ followers: f, following: fg }) => {
+    if (!user?.id) return;
+    const uid = user.id;
+    const refetch = () => {
+      getFollowCounts(uid).then(({ followers: f, following: fg }) => {
         setFollowers(f);
         setFollowing(fg);
       });
-    }
+    };
+    refetch();
+    // The full-page follow lists (FollowList) fire this after a follow /
+    // unfollow / remove-follower — this page is keep-alive-mounted, so a
+    // mount-only fetch would show stale counts on return.
+    window.addEventListener('follows:changed', refetch);
+    return () => window.removeEventListener('follows:changed', refetch);
   }, [user?.id]);
 
   useEffect(() => {
@@ -1349,16 +1299,17 @@ export const Profile: React.FC = () => {
             )}
           </div>
 
+          {/* Each stat opens its Instagram-style full-page list. */}
           <div className="flex-1 grid grid-cols-3 gap-2">
-            <button type="button" onClick={() => setStatPopup('rated')} className="flex flex-col items-center text-center group">
+            <button type="button" onClick={() => navigate(`${publicProfilePath}/rated`)} className="flex flex-col items-center text-center group">
               <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{ratings.length}</span>
               <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">rated</span>
             </button>
-            <button type="button" onClick={() => setStatPopup('followers')} className="flex flex-col items-center text-center group">
+            <button type="button" onClick={() => navigate(`${publicProfilePath}/followers`)} className="flex flex-col items-center text-center group">
               <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{followers}</span>
               <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">followers</span>
             </button>
-            <button type="button" onClick={() => setStatPopup('following')} className="flex flex-col items-center text-center group">
+            <button type="button" onClick={() => navigate(`${publicProfilePath}/following`)} className="flex flex-col items-center text-center group">
               <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{following}</span>
               <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">following</span>
             </button>
@@ -2486,164 +2437,6 @@ export const Profile: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* ─── Stat popups ─────────────────────────────────────────────
-          Bottom sheet on phone/mobile, centered modal on desktop.
-          Shows followers / following / rated lists depending on which
-          stat the user tapped. */}
-      <AnimatePresence>
-        {statPopup && (
-          <motion.div
-            key="profile-stat-popup"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className={cn(
-              'fixed inset-0 z-50 bg-black/45 backdrop-blur-sm flex justify-center',
-              isDesktop ? 'items-center px-4' : 'items-end',
-            )}
-            onClick={() => setStatPopup(null)}
-          >
-            <motion.div
-              initial={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
-              animate={isDesktop ? { opacity: 1, y: 0, scale: 1 } : { y: 0 }}
-              exit={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              onClick={(e) => e.stopPropagation()}
-              className={cn(
-                'bg-surface flex flex-col w-full',
-                isDesktop
-                  ? 'max-w-md rounded-2xl shadow-2xl border border-on-surface/[0.08] max-h-[80vh]'
-                  : 'rounded-t-3xl max-h-[85vh]',
-              )}
-            >
-              {!isDesktop && (
-                <div className="pt-2 pb-1 flex justify-center">
-                  <span className="w-10 h-1 rounded-full bg-on-surface/15" />
-                </div>
-              )}
-
-              {/* Header */}
-              <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06]">
-                <div className="min-w-0">
-                  <h3 className="font-serif font-bold text-[18px] text-on-surface capitalize">
-                    {statPopup === 'rated' ? 'Rated' : statPopup}
-                  </h3>
-                  <p className="text-[11px] text-on-surface/45 mt-0.5 tabular-nums">
-                    {statPopup === 'rated'
-                      ? `${ratings.length} ${ratings.length === 1 ? 'restaurant' : 'restaurants'}`
-                      : statPopup === 'followers'
-                        ? `${followers} ${followers === 1 ? 'person' : 'people'}`
-                        : `${following} ${following === 1 ? 'person' : 'people'}`}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setStatPopup(null)}
-                  className="w-8 h-8 rounded-full hover:bg-on-surface/[0.05] flex items-center justify-center text-on-surface/60"
-                  aria-label="Close"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto">
-                {statPopup === 'rated' ? (
-                  ratings.length === 0 ? (
-                    <div className="py-14 text-center px-6">
-                      <Star size={28} className="text-on-surface/15 mx-auto mb-2" />
-                      <p className="text-sm font-semibold text-on-surface/55">No rated restaurants yet</p>
-                      <p className="text-xs text-on-surface/35 mt-1">Rate places to see them here.</p>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-on-surface/[0.06]">
-                      {[...ratings].sort((a, b) => b.score - a.score).map((r) => (
-                        <li key={r.restaurantId}>
-                          <Link
-                            to={`/restaurant/${r.restaurantId}`}
-                            onClick={() => setStatPopup(null)}
-                            className="flex items-center gap-3 px-5 py-3 hover:bg-on-surface/[0.03] transition-colors"
-                          >
-                            <div className="w-10 h-10 rounded-xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                              {r.image ? (
-                                <img src={r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                <MapPin size={14} className="text-on-surface/30" />
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[14px] font-serif font-bold text-on-surface truncate leading-tight">{r.name}</p>
-                              <p className="text-[11px] text-on-surface/45 truncate mt-0.5">
-                                {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
-                              </p>
-                            </div>
-                            <ScoreBadge rating={r.score} size="sm" />
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )
-                ) : popupLoading && !popupPeople ? (
-                  // Spinner only when there's nothing cached — a re-open
-                  // revalidates behind the kept list instead of flashing.
-                  <div className="py-14 flex flex-col items-center text-center">
-                    <div className="w-6 h-6 rounded-full border-2 border-on-surface/15 border-t-primary animate-spin" />
-                    <p className="text-xs text-on-surface/45 mt-3">Loading…</p>
-                  </div>
-                ) : !popupPeople || popupPeople.length === 0 ? (
-                  <div className="py-14 text-center px-6">
-                    <Heart size={28} className="text-on-surface/15 mx-auto mb-2" />
-                    <p className="text-sm font-semibold text-on-surface/55">
-                      {statPopup === 'followers' ? 'No followers yet' : 'Not following anyone yet'}
-                    </p>
-                    <p className="text-xs text-on-surface/35 mt-1">
-                      {statPopup === 'followers'
-                        ? 'When people follow you, they’ll show up here.'
-                        : 'Find friends and experts to follow from the Circle page.'}
-                    </p>
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-on-surface/[0.06]">
-                    {popupPeople.map((p) => (
-                      <li key={p.user_id} className="flex items-center pr-3 hover:bg-on-surface/[0.03] transition-colors">
-                        <Link
-                          to={`/user/${p.username || ''}`}
-                          onClick={() => setStatPopup(null)}
-                          className="flex items-center gap-3 px-5 py-3 flex-1 min-w-0"
-                        >
-                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[13px] font-serif font-bold text-primary">
-                              {(p.display_name?.charAt(0) || p.username?.charAt(0) || '?').toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-semibold text-on-surface truncate leading-tight inline-flex items-center gap-1.5">
-                              {p.display_name || p.username || 'User'}
-                              {p.is_verified && (
-                                <VerifiedBadge size={13} />
-                              )}
-                            </p>
-                            <p className="text-[11px] text-on-surface/45 truncate mt-0.5">@{p.username || 'user'}</p>
-                          </div>
-                        </Link>
-                        {statPopup === 'followers' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFollower(p.user_id)}
-                            disabled={removingFollower.has(p.user_id)}
-                            className="flex-shrink-0 text-[12px] font-semibold px-3 py-1.5 rounded-full border border-on-surface/15 text-on-surface/70 hover:bg-on-surface/[0.06] disabled:opacity-50 transition-colors"
-                          >
-                            {removingFollower.has(p.user_id) ? 'Removing…' : 'Remove'}
-                          </button>
-                        ) : (
-                          <ChevronRight size={14} className="text-on-surface/25 flex-shrink-0" />
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };
