@@ -4325,7 +4325,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           // there rendered as a stray grayish line across the very top in dark
           // mode (only `bg-white`, not `border-white`, is remapped to the dark
           // paper token).
-          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 flex flex-col will-change-transform",
+          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] flex flex-col will-change-transform",
+          // In the desktop sidebar layout the sheet must stay BELOW the
+          // fixed nav rail (z-30): its z-index competes globally (every
+          // ancestor is z-auto), so z-40 painted the page over the rail's
+          // hover-expanded flyout. Phone keeps z-40 — there the sheet must
+          // beat the BottomNav when expanded.
+          usingDesktopHeader ? "z-[29]" : "z-40",
           sheetState === 'full'
             ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
             : "glass rounded-t-[3rem] border-t border-white/40"
