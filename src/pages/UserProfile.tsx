@@ -32,9 +32,9 @@ import { MAPBOX_TOKEN } from '../lib/keys';
 import { searchPlacesByText } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
-import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { FilterSheet } from '../components/FilterSheet';
-import { FilterSection, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSection, Segment, SegmentItem, Pill, PillRow, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRestaurantRowMinimal } from '../components/profile/ProfileRestaurantRowMinimal';
 import { ProfilePalate } from '../components/profile/ProfilePalate';
@@ -119,6 +119,9 @@ export const UserProfile: React.FC = () => {
   const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const [sortBy, setSortBy] = useState<SortBy>('recent');
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Which drill page the sheet should open on (set by the quick chips).
+  const [sheetPage, setSheetPage] = useState<{ id: string; title: string } | null>(null);
+  const [mobileSortOpen, setMobileSortOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [showMapPage, setShowMapPage] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -663,8 +666,19 @@ export const UserProfile: React.FC = () => {
       open={filtersOpen}
       onClose={() => setFiltersOpen(false)}
       title="Filters"
+      initialPage={sheetPage}
       onReset={() => { handleResetFilters(); setFiltersOpen(false); }}
     >
+      <FilterSection label="Sort by">
+        <PillRow>
+          {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((s) => (
+            <Pill key={s} active={sortBy === s} onClick={() => setSortBy(s)}>
+              {sortLabel[s]}
+            </Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
+
       <FilterSection
         label="Score"
         value={`${scoreRange[0]} – ${scoreRange[1]}`}
@@ -698,31 +712,27 @@ export const UserProfile: React.FC = () => {
 
       <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
 
-      <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-        <MichelinDistinctionFilter selected={filterMichelin} onToggle={toggleFilterMichelin} />
-      </FilterSection>
+      <MichelinDrillSection selected={filterMichelin} onToggle={toggleFilterMichelin} />
 
-      <FilterSection label="Cuisine">
-        <FilterDropdown
-          options={allCuisines.map((c) => ({ value: c, label: c }))}
-          selected={filterCuisine ? [filterCuisine] : []}
-          onToggle={(v) => setFilterCuisine(filterCuisine === v ? null : v)}
-          multiple={false}
-          placeholder="All cuisines"
-          searchPlaceholder="Search cuisines"
-        />
-      </FilterSection>
+      <FilterDrillSection
+        id="cuisine"
+        label="Cuisine"
+        options={allCuisines.map((c) => ({ value: c, label: c }))}
+        selected={filterCuisine ? [filterCuisine] : []}
+        onToggle={(v) => setFilterCuisine(filterCuisine === v ? null : v)}
+        multiple={false}
+        searchPlaceholder="Search cuisines"
+      />
 
-      <FilterSection label="City / Location">
-        <FilterDropdown
-          options={allCities.map((c) => ({ value: c, label: c }))}
-          selected={filterCity ? [filterCity] : []}
-          onToggle={(v) => setFilterCity(filterCity === v ? null : v)}
-          multiple={false}
-          placeholder="All locations"
-          searchPlaceholder="Search locations"
-        />
-      </FilterSection>
+      <FilterDrillSection
+        id="city"
+        label="City / Location"
+        options={allCities.map((c) => ({ value: c, label: c }))}
+        selected={filterCity ? [filterCity] : []}
+        onToggle={(v) => setFilterCity(filterCity === v ? null : v)}
+        multiple={false}
+        searchPlaceholder="Search locations"
+      />
     </FilterSheet>
   );
 
@@ -1014,7 +1024,7 @@ export const UserProfile: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => setFiltersOpen(true)}
+                        onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
                         className={cn(
                           'h-[46px] px-5 rounded-full inline-flex items-center gap-2 text-[13.5px] font-semibold transition-colors whitespace-nowrap flex-none',
                           activeFilterCount > 0
@@ -1346,7 +1356,7 @@ export const UserProfile: React.FC = () => {
                   )}
                 </div>
                 <button
-                  onClick={() => setFiltersOpen(true)}
+                  onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
                   className={cn(
                     'relative w-11 h-11 flex-none rounded-full grid place-items-center border',
                     activeFilterCount > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
@@ -1360,25 +1370,75 @@ export const UserProfile: React.FC = () => {
                 </button>
               </div>
 
-              {allCuisines.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 pb-1">
+              {/* Quick filter chips — sort (anchored menu) plus drill-in
+                  shortcuts that open the filter sheet directly on that
+                  filter's page. */}
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 pb-1">
+                <div className="relative flex-none">
                   <button
-                    onClick={() => setFilterCuisine(null)}
-                    className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', !filterCuisine ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface')}
+                    onClick={() => setMobileSortOpen((v) => !v)}
+                    className={cn(
+                      'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
+                      sortBy !== 'recent' ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                    )}
+                    aria-label="Sort"
                   >
-                    All cuisines
+                    <ArrowUpDown size={11.5} className={sortBy !== 'recent' ? 'text-surface/70' : 'text-on-surface/45'} />
+                    {sortLabel[sortBy]}
+                    <ChevronDown size={12} className={cn('transition-transform', mobileSortOpen && 'rotate-180')} />
                   </button>
-                  {allCuisines.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setFilterCuisine(filterCuisine === c ? null : c)}
-                      className={cn('h-8 px-4 rounded-full text-[12.5px] font-semibold border flex-none', filterCuisine === c ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface')}
-                    >
-                      {c}
-                    </button>
-                  ))}
+                  {mobileSortOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setMobileSortOpen(false)} />
+                      <div className="absolute left-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-2xl border border-on-surface/[0.08] bg-paper py-1 shadow-xl">
+                        {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => { setSortBy(s); setMobileSortOpen(false); }}
+                            className={cn(
+                              'flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] font-semibold',
+                              sortBy === s ? 'text-primary' : 'text-on-surface/75',
+                            )}
+                          >
+                            {sortLabel[s]}
+                            {sortBy === s && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              )}
+                <button
+                  onClick={() => { setSheetPage({ id: 'cuisine', title: 'Cuisine' }); setFiltersOpen(true); }}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
+                    filterCuisine ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                  )}
+                >
+                  {filterCuisine || 'Cuisines'}
+                  <ChevronDown size={12} className={filterCuisine ? 'text-surface/70' : 'text-on-surface/45'} />
+                </button>
+                <button
+                  onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
+                    filterPrice ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                  )}
+                >
+                  {filterPrice || 'Price'}
+                  <ChevronDown size={12} className={filterPrice ? 'text-surface/70' : 'text-on-surface/45'} />
+                </button>
+                <button
+                  onClick={() => { setSheetPage({ id: 'michelin', title: 'Michelin' }); setFiltersOpen(true); }}
+                  className={cn(
+                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
+                    filterMichelin.length > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                  )}
+                >
+                  Michelin{filterMichelin.length > 0 ? ` · ${filterMichelin.length}` : ''}
+                  <ChevronDown size={12} className={filterMichelin.length > 0 ? 'text-surface/70' : 'text-on-surface/45'} />
+                </button>
+              </div>
 
               <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-4 px-6 pt-4">
                 <strong className="text-ink-2 font-bold tabular-nums">{filteredRatings.length}</strong>{' '}

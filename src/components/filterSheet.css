@@ -509,49 +509,7 @@
   box-shadow: inset 0 0 0 3px var(--fs-surface);
 }
 
-/* Searchable dropdown (cuisine / city / friends) */
-.fs-dropdown-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  height: 46px;
-  padding: 0 16px;
-  background: var(--fs-surface);
-  border: 1px solid var(--fs-border-strong);
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--fs-ink);
-  cursor: pointer;
-  transition: border-color .15s, box-shadow .15s;
-}
-.fs-dropdown-trigger:hover { border-color: var(--fs-ink); }
-.fs-dropdown-trigger.is-open {
-  border-color: var(--fs-accent);
-  box-shadow: 0 0 0 3px rgba(159, 48, 18, 0.10);
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.fs-dropdown-trigger.is-set { color: var(--fs-ink); font-weight: 600; }
-.fs-dropdown-chev {
-  width: 16px;
-  height: 16px;
-  color: var(--fs-muted);
-  flex-shrink: 0;
-  transition: transform .2s cubic-bezier(.22, 1, .36, 1);
-}
-.fs-dropdown-chev.is-open { transform: rotate(180deg); color: var(--fs-accent); }
-.fs-dropdown-panel {
-  background: var(--fs-surface);
-  border: 1px solid var(--fs-accent);
-  border-top: 0;
-  border-bottom-left-radius: 12px;
-  border-bottom-right-radius: 12px;
-  box-shadow: 0 0 0 3px rgba(159, 48, 18, 0.10), 0 4px 12px rgba(28, 24, 22, 0.08);
-  overflow: hidden;
-  margin-top: -1px;
-}
+/* Option-list search + rows (drill sub-pages) */
 .fs-dropdown-search {
   display: flex;
   align-items: center;
@@ -575,11 +533,6 @@
   color: var(--fs-ink);
 }
 .fs-dropdown-search input::placeholder { color: var(--fs-muted); }
-.fs-dropdown-list {
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 4px;
-}
 .fs-dropdown-row {
   display: flex;
   align-items: center;
@@ -674,4 +627,104 @@
     padding: 0 8px;
   }
   .fs-card-grid { grid-template-columns: 1fr; }
+}
+
+/* ============ DRILL SUB-PAGES (Beli-style) ============
+   Option-list filters render as settings-style rows on the main sheet;
+   tapping one slides a dedicated page in over the body (mechanism in
+   FilterSheet.tsx). The zone wraps the scrollable body so the page can
+   pin itself over it without scrolling away. */
+.fs-body-zone {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.fs-body-zone .fs-body { flex: 1; }
+.fs-subpage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--fs-surface-2);
+}
+.fs-subpage-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 22px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.fs-subpage-content { display: flex; flex-direction: column; }
+
+/* Header back button (sub-page state) — mirrors fs-close. */
+.fs-back {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--fs-ink);
+  flex-shrink: 0;
+  margin-left: -6px;
+  transition: background .15s;
+}
+.fs-back:hover { background: rgba(28, 24, 22, 0.06); }
+.dark .fs-back:hover { background: rgba(255, 255, 255, 0.08); }
+
+/* Drill row — label · current value · chevron. */
+.fs-drill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 18px 2px;
+  border-bottom: 1px solid var(--fs-border);
+  text-align: left;
+  transition: opacity .12s;
+}
+.fs-drill-row:active { opacity: 0.6; }
+.fs-drill-label {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--fs-ink);
+}
+.fs-drill-value {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fs-muted);
+}
+.fs-drill-value.is-set { color: var(--fs-accent); }
+.fs-drill-chev {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--fs-muted);
+  opacity: 0.7;
+}
+
+/* Option list page — search pinned on top, roomy rows. */
+.fs-optionlist { display: flex; flex-direction: column; min-height: 0; }
+.fs-optionlist .fs-dropdown-search.is-page {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--fs-surface-2);
+  padding: 10px 0;
+}
+.fs-optionlist-rows { padding: 2px 0 8px; }
+.fs-dropdown-row.is-page {
+  width: 100%;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--fs-border);
+  font-size: 14px;
 }

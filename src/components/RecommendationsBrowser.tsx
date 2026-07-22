@@ -7,7 +7,7 @@ import {
   Plus, Search, SlidersHorizontal, Star, X,
 } from 'lucide-react';
 import { FilterSheet } from './FilterSheet';
-import { FilterSection, Pill, PillRow, Segment, SegmentItem } from './filterPrimitives';
+import { FilterSection, FilterDrillSection, Pill, PillRow, Segment, SegmentItem } from './filterPrimitives';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -1026,27 +1026,25 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       </FilterSection>
 
       {sheetCuisines.length > 0 && (
-        <FilterSection label="Cuisine">
-          <PillRow>
-            {sheetCuisines.map(([label]) => (
-              <Pill sm key={label} active={cuisineSel.has(label)} onClick={() => toggleCuisine(label)}>
-                {label}
-              </Pill>
-            ))}
-          </PillRow>
-        </FilterSection>
+        <FilterDrillSection
+          id="cuisine"
+          label="Cuisine"
+          options={sheetCuisines.map(([label]) => ({ value: label, label }))}
+          selected={Array.from(cuisineSel)}
+          onToggle={toggleCuisine}
+          searchPlaceholder="Search cuisines"
+        />
       )}
 
       {anyMichelin && (
-        <FilterSection label="Michelin">
-          <PillRow>
-            {MICH_FILTERS.filter(({ key }) => michelinCounts[key] > 0).map(({ key, label }) => (
-              <Pill sm key={key} active={michSel.has(key)} onClick={() => toggleMich(key)}>
-                {label}
-              </Pill>
-            ))}
-          </PillRow>
-        </FilterSection>
+        <FilterDrillSection
+          id="michelin"
+          label="Michelin"
+          options={MICH_FILTERS.filter(({ key }) => michelinCounts[key] > 0).map(({ key, label }) => ({ value: key, label }))}
+          selected={Array.from(michSel)}
+          onToggle={(v) => toggleMich(v as MichKey)}
+          searchable={false}
+        />
       )}
     </FilterSheet>
   );

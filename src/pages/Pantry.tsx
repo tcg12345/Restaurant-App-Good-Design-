@@ -29,10 +29,10 @@ import { cityFromAddress } from '../lib/city';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useMichelinMatch, useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
-import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { MichelinDistinctionFilter, MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
@@ -2467,29 +2467,27 @@ const FilterSheet: React.FC<{
 
       <HoursFilterSection value={hoursFilter} onChange={onHoursFilter} />
 
-      <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-        <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
-      </FilterSection>
+      <MichelinDrillSection selected={michelinFilter} onToggle={onMichelinToggle} />
 
-      <FilterSection label="Cuisine">
-        <FilterDropdown
+      <FilterDrillSection
+          id="cuisine"
+          label="Cuisine"
           options={allCuisines.map((c) => ({ value: c, label: c }))}
           selected={cuisineFilter}
           onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
-          placeholder="All cuisines"
+          emptyLabel="Any"
           searchPlaceholder="Search cuisines"
         />
-      </FilterSection>
 
-      <FilterSection label="City / Location">
-        <FilterDropdown
+      <FilterDrillSection
+          id="city"
+          label="City / Location"
           options={allCities.map((c) => ({ value: c, label: c }))}
           selected={cityFilter}
           onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
-          placeholder="All locations"
+          emptyLabel="Any"
           searchPlaceholder="Search locations"
         />
-      </FilterSection>
     </FilterSheetShell>
   );
 };
@@ -2557,29 +2555,27 @@ const WishlistFilterSheet: React.FC<{
 
       <HoursFilterSection value={hoursFilter} onChange={onHoursFilter} />
 
-      <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-        <MichelinDistinctionFilter selected={michelinFilter} onToggle={onMichelinToggle} />
-      </FilterSection>
+      <MichelinDrillSection selected={michelinFilter} onToggle={onMichelinToggle} />
 
-      <FilterSection label="Cuisine">
-        <FilterDropdown
+      <FilterDrillSection
+          id="cuisine"
+          label="Cuisine"
           options={allCuisines.map((c) => ({ value: c, label: c }))}
           selected={cuisineFilter}
           onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
-          placeholder="All cuisines"
+          emptyLabel="Any"
           searchPlaceholder="Search cuisines"
         />
-      </FilterSection>
 
-      <FilterSection label="City / Location">
-        <FilterDropdown
+      <FilterDrillSection
+          id="city"
+          label="City / Location"
           options={allCities.map((c) => ({ value: c, label: c }))}
           selected={cityFilter}
           onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
-          placeholder="All locations"
+          emptyLabel="Any"
           searchPlaceholder="Search locations"
         />
-      </FilterSection>
     </FilterSheetShell>
   );
 };
@@ -5185,15 +5181,15 @@ const RecipeFilterSheet: React.FC<{
         </Segment>
       </FilterSection>
 
-      <FilterSection label="Cuisine">
-        <FilterDropdown
+      <FilterDrillSection
+          id="cuisine"
+          label="Cuisine"
           options={allCuisines.map((c) => ({ value: c, label: c }))}
           selected={cuisineFilter}
           onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
-          placeholder="All cuisines"
+          emptyLabel="Any"
           searchPlaceholder="Search cuisines"
         />
-      </FilterSection>
     </FilterSheetShell>
   );
 };

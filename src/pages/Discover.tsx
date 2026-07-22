@@ -38,9 +38,9 @@ import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinBySyntheticId } from '../lib/michelin';
 import { MichelinBadge, MichelinMark } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
-import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -4127,18 +4127,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </Segment>
             </FilterSection>
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
-            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
-            </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+            <MichelinDrillSection selected={selectedMichelin} onToggle={toggleMichelin} />
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={CUISINE_TYPES.filter((c) => c.type !== '').map((c) => ({ value: c.type, label: c.label }))}
                 selected={selectedCuisines}
                 onToggle={(t) => setSelectedCuisines((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
           </>
         )}
 
@@ -4165,28 +4163,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </Segment>
             </FilterSection>
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
-            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
-            </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+            <MichelinDrillSection selected={selectedMichelin} onToggle={toggleMichelin} />
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueMyRatingCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
             {uniqueMyRatingCities.length > 0 && (
-              <FilterSection label="City / Location">
-                <FilterDropdown
+                          <FilterDrillSection
+              id="city"
+              label="City / Location"
                   options={uniqueMyRatingCities.map((c) => ({ value: c, label: c }))}
                   selected={ratingCities}
                   onToggle={(v) => setRatingCities((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                  placeholder="All locations"
+                  emptyLabel="Any"
                   searchPlaceholder="Search locations"
-                />
-              </FilterSection>
+            />
             )}
             {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
               <FilterSection label="List">
@@ -4205,16 +4201,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         {mapMode === 'friends' && (
           <>
             {Object.keys(friendProfiles).length > 0 && (
-              <FilterSection label="Filter by friend">
-                <FilterDropdown
+                          <FilterDrillSection
+              id="friend"
+              label="Filter by friend"
                   options={Object.values(friendProfiles).map((p: UserProfile) => ({ value: p.user_id, label: p.display_name || `@${p.username}` }))}
                   selected={Array.from(selectedFriendIds)}
                   onToggle={(id) => setSelectedFriendIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; })}
                   searchable={Object.keys(friendProfiles).length > 5}
-                  placeholder="All friends"
+                  emptyLabel="Any"
                   searchPlaceholder="Search friends"
-                />
-              </FilterSection>
+            />
             )}
             <FilterSection label="Sort by">
               <PillRow>
@@ -4227,15 +4223,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
             </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueFriendCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
           </>
         )}
@@ -4254,15 +4250,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
             </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueExpertCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
           </>
         )}
 
