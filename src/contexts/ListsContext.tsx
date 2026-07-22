@@ -774,12 +774,36 @@ function migrateMeta(meta: Record<string, RestaurantMeta> | null | undefined): R
   return out;
 }
 
+/** Legacy hotels feature: rated hotels were stored with cuisine 'Hotel'
+ *  (Discover's hotels map mode) or 'Hotel Breakfast' (the hotel detail
+ *  pages) — the same predicate the old rating engine used to keep them
+ *  off the main rated list. The feature is gone, so these entries must
+ *  never surface again anywhere. */
+function isLegacyHotelEntry(cuisine: string | undefined): boolean {
+  const c = (cuisine || '').trim().toLowerCase();
+  return c === 'hotel' || c === 'hotel breakfast';
+}
+/** restaurantIds of hotel entries the migrations dropped this session.
+ *  Drained by the purge effect in ListsProvider, which finishes the
+ *  deletion the way removeRating would (tombstones, list membership,
+ *  community rows/photos, visit records). */
+const purgedHotelIds = new Set<string>();
+const purgedHotelWishlistIds = new Set<string>();
+
 // Migration: add listIds, photos to ratings that don't have them. Also strips
 // stale Google Places photo URLs cached before photo fetching was disabled —
-// rendering them would trigger a billed Google API call per image.
+// rendering them would trigger a billed Google API call per image. Runs on
+// every load path (local, cloud, community recovery), so it also permanently
+// drops legacy hotel entries — they can never re-enter from a stale copy.
 function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   if (!Array.isArray(ratings)) return [];
-  return ratings.map((r) => ({
+  return ratings
+    .filter((r) => {
+      if (!isLegacyHotelEntry(r?.cuisine)) return true;
+      if (r.restaurantId) purgedHotelIds.add(r.restaurantId);
+      return false;
+    })
+    .map((r) => ({
     ...r,
     image: safeImage(r.image),
     listIds: r.listIds ?? [],
@@ -963,7 +987,13 @@ function migrateHomeMeals(meals: HomeMeal[]): HomeMeal[] {
 // strips stale Google Places photo URLs (see migrateRatings above).
 function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
   if (!Array.isArray(items)) return [];
-  return items.map((w) => ({
+  return items
+    .filter((w) => {
+      if (!isLegacyHotelEntry(w?.cuisine)) return true;
+      if (w.restaurantId) purgedHotelWishlistIds.add(w.restaurantId);
+      return false;
+    })
+    .map((w) => ({
     ...w,
     image: safeImage(w.image),
     notes: w.notes ?? '',
@@ -2472,6 +2502,70 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
   }, [syncRatingsToCloud, syncListsToCloud, tombstone, syncVisitHistoryToCloud]);
+
+  // ── Legacy hotels purge ──
+  // migrateRatings / migrateWishlist silently drop legacy hotel entries
+  // (cuisine 'Hotel' / 'Hotel Breakfast') on every load. Once the cloud
+  // load settles, finish the job the way removeRating would: tombstone the
+  // ids (so a stale device's copy can't resurrect them), clear their list
+  // memberships and custom-order slots, and delete the published community
+  // rows / photo galleries / visit records. Also sweeps MY community_ratings
+  // rows directly — a published hotel row can outlive its local copy.
+  const hotelPurgeDoneForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cloudLoaded || !userId || hotelPurgeDoneForRef.current === userId) return;
+    hotelPurgeDoneForRef.current = userId;
+    (async () => {
+      const ids = new Set(purgedHotelIds);
+      if (supabaseConfigured) {
+        try {
+          const mine = await getUserRatings(userId);
+          for (const row of mine) {
+            if (isLegacyHotelEntry(row.cuisine)) ids.add(row.restaurant_id);
+          }
+        } catch { /* best-effort — local ids still purge */ }
+      }
+      for (const id of purgedHotelWishlistIds) tombstone('wishlist', id);
+      purgedHotelWishlistIds.clear();
+      if (ids.size === 0) return;
+      for (const id of ids) tombstone('restaurants', id);
+      setLists((prev) => {
+        let changed = false;
+        const next = prev.map((l) => {
+          const restaurantIds = l.restaurantIds.filter((id) => !ids.has(id));
+          const wishlistIds = (l.wishlistIds || []).filter((id) => !ids.has(id));
+          if (restaurantIds.length !== l.restaurantIds.length || wishlistIds.length !== (l.wishlistIds || []).length) {
+            changed = true;
+            return { ...l, restaurantIds, wishlistIds };
+          }
+          return l;
+        });
+        if (!changed) return prev;
+        saveToStorage(STORAGE_KEY_LISTS, next);
+        syncListsToCloud(next);
+        return next;
+      });
+      setCustomOrderState((prev) => {
+        const next = prev.filter((id) => !ids.has(id));
+        if (next.length === prev.length) return prev;
+        saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
+        return next;
+      });
+      for (const id of ids) {
+        pendingPhotoPublishRef.current.delete(id);
+        clearLocalVisitHistory(id);
+        if (supabaseConfigured) {
+          removeCommunityRating(userId, id);
+          removeCommunityPhotos(userId, id);
+          deleteAllVisitRecordsForRestaurant(userId, id).catch(() => {
+            console.warn('[Hotels purge] Failed to delete visit records for', id);
+          });
+        }
+      }
+      syncVisitHistoryToCloud();
+      purgedHotelIds.clear();
+    })();
+  }, [cloudLoaded, userId, tombstone, syncListsToCloud, syncVisitHistoryToCloud]);
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);
 
