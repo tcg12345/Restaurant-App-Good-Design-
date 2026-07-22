@@ -32,6 +32,56 @@ export interface ImportRestaurantsResult {
   error?: string;
 }
 
+/** Normalized identity for a row — dedupe key across screenshots. */
+const rowKey = (name: string, city?: string) =>
+  `${name.toLowerCase().replace(/\s+/g, ' ').trim()}::${(city || '').toLowerCase().replace(/\s+/g, ' ').trim()}`;
+
+/**
+ * Collapse duplicate entries — scrolling a list and screenshotting it
+ * produces overlapping captures, so the same restaurant routinely appears
+ * in two images (the model is told to dedupe, but this is the guarantee).
+ * Two passes: exact name+city, then name-only where one copy is missing
+ * its city (same list, so a bare "Nobu" and "Nobu · New York" are the same
+ * row). Merged copies keep the most information; a rated copy beats a
+ * wishlist one.
+ */
+export function dedupeExtracted(rows: ExtractedRestaurant[]): ExtractedRestaurant[] {
+  const merge = (a: ExtractedRestaurant, b: ExtractedRestaurant): ExtractedRestaurant => ({
+    name: a.name,
+    city: a.city || b.city,
+    cuisine: a.cuisine || b.cuisine,
+    score: a.score ?? b.score,
+    // A score means it came from a rated list — never demote it to wishlist.
+    wishlist: (a.score ?? b.score) !== undefined ? false : (a.wishlist || b.wishlist),
+    notes: a.notes || b.notes,
+  });
+
+  // Pass 1 — exact name + city.
+  const byExact = new Map<string, ExtractedRestaurant>();
+  for (const r of rows) {
+    const key = rowKey(r.name, r.city);
+    const prev = byExact.get(key);
+    byExact.set(key, prev ? merge(prev, r) : r);
+  }
+
+  // Pass 2 — name-only, but ONLY when one of the copies has no city (two
+  // real restaurants with the same name in different cities must survive).
+  const out: ExtractedRestaurant[] = [];
+  const byName = new Map<string, number[]>(); // name key → indexes into out
+  for (const r of byExact.values()) {
+    const nameKey = rowKey(r.name);
+    const candidates = byName.get(nameKey) ?? [];
+    const mergeIdx = candidates.find((i) => !out[i].city || !r.city);
+    if (mergeIdx !== undefined) {
+      out[mergeIdx] = merge(out[mergeIdx], r);
+      continue;
+    }
+    byName.set(nameKey, [...candidates, out.length]);
+    out.push(r);
+  }
+  return out;
+}
+
 /**
  * Extract restaurant-list entries from screenshots. Resolves with the
  * transcribed rows on success or a friendly error message on failure
@@ -144,7 +194,7 @@ export async function extractRestaurantsFromScreenshots(
   try {
     const parsed = listJson ? (JSON.parse(listJson) as { restaurants?: unknown }) : undefined;
     const rows = Array.isArray(parsed?.restaurants) ? (parsed!.restaurants as ExtractedRestaurant[]) : [];
-    const cleaned = rows
+    const cleaned = dedupeExtracted(rows
       .filter((r) => r && typeof r.name === 'string' && r.name.trim().length > 0)
       .map((r) => ({
         name: r.name.trim(),
@@ -153,7 +203,7 @@ export async function extractRestaurantsFromScreenshots(
         score: typeof r.score === 'number' && Number.isFinite(r.score) ? r.score : undefined,
         wishlist: r.wishlist === true,
         notes: typeof r.notes === 'string' ? r.notes.trim() : undefined,
-      }));
+      })));
     if (cleaned.length === 0) {
       return { ok: false, error: "Couldn't read any restaurants from those screenshots. Try clearer, closer screenshots of the list." };
     }

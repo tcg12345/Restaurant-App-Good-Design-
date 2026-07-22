@@ -2088,6 +2088,16 @@ export const Profile: React.FC = () => {
                         </SettingsSection>
                       )}
 
+                      <SettingsSection label="Data">
+                        <SettingsRow
+                          icon={<Upload size={17} />}
+                          label="Import restaurants"
+                          hint="Bring lists over — Beli screenshots or a file"
+                          onClick={() => { setSettingsOpen(false); navigate('/import'); }}
+                          isLast
+                        />
+                      </SettingsSection>
+
                       <SettingsSection label="About">
                         <SettingsRow
                           icon={<Shield size={17} />}

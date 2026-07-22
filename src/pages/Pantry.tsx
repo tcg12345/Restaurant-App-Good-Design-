@@ -6207,13 +6207,8 @@ export const Pantry: React.FC = () => {
                   transition={{ type: 'spring', damping: 24, stiffness: 400, mass: 0.5 }}
                   className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
                 >
-                  <button onClick={() => { setMoreMenuOpen(false); navigate('/import'); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">
-                    <Upload size={16} className="text-on-surface/40" />
-                    <span className="text-sm font-medium text-on-surface/70">Import</span>
-                  </button>
                   <button onClick={() => handleExport('csv')}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">
                     <Download size={16} className="text-on-surface/40" />
                     <span className="text-sm font-medium text-on-surface/70">Export CSV</span>
                   </button>
@@ -6353,7 +6348,6 @@ export const Pantry: React.FC = () => {
                   </button>
                   <ListMoreMenu
                     items={[
-                      { label: 'Import', icon: <Upload size={14} />, onClick: () => navigate('/import') },
                       { label: 'Export CSV', icon: <Download size={14} />, onClick: () => handleExport('csv') },
                       { label: 'Export JSON', icon: <Download size={14} />, onClick: () => handleExport('json') },
                       { label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') },
@@ -6574,10 +6568,6 @@ export const Pantry: React.FC = () => {
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
                 <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
                 <p className="text-xs text-on-surface/30 mt-1">Use the + button to rate or heart to wishlist</p>
-                <button onClick={() => navigate('/import')}
-                  className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
-                  <Upload size={14} />Import from File
-                </button>
               </div>
             ) : (
               <div className="space-y-5">

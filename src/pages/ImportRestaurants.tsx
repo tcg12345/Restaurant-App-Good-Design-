@@ -178,7 +178,13 @@ export const ImportRestaurants: React.FC = () => {
   const [scalePrompt, setScalePrompt] = useState(false);
   const abortRef = useRef(false);
 
+  // Place-level duplicate guards for the resolve loop. Both sets also grow
+  // as rows import, so two rows that RESOLVE to the same Google place
+  // (e.g. the same restaurant read from two overlapping screenshots under
+  // slightly different names) can only ever create one entry — the second
+  // reports "skipped".
   const existingIds = new Set(ratings.map((r) => r.restaurantId));
+  const existingWishlistIds = new Set(wishlist.map((w) => w.restaurantId));
 
   /** Feed a parsed batch (from either path) into the shared review flow. */
   const acceptParsed = (parsed: ParsedRestaurant[], label: string) => {
@@ -189,12 +195,9 @@ export const ImportRestaurants: React.FC = () => {
     setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
   };
 
-  // ── Screenshot path: pick images → Claude vision reads the list ──
-  const handleScreenshots = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files: File[] = e.target.files
-      ? Array.from(e.target.files as ArrayLike<File>).slice(0, MAX_SCREENSHOTS)
-      : [];
-    e.target.value = ''; // allow re-picking the same files
+  // ── Screenshot path: pick or drop images → Claude vision reads the list ──
+  const readScreenshots = async (picked: File[]) => {
+    const files = picked.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SCREENSHOTS);
     if (files.length === 0) return;
     if (!isSignedIn) { requireSignIn('Sign in to import from screenshots'); return; }
 
@@ -232,6 +235,30 @@ export const ImportRestaurants: React.FC = () => {
       setAiReading(false);
       setShotPreviews([]);
     }
+  };
+
+  const handleScreenshots = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files ? Array.from(e.target.files as ArrayLike<File>) : [];
+    e.target.value = ''; // allow re-picking the same files
+    void readScreenshots(files);
+  };
+
+  // Desktop: drag screenshots anywhere onto the acquisition step.
+  const [dragOver, setDragOver] = useState(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Ignore moves between children of the drop zone.
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer) void readScreenshots(Array.from(e.dataTransfer.files));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -309,7 +336,13 @@ export const ImportRestaurants: React.FC = () => {
       try {
         const place = await findGooglePlace(restaurant, homeBias);
         if (!place) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'not_found' }; return next; }); continue; }
-        if (existingIds.has(place.id)) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; }); continue; }
+        // Already rated (or imported earlier in this run) — never duplicate.
+        // A wishlist row is also skipped when the place is already on the
+        // wishlist; a RATING for a place that's only wishlisted still
+        // imports (that's an upgrade, not a duplicate).
+        const isDuplicate = existingIds.has(place.id)
+          || (restaurant.isWishlist && existingWishlistIds.has(place.id));
+        if (isDuplicate) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; }); continue; }
 
         const price = priceLevelToString(restaurant.priceRange || place.priceLevel);
         const meta: RestaurantMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: restaurant.cuisine, price, address: place.address || restaurant.address };
@@ -321,6 +354,7 @@ export const ImportRestaurants: React.FC = () => {
             cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
             notes: restaurant.notes, listIds: [], addedAt: Date.now() - (importResults.length - i),
           });
+          existingWishlistIds.add(place.id);
         } else if (restaurant.rating !== null) {
           rateRestaurant({
             restaurantId: place.id, name: place.name, image: place.photoUrl || '',
@@ -357,23 +391,35 @@ export const ImportRestaurants: React.FC = () => {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
-        {/* Acquisition step — screenshots (primary) or a file (secondary) */}
+        {/* Acquisition step — screenshots (primary) or a file (secondary).
+            The whole step doubles as a drag-and-drop target for screenshots
+            on desktop. */}
         {parsedRestaurants.length === 0 && !aiReading && (
-          <div className="space-y-4">
+          <div
+            className="space-y-4"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {/* Screenshot import — the easy path */}
             <button
               type="button"
               onClick={() => screenshotInputRef.current?.click()}
-              className="w-full text-left rounded-2xl bg-primary text-white p-5 shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all"
+              className={`w-full text-left rounded-2xl bg-primary text-white p-5 shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all ${
+                dragOver ? 'ring-4 ring-primary/30 scale-[1.01]' : ''
+              }`}
             >
               <div className="flex items-center gap-4">
                 <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
                   <Images size={22} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-bold leading-tight">Import from screenshots</span>
+                  <span className="block text-[15px] font-bold leading-tight">
+                    {dragOver ? 'Drop your screenshots' : 'Import from screenshots'}
+                  </span>
                   <span className="block text-[12px] text-white/80 mt-1 leading-snug">
                     Screenshot your Beli lists (or Google Maps, Notes — anything) and we'll read the restaurants, scores and all.
+                    <span className="hidden md:inline"> You can also drag &amp; drop them here.</span>
                   </span>
                 </span>
               </div>
