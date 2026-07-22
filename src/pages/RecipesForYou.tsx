@@ -2,10 +2,11 @@
  * Recipes Explore page — "The Recipe Box".
  *
  * Reached from Discover's "see all" on the Recipes rail (route /recipes-for-you).
- * Editorial layout with: page header + Recipe of the Day hero, browse-by-meal
- * categories, trending rail, friend activity strip, editor's collections,
- * friends' recent recipes, chef spotlight, and the full filterable Explore
- * grid (source tabs, sort, view toggle, tag chips).
+ * Desktop: editorial layout with masthead + Recipe of the Day, prominent
+ * search, and a faceted browse panel. Mobile: app-standard sticky header
+ * (back / serif title / actions + search & filter row), Recipe of the Day,
+ * a single source chip row, and the shared FilterSheet hosting meal / tags
+ * / sort.
  *
  * All styling lives in RecipesForYou.css under .recipes-page-root so the
  * editorial tokens don't leak into other routes.
@@ -15,9 +16,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat,
   ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown,
-  LayoutGrid, List, Plus, Search, Share2, Soup, Sparkles, Star, Sun, Tag,
+  LayoutGrid, List, Plus, Search, Share2, SlidersHorizontal, Soup, Sparkles, Star, Sun, Tag,
   TrendingUp, UtensilsCrossed, Users, Wheat, Wine, X,
 } from 'lucide-react';
+import { FilterSheet } from '../components/FilterSheet';
+import { FilterSection, Pill, PillRow, Segment, SegmentItem } from '../components/filterPrimitives';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { useLists, DEFAULT_WANT_TO_COOK_ID, type HomeMeal } from '../contexts/ListsContext';
@@ -232,6 +235,10 @@ export const RecipesForYou: React.FC = () => {
   const [view, setView] = useState<ViewMode>('grid');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
+  // Mobile: meal / tag / sort live in the app's shared FilterSheet (same
+  // bottom sheet as Discover and the public profile) instead of stacked
+  // chip rows on the page.
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   // Search — discreet field tucked into the explore-bar so the legacy
   // search behavior still works without the old sticky header.
@@ -567,7 +574,9 @@ export const RecipesForYou: React.FC = () => {
   //    Different markup using .m-* classes so the page looks like a
   //    proper phone screen instead of the desktop layout squashed down.
   if (phoneMode) {
-    const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+    // Meal / tag / sort live in the FilterSheet — the chip on the search
+    // row shows how many of them are set.
+    const sheetFilterCount = (meal ? 1 : 0) + (tag ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
     const recipeOfDayCover = recipeOfDay?.photos?.[0] || '';
     const rodAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
     const rodAuthorName = rodAuthor?.display_name || rodAuthor?.username || 'Anonymous';
@@ -577,36 +586,48 @@ export const RecipesForYou: React.FC = () => {
 
     return (
       <div className="recipes-page-root">
-        {/* ── Sticky header ───────────────────────────────── */}
+        {/* ── Sticky header — app-standard chrome: round back button,
+            centered serif title, icon actions; search + filter row
+            beneath. ─────────────────────────────────────────────── */}
         <header className="m-header">
           <div className="m-header-row">
             <button type="button" className="m-back-btn" onClick={() => navigate(-1)} aria-label="Back">
               <ArrowLeft />
             </button>
-            <div className="m-loc">
-              <div className="m-loc-line">Discover · Recipes</div>
-              <div className="m-loc-name">The Recipe Box</div>
-            </div>
-            <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate(`/pantry?list=${DEFAULT_WANT_TO_COOK_ID}`)}>
-              <Bookmark />
-            </button>
-            <button type="button" className="m-icon-btn" title="Add Recipe" aria-label="Add Recipe" onClick={() => navigate('/create')}>
-              <Plus />
-            </button>
-          </div>
-          <div className="m-search">
-            <Search />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search recipes, ingredients, cuisines…"
-            />
-            {searchQuery && (
-              <button type="button" className="clr" onClick={() => setSearchQuery('')} aria-label="Clear">
-                <X />
+            <h1 className="m-header-title">Recipes</h1>
+            <div className="m-header-actions">
+              <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate(`/pantry?list=${DEFAULT_WANT_TO_COOK_ID}`)}>
+                <Bookmark />
               </button>
-            )}
+              <button type="button" className="m-icon-btn" title="Add Recipe" aria-label="Add Recipe" onClick={() => navigate('/create')}>
+                <Plus />
+              </button>
+            </div>
+          </div>
+          <div className="m-browse-bar">
+            <div className="m-search">
+              <Search />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search recipes, ingredients, cuisines…"
+              />
+              {searchQuery && (
+                <button type="button" className="clr" onClick={() => setSearchQuery('')} aria-label="Clear">
+                  <X />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              className={cn('m-filter-btn', sheetFilterCount > 0 && 'active')}
+              onClick={() => setFilterSheetOpen(true)}
+              aria-label="Filters"
+            >
+              <SlidersHorizontal />
+              {sheetFilterCount > 0 && <span className="badge">{sheetFilterCount}</span>}
+            </button>
           </div>
         </header>
 
@@ -671,10 +692,7 @@ export const RecipesForYou: React.FC = () => {
         {/* ── Explore (2-col grid / list) ─────────────────── */}
         <section className="m-section m-explore" style={{ marginBottom: 12 }}>
           <div className="m-explore-section-head">
-            <div>
-              <h2 className="m-explore-title">All recipes</h2>
-              <div className="m-explore-sub">Filter the full library</div>
-            </div>
+            <h2 className="m-explore-title">All recipes</h2>
             <div className="m-er-view">
               <button
                 type="button"
@@ -697,6 +715,7 @@ export const RecipesForYou: React.FC = () => {
             </div>
           </div>
 
+          {/* Single source row — every other filter lives in the sheet. */}
           <div className="m-source-tabs">
             {(['all', 'friend', 'chef', 'home'] as SourceFilter[]).map((s) => (
               <button
@@ -705,61 +724,16 @@ export const RecipesForYou: React.FC = () => {
                 className={cn('m-source-tab', source === s && 'active')}
                 onClick={() => setSource(s)}
               >
-                {s === 'friend' && <Users />}
-                {s === 'chef' && <ChefHat />}
-                {s === 'home' && <UtensilsCrossed />}
-                <span>{SOURCE_LABELS[s]}</span>
-                <span className="badge">{sourceCounts[s]}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Meal filter — replaces the old big "Browse by meal" grid. */}
-          <div className="m-tag-chips">
-            <button
-              type="button"
-              className={cn('m-tag-chip', !meal && 'active')}
-              onClick={() => setMeal(null)}
-            >
-              All meals
-            </button>
-            {MEAL_CATEGORIES.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                className={cn('m-tag-chip', meal === c.key && 'active')}
-                onClick={() => setMeal(meal === c.key ? null : c.key)}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="m-tag-chips">
-            <button
-              type="button"
-              className={cn('m-tag-chip', !tag && 'active')}
-              onClick={() => setTag(null)}
-            >
-              All
-            </button>
-            {allTags.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={cn('m-tag-chip', tag === t && 'active')}
-                onClick={() => setTag(tag === t ? null : t)}
-              >
-                {t}
+                {SOURCE_LABELS[s]}
               </button>
             ))}
           </div>
 
           <div className="m-result-count">
-            <span><span className="n">{filtered.length}</span> recipes</span>
-            {filtersActive && (
-              <button type="button" className="m-result-clear" onClick={clearFilters}>
-                Clear filters
+            <span><span className="n">{filtered.length}</span> {filtered.length === 1 ? 'recipe' : 'recipes'}</span>
+            {(filtersActive || sortBy !== 'recent') && (
+              <button type="button" className="m-result-clear" onClick={() => { clearFilters(); setSortBy('recent'); }}>
+                Clear all
               </button>
             )}
           </div>
@@ -789,6 +763,50 @@ export const RecipesForYou: React.FC = () => {
             </div>
           )}
         </section>
+
+        {/* ── Filter sheet — the app's shared bottom sheet (same chrome as
+            Discover / the public profile) hosting meal, tags and sort. ── */}
+        <FilterSheet
+          open={filterSheetOpen}
+          onClose={() => setFilterSheetOpen(false)}
+          title="Filters"
+          subtitle={`${filtered.length} ${filtered.length === 1 ? 'recipe' : 'recipes'}`}
+          onReset={() => { setMeal(null); setTag(null); setSortBy('recent'); }}
+        >
+          <FilterSection label="Meal">
+            <PillRow>
+              <Pill active={!meal} onClick={() => setMeal(null)}>Any</Pill>
+              {MEAL_CATEGORIES.map((c) => (
+                <Pill key={c.key} active={meal === c.key} onClick={() => setMeal(meal === c.key ? null : c.key)}>
+                  {c.label}
+                </Pill>
+              ))}
+            </PillRow>
+          </FilterSection>
+
+          {allTags.length > 0 && (
+            <FilterSection label="Popular tags">
+              <PillRow>
+                <Pill sm active={!tag} onClick={() => setTag(null)}>Any</Pill>
+                {allTags.map((t) => (
+                  <Pill sm key={t} active={tag === t} onClick={() => setTag(tag === t ? null : t)}>
+                    {prettyTag(t)}
+                  </Pill>
+                ))}
+              </PillRow>
+            </FilterSection>
+          )}
+
+          <FilterSection label="Sort by">
+            <Segment>
+              {(['recent', 'quick', 'az'] as SortKey[]).map((k) => (
+                <SegmentItem key={k} active={sortBy === k} onClick={() => setSortBy(k)}>
+                  {SORT_LABELS[k]}
+                </SegmentItem>
+              ))}
+            </Segment>
+          </FilterSection>
+        </FilterSheet>
       </div>
     );
   }

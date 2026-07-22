@@ -1135,6 +1135,34 @@ export async function getFollowerIds(userId: string): Promise<string[]> {
   } catch (err) { console.error('[Friends] getFollowerIds exception:', err); return []; }
 }
 
+/**
+ * Ordered user ids on one side of a target's follow graph (newest edge
+ * first). Goes through the SECURITY DEFINER RPC from migration 062: the
+ * user_friends SELECT policy only exposes rows involving the CALLER, so a
+ * direct query can't list anyone else's followers/following. The RPC
+ * applies the same visibility rule as the other profile-data RPCs — the
+ * target is public, the caller IS the target, or the caller has an
+ * accepted follow edge to the target — and returns [] otherwise.
+ * Falls back to the RLS-limited direct queries (accurate only for the
+ * caller's own id) when the migration isn't applied.
+ */
+export async function getFollowListIds(
+  targetId: string,
+  direction: 'followers' | 'following',
+): Promise<string[]> {
+  if (!supabaseConfigured || !targetId) return [];
+  try {
+    const { data, error } = await supabase.rpc('get_follow_list', { target: targetId, direction });
+    if (!error && Array.isArray(data)) {
+      return (data as Array<{ other_user_id: string }>).map((r) => r.other_user_id).filter(Boolean);
+    }
+    if (error) console.warn('[Community] get_follow_list RPC failed (migration 062 applied?) — falling back to RLS-limited list:', error.message);
+    return direction === 'followers'
+      ? await getFollowerIds(targetId)
+      : (await getFriends(targetId)).map((f) => f.friend_id);
+  } catch { return []; }
+}
+
 /** Get pending friend requests sent TO you */
 export async function getPendingRequests(userId: string): Promise<FriendRequest[]> {
   if (!supabaseConfigured || !userId) return [];

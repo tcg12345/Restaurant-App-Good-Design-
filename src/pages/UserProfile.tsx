@@ -880,25 +880,33 @@ export const UserProfile: React.FC = () => {
               )}
             </div>
 
-            {/* stats */}
+            {/* stats — followers / following open the full-page lists when
+                the viewer can see this profile's content at all */}
             <div className="flex items-stretch mt-7 py-[18px] border-y border-line">
-              {[
+              {([
                 { n: userRatings.length, l: 'Ratings' },
                 { n: publicHomeMeals.length, l: 'Cooked' },
-                { n: followers, l: 'Followers' },
-                { n: following, l: 'Following' },
-              ].map((it, i) => (
-                <div
-                  key={it.l}
-                  className={cn(
-                    'flex-1 flex flex-col items-start pr-2',
-                    i === 0 ? 'pl-0' : 'pl-4 border-l border-line',
-                  )}
-                >
-                  <span className="font-serif text-[22px] font-bold leading-none tracking-[-0.01em] text-on-surface tabular-nums">{it.n}</span>
-                  <span className="text-[9.5px] font-bold tracking-[0.14em] uppercase text-ink-4 mt-1.5">{it.l}</span>
-                </div>
-              ))}
+                { n: followers, l: 'Followers', tab: 'followers' },
+                { n: following, l: 'Following', tab: 'following' },
+              ] as { n: number; l: string; tab?: 'followers' | 'following' }[]).map((it, i) => {
+                const clickable = !!it.tab && canView && !!profile.username;
+                const Tag = (clickable ? 'button' : 'div') as 'button';
+                return (
+                  <Tag
+                    key={it.l}
+                    type={clickable ? 'button' : undefined}
+                    onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
+                    className={cn(
+                      'flex-1 flex flex-col items-start pr-2 text-left',
+                      i === 0 ? 'pl-0' : 'pl-4 border-l border-line',
+                      clickable && 'group cursor-pointer',
+                    )}
+                  >
+                    <span className={cn('font-serif text-[22px] font-bold leading-none tracking-[-0.01em] text-on-surface tabular-nums', clickable && 'group-hover:text-primary transition-colors')}>{it.n}</span>
+                    <span className="text-[9.5px] font-bold tracking-[0.14em] uppercase text-ink-4 mt-1.5">{it.l}</span>
+                  </Tag>
+                );
+              })}
             </div>
 
             {/* palate */}
@@ -1257,26 +1265,42 @@ export const UserProfile: React.FC = () => {
         </div>
       ) : null}
 
-      {/* stats */}
+      {/* stats — followers / following open the full-page lists when the
+          viewer can see this profile's content at all */}
       <div className="flex items-stretch mx-6 mt-[22px] py-4 border-y border-line">
-        {[
+        {([
           { n: userRatings.length, l: 'Ratings' },
           { n: publicHomeMeals.length, l: 'Cooked' },
-          { n: followers, l: 'Followers' },
-          { n: following, l: 'Following' },
-        ].map((it, i) => (
-          <div key={it.l} className={cn('flex-1 flex flex-col items-center', i > 0 && 'border-l border-line')}>
-            <span className="font-serif text-[20px] font-bold leading-none text-on-surface tabular-nums">{it.n}</span>
-            <span className="text-[8.5px] font-bold tracking-[0.1em] uppercase text-ink-4 mt-1.5">{it.l}</span>
-          </div>
-        ))}
+          { n: followers, l: 'Followers', tab: 'followers' },
+          { n: following, l: 'Following', tab: 'following' },
+        ] as { n: number; l: string; tab?: 'followers' | 'following' }[]).map((it, i) => {
+          const clickable = !!it.tab && canView && !!profile.username;
+          const Tag = (clickable ? 'button' : 'div') as 'button';
+          return (
+            <Tag
+              key={it.l}
+              type={clickable ? 'button' : undefined}
+              onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
+              className={cn(
+                'flex-1 flex flex-col items-center',
+                i > 0 && 'border-l border-line',
+                clickable && 'active:opacity-60 transition-opacity',
+              )}
+            >
+              <span className="font-serif text-[20px] font-bold leading-none text-on-surface tabular-nums">{it.n}</span>
+              <span className="text-[8.5px] font-bold tracking-[0.1em] uppercase text-ink-4 mt-1.5">{it.l}</span>
+            </Tag>
+          );
+        })}
       </div>
 
       {canView ? (
         <>
-          {/* tabs */}
+          {/* tabs — `-mb-px` lives on the scroller (not the buttons) so the
+              scroller has zero vertical overflow; a stray 1px of scrollable
+              overflow lets iOS drag/rubber-band the whole bar diagonally. */}
           <div className="mt-6 border-b border-line">
-            <div className="flex gap-1 overflow-x-auto scrollbar-hide px-6">
+            <div className="flex gap-1 overflow-x-auto overflow-y-hidden overscroll-x-none scrollbar-hide px-6 -mb-px">
               {tabs.map((t) => {
                 const active = viewTab === t.key;
                 return (
@@ -1285,7 +1309,7 @@ export const UserProfile: React.FC = () => {
                     type="button"
                     onClick={() => setViewTab(t.key)}
                     className={cn(
-                      'inline-flex items-center gap-1.5 px-1.5 pb-3 -mb-px border-b-2 whitespace-nowrap flex-none',
+                      'inline-flex items-center gap-1.5 px-1.5 pb-3 border-b-2 whitespace-nowrap flex-none',
                       active ? 'border-primary' : 'border-transparent',
                     )}
                   >
@@ -1430,11 +1454,13 @@ export const UserProfile: React.FC = () => {
             </div>
           )}
 
-          {/* floating map button — restaurants tab only (it maps ratings) */}
+          {/* floating map button — restaurants tab only (it maps ratings).
+              Bottom-left: the global AI assistant FAB owns the bottom-right
+              corner on this page. */}
           {userRatings.length > 0 && viewTab === 'restaurants' && (
             <button
               onClick={() => setShowMapPage(true)}
-              className="fixed bottom-24 right-5 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform z-30"
+              className="fixed bottom-24 left-5 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform z-30"
               aria-label="Map view"
             >
               <MapIcon size={22} />

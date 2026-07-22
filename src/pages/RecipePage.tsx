@@ -8,11 +8,11 @@
  * fetch (recipe_reviews vs home_meal_reviews) and the owner-edit affordance.
  *
  * Layout: editorial split hero (text + image) on top, stats strip, action
- * row with primary "Start cooking" + secondary buttons + tag pills, an
- * intro prose with drop cap, then a two-column body (sticky ingredients
- * card next to numbered directions). Below: Notes from the kitchen,
- * Nutrition, About the chef, Reviews with rating breakdown, You might
- * also like. Plus a Cook mode dark overlay and a Write-a-review modal.
+ * row with primary "Start cooking" + secondary buttons + tag pills, then a
+ * two-column body (sticky ingredients card next to numbered directions).
+ * Below: Notes from the kitchen, Nutrition, About the chef, Reviews with
+ * rating breakdown, You might also like. Plus a Cook mode dark overlay and
+ * a Write-a-review modal.
  *
  * All styling lives in RecipePage.css under .recipe-detail-page so the
  * editorial tokens don't leak into other routes.
@@ -1492,13 +1492,6 @@ export const RecipePage: React.FC = () => {
         )}
       </section>
 
-      {/* ── Intro prose with drop cap ─────────────────────────────── */}
-      {data.intro.length > 0 && (
-        <section className="rd-intro">
-          {data.intro.map((p, i) => <p key={i}>{p}</p>)}
-        </section>
-      )}
-
       {/* ── Body: ingredients sidebar + directions ────────────────── */}
       <div className="rd-body">
         <aside className="rd-ingredients">
@@ -2434,7 +2427,7 @@ const ReviewCard: React.FC<{
    data hooks aren't duplicated between layouts. Keeps a sticky header
    with a Back + heart + share, a 4:3 hero image, a title block with
    eyebrow/title/byline/rating/author/3×2 stats/3 action buttons, then
-   tags, an intro with drop cap, an ingredients section, a directions
+   tags, an ingredients section, a directions
    section, notes, nutrition (hidden), author bio, reviews, and a
    horizontal "you might also like" rail. A black FAB pinned to the
    bottom-right launches Cook mode.
@@ -2669,13 +2662,6 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         <div className="rdm-tags">
           {data.tags.map((t) => <span key={t} className="rdm-tag">{t}</span>)}
         </div>
-      )}
-
-      {/* Intro */}
-      {data.intro.length > 0 && (
-        <section className="rdm-intro">
-          {data.intro.map((p, i) => <p key={i}>{p}</p>)}
-        </section>
       )}
 
       {/* Ingredients */}
