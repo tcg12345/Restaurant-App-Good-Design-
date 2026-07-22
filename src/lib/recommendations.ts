@@ -1,5 +1,5 @@
 import type { PlaceResult } from './places';
-import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace } from './places';
+import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace } from './places';
 import type { CommunityRating } from './supabase-community';
 import {
   getExpertRatings,
@@ -152,6 +152,17 @@ export const DEFAULT_WEIGHTS = {
   distance: 1.2,           // max penalty for landing well past the radius edge
   negativeMult: 1.5,       // disliked cuisines/pairs push down harder than likes lift
 } as const;
+
+/**
+ * Whether a Google-sourced place belongs in a RECOMMENDATION pool at all:
+ * it must be a food place and must NOT be lodging. Hotels (Airelles, Cheval
+ * Blanc, …) rank high on "fine dining <city>" text queries and often carry
+ * their restaurants' cuisine types on the property POI itself — recommending
+ * the hotel instead of its restaurant is always wrong. Exported for tests.
+ */
+export function recPoolEligible(p: { types: string[] }): boolean {
+  return isFoodPlace(p.types) && !isLodgingPlace(p.types);
+}
 
 /** "Korean, Contemporary" / "Sushi / Japanese" → ["Korean","Contemporary"] … */
 function splitCuisines(raw: string): string[] {
@@ -771,15 +782,18 @@ export function scoreCandidates(
     if (isMichelinSyntheticId(c.id) && profile.ratedNames?.has(normalizeName(c.name))) continue;
     // Hard price band (rec surfaces only): with real history behind the
     // distribution, tiers the user demonstrably never spends in aren't
-    // demoted — they're not recommended at all.
+    // demoted — they're not recommended at all. Thresholds: a tier below
+    // 8% of the positive spend mass AND a full tier (or more) from the
+    // spending center is out. (The old `> 1` distance let $$ through for
+    // every $$$-centered profile — center 3.0 put $$ exactly 1.0 away.)
     if (
       enforcePriceBand &&
       dist &&
       dist.n >= 8 &&
       c.priceLevel >= 1 &&
       c.priceLevel <= 4 &&
-      dist.share[c.priceLevel - 1] < 0.05 &&
-      Math.abs(c.priceLevel - dist.center) > 1 &&
+      dist.share[c.priceLevel - 1] < 0.08 &&
+      Math.abs(c.priceLevel - dist.center) >= 1 &&
       !profile.wishlistedIds.has(c.id)
     ) continue;
 
@@ -802,7 +816,16 @@ export function scoreCandidates(
 
     // ── Taste match ──
     if (ramp > 0) {
-      const cA = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax);
+      // Loving a cuisine at $$$$ says little about its $ spots: positive
+      // cuisine affinity is dampened for candidates priced well outside the
+      // user's spend band, in proportion to how concentrated that band is.
+      // (The pair term needs no scaling — its key is already cuisine|price.)
+      const tierGap = dist && price >= 1 && price <= 4
+        ? Math.max(0, Math.abs(price - dist.center) - 0.75)
+        : 0;
+      const crossPriceScale = 1 - clamp(tierGap * conc * 0.8, 0, 0.65);
+      const cARaw = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax);
+      const cA = cARaw > 0 ? cARaw * crossPriceScale : cARaw;
       const cTerm = W.cuisine * (cA < 0 ? cA * W.negativeMult : cA) * ramp;
       personalFit += cTerm;
       if (cA >= 0.35 && cuisine) reasons.push({ w: cTerm, label: `Top cuisine: ${cuisine}` });
@@ -1173,14 +1196,19 @@ export async function gatherRecCandidates(
   }
 
   // Candidate pool: Google results win on id conflicts (richer metadata),
-  // then cached places, then pseudo-places from community rows.
+  // then cached places, then pseudo-places from community rows. Both
+  // Google-sourced feeds pass the eligibility gate — hotels and other
+  // non-food POIs must never enter the pool (this also scrubs hotels out
+  // of pools cached before the gate existed).
   const byId = new Map<string, RecCandidate>();
   for (const batch of googleBatches) {
     for (const p of batch) {
+      if (!recPoolEligible(p)) continue;
       if (!byId.has(p.id)) byId.set(p.id, p);
     }
   }
   for (const p of mergeCached) {
+    if (!recPoolEligible(p)) continue;
     if (!byId.has(p.id)) byId.set(p.id, p);
   }
   // Community pseudo-places carry their rating's cuisine as a Google type so
@@ -1228,25 +1256,45 @@ export async function gatherRecCandidates(
   }
 
   // ── Michelin attach + nearby merge ──
-  // 1) Stamp star/price info onto Google candidates that match the Guide.
+  // 1) Stamp star/price info onto Google candidates that match the Guide,
+  //    recording WHICH Guide entry each one claimed (by guide URL).
   // 2) Add nearby Guide entries the queries missed as candidates of their
-  //    own (synthetic ids resolve to real places on the detail page).
+  //    own (synthetic ids resolve to real places on the detail page) —
+  //    but never one already claimed by a Google candidate, and never one
+  //    whose name is a variant of a nearby candidate's. The old check
+  //    required an EXACT name match within 0.12 mi, so "La Vague d'Or"
+  //    (Google) and "La Vague d'Or - Cheval Blanc St-Tropez" (Guide)
+  //    ranked as two different restaurants with two different scores.
+  const claimedGuideUrls = new Set<string>();
   for (const c of byId.values()) {
-    if (c.michelin || isMichelinSyntheticId(c.id)) continue;
+    if (isMichelinSyntheticId(c.id)) continue;
     const info = findMichelinMatchSync(c.name, c.lat, c.lng, c.fullAddress || c.address);
     if (!info) continue;
-    c.michelin = toMichelinBadge(info);
-    if (c.priceLevel < 1 && info.priceTier >= 1) c.priceLevel = info.priceTier;
+    if (info.guideUrl) claimedGuideUrls.add(info.guideUrl);
+    if (!c.michelin) {
+      c.michelin = toMichelinBadge(info);
+      if (c.priceLevel < 1 && info.priceTier >= 1) c.priceLevel = info.priceTier;
+    }
   }
   const radiusMi = opts.radiusMeters / 1609.34;
   const existing = Array.from(byId.values());
   let added = 0;
   for (const m of michelinNearbySync(opts.target.lat, opts.target.lng, Math.min(radiusMi, 31))) {
     if (added >= 30) break;
-    const mName = m.name.toLowerCase();
-    const dup = existing.some(
-      (p) => p.name.toLowerCase() === mName && haversineDistanceMi(p.lat, p.lng, m.lat, m.lng) < 0.12,
-    );
+    if (m.guideUrl && claimedGuideUrls.has(m.guideUrl)) continue;
+    // Fuzzy name dedupe for entries the matcher didn't claim: normalized
+    // equality OR containment either way ("Colette" ⊂ "Restaurant Colette
+    // by Sezz St. Tropez"), within 0.4 mi — Guide coordinates for rooms
+    // inside hotels routinely sit a few hundred meters off Google's.
+    const mNorm = normalizeName(m.name);
+    const dup = existing.some((p) => {
+      if (haversineDistanceMi(p.lat, p.lng, m.lat, m.lng) >= 0.4) return false;
+      const pNorm = normalizeName(p.name);
+      if (pNorm === mNorm) return true;
+      const shorter = pNorm.length <= mNorm.length ? pNorm : mNorm;
+      const longer = pNorm.length <= mNorm.length ? mNorm : pNorm;
+      return shorter.length >= 5 && longer.includes(shorter);
+    });
     if (dup) continue;
     const place = michelinToPlaceResult(m) as RecCandidate;
     if (byId.has(place.id)) continue;

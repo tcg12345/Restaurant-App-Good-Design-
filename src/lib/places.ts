@@ -516,6 +516,22 @@ const FOOD_TYPES = new Set([
   'vietnamese_restaurant', 'ice_cream_shop', 'juice_shop', 'sandwich_shop',
 ]);
 
+// Lodging place types. Palace hotels rank high on "fine dining <city>" /
+// "best French restaurants" text queries, and Google often stamps the
+// property POI with its restaurants' cuisine types — so a food-type check
+// alone lets hotels through. The rec pool excludes anything carrying one
+// of these regardless of food types (the hotels' actual RESTAURANTS are
+// separate places with their own ids and no lodging type).
+const LODGING_TYPES = new Set([
+  'hotel', 'lodging', 'resort_hotel', 'motel', 'bed_and_breakfast',
+  'extended_stay_hotel', 'budget_japanese_inn', 'japanese_inn', 'hostel',
+  'guest_house', 'campground', 'camping_cabin', 'cottage', 'farmstay',
+  'private_guest_room', 'rv_park',
+]);
+export function isLodgingPlace(types: string[]): boolean {
+  return types.some((t) => LODGING_TYPES.has(t));
+}
+
 // Exported for the recommendation engine's price-restricted query path — the
 // paged text search has no server-side food-type filter, so it applies this
 // one client-side.
