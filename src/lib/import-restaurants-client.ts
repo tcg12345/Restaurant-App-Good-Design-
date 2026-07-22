@@ -32,6 +32,77 @@ export interface ImportRestaurantsResult {
   error?: string;
 }
 
+/* ── Screenshot preparation ────────────────────────────────────────────
+   The vision API downscales anything over ~1.15 megapixels, and a whole
+   phone screenshot squeezed under that ceiling leaves list rows (and the
+   small decimal score circles especially) only a dozen pixels tall —
+   which is how digits get misread and rows get skipped. So instead of
+   sending one shrunken image per screenshot, slice each tall screenshot
+   into overlapping tiles that each sit UNDER the downscale threshold:
+   every row reaches the model at full legibility. The overlap plus the
+   extractor's dedupe (below + server prompt) keeps boundary rows from
+   importing twice. */
+
+const TILE_TARGET_WIDTH = 1000;  // px — plenty for Beli's row text
+const TILE_HEIGHT = 1100;        // 1000×1100 ≈ 1.1MP — under the API's resize cap
+const TILE_OVERLAP = 140;        // a row cut at a tile edge is whole in the neighbor
+const MAX_TILES_PER_SHOT = 4;
+
+/**
+ * Load a screenshot file and return 1–4 JPEG data-URL tiles covering it
+ * top to bottom. Short images come back as a single tile.
+ */
+export function prepareScreenshotTiles(file: File): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        const scale = Math.min(1, TILE_TARGET_WIDTH / img.width);
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const full = document.createElement('canvas');
+        full.width = w;
+        full.height = h;
+        const fctx = full.getContext('2d');
+        if (!fctx) { reject(new Error('Canvas unavailable')); return; }
+        fctx.drawImage(img, 0, 0, w, h);
+
+        const sliceAt = (top: number, height: number): string => {
+          const c = document.createElement('canvas');
+          c.width = w;
+          c.height = height;
+          c.getContext('2d')?.drawImage(full, 0, top, w, height, 0, 0, w, height);
+          return c.toDataURL('image/jpeg', 0.85);
+        };
+
+        if (h <= TILE_HEIGHT + TILE_OVERLAP) {
+          resolve([sliceAt(0, h)]);
+          return;
+        }
+        // Evenly-spaced tiles covering the full height. For any normal
+        // phone screenshot the step keeps ≥ TILE_OVERLAP of overlap; only
+        // a pathologically tall capture (> ~4 screens stitched) would
+        // spread thinner.
+        const count = Math.min(
+          MAX_TILES_PER_SHOT,
+          Math.max(2, Math.ceil((h - TILE_OVERLAP) / (TILE_HEIGHT - TILE_OVERLAP))),
+        );
+        const step = (h - TILE_HEIGHT) / (count - 1);
+        const tiles: string[] = [];
+        for (let i = 0; i < count; i++) {
+          tiles.push(sliceAt(Math.round(i * step), TILE_HEIGHT));
+        }
+        resolve(tiles);
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Normalized identity for a row — dedupe key across screenshots. */
 const rowKey = (name: string, city?: string) =>
   `${name.toLowerCase().replace(/\s+/g, ' ').trim()}::${(city || '').toLowerCase().replace(/\s+/g, ' ').trim()}`;

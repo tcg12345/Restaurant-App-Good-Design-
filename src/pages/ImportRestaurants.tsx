@@ -7,8 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
-import { extractRestaurantsFromScreenshots } from '../lib/import-restaurants-client';
-import { compressImportPhoto } from '../lib/import-recipe-client';
+import { extractRestaurantsFromScreenshots, prepareScreenshotTiles } from '../lib/import-restaurants-client';
 
 interface ParsedRestaurant {
   name: string;
@@ -24,7 +23,9 @@ interface ParsedRestaurant {
 
 interface ImportResult {
   restaurant: ParsedRestaurant;
-  status: 'pending' | 'searching' | 'found' | 'not_found' | 'skipped' | 'no_data' | 'error';
+  /** 'updated' — the place was already rated with a DIFFERENT score, so the
+   *  import corrected the score in place (a re-run heals earlier drift). */
+  status: 'pending' | 'searching' | 'found' | 'updated' | 'not_found' | 'skipped' | 'no_data' | 'error';
   placeResult?: PlaceResult;
   error?: string;
 }
@@ -208,10 +209,13 @@ export const ImportRestaurants: React.FC = () => {
     setIsDone(false);
     setAiReading(true);
     try {
-      const images: string[] = [];
-      for (const f of files) images.push(await compressImportPhoto(f));
-      setShotPreviews(images);
-      const result = await extractRestaurantsFromScreenshots(images);
+      // Each screenshot becomes 1–4 overlapping high-resolution tiles so
+      // small row text (Beli's decimal score circles especially) stays
+      // legible to the vision model; the extractor dedupes the overlap.
+      const tilesPerShot: string[][] = [];
+      for (const f of files) tilesPerShot.push(await prepareScreenshotTiles(f));
+      setShotPreviews(tilesPerShot.map((t) => t[0]));
+      const result = await extractRestaurantsFromScreenshots(tilesPerShot.flat());
       if (!result.ok || !result.restaurants) {
         setParseError(result.error || "Couldn't read those screenshots. Try again with clearer images.");
         return;
@@ -304,7 +308,7 @@ export const ImportRestaurants: React.FC = () => {
 
   const stats = {
     total: importResults.length,
-    found: importResults.filter((r) => r.status === 'found').length,
+    found: importResults.filter((r) => r.status === 'found' || r.status === 'updated').length,
     notFound: importResults.filter((r) => r.status === 'not_found').length,
     skipped: importResults.filter((r) => r.status === 'skipped').length,
     noData: importResults.filter((r) => r.status === 'no_data').length,
@@ -315,6 +319,10 @@ export const ImportRestaurants: React.FC = () => {
   const runImport = async () => {
     setIsRunning(true);
     abortRef.current = false;
+    // Current rating per place id — lets a re-run CORRECT a score that
+    // drifted (or was mistyped) instead of skipping it, while preserving
+    // the rating's notes, photos, lists and visit history.
+    const ratingByPlaceId = new Map<string, RestaurantRating>(ratings.map((r) => [r.restaurantId, r]));
     const home = loadLastSelectedLocation();
     const homeBias = home && Number.isFinite(home.lat) && Number.isFinite(home.lng)
       ? { lat: home.lat, lng: home.lng }
@@ -343,7 +351,21 @@ export const ImportRestaurants: React.FC = () => {
         // imports (that's an upgrade, not a duplicate).
         const isDuplicate = existingIds.has(place.id)
           || (restaurant.isWishlist && existingWishlistIds.has(place.id));
-        if (isDuplicate) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; }); continue; }
+        if (isDuplicate) {
+          // Same place, different score → correct the score in place (keep
+          // the rating's notes / photos / lists / history). This is what
+          // lets re-running an import fix earlier drift or misreads.
+          const existing = ratingByPlaceId.get(place.id);
+          const importedScore = restaurant.rating !== null ? clampScore(restaurant.rating) : null;
+          if (!restaurant.isWishlist && importedScore !== null && existing && existing.score !== importedScore) {
+            rateRestaurant({ ...existing, score: importedScore }, { skipSettle: true });
+            ratingByPlaceId.set(place.id, { ...existing, score: importedScore });
+            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'updated', placeResult: place }; return next; });
+          } else {
+            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; });
+          }
+          continue;
+        }
 
         const price = priceLevelToString(restaurant.priceRange || place.priceLevel);
         const meta: RestaurantMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: restaurant.cuisine, price, address: place.address || restaurant.address };
@@ -363,7 +385,11 @@ export const ImportRestaurants: React.FC = () => {
             score: clampScore(restaurant.rating), notes: restaurant.notes, visitDate: restaurant.dateVisited || '',
             wouldReturn: true, tags: [], photos: [], listIds: [],
             createdAt: Date.now() - (importResults.length - i),
-          });
+            // Imported scores are transcriptions of ratings the user already
+            // made elsewhere — they must land EXACTLY as shown. The settle
+            // engine (which nudges tier-mates on every save) reshuffled the
+            // whole batch during bulk imports.
+          }, { skipSettle: true });
         }
         existingIds.add(place.id);
 
@@ -581,7 +607,7 @@ export const ImportRestaurants: React.FC = () => {
                   <div className="flex-shrink-0 w-6 grid place-items-center">
                     {item.status === 'pending' && <span className="w-2 h-2 rounded-full bg-on-surface/15" />}
                     {item.status === 'searching' && <Loader2 size={18} className="text-primary animate-spin" />}
-                    {item.status === 'found' && <CheckCircle size={19} className="text-emerald-500" />}
+                    {(item.status === 'found' || item.status === 'updated') && <CheckCircle size={19} className="text-emerald-500" />}
                     {item.status === 'skipped' && <AlertTriangle size={18} className="text-amber-500" />}
                     {item.status === 'no_data' && <AlertTriangle size={18} className="text-on-surface/25" />}
                     {(item.status === 'not_found' || item.status === 'error') && <XCircle size={19} className="text-red-400" />}
@@ -595,6 +621,9 @@ export const ImportRestaurants: React.FC = () => {
                       <div className="text-[12px] font-medium text-on-surface/55 truncate mt-0.5">
                         {[item.restaurant.city, item.restaurant.cuisine].filter(Boolean).join(' · ')}
                       </div>
+                    )}
+                    {item.status === 'updated' && item.restaurant.rating !== null && (
+                      <div className="text-[11.5px] font-semibold text-emerald-600 mt-0.5">Score corrected to {clampScore(item.restaurant.rating).toFixed(1)}</div>
                     )}
                     {item.status === 'skipped' && <div className="text-[11.5px] font-semibold text-amber-600 mt-0.5">Already in your ratings</div>}
                     {item.status === 'no_data' && <div className="text-[11.5px] font-medium text-on-surface/40 mt-0.5">No score or wishlist flag — nothing to import</div>}

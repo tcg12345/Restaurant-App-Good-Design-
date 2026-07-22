@@ -133,18 +133,23 @@ async function readJsonBody<T>(req: Request): Promise<{ body: T } | { response: 
 // Extraction is transcription, not authoring — Sonnet is accurate at it,
 // vision-capable, and much faster than Opus.
 const MODEL = 'claude-sonnet-5';
-const MAX_TOKENS = 8000;
+// Generous output budget: 6 screenshots of a dense list can carry 100+
+// rows, and truncation here silently DROPS restaurants.
+const MAX_TOKENS = 16000;
 
-const MAX_IMAGES = 6;
+// The client slices each screenshot into up to 4 overlapping tiles (so
+// small score digits survive the vision pipeline's downscaling) and sends
+// at most 6 screenshots per batch → 24 images.
+const MAX_IMAGES = 24;
 const MAX_IMAGE_B64_CHARS = 6_500_000; // ≈ 4.8MB binary per image
 
 const SYSTEM_PROMPT = [
   'You are a meticulous transcriber of restaurant-list screenshots. You are given phone screenshots of a list the user keeps in another app — most often Beli (ranked "Been" lists with one-decimal scores, or bookmarked "Want to Try" lists), but also Google Maps saved lists, notes apps, or spreadsheets. Extract every restaurant entry you can actually read and return them all by calling the `extract_restaurants` tool exactly once. You never chat or add commentary.',
   '',
   'Fidelity rules — this is transcription, not authoring:',
-  '- One row per restaurant VISIBLE in the screenshots, in the order shown. Do NOT invent entries, and do not drop partially-visible rows if their name is readable.',
-  '- Consecutive screenshots are usually scrolls of the SAME list and overlap: emit each restaurant once (same name + same location = one entry; keep the copy with more information).',
-  "- score: the USER'S own score for that restaurant exactly as displayed (Beli shows a decimal 0–10 in a colored circle on the right of each row). When a row shows several numbers, the user's score is the prominent one; ignore friend scores, match percentages, rank numbers (#1, #2…), review counts, and distances. Omit score entirely when the row doesn't show one.",
+  '- COMPLETENESS IS CRITICAL: one entry per restaurant visible anywhere in the images, in the order shown. Do NOT invent entries, and do NOT skip any row — including rows partially cut off at the top or bottom edge of an image, as long as their name is readable. Before calling the tool, re-scan every image top to bottom and confirm every visible row made it into your output.',
+  '- The images overlap on purpose: they are scrolls of the SAME list and/or overlapping crops (tiles) of one screenshot. Emit each restaurant exactly once (same name + same location = one entry; keep the copy with more information).',
+  "- score: the USER'S own score exactly as printed, digit for digit — 9.3 is 9.3, never rounded, estimated, or adjusted (Beli shows a decimal 0–10 in a colored circle on the right of each row). When a row shows several numbers, the user's score is the prominent one; ignore friend scores, match percentages, rank numbers (#1, #2…), review counts, and distances. If a score is cut off or too blurry to read with certainty, OMIT score for that row — never guess.",
   "- wishlist: true when the screenshot is clearly a want-to-try / bookmarked / saved list (e.g. Beli's Want to Try tab, a bookmark icon per row, no scores anywhere). Rated lists get wishlist: false.",
   '- city: the city / neighborhood text shown for that row (e.g. "New York, NY", "SoHo"). If the rows have no per-row location but the list header names a city, use that for every row. Omit when nothing is shown — never guess from the restaurant name.',
   '- cuisine: only when the row shows one (e.g. "Italian · $$$$"). Do not infer it.',
@@ -257,7 +262,7 @@ async function handler(req: Request): Promise<Response> {
     })),
     {
       type: 'text',
-      text: `These ${images.length > 1 ? `${images.length} screenshots show` : 'screenshot shows'} a restaurant list from another app${images.length > 1 ? ' (they may be scrolls of the same list and overlap)' : ''}. Transcribe every readable restaurant entry with extract_restaurants. If there is no readable restaurant list, call decline_change.`,
+      text: `These ${images.length > 1 ? `${images.length} images show` : 'image shows'} a restaurant list from another app${images.length > 1 ? ' (they are overlapping crops and/or scrolls of the same list — the same row may appear in several images)' : ''}. Transcribe EVERY readable restaurant entry, exactly once each, with extract_restaurants — re-scan each image before finishing to make sure no row was missed, and copy scores digit for digit. If there is no readable restaurant list, call decline_change.`,
     },
   ];
 

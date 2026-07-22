@@ -27,13 +27,16 @@ export interface RatingSaveResult {
 export function applyRatingSave(
   prev: RestaurantRating[],
   rating: RestaurantRating,
-  opts: { now: number; settleOrder?: string[] },
+  opts: { now: number; settleOrder?: string[]; skipSettle?: boolean },
 ): RatingSaveResult {
   const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
   // Beli-style settle: a score-changing save may shift tier-mates so the
   // ranked order gets breathing room (crowding fix). Note-only edits keep
-  // the score identical and must NOT settle (drift guard).
-  const scoreChanged = !existing || existing.score !== rating.score;
+  // the score identical and must NOT settle (drift guard). Bulk imports
+  // pass skipSettle: the scores are transcriptions of what the user
+  // already rated elsewhere and must land digit-for-digit — settling on
+  // every insert reshuffled the whole batch (and pre-existing ratings).
+  const scoreChanged = !opts.skipSettle && (!existing || existing.score !== rating.score);
   // Stamp updatedAt now so this save wins the multi-device merge over any
   // stale copy of the same rating on another device.
   const stampedRating: RestaurantRating = { ...rating, updatedAt: opts.now };

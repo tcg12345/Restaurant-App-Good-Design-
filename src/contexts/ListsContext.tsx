@@ -364,7 +364,7 @@ interface ListsContextValue {
    *  of a head-to-head — it carries the search's exact placement through the
    *  settle pass, so a score collision with a bracketing neighbor can't
    *  invert the order the user just decided. */
-  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[] }) => void;
+  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   /** Apply a batch of settle-engine score changes in one persist/sync pass
    *  (the Reorder page's save). Each changed row is republished to the
@@ -2258,7 +2258,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     stampPublishedSig(row);
   }, []);
 
-  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[] }) => {
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
     // record needs to be pushed into visit history. When it's false
@@ -2279,7 +2279,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const { next, existing: existingForArchive, settledSelf, otherChanged } = applyRatingSave(
       prevRatings,
       rating,
-      { now: Date.now(), settleOrder: options?.settleOrder },
+      { now: Date.now(), settleOrder: options?.settleOrder, skipSettle: options?.skipSettle },
     );
     const wasRated = existingForArchive !== undefined;
     // Only archive the existing rating when this is genuinely a new visit.
