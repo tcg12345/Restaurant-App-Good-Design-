@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
-  Plus, Search, Star, X,
+  ArrowLeft, ArrowUpDown, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
+  Plus, Search, SlidersHorizontal, Star, X,
 } from 'lucide-react';
+import { FilterSheet } from './FilterSheet';
+import { FilterSection, Pill, PillRow, Segment, SegmentItem } from './filterPrimitives';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -193,6 +195,20 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [openNowOnly, setOpenNowOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('match');
   const [openFilter, setOpenFilter] = useState<'cuisine' | 'price' | 'michelin' | null>(null);
+  // Mobile chrome: all filters live in the shared bottom sheet; sort is a
+  // small anchored menu on the in-scroll control row.
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  // Scroll-linked header collapse (mobile). The large serif hero scrolls
+  // away with the list while the slim chrome bar frosts in and a compact
+  // title fades into it — motion values only, so no re-renders per frame.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollY: mobileScrollY } = useScroll({ container: scrollRef });
+  const barBgOpacity = useTransform(mobileScrollY, [8, 64], [0, 1]);
+  const collapsedTitleOpacity = useTransform(mobileScrollY, [44, 92], [0, 1]);
+  const collapsedTitleY = useTransform(mobileScrollY, [44, 92], [8, 0]);
+  const heroOpacity = useTransform(mobileScrollY, [0, 110], [1, 0.1]);
 
   // Sync to the app-wide saved location every open (it may have changed on
   // Discover / the location page since the last one), and reset the view
@@ -746,8 +762,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   };
 
   /* ── Body ── */
-  const body = (
-    <div className="flex-1 overflow-y-auto overscroll-contain pb-safe-5">
+  const listContent = (
+    <>
       {!target ? (
         <div className="flex flex-col items-center px-6 py-16 text-center">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-on-surface/[0.05] text-on-surface/40">
@@ -820,6 +836,12 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           {visible.map((entry) => rankedRow(entry, rankById.get(entry.place.id) ?? 0))}
         </div>
       )}
+    </>
+  );
+
+  const body = (
+    <div className="flex-1 overflow-y-auto overscroll-contain pb-safe-5">
+      {listContent}
     </div>
   );
 
@@ -841,25 +863,201 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     />
   );
 
-  /* Mobile header — back arrow + title. Shared by the slide-up popup and
-     the /pantry/recommended route page. */
-  const mobileHeader = (
-    <div className="flex flex-shrink-0 items-center gap-1 pb-1 pl-2 pr-4 pt-safe-4">
-      <button
-        type="button"
-        onClick={onClose}
-        className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full text-on-surface/70 transition-colors hover:bg-on-surface/[0.05]"
-        aria-label="Back"
-      >
-        <ArrowLeft size={22} />
-      </button>
-      <div className="min-w-0 flex-1">
-        <h3 className="truncate font-serif text-[19px] font-semibold tracking-[-0.015em] text-on-surface">
-          Recommended for you
-        </h3>
-        <p className="truncate text-[11.5px] font-medium text-on-surface/45">{subtitle}</p>
+  /* ── Mobile chrome (shared by the slide-up popup and the route page) ──
+     A slim overlay bar that starts transparent over the large serif hero
+     and frosts in as the list scrolls, with a compact title fading into
+     the center — iOS large-title behavior. All filters live in the shared
+     bottom FilterSheet behind the sliders button; the in-scroll control
+     row carries only location + sort. */
+  const mobileFilterCount =
+    cuisineSel.size + priceSel.size + michSel.size + (openNowOnly ? 1 : 0) + (radiusMiles !== 8 ? 1 : 0);
+
+  const mobileChrome = (
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-30">
+      <motion.div
+        style={{ opacity: barBgOpacity }}
+        className="absolute inset-0 border-b border-on-surface/[0.06] bg-surface/85 backdrop-blur-xl"
+      />
+      <div className="pointer-events-auto relative flex items-center gap-1 pb-1.5 pl-2 pr-2 pt-safe-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-on-surface transition-colors active:bg-on-surface/[0.07]"
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <motion.div
+          style={{ opacity: collapsedTitleOpacity, y: collapsedTitleY }}
+          className="pointer-events-none min-w-0 flex-1 text-center"
+          aria-hidden
+        >
+          <p className="truncate font-serif text-[15px] font-bold leading-tight text-on-surface">For you</p>
+          {city && <p className="truncate text-[10.5px] font-semibold leading-tight text-on-surface/45">{city}</p>}
+        </motion.div>
+        <button
+          type="button"
+          onClick={() => setFilterSheetOpen(true)}
+          className="relative grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-on-surface transition-colors active:bg-on-surface/[0.07]"
+          aria-label="Filters"
+        >
+          <SlidersHorizontal size={17} />
+          {mobileFilterCount > 0 && (
+            <span className="absolute right-0 top-0 grid h-4 min-w-[16px] place-items-center rounded-full bg-primary px-1 text-[9.5px] font-bold text-white">
+              {mobileFilterCount}
+            </span>
+          )}
+        </button>
       </div>
     </div>
+  );
+
+  const sortLabel = SORTS.find((s) => s.key === sortBy)?.label ?? 'Best match';
+  const mobileControlRow = (
+    <div className="flex items-center gap-2 px-4 pb-3.5">
+      <button
+        type="button"
+        onClick={() => setPickerOpen(true)}
+        className="inline-flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-full border border-on-surface/[0.08] bg-on-surface/[0.045] px-3 text-left transition-colors active:bg-on-surface/[0.08]"
+        aria-label="Change location"
+      >
+        <MapPin size={13} className="flex-shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-on-surface">
+          {target ? target.label.split(',').slice(0, 2).join(',') : 'Choose a location'}
+        </span>
+        <ChevronDown size={13} className="flex-shrink-0 text-on-surface/40" />
+      </button>
+      <div className="relative flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => setSortMenuOpen((v) => !v)}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-on-surface/[0.08] bg-on-surface/[0.045] px-3 text-[13px] font-semibold text-on-surface transition-colors active:bg-on-surface/[0.08] whitespace-nowrap"
+          aria-label="Sort"
+        >
+          <ArrowUpDown size={12.5} className="text-on-surface/45" />
+          {sortLabel}
+          <ChevronDown size={13} className={cn('text-on-surface/40 transition-transform', sortMenuOpen && 'rotate-180')} />
+        </button>
+        {sortMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setSortMenuOpen(false)} />
+            <div className="absolute right-0 top-full z-20 mt-1.5 w-40 overflow-hidden rounded-2xl border border-on-surface/[0.08] bg-white py-1 shadow-xl">
+              {SORTS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => { setSortBy(key); setSortMenuOpen(false); }}
+                  className={cn(
+                    'flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-on-surface/[0.04]',
+                    key === sortBy ? 'text-primary' : 'text-on-surface/75',
+                  )}
+                >
+                  {label}
+                  {key === sortBy && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const mobileScroll = (
+    <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain pb-safe-5">
+      {/* Hero — scrolls away under the chrome bar */}
+      <motion.div
+        style={{ opacity: heroOpacity, paddingTop: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.25rem)' }}
+        className="px-5 pb-3"
+      >
+        <h1 className="font-serif text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-on-surface">
+          Recommended for you
+        </h1>
+        <p className="mt-1 text-[13px] font-medium text-on-surface/50">{subtitle}</p>
+      </motion.div>
+      {mobileControlRow}
+      <div className="border-t border-on-surface/[0.05]" />
+      {listContent}
+    </div>
+  );
+
+  /* All mobile filters in the app's shared bottom sheet — same chrome as
+     Discover / the public profile / the Recipe Box. */
+  const sheetCuisines = cuisineOptions.filter(([label, count]) => count > 0 || cuisineSel.has(label)).slice(0, 24);
+  const mobileFilterSheet = (
+    <FilterSheet
+      open={filterSheetOpen}
+      onClose={() => setFilterSheetOpen(false)}
+      title="Filters"
+      subtitle={`${visible.length} of ${enriched.length} spot${enriched.length === 1 ? '' : 's'} shown`}
+      onReset={() => {
+        setCuisineSel(new Set());
+        setPriceSel(new Set());
+        setMichSel(new Set());
+        setOpenNowOnly(false);
+        setRadiusMiles(8);
+      }}
+    >
+      <FilterSection label="Distance" value={`${radiusMiles} mi`} isSet={radiusMiles !== 8}>
+        <Segment>
+          {RADIUS_OPTIONS.map((r) => (
+            <SegmentItem key={r} active={r === radiusMiles} onClick={() => setRadiusMiles(r)}>
+              {r} mi
+            </SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
+
+      <FilterSection label="Hours">
+        <Segment>
+          <SegmentItem active={!openNowOnly} onClick={() => setOpenNowOnly(false)}>Any time</SegmentItem>
+          <SegmentItem active={openNowOnly} onClick={() => setOpenNowOnly(true)}>Open now</SegmentItem>
+        </Segment>
+      </FilterSection>
+
+      <FilterSection label="Price">
+        <PillRow>
+          {PRICE_TIERS.map((tier) => (
+            <Pill key={tier} active={priceSel.has(tier)} onClick={() => togglePrice(tier)}>
+              {'$'.repeat(tier)}
+            </Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
+
+      {sheetCuisines.length > 0 && (
+        <FilterSection label="Cuisine">
+          <PillRow>
+            {sheetCuisines.map(([label]) => (
+              <Pill sm key={label} active={cuisineSel.has(label)} onClick={() => toggleCuisine(label)}>
+                {label}
+              </Pill>
+            ))}
+          </PillRow>
+        </FilterSection>
+      )}
+
+      {anyMichelin && (
+        <FilterSection label="Michelin">
+          <PillRow>
+            {MICH_FILTERS.filter(({ key }) => michelinCounts[key] > 0).map(({ key, label }) => (
+              <Pill sm key={key} active={michSel.has(key)} onClick={() => toggleMich(key)}>
+                {label}
+              </Pill>
+            ))}
+          </PillRow>
+        </FilterSection>
+      )}
+    </FilterSheet>
+  );
+
+  const mobileLayout = (
+    <>
+      {mobileChrome}
+      {mobileScroll}
+      {picker}
+      {mobileFilterSheet}
+    </>
   );
 
   /* Page mode — a normal route-owned layout (no portal, no overlay): the
@@ -868,11 +1066,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   if (isPage) {
     if (!open) return null;
     return (
-      <div className="flex h-[100dvh] flex-col bg-surface">
-        {mobileHeader}
-        {controls}
-        {body}
-        {picker}
+      <div className="relative flex h-[100dvh] flex-col bg-surface">
+        {mobileLayout}
       </div>
     );
   }
@@ -889,10 +1084,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             transition={{ type: 'spring' as const, damping: 28, stiffness: 300 }}
             className="fixed inset-0 z-50 flex flex-col bg-surface"
           >
-            {mobileHeader}
-            {controls}
-            {body}
-            {picker}
+            {mobileLayout}
           </motion.div>
         ) : (
           /* Desktop: backdrop + centered spotlight card. */
