@@ -1,9 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, CheckCircle, XCircle, Loader2, FileUp, X, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle, XCircle, Loader2, FileUp, Images, Sparkles, X, AlertTriangle } from 'lucide-react';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { extractRestaurantsFromScreenshots } from '../lib/import-restaurants-client';
+import { compressImportPhoto } from '../lib/import-recipe-client';
 
 interface ParsedRestaurant {
   name: string;
@@ -149,10 +153,16 @@ async function findGooglePlace(
   }
 }
 
+/** Max screenshots per AI read — matches the edge function's cap. */
+const MAX_SCREENSHOTS = 6;
+
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
   const { ratings, rateRestaurant, cacheRestaurantMeta, addToWishlist, wishlist } = useLists();
+  const { isSignedIn } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const [parsedRestaurants, setParsedRestaurants] = useState<ParsedRestaurant[]>([]);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
@@ -160,12 +170,69 @@ export const ImportRestaurants: React.FC = () => {
   const [parseError, setParseError] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  // Screenshot path: previews of the picked images while Claude reads them.
+  const [shotPreviews, setShotPreviews] = useState<string[]>([]);
+  const [aiReading, setAiReading] = useState(false);
   // Shown when every parsed rating is ≤ 5 — almost certainly a 5-point
   // scale that would import as terrible /10 scores.
   const [scalePrompt, setScalePrompt] = useState(false);
   const abortRef = useRef(false);
 
   const existingIds = new Set(ratings.map((r) => r.restaurantId));
+
+  /** Feed a parsed batch (from either path) into the shared review flow. */
+  const acceptParsed = (parsed: ParsedRestaurant[], label: string) => {
+    setFileName(label);
+    setParsedRestaurants(parsed);
+    setImportResults(parsed.map((r) => ({ restaurant: r, status: 'pending' as const })));
+    const parsedRatings = parsed.map((r) => r.rating).filter((n): n is number => n !== null);
+    setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
+  };
+
+  // ── Screenshot path: pick images → Claude vision reads the list ──
+  const handleScreenshots = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files
+      ? Array.from(e.target.files as ArrayLike<File>).slice(0, MAX_SCREENSHOTS)
+      : [];
+    e.target.value = ''; // allow re-picking the same files
+    if (files.length === 0) return;
+    if (!isSignedIn) { requireSignIn('Sign in to import from screenshots'); return; }
+
+    setParseError('');
+    setParsedRestaurants([]);
+    setImportResults([]);
+    setIsDone(false);
+    setAiReading(true);
+    try {
+      const images: string[] = [];
+      for (const f of files) images.push(await compressImportPhoto(f));
+      setShotPreviews(images);
+      const result = await extractRestaurantsFromScreenshots(images);
+      if (!result.ok || !result.restaurants) {
+        setParseError(result.error || "Couldn't read those screenshots. Try again with clearer images.");
+        return;
+      }
+      acceptParsed(
+        result.restaurants.map((r) => ({
+          name: r.name,
+          address: '',
+          city: r.city || '',
+          cuisine: r.cuisine || '',
+          rating: r.score ?? null,
+          notes: r.notes || '',
+          dateVisited: '',
+          priceRange: 0,
+          isWishlist: !!r.wishlist,
+        })),
+        `${files.length} screenshot${files.length === 1 ? '' : 's'}`,
+      );
+    } catch {
+      setParseError("Couldn't read one of those images. Use JPG or PNG screenshots and try again.");
+    } finally {
+      setAiReading(false);
+      setShotPreviews([]);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -193,11 +260,7 @@ export const ImportRestaurants: React.FC = () => {
         return;
       }
 
-      setParsedRestaurants(parsed);
-      setImportResults(parsed.map((r) => ({ restaurant: r, status: 'pending' as const })));
-      // Every rating ≤ 5 → probably a 5-point export; offer to double.
-      const parsedRatings = parsed.map((r) => r.rating).filter((n): n is number => n !== null);
-      setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
+      acceptParsed(parsed, file.name);
     };
     reader.readAsText(file);
   };
@@ -288,24 +351,57 @@ export const ImportRestaurants: React.FC = () => {
           </button>
           <div>
             <h1 className="text-lg font-serif font-semibold text-primary">Import Restaurants</h1>
-            <p className="text-xs text-muted">Upload a CSV or JSON file</p>
+            <p className="text-xs text-muted">From Beli screenshots, or a file</p>
           </div>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
-        {/* File upload area */}
-        {parsedRestaurants.length === 0 && (
+        {/* Acquisition step — screenshots (primary) or a file (secondary) */}
+        {parsedRestaurants.length === 0 && !aiReading && (
           <div className="space-y-4">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-on-surface/15 rounded-2xl p-8 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/3 transition-all"
+            {/* Screenshot import — the easy path */}
+            <button
+              type="button"
+              onClick={() => screenshotInputRef.current?.click()}
+              className="w-full text-left rounded-2xl bg-primary text-white p-5 shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all"
             >
-              <FileUp size={32} className="mx-auto text-on-surface/25 mb-3" />
-              <p className="text-sm font-semibold text-on-surface/60">Click to upload a file</p>
-              <p className="text-xs text-on-surface/35 mt-1">Supports CSV and JSON files</p>
+              <div className="flex items-center gap-4">
+                <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
+                  <Images size={22} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-bold leading-tight">Import from screenshots</span>
+                  <span className="block text-[12px] text-white/80 mt-1 leading-snug">
+                    Screenshot your Beli lists (or Google Maps, Notes — anything) and we'll read the restaurants, scores and all.
+                  </span>
+                </span>
+              </div>
+            </button>
+
+            {/* How-to for the Beli case — three tiny steps, no jargon */}
+            <div className="bg-on-surface/3 rounded-2xl p-4">
+              <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <Sparkles size={12} className="text-primary" /> Importing from Beli
+              </p>
+              <ol className="space-y-1.5 text-xs text-on-surface/65 list-none">
+                <li className="flex gap-2"><span className="font-bold text-primary">1.</span> Open your list in Beli and screenshot it — scroll and screenshot again until you've covered it.</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">2.</span> Tap the button above and pick those screenshots (up to {MAX_SCREENSHOTS} at a time).</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">3.</span> Review the matches and import — scores come across exactly as rated.</li>
+              </ol>
             </div>
 
+            {/* File path — secondary */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-on-surface/15 rounded-2xl p-5 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/3 transition-all"
+            >
+              <FileUp size={22} className="mx-auto text-on-surface/25 mb-2" />
+              <p className="text-sm font-semibold text-on-surface/60">Or upload a file</p>
+              <p className="text-xs text-on-surface/35 mt-1">CSV or JSON with a "name" column — ratings, cities and notes come along if present</p>
+            </div>
+
+            <input ref={screenshotInputRef} type="file" accept="image/*" multiple onChange={handleScreenshots} className="hidden" />
             <input ref={fileInputRef} type="file" accept=".csv,.json,.txt" onChange={handleFileUpload} className="hidden" />
 
             {parseError && (
@@ -314,24 +410,29 @@ export const ImportRestaurants: React.FC = () => {
                 <p className="text-xs text-red-600">{parseError}</p>
               </div>
             )}
+          </div>
+        )}
 
-            {/* Format guide */}
-            <div className="bg-on-surface/3 rounded-2xl p-4 space-y-3">
-              <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider">Supported Formats</p>
-              <div>
-                <p className="text-xs font-semibold text-on-surface/70 mb-1">CSV (comma-separated)</p>
-                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto whitespace-pre-wrap">
-                  name,address,city,cuisine,rating,notes,date_visited,is_wishlist,price_range{'\n'}
-                  Nobu Downtown,"195 Broadway, New York",New York,Japanese,8.8,Amazing,2025-01-15,false,4
-                </code>
+        {/* Screenshot reading state — thumbnails + progress */}
+        {aiReading && (
+          <div className="rounded-2xl border border-on-surface/10 bg-white p-6 text-center space-y-4">
+            {shotPreviews.length > 0 && (
+              <div className="flex justify-center gap-2">
+                {shotPreviews.slice(0, 4).map((src, i) => (
+                  <img key={i} src={src} alt="" className="w-14 h-24 rounded-lg object-cover object-top border border-on-surface/10" />
+                ))}
+                {shotPreviews.length > 4 && (
+                  <div className="w-14 h-24 rounded-lg bg-on-surface/[0.05] border border-on-surface/10 flex items-center justify-center text-xs font-bold text-on-surface/50">
+                    +{shotPreviews.length - 4}
+                  </div>
+                )}
               </div>
-              <div>
-                <p className="text-xs font-semibold text-on-surface/70 mb-1">JSON</p>
-                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto">
-                  {'[{"name":"Nobu","city":"New York","cuisine":"Japanese","rating":8.8,"price_range":4}]'}
-                </code>
-              </div>
+            )}
+            <div className="flex items-center justify-center gap-2 text-sm font-semibold text-on-surface/70">
+              <Loader2 size={16} className="animate-spin text-primary" />
+              Reading your screenshots…
             </div>
+            <p className="text-xs text-on-surface/40">Pulling out every restaurant, score and city. This takes a few seconds.</p>
           </div>
         )}
 

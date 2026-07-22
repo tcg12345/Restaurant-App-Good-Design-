@@ -10,6 +10,7 @@ These run on Supabase (Deno), called from both the web and native apps at
 | `location-chat` | Streaming AI chat (Anthropic) | `ANTHROPIC_API_KEY` |
 | `build-recipe` | "Create with AI" recipe authoring (Anthropic) | `ANTHROPIC_API_KEY` |
 | `import-recipe` | Import tab — transcribe a recipe from a URL / photos / pasted text (Anthropic) | `ANTHROPIC_API_KEY` |
+| `import-restaurants` | Import page — transcribe a restaurant list (Beli, Google Maps, notes) from screenshots (Anthropic) | `ANTHROPIC_API_KEY` |
 | `generate-recipe-image` | Recipe hero photo (OpenAI) | `OPENAI_API_KEY` |
 
 Each requires a signed-in Supabase user — `_shared/auth.ts` verifies the
@@ -42,10 +43,11 @@ supabase secrets set ANTHROPIC_API_KEY=sk-ant-... OPENAI_API_KEY=sk-...
 # Apply the rate-limit migration first (SQL Editor or `supabase db push`):
 #   supabase/migrations/047_ai_rate_limits.sql
 
-# Deploy all four
+# Deploy all five
 supabase functions deploy location-chat
 supabase functions deploy build-recipe
 supabase functions deploy import-recipe
+supabase functions deploy import-restaurants
 supabase functions deploy generate-recipe-image
 ```
 
