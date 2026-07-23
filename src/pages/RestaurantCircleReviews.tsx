@@ -9,6 +9,7 @@ import { scoreChipBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { getPlaceDetails } from '../lib/places';
 import {
+  countsForCommunity,
   getFriendsStats,
   getExpertRecommendations,
   getProfilesByIds,
@@ -45,6 +46,8 @@ type Entry = {
   recencyLabel: string;
   /** Where tapping the row leads — review detail for friends, profile for experts. */
   href: string;
+  /** Slider-entered score — shown, but marked as not counting toward averages. */
+  selfScored?: boolean;
 };
 
 // Solid tier chip fill — shared score palette (lib/score).
@@ -100,6 +103,7 @@ export const RestaurantCircleReviews: React.FC = () => {
           notes: r.notes || '',
           recencyLabel: recency ? `Visited ${recency}` : '',
           href: `/review/${r.id}`,
+          selfScored: !countsForCommunity(r),
         };
       });
 
@@ -231,6 +235,19 @@ export const RestaurantCircleReviews: React.FC = () => {
                           >
                             {e.kind === 'expert' ? 'Expert' : 'Friend'}
                           </span>
+                          {e.selfScored && (
+                            <span
+                              className="uppercase flex-shrink-0 text-ink-3 bg-ink/[0.06] rounded px-1 py-0.5"
+                              style={{
+                                fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                                fontSize: '8.5px',
+                                letterSpacing: '0.1em',
+                              }}
+                              title="Score picked by hand — not counted in averages"
+                            >
+                              Self-scored
+                            </span>
+                          )}
                         </div>
                         {e.recencyLabel && (
                           <p className="text-ink-3" style={{ fontSize: '11px' }}>

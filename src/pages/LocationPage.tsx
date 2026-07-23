@@ -59,6 +59,7 @@ import {
   type ScoredPlace,
 } from '../lib/recommendations';
 import {
+  countsForCommunity,
   followPublicAccount,
   getAllFriendRatings,
   getExpertProfiles,
@@ -647,6 +648,9 @@ export const LocationPage: React.FC = () => {
           // on ratings from followed experts that made the global slice.
           if (seenRatingIds.has(row.id)) continue;
           seenRatingIds.add(row.id);
+          // Self-picked slider scores don't feed circle signals or the
+          // "N friends rated" counts — they're not calibrated data.
+          if (!countsForCommunity(row)) continue;
           const arr = communityByRestaurant.get(row.restaurant_id);
           if (arr) arr.push(row);
           else communityByRestaurant.set(row.restaurant_id, [row]);

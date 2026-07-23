@@ -11,6 +11,7 @@ import { useToast } from './ToastContext';
 import { safeImage, localISODate } from '../lib/utils';
 import { applySettleChanges, type SettleChange } from '../lib/settleScores';
 import { applyRatingSave } from '../lib/applyRatingSave';
+import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 
 /* ── Types ── */
 
@@ -43,6 +44,13 @@ export interface RestaurantRating {
    *  by a stale copy. Optional for backward-compat with rows saved before
    *  this field existed; the merge falls back to createdAt when absent. */
   updatedAt?: number;
+  /** How the score was produced. 'h2h' = head-to-head comparisons (the
+   *  primary method), 'slider' = self-picked — EXCLUDED from community
+   *  averages and recommendation signals, 'import' = transcribed from a
+   *  Beli/list import (contributes; it came from Beli's own head-to-head).
+   *  Absent = rated before method tracking existed — grandfathered as
+   *  contributing. */
+  ratingMethod?: 'h2h' | 'slider' | 'import';
 }
 
 export interface RestaurantMeta {
@@ -351,6 +359,12 @@ export interface HomeMeal {
 interface ListsContextValue {
   // Ratings
   ratings: RestaurantRating[];
+  /** Beli-style score lock: numeric scores (and community publishing) stay
+   *  hidden until the user has rated SCORE_UNLOCK_THRESHOLD restaurants —
+   *  below that the rankings don't have enough comparison data to be
+   *  accurate. Surfaces show rank/sentiment instead of numbers while
+   *  false. */
+  scoresUnlocked: boolean;
   /** Add or replace this restaurant's "current" rating.
    *
    *  Pass `{ isNewVisit: true }` when the user is logging a fresh
@@ -563,6 +577,7 @@ function publishSignature(r: RestaurantRating): string {
     r.name, r.score, r.notes, r.cuisine, r.price, r.address, r.visitDate,
     r.tags, r.wouldReturn, r.friendIds || [], urlSig(r.image),
     (r.photos || []).map((p) => `${urlSig(p.url)}|${p.isFavorite ? 1 : 0}|${p.caption || ''}`),
+    r.ratingMethod || '',
   ]);
 }
 
@@ -1525,7 +1540,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // profiles) — DELTAS ONLY. Republishing every row on every load was
         // hundreds of writes per session for heavy raters, and each write
         // reset updated_at, which is what orders the friends feed.
-        if (cloudRatings.length > 0) {
+        // Held entirely below the score-unlock threshold (nothing publishes
+        // until the rankings have enough data to be accurate); since held
+        // rows are never sig-stamped, the first load after crossing the
+        // threshold publishes the whole backlog right here.
+        if (cloudRatings.length >= SCORE_UNLOCK_THRESHOLD) {
           const prevSigs = loadPublishedSigs();
           const nextSigs: Record<string, string> = {};
           for (const r of cloudRatings) {
@@ -1537,6 +1556,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               cuisine: r.cuisine, price: r.price, address: r.address,
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
+              ratingMethod: r.ratingMethod,
             });
             // Reconcile each rating's gallery: publish when known public,
             // clear when there are no photos, and — crucially — DEFER (not
@@ -1726,10 +1746,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         syncRatingsToCloud(next);
         // The community gallery mirrors the current visit's photo set — swap
         // the freshly uploaded URLs in there too (visibility gating and the
-        // deferred-publish path live inside syncCommunityPhotos).
-        for (const id of changedIds) {
-          const row = next.find((r) => r.restaurantId === id);
-          if (row) syncCommunityPhotos(id, row.photos);
+        // deferred-publish path live inside syncCommunityPhotos). Held below
+        // the score-unlock threshold like every other community write.
+        if (next.length >= SCORE_UNLOCK_THRESHOLD) {
+          for (const id of changedIds) {
+            const row = next.find((r) => r.restaurantId === id);
+            if (row) syncCommunityPhotos(id, row.photos);
+          }
         }
       } finally {
         photoRetryInFlightRef.current = false;
@@ -2246,13 +2269,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Ratings
   /** Push one rating row's current fields to community_ratings (same payload
-   *  shape as the boot-time bulk republish). Fire-and-forget. */
+   *  shape as the boot-time bulk republish). Fire-and-forget.
+   *
+   *  HELD below the score-unlock threshold: with only a handful of ratings
+   *  the head-to-head scores aren't calibrated yet, so nothing reaches the
+   *  community until the user crosses the threshold — at which point
+   *  rateRestaurant backfills every row at once. Held rows are never
+   *  sig-stamped, so the boot-time delta sync is the catch-up safety net. */
   const publishRatingRow = useCallback((uid: string, row: RestaurantRating) => {
+    if (ratingsRef.current.length < SCORE_UNLOCK_THRESHOLD) return;
     publishCommunityRating(uid, row.restaurantId, {
       name: row.name, score: row.score, notes: row.notes,
       cuisine: row.cuisine, price: row.price, address: row.address,
       visitDate: row.visitDate, tags: row.tags, wouldReturn: row.wouldReturn,
       friendIds: row.friendIds || [], photoUrl: row.image || '',
+      ratingMethod: row.ratingMethod,
     });
     // Record what was published so the boot-time delta sync skips this row.
     stampPublishedSig(row);
@@ -2381,20 +2412,33 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
     // Publish to community
     if (userIdRef.current) {
-      // The rated row publishes its SETTLED score (may differ from the raw
-      // slider/H2H value); every other row the settle moved is republished
-      // too, sequential fire-and-forget like the boot-time bulk sync.
-      publishRatingRow(userIdRef.current, settledSelf);
-      for (const c of otherChanged) {
-        const row = next.find((r) => r.restaurantId === c.restaurantId);
-        if (row) publishRatingRow(userIdRef.current, row);
+      if (prevRatings.length < SCORE_UNLOCK_THRESHOLD && next.length >= SCORE_UNLOCK_THRESHOLD) {
+        // This save just crossed the score-unlock threshold — the entire
+        // held backlog publishes now, photos included. From here on the
+        // per-save publishes below flow normally.
+        for (const row of next) {
+          publishRatingRow(userIdRef.current, row);
+          syncCommunityPhotos(row.restaurantId, row.photos);
+        }
+      } else {
+        // The rated row publishes its SETTLED score (may differ from the raw
+        // slider/H2H value); every other row the settle moved is republished
+        // too, sequential fire-and-forget like the boot-time bulk sync.
+        // (publishRatingRow holds everything below the unlock threshold.)
+        publishRatingRow(userIdRef.current, settledSelf);
+        for (const c of otherChanged) {
+          const row = next.find((r) => r.restaurantId === c.restaurantId);
+          if (row) publishRatingRow(userIdRef.current, row);
+        }
+        // Reconcile the community gallery with this save. Removal happens ONLY
+        // when the photo set is empty (an intentional removal); a save made
+        // before the profile resolves defers the publish rather than deleting
+        // — the old "else remove" branch wiped a public user's existing gallery
+        // when they rated right after sign-in (isPublicRef still false).
+        if (next.length >= SCORE_UNLOCK_THRESHOLD) {
+          syncCommunityPhotos(rating.restaurantId, rating.photos);
+        }
       }
-      // Reconcile the community gallery with this save. Removal happens ONLY
-      // when the photo set is empty (an intentional removal); a save made
-      // before the profile resolves defers the publish rather than deleting
-      // — the old "else remove" branch wiped a public user's existing gallery
-      // when they rated right after sign-in (isPublicRef still false).
-      syncCommunityPhotos(rating.restaurantId, rating.photos);
     }
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
@@ -2635,27 +2679,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(next);
         saveToStorage(STORAGE_KEY_RATINGS, next);
         syncRatingsToCloud(next);
-        // Keep the community-published row in sync with the promoted data.
+        // Keep the community-published row in sync with the promoted data
+        // (publishRatingRow carries the rating method, stamps the delta-sync
+        // signature, and holds below the score-unlock threshold).
         if (userIdRef.current) {
-          publishCommunityRating(userIdRef.current, restaurantId, {
-            name: promoted.name,
-            score: promoted.score,
-            notes: promoted.notes,
-            cuisine: promoted.cuisine,
-            price: promoted.price,
-            address: promoted.address,
-            visitDate: promoted.visitDate,
-            tags: promoted.tags,
-            wouldReturn: promoted.wouldReturn,
-            friendIds: promoted.friendIds || [],
-            photoUrl: promoted.image || '',
-          });
+          publishRatingRow(userIdRef.current, promoted);
           // The promoted visit's photo set replaces the deleted visit's in
           // the community gallery (or clears it if the promoted visit has
           // no photos) — the gallery must always mirror the *current* visit.
           // Same decoupling as rateRestaurant: only an empty set removes;
           // unknown visibility defers rather than deleting.
-          syncCommunityPhotos(restaurantId, promoted.photos);
+          if (ratingsRef.current.length >= SCORE_UNLOCK_THRESHOLD) {
+            syncCommunityPhotos(restaurantId, promoted.photos);
+          }
         }
       }
       return;
@@ -2678,7 +2714,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
-  }, [removeRating, syncRatingsToCloud, syncVisitHistoryToCloud]);
+  }, [removeRating, syncRatingsToCloud, syncVisitHistoryToCloud, publishRatingRow, syncCommunityPhotos]);
 
   // Lists
   const createList = useCallback((name: string, emoji: string, type?: CustomList['type']): CustomList => {
@@ -3026,7 +3062,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   return (
     <ListsContext.Provider value={{
-      ratings, rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
+      ratings, scoresUnlocked: ratings.length >= SCORE_UNLOCK_THRESHOLD,
+      rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
       pendingPhotoUploadCount, retryPendingPhotoUploads,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,

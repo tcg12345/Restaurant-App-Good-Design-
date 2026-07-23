@@ -10,7 +10,8 @@ import { MAPBOX_TOKEN } from '../lib/keys';
 import { processPhoto } from '../lib/images';
 import { shareExternally } from '../lib/native-share';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
-import { ScoreBadge } from '../components/ScoreBadge';
+import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
+import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 import { ScoreRing } from '../components/cards';
 import { getOpenStatus, useBackfillLocationComponents } from '../lib/useRestaurantLocationLabel';
 import { hasFreshHours } from '../lib/useWarmHours';
@@ -437,7 +438,7 @@ const AddFromRatedSheet: React.FC<{
   listRestaurantIds: string[];
   onCreateNewRating?: (restaurantId: string, meta: RestaurantMeta) => void;
 }> = ({ open, onClose, listId, listRestaurantIds, onCreateNewRating }) => {
-  const { ratings, addToList, removeFromList } = useLists();
+  const { ratings, addToList, removeFromList, scoresUnlocked } = useLists();
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
   const [promptRating, setPromptRating] = useState<RestaurantRating | null>(null);
@@ -512,7 +513,7 @@ const AddFromRatedSheet: React.FC<{
                       <p className="text-sm font-semibold truncate">{r.name}</p>
                       <p className="text-[11px] text-on-surface/40 truncate">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                     </div>
-                    {r.score > 0 && <ScoreBadge rating={r.score} size="xs" />}
+                    {r.score > 0 && <OwnScoreBadge rating={r.score} unlocked={scoresUnlocked} size="xs" />}
                     <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all flex-shrink-0", isInList ? "bg-primary border-primary text-white" : "border-on-surface/15")}>
                       {isInList && <Check size={14} strokeWidth={3} />}
                     </div>
@@ -662,7 +663,7 @@ const RestaurantRow: React.FC<{
   showMichelin?: boolean;
 }> = ({ restaurantId, name, cuisine, price, address, score, rank, onEdit, onRemove, showMichelin = false }) => {
   const { phoneMode } = useSettings();
-  const { restaurantMeta } = useLists();
+  const { restaurantMeta, scoresUnlocked } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   // Pointer-driven swipe-to-reveal (smooth in the iOS WKWebView, unlike
@@ -828,7 +829,7 @@ const RestaurantRow: React.FC<{
               {metaLoc && <p className="mt-[3px] truncate text-[12.5px] font-medium leading-[1.3] text-on-surface/40">{metaLoc}</p>}
               <StatusLine hours={meta?.hours} className="mt-[9px]" />
             </div>
-            <ScoreRing score={score} size={46} className="mt-0.5" />
+            <ScoreRing score={score} size={46} locked={!scoresUnlocked} className="mt-0.5" />
           </Link>
         </div>
         {confirmDelete && (
@@ -881,7 +882,7 @@ const RestaurantRow: React.FC<{
             )}
           </div>
         )}
-        <ScoreRing score={score} size={48} />
+        <ScoreRing score={score} size={48} locked={!scoresUnlocked} />
       </Link>
       {confirmDelete && (
         <ConfirmDeleteDialog
@@ -1100,7 +1101,7 @@ const RestaurantGridCard: React.FC<{
   const [moreOpen, setMoreOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
-  const { restaurantMeta } = useLists();
+  const { restaurantMeta, scoresUnlocked } = useLists();
   const trimmedNotes = notes?.trim() ?? '';
   const hasNotes = trimmedNotes.length > 0;
   const hasScore = score !== undefined && score > 0;
@@ -1154,7 +1155,7 @@ const RestaurantGridCard: React.FC<{
       >
         {/* Score — inset ring, top-right */}
         {hasScore && (
-          <div className="absolute right-5 top-5"><ScoreRing score={score} size={44} /></div>
+          <div className="absolute right-5 top-5"><ScoreRing score={score} size={44} locked={!scoresUnlocked} /></div>
         )}
 
         <h3 className="line-clamp-2 pr-14 font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em] text-on-surface">
@@ -1381,7 +1382,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta, scoresUnlocked } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -2028,7 +2029,7 @@ const ListDetailView: React.FC<{
                   {listStats.visible !== listStats.total && (
                     <span className="text-on-surface/35"> / {listStats.total}</span>
                   )}
-                  {listStats.avg !== null && (
+                  {listStats.avg !== null && scoresUnlocked && (
                     <>
                       <span className="text-on-surface/25 mx-1.5">·</span>
                       <span>Avg <span className="font-bold text-on-surface">{listStats.avg.toFixed(1)}</span></span>
@@ -2635,6 +2636,7 @@ const AddToNightSheet: React.FC<{
   onClose: () => void;
 }> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, onClose }) => {
   const { phoneMode } = useSettings();
+  const { scoresUnlocked } = useLists();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
   const [reservationTime, setReservationTime] = useState('');
@@ -2851,7 +2853,7 @@ const AddToNightSheet: React.FC<{
                               <p className="text-[13px] font-semibold truncate">{r.name}</p>
                               <p className="text-[10px] text-on-surface/40">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                             </div>
-                            {r.score > 0 && <ScoreBadge rating={r.score} size="xs" />}
+                            {r.score > 0 && <OwnScoreBadge rating={r.score} unlocked={scoresUnlocked} size="xs" />}
                             <button
                               onClick={() => !alreadyAdded && !wasJustAdded && addFromRating(r)}
                               disabled={alreadyAdded}
@@ -2965,6 +2967,7 @@ const TripsTab: React.FC<{
 }> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
+  const { scoresUnlocked: scoresUnlockedForTrips } = useLists();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
@@ -3006,7 +3009,7 @@ const TripsTab: React.FC<{
     const ratedScores = completedRestaurants
       .map((r) => ratings.find((g) => g.restaurantId === r.restaurantId)?.score ?? r.rating?.score)
       .filter((s): s is number => typeof s === 'number' && s > 0);
-    const avgRating = ratedScores.length > 0
+    const avgRating = ratedScores.length > 0 && scoresUnlockedForTrips
       ? (ratedScores.reduce((sum, s) => sum + s, 0) / ratedScores.length).toFixed(1)
       : '—';
     const totalRestaurants = selectedTrip.restaurants.length;
@@ -5665,7 +5668,7 @@ export const Pantry: React.FC = () => {
 
   const {
     lists, createList,
-    ratings, openAddRestaurantModal, removeRating,
+    ratings, scoresUnlocked, openAddRestaurantModal, removeRating,
     wishlist, restaurantMeta,
     trips, createTrip, updateTrip, deleteTrip,
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
@@ -6402,13 +6405,28 @@ export const Pantry: React.FC = () => {
                   )}
                 </div>
 
+                {!scoresUnlocked && regularRatingsCount > 0 && (
+                  <div className="mb-3 flex items-center gap-3.5 rounded-2xl bg-primary/[0.05] border border-primary/15 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-bold text-on-surface">
+                        {regularRatingsCount} of {SCORE_UNLOCK_THRESHOLD} rated
+                      </p>
+                      <p className="text-[11px] text-on-surface/50 mt-0.5 leading-snug">
+                        Scores unlock at {SCORE_UNLOCK_THRESHOLD} — until then your list shows sentiment and order.
+                      </p>
+                      <div className="mt-2 h-1.5 rounded-full bg-on-surface/[0.08] overflow-hidden">
+                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (regularRatingsCount / SCORE_UNLOCK_THRESHOLD) * 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {regularRatingsCount > 0 && (
                   <div className="flex items-center gap-4 px-1 mb-3">
                     <p className="text-xs text-on-surface/40">
                       <span className="font-bold text-on-surface">{filteredRatings.length}</span>
                       {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
                     </p>
-                    {filteredRatings.length > 0 && (
+                    {filteredRatings.length > 0 && scoresUnlocked && (
                       <p className="text-xs text-on-surface/40">
                         Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
                       </p>
@@ -6544,7 +6562,7 @@ export const Pantry: React.FC = () => {
                         {filteredRatings.length !== regularRatingsCount && (
                           <span className="text-on-surface/35"> / {regularRatingsCount}</span>
                         )}
-                        {filteredRatings.length > 0 && (
+                        {filteredRatings.length > 0 && scoresUnlocked && (
                           <>
                             <span className="text-on-surface/25 mx-1.5">·</span>
                             <span>Avg <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span></span>

@@ -394,7 +394,7 @@ export const ImportRestaurants: React.FC = () => {
           const existing = ratingByPlaceId.get(place.id);
           const importedScore = restaurant.rating !== null ? clampScore(restaurant.rating) : null;
           if (!restaurant.isWishlist && importedScore !== null && existing && existing.score !== importedScore) {
-            rateRestaurant({ ...existing, score: importedScore }, { skipSettle: true });
+            rateRestaurant({ ...existing, score: importedScore, ratingMethod: 'import' }, { skipSettle: true });
             ratingByPlaceId.set(place.id, { ...existing, score: importedScore });
             setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'updated', placeResult: place }; return next; });
           } else {
@@ -419,7 +419,8 @@ export const ImportRestaurants: React.FC = () => {
             restaurantId: place.id, name: place.name, image: place.photoUrl || '',
             cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
             score: clampScore(restaurant.rating), notes: restaurant.notes, visitDate: restaurant.dateVisited || '',
-            wouldReturn: true, tags: [], photos: [], listIds: [],
+            wouldReturn: true, tags: [], photos: [], listIds: [], friendIds: [],
+            ratingMethod: 'import',
             createdAt: Date.now() - (importResults.length - i),
             // Imported scores are transcriptions of ratings the user already
             // made elsewhere — they must land EXACTLY as shown. The settle

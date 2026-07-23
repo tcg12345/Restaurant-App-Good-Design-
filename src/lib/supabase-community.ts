@@ -26,6 +26,18 @@ export interface CommunityRating {
    *  getExpertRatings order by it); optional here for older callers that
    *  build CommunityRating objects without it. */
   updated_at?: string;
+  /** How the score was produced: 'h2h' | 'import' | 'slider' | null.
+   *  NULL = pre-tracking legacy (contributes). 'slider' rows stay visible
+   *  as individual reviews but never count toward averages, rater counts,
+   *  or recommendation signals — see countsForCommunity(). */
+  rating_method?: string | null;
+}
+
+/** Whether a community row contributes to averaged/counted numbers and
+ *  recommendation signals. Self-picked slider scores don't — they aren't
+ *  calibrated against anything. NULL (legacy) and 'h2h'/'import' do. */
+export function countsForCommunity(r: { rating_method?: string | null }): boolean {
+  return r.rating_method !== 'slider';
 }
 
 /**
@@ -75,7 +87,7 @@ export interface FriendsStats {
 export async function publishCommunityRating(
   userId: string,
   restaurantId: string,
-  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[]; lat?: number; lng?: number; photoUrl?: string }
+  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[]; lat?: number; lng?: number; photoUrl?: string; ratingMethod?: string }
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
@@ -97,6 +109,9 @@ export async function publishCommunityRating(
     if (data.lat != null) payload.lat = data.lat;
     if (data.lng != null) payload.lng = data.lng;
     if (data.photoUrl) payload.photo_url = data.photoUrl;
+    // Only stamped when known — omitting the key on legacy rows leaves any
+    // previously-published method untouched (upsert only writes present keys).
+    if (data.ratingMethod) payload.rating_method = data.ratingMethod;
     const { error } = await supabase.from('community_ratings').upsert(payload, { onConflict: 'user_id,restaurant_id' });
     if (error) { console.error('[Community] publishRating error:', error); return false; }
     return true;
@@ -126,8 +141,12 @@ export async function getCommunityStats(restaurantId: string): Promise<Community
       .select('*').eq('restaurant_id', restaurantId).order('created_at', { ascending: false });
     if (error) { console.error('[Community] getStats error:', error); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
     const ratings = (data || []) as CommunityRating[];
-    const avgScore = ratings.length > 0 ? ratings.reduce((sum, r) => sum + Number(r.score), 0) / ratings.length : 0;
-    return { avgScore, totalRatings: ratings.length, ratings };
+    // All rows come back (individual reviews stay visible) but only
+    // contributing ones move the average/count — a slider-only restaurant
+    // reads as having no community score.
+    const counted = ratings.filter(countsForCommunity);
+    const avgScore = counted.length > 0 ? counted.reduce((sum, r) => sum + Number(r.score), 0) / counted.length : 0;
+    return { avgScore, totalRatings: counted.length, ratings };
   } catch (err) { console.error('[Community] getStats exception:', err); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
 }
 
@@ -201,11 +220,12 @@ export async function getCommunityRatingStats(
   try {
     const { data, error } = await supabase
       .from('community_ratings')
-      .select('restaurant_id, user_id, score')
+      .select('restaurant_id, user_id, score, rating_method')
       .in('restaurant_id', ids);
     if (error) { console.error('[Community] getCommunityRatingStats error:', error); return {}; }
     const acc: Record<string, { users: Set<string>; sum: number; n: number }> = {};
-    for (const row of (data || []) as Array<{ restaurant_id: string; user_id: string; score: number | null }>) {
+    for (const row of (data || []) as Array<{ restaurant_id: string; user_id: string; score: number | null; rating_method?: string | null }>) {
+      if (!countsForCommunity(row)) continue; // self-picked scores never feed signals
       const slot = acc[row.restaurant_id] || (acc[row.restaurant_id] = { users: new Set(), sum: 0, n: 0 });
       slot.users.add(row.user_id);
       if (typeof row.score === 'number' && row.score > 0) {
@@ -242,8 +262,11 @@ export async function getFriendsStats(userId: string, restaurantId: string): Pro
       .order('created_at', { ascending: false });
     if (error) { console.error('[Community] getFriendsStats error:', error); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
     const ratings = (data || []) as CommunityRating[];
-    const avgScore = ratings.length > 0 ? ratings.reduce((sum, r) => sum + Number(r.score), 0) / ratings.length : 0;
-    return { avgScore, totalRatings: ratings.length, ratings };
+    // Same contract as getCommunityStats: every row visible, only
+    // contributing rows averaged/counted.
+    const counted = ratings.filter(countsForCommunity);
+    const avgScore = counted.length > 0 ? counted.reduce((sum, r) => sum + Number(r.score), 0) / counted.length : 0;
+    return { avgScore, totalRatings: counted.length, ratings };
   } catch (err) { console.error('[Community] getFriendsStats exception:', err); return { avgScore: 0, totalRatings: 0, ratings: [] }; }
 }
 
@@ -1428,7 +1451,8 @@ export async function getTagSimilarRestaurants(
     if (city) q = q.ilike('address', `%${city.split(',')[0].trim()}%`);
     const { data, error } = await q;
     if (error) { console.warn('[Community] getTagSimilar error:', error.message); return []; }
-    return (data || []) as CommunityRating[];
+    // Pure recommendation signal — self-picked slider scores don't feed it.
+    return ((data || []) as CommunityRating[]).filter(countsForCommunity);
   } catch (err) { console.warn('[Community] getTagSimilar exception:', err); return []; }
 }
 

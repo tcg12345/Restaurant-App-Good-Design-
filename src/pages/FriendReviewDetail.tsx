@@ -316,7 +316,9 @@ export const FriendReviewDetail: React.FC = () => {
             )}>
               <span className={cn("text-2xl font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
             </div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mt-1.5">out of 10</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mt-1.5">
+              {rating.rating_method === 'slider' ? 'Self-scored' : 'out of 10'}
+            </span>
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import {
   getFollowedExpertIds,
   getCommunityPricesForPlaces,
   getCommunityRatingStats,
+  countsForCommunity,
 } from './supabase-community';
 import { locationKey, recPrefsHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
@@ -1183,11 +1184,15 @@ export async function gatherRecCandidates(
   const expertUserIds = new Set<string>(experts.map((e) => e.user_id));
   const friendUserIds = new Set<string>(friendRatings.map((r) => r.user_id));
 
+  // Self-picked slider scores never feed recommendation signals — only
+  // head-to-head / imported / legacy rows are calibrated enough to trust.
+  // (getTagSimilarRestaurants already filters server-side; the expert and
+  // friend feeds serve display surfaces too, so they filter here instead.)
   const allCommunityRows: CommunityRating[] = [
     ...tagSimilar,
     ...expertRatings,
     ...friendRatings,
-  ];
+  ].filter(countsForCommunity);
   const communityByRestaurant = new Map<string, CommunityRating[]>();
   for (const row of allCommunityRows) {
     const arr = communityByRestaurant.get(row.restaurant_id);

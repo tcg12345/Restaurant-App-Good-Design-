@@ -584,6 +584,7 @@ export const FollowingFeed: React.FC = () => {
                               )}
                               <span className="mx-1 text-on-surface/25">·</span>
                               {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}
+                              {r.rating_method === 'slider' ? ' · self-scored' : ''}
                             </p>
                           </div>
                         )}

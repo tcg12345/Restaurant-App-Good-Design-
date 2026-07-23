@@ -8,6 +8,8 @@ import {
   Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
+import { tierOfScore } from '../lib/settleScores';
+import { TIER_EMOJI } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -99,7 +101,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [hoursOpen, setHoursOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(true);
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
   const { user } = useAuth();
@@ -209,7 +211,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           }}
           aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
         >
-          {badgeScore.toFixed(1)}
+          {badgeIsPersonal && !scoresUnlocked ? TIER_EMOJI[tierOfScore(badgeScore)] : badgeScore.toFixed(1)}
         </div>
         <div className={cn(
           'text-[11px] font-bold uppercase tracking-[0.12em]',
@@ -645,8 +647,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
                           <div className="flex-1 px-[22px] py-5">
                             <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Your score</div>
                             <div className="mt-2 flex items-baseline gap-1.5">
-                              <span className="font-serif font-bold text-[38px] leading-none tabular-nums" style={{ color: scoreColor(myRating.score) }}>{myRating.score.toFixed(1)}</span>
-                              <span className="text-base font-semibold text-on-surface/40">/ 10</span>
+                              {scoresUnlocked ? (
+                                <>
+                                  <span className="font-serif font-bold text-[38px] leading-none tabular-nums" style={{ color: scoreColor(myRating.score) }}>{myRating.score.toFixed(1)}</span>
+                                  <span className="text-base font-semibold text-on-surface/40">/ 10</span>
+                                </>
+                              ) : (
+                                <span className="text-[32px] leading-none">{TIER_EMOJI[tierOfScore(myRating.score)]}</span>
+                              )}
                             </div>
                           </div>
                           {(

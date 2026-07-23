@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
-import { settleScores, normalizeScores } from '../lib/settleScores';
+import { settleScores, normalizeScores, tierOfScore } from '../lib/settleScores';
+import { TIER_EMOJI } from '../lib/headToHeadRating';
 import { SCORE_TIER_HEX } from '../lib/score';
 
 interface RatedItem {
@@ -24,6 +25,7 @@ const ReorderItem: React.FC<{
   onDragEnd: (id: string) => void;
 }> = ({ item, originalScore, onDragEnd }) => {
   const controls = useDragControls();
+  const { scoresUnlocked: reorderScoresUnlocked } = useLists();
   const changed = originalScore !== undefined && originalScore !== item.score;
 
   return (
@@ -61,16 +63,22 @@ const ReorderItem: React.FC<{
       </div>
 
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        <motion.span
-          key={item.score}
-          initial={changed ? { scale: 1.3, color: SCORE_TIER_HEX.mid } : false}
-          animate={{ scale: 1, color: changed ? SCORE_TIER_HEX.mid : '#1a1a1a' }}
-          transition={{ type: 'spring', damping: 15, stiffness: 300 }}
-          className="text-base font-bold tabular-nums min-w-[2rem] text-right"
-        >
-          {item.score.toFixed(1)}
-        </motion.span>
-        <span className="text-xs text-on-surface/30 font-medium">/10</span>
+        {reorderScoresUnlocked ? (
+          <>
+            <motion.span
+              key={item.score}
+              initial={changed ? { scale: 1.3, color: SCORE_TIER_HEX.mid } : false}
+              animate={{ scale: 1, color: changed ? SCORE_TIER_HEX.mid : '#1a1a1a' }}
+              transition={{ type: 'spring', damping: 15, stiffness: 300 }}
+              className="text-base font-bold tabular-nums min-w-[2rem] text-right"
+            >
+              {item.score.toFixed(1)}
+            </motion.span>
+            <span className="text-xs text-on-surface/30 font-medium">/10</span>
+          </>
+        ) : (
+          <span className="text-base">{TIER_EMOJI[tierOfScore(item.score)]}</span>
+        )}
       </div>
     </Reorder.Item>
   );
