@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
-import { TIER_EMOJI } from '../lib/headToHeadRating';
+import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -211,7 +211,9 @@ export const RestaurantDetailDesktop: React.FC = () => {
           }}
           aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
         >
-          {badgeIsPersonal && !scoresUnlocked ? TIER_EMOJI[tierOfScore(badgeScore)] : badgeScore.toFixed(1)}
+          {badgeIsPersonal && !scoresUnlocked
+            ? <span className="text-[15px] leading-tight text-center px-2">{TIER_LABELS[tierOfScore(badgeScore)]}</span>
+            : badgeScore.toFixed(1)}
         </div>
         <div className={cn(
           'text-[11px] font-bold uppercase tracking-[0.12em]',
@@ -653,7 +655,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                                   <span className="text-base font-semibold text-on-surface/40">/ 10</span>
                                 </>
                               ) : (
-                                <span className="text-[32px] leading-none">{TIER_EMOJI[tierOfScore(myRating.score)]}</span>
+                                <span className="font-serif font-bold text-[26px] leading-none" style={{ color: scoreColor(myRating.score) }}>{TIER_LABELS[tierOfScore(myRating.score)]}</span>
                               )}
                             </div>
                           </div>

@@ -1,8 +1,13 @@
 import React from 'react';
 import { cn } from '../lib/utils';
-import { scoreBadgeBg, scoreColor } from '../lib/score';
+import { scoreBadgeBg, scoreColor, SCORE_TIER_HEX } from '../lib/score';
 import { tierOfScore } from '../lib/settleScores';
-import { TIER_EMOJI } from '../lib/headToHeadRating';
+
+/** Sentiment-tier dot color for a score (loved/fine/disliked bands). */
+const tierDotHex = (score: number): string => {
+  const t = tierOfScore(score);
+  return t === 'loved' ? SCORE_TIER_HEX.high : t === 'fine' ? SCORE_TIER_HEX.mid : SCORE_TIER_HEX.low;
+};
 
 /**
  * Single source of truth for how a numeric rating renders on a card or row
@@ -57,11 +62,16 @@ export const OwnScoreBadge: React.FC<{
   if (!rating || rating <= 0) return null;
   if (unlocked) return <ScoreBadge rating={rating} size={size} className={className} />;
   const dims =
-    size === 'xs' ? 'w-7 h-7 text-[13px]'
-    : size === 'sm' ? 'w-9 h-9 text-[16px]'
-    : size === 'lg' ? 'w-12 h-12 text-[20px]'
-    : size === 'xl' ? 'w-14 h-14 text-[22px]'
-    : 'w-10 h-10 text-[17px]';
+    size === 'xs' ? 'w-7 h-7'
+    : size === 'sm' ? 'w-9 h-9'
+    : size === 'lg' ? 'w-12 h-12'
+    : size === 'xl' ? 'w-14 h-14'
+    : 'w-10 h-10';
+  const dot =
+    size === 'xs' ? 'w-1.5 h-1.5'
+    : size === 'sm' ? 'w-2 h-2'
+    : size === 'lg' || size === 'xl' ? 'w-2.5 h-2.5'
+    : 'w-2 h-2';
   return (
     <div
       className={cn(
@@ -71,7 +81,7 @@ export const OwnScoreBadge: React.FC<{
       )}
       aria-label="Score hidden until you rate more places"
     >
-      {TIER_EMOJI[tierOfScore(rating)]}
+      <span className={cn('rounded-full', dot)} style={{ background: tierDotHex(rating) }} />
     </div>
   );
 };

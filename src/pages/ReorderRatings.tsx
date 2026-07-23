@@ -4,7 +4,7 @@ import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
 import { settleScores, normalizeScores, tierOfScore } from '../lib/settleScores';
-import { TIER_EMOJI } from '../lib/headToHeadRating';
+
 import { SCORE_TIER_HEX } from '../lib/score';
 
 interface RatedItem {
@@ -77,7 +77,7 @@ const ReorderItem: React.FC<{
             <span className="text-xs text-on-surface/30 font-medium">/10</span>
           </>
         ) : (
-          <span className="text-base">{TIER_EMOJI[tierOfScore(item.score)]}</span>
+          <span className="w-2 h-2 rounded-full" style={{ background: tierOfScore(item.score) === 'loved' ? SCORE_TIER_HEX.high : tierOfScore(item.score) === 'fine' ? SCORE_TIER_HEX.mid : SCORE_TIER_HEX.low }} />
         )}
       </div>
     </Reorder.Item>

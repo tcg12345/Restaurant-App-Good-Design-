@@ -1,7 +1,12 @@
 import React from 'react';
-import { scoreTintStyle } from '../../lib/score';
+import { scoreTintStyle, SCORE_TIER_HEX } from '../../lib/score';
 import { tierOfScore } from '../../lib/settleScores';
-import { TIER_EMOJI } from '../../lib/headToHeadRating';
+
+/** Sentiment-tier dot color for a score (loved/fine/disliked bands). */
+const tierDotHex = (score: number): string => {
+  const t = tierOfScore(score);
+  return t === 'loved' ? SCORE_TIER_HEX.high : t === 'fine' ? SCORE_TIER_HEX.mid : SCORE_TIER_HEX.low;
+};
 
 /**
  * Soft tiered score circle with an inset ring — the score treatment from the
@@ -40,11 +45,17 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: Math.round(size * 0.42),
           flexShrink: 0,
         }}
       >
-        {TIER_EMOJI[tierOfScore(score)]}
+        <span
+          style={{
+            width: Math.max(6, Math.round(size * 0.2)),
+            height: Math.max(6, Math.round(size * 0.2)),
+            borderRadius: 9999,
+            background: tierDotHex(score),
+          }}
+        />
       </div>
     );
   }

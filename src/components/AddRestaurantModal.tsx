@@ -13,7 +13,7 @@ import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type F
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
 import { useDeferredFocus } from '../lib/useDeferredFocus';
-import { type H2HState, initH2HTieBreak, placementOrder, TIER_LABELS, TIER_EMOJI } from '../lib/headToHeadRating';
+import { type H2HState, initH2HTieBreak, placementOrder, TIER_LABELS } from '../lib/headToHeadRating';
 import { InlineH2H, RankingContext, rankAmong } from './HeadToHeadRatingPages';
 import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 
@@ -469,7 +469,7 @@ export const AddRestaurantModal: React.FC = () => {
                       How was {restaurant.name}?
                     </h2>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-6">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-[12vh] flex flex-col">
                     {tieBreakActive && (
                       <div className="pt-1 pb-2 text-center">
                         <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
@@ -479,7 +479,7 @@ export const AddRestaurantModal: React.FC = () => {
                     )}
                     <AnimatePresence mode="wait" initial={false}>
                       {rateMode === 'h2h' ? (
-                        <motion.div key="h2h-flow" initial={false}>
+                        <motion.div key="h2h-flow" initial={false} className="flex-1 flex flex-col">
                           <InlineH2H
                             ratings={ratings}
                             excludeId={restaurant.id}
@@ -533,7 +533,7 @@ export const AddRestaurantModal: React.FC = () => {
                           animate={{ opacity: 1, x: 0 }}
                           exit={{ opacity: 0, x: -28 }}
                           transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
-                          className="flex flex-col items-center pt-1"
+                          className="flex-1 flex flex-col items-center justify-center"
                         >
                           <div className="text-center mb-4">
                             <div className={cn("font-serif font-bold tabular-nums leading-none text-[44px] sm:text-[48px] transition-colors duration-300", scoreClr)}>
@@ -725,8 +725,8 @@ export const AddRestaurantModal: React.FC = () => {
                               </span>
                             </div>
                           ) : (
-                            <div className="w-14 h-14 rounded-2xl grid place-items-center bg-on-surface/[0.04] ring-1 ring-on-surface/[0.06] flex-shrink-0 text-[22px]">
-                              {TIER_EMOJI[tier]}
+                            <div className="w-14 h-14 rounded-2xl grid place-items-center bg-on-surface/[0.04] ring-1 ring-on-surface/[0.06] flex-shrink-0">
+                              <span className="font-serif font-bold text-[17px] text-on-surface/80">#{rank}</span>
                             </div>
                           )}
                           <div className="flex-1 min-w-0">

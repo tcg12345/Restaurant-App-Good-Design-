@@ -28,7 +28,7 @@ import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
 import { tierOfScore } from '../lib/settleScores';
-import { TIER_EMOJI } from '../lib/headToHeadRating';
+import { TIER_LABELS } from '../lib/headToHeadRating';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
@@ -261,7 +261,7 @@ const FeaturedTopCard: React.FC<{
                 {score.toFixed(1)}
               </span>
             ) : (
-              <span className="text-[46px] leading-none">{TIER_EMOJI[tierOfScore(score)]}</span>
+              <span className={cn('font-serif font-bold text-[22px] leading-none text-center px-3', scoreColor(score))}>{TIER_LABELS[tierOfScore(score)]}</span>
             )}
           </div>
           <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-2.5">

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
-import { TIER_EMOJI } from '../lib/headToHeadRating';
+import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -964,7 +964,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <span className="section-eyebrow">My rating</span>
                     <span className={cn('inline-flex items-center justify-center h-6 px-2.5 rounded-lg', chipBg(myRating.score))}>
                       <span className="text-white tabular-nums" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '12.5px', fontWeight: 600 }}>
-                        {scoresUnlocked ? myRating.score.toFixed(1) : TIER_EMOJI[tierOfScore(myRating.score)]}
+                        {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
                       </span>
                     </span>
                   </span>
@@ -996,7 +996,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                   <span className="text-ink-4" style={{ fontSize: '13px' }}> / 10</span>
                                 </>
                               ) : (
-                                <span style={{ fontSize: '22px' }}>{TIER_EMOJI[tierOfScore(myRating.score)]}</span>
+                                <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '19px', fontWeight: 600 }}>{TIER_LABELS[tierOfScore(myRating.score)]}</span>
                               )}
                             </div>
                           </button>
