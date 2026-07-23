@@ -30,6 +30,9 @@ export interface ImportRestaurantsResult {
   restaurants?: ExtractedRestaurant[];
   /** Present when !ok — a user-facing message. */
   error?: string;
+  /** !ok because of a transient failure (network drop, 5xx) — worth one
+   *  automatic retry. Declines and empty reads are final, not retryable. */
+  retryable?: boolean;
 }
 
 /* ── Screenshot preparation ────────────────────────────────────────────
@@ -49,10 +52,11 @@ const TILE_OVERLAP = 140;        // a row cut at a tile edge is whole in the nei
 const MAX_TILES_PER_SHOT = 4;
 
 /**
- * Load a screenshot file and return 1–4 JPEG data-URL tiles covering it
- * top to bottom. Short images come back as a single tile.
+ * Load a screenshot (or an extracted recording frame) and return 1–4 JPEG
+ * data-URL tiles covering it top to bottom. Short images come back as a
+ * single tile.
  */
-export function prepareScreenshotTiles(file: File): Promise<string[]> {
+export function prepareScreenshotTiles(file: Blob): Promise<string[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
@@ -173,7 +177,7 @@ export async function extractRestaurantsFromScreenshots(
     });
   } catch (err) {
     if ((err as { name?: string })?.name === 'AbortError') return { ok: false, error: 'Cancelled.' };
-    return { ok: false, error: 'Network error — check your connection and try again.' };
+    return { ok: false, error: 'Network error — check your connection and try again.', retryable: true };
   }
   if (!res.ok || !res.body) {
     let message = `Something went wrong (HTTP ${res.status}).`;
@@ -181,7 +185,9 @@ export async function extractRestaurantsFromScreenshots(
       const body = await res.json();
       if (body?.error) message = body.error;
     } catch { /* keep default */ }
-    return { ok: false, error: message };
+    // 5xx is transient; 4xx (auth, rate limit, bad request) won't improve
+    // on an immediate retry.
+    return { ok: false, error: message, retryable: res.status >= 500 };
   }
 
   // ── SSE tool-call accumulator (mirrors readRecipeStream) ──
@@ -243,12 +249,12 @@ export async function extractRestaurantsFromScreenshots(
     }
   } catch (err) {
     if ((err as { name?: string })?.name === 'AbortError') return { ok: false, error: 'Cancelled.' };
-    return { ok: false, error: 'The connection dropped while reading your screenshots. Try again.' };
+    return { ok: false, error: 'The connection dropped while reading your screenshots. Try again.', retryable: true };
   } finally {
     try { await reader.cancel(); } catch { /* ignore */ }
   }
 
-  if (streamError) return { ok: false, error: streamError };
+  if (streamError) return { ok: false, error: streamError, retryable: true };
 
   const declineJson = toolJson['decline_change'] || toolJsonOpen['decline_change'];
   if (declineJson) {
@@ -287,4 +293,74 @@ export async function extractRestaurantsFromScreenshots(
         : "Couldn't read those screenshots. Try again with clearer images.",
     };
   }
+}
+
+/* ── Multi-call batching (screen recordings) ───────────────────────────
+   A screen recording of a long list extracts to more frames than one
+   function call may carry (the server reads at most MAX_IMAGES_PER_CALL
+   images), so the tile stream is chunked into several sequential calls
+   and the transcriptions merged. Chunk boundaries always fall BETWEEN
+   captures — a capture's overlapping tiles stay together, so a row cut
+   at one tile's edge is always whole in a neighbor within the same call. */
+
+/** Matches the edge function's MAX_IMAGES. */
+export const MAX_IMAGES_PER_CALL = 24;
+
+/**
+ * Pack per-capture tile groups into batches of at most `cap` images
+ * without splitting a group. A single group larger than the cap (never
+ * produced by the tiler) is clamped to fit.
+ */
+export function chunkTileGroups(groups: string[][], cap = MAX_IMAGES_PER_CALL): string[][] {
+  const batches: string[][] = [];
+  let current: string[] = [];
+  for (const group of groups) {
+    const tiles = group.slice(0, cap);
+    if (tiles.length === 0) continue;
+    if (current.length > 0 && current.length + tiles.length > cap) {
+      batches.push(current);
+      current = [];
+    }
+    current = current.concat(tiles);
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+/**
+ * Extract restaurants from any number of captures (screenshots and/or
+ * recording frames), spreading the read across as many function calls as
+ * the tile count needs. Transient batch failures get one retry; a batch
+ * that declines (e.g. trailing recording frames past the end of the list)
+ * simply contributes nothing. Fails only when NO batch produced rows.
+ */
+export async function extractRestaurantsFromCaptures(
+  tileGroups: string[][],
+  opts: {
+    /** Called before each batch is sent — drive "Reading part x of y". */
+    onBatchProgress?: (index: number, total: number) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<ImportRestaurantsResult> {
+  const batches = chunkTileGroups(tileGroups);
+  if (batches.length === 0) return { ok: false, error: 'Nothing to read.' };
+
+  const rows: ExtractedRestaurant[] = [];
+  let firstError: string | undefined;
+  for (let i = 0; i < batches.length; i++) {
+    if (opts.signal?.aborted) return { ok: false, error: 'Cancelled.' };
+    opts.onBatchProgress?.(i, batches.length);
+    let result = await extractRestaurantsFromScreenshots(batches[i], opts.signal);
+    if (!result.ok && result.retryable && !opts.signal?.aborted) {
+      result = await extractRestaurantsFromScreenshots(batches[i], opts.signal);
+    }
+    if (result.ok && result.restaurants) rows.push(...result.restaurants);
+    else firstError ??= result.error;
+  }
+
+  if (rows.length === 0) {
+    return { ok: false, error: firstError || "Couldn't read a restaurant list in those captures." };
+  }
+  // Frames overlap across batch boundaries too — dedupe the merged set.
+  return { ok: true, restaurants: dedupeExtracted(rows) };
 }

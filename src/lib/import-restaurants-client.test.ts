@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dedupeExtracted, type ExtractedRestaurant } from './import-restaurants-client';
+import { chunkTileGroups, dedupeExtracted, type ExtractedRestaurant } from './import-restaurants-client';
 
 const r = (over: Partial<ExtractedRestaurant> & { name: string }): ExtractedRestaurant => ({ ...over });
 
@@ -58,5 +58,36 @@ describe('dedupeExtracted', () => {
     expect(out).toEqual([
       { name: 'Indienne', city: 'Chicago', cuisine: 'Indian', score: 9.5, wishlist: false, notes: 'tasting menu' },
     ]);
+  });
+});
+
+describe('chunkTileGroups', () => {
+  const group = (id: string, n: number) => Array.from({ length: n }, (_, i) => `${id}${i}`);
+
+  it('packs everything into one batch when under the cap', () => {
+    const batches = chunkTileGroups([group('a', 3), group('b', 4)], 24);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(7);
+  });
+
+  it('never splits a capture group across batches', () => {
+    // 3+3+3 with cap 8: the third group would overflow → its own batch.
+    const batches = chunkTileGroups([group('a', 3), group('b', 3), group('c', 3)], 8);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toEqual([...group('a', 3), ...group('b', 3)]);
+    expect(batches[1]).toEqual(group('c', 3));
+  });
+
+  it('fills batches greedily to the cap', () => {
+    const batches = chunkTileGroups(Array.from({ length: 10 }, (_, i) => group(`g${i}-`, 3)), 24);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toHaveLength(24);
+    expect(batches[1]).toHaveLength(6);
+  });
+
+  it('clamps a single oversized group and skips empty ones', () => {
+    const batches = chunkTileGroups([[], group('big', 30), []], 24);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toHaveLength(24);
   });
 });

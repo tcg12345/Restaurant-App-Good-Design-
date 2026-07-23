@@ -10,7 +10,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
-import { extractRestaurantsFromScreenshots, prepareScreenshotTiles } from '../lib/import-restaurants-client';
+import { extractRestaurantsFromCaptures, prepareScreenshotTiles } from '../lib/import-restaurants-client';
+import { extractFramesFromRecording } from '../lib/video-frames';
 
 interface ParsedRestaurant {
   name: string;
@@ -158,8 +159,10 @@ async function findGooglePlace(
   }
 }
 
-/** Max screenshots per AI read — matches the edge function's cap. */
+/** Max screenshots per AI read — 6 shots × up to 4 tiles fills one call. */
 const MAX_SCREENSHOTS = 6;
+/** Max screen recordings per read — each extracts to many frames. */
+const MAX_RECORDINGS = 2;
 
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
@@ -181,6 +184,8 @@ export const ImportRestaurants: React.FC = () => {
   // Screenshot path: previews of the picked images while Claude reads them.
   const [shotPreviews, setShotPreviews] = useState<string[]>([]);
   const [aiReading, setAiReading] = useState(false);
+  // Substatus while reading — recording scan %, then "part x of y".
+  const [readingStage, setReadingStage] = useState('');
   // Shown when every parsed rating is ≤ 5 — almost certainly a 5-point
   // scale that would import as terrible /10 scores.
   const [scalePrompt, setScalePrompt] = useState(false);
@@ -203,10 +208,14 @@ export const ImportRestaurants: React.FC = () => {
     setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
   };
 
-  // ── Screenshot path: pick or drop images → Claude vision reads the list ──
-  const readScreenshots = async (picked: File[]) => {
-    const files = picked.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SCREENSHOTS);
-    if (files.length === 0) return;
+  // ── Capture path: pick or drop screenshots and/or a screen recording →
+  //    Claude vision reads the list. A recording is first distilled into
+  //    still frames covering the scroll (video-frames.ts); from there both
+  //    kinds flow through the same tiling + extraction pipeline.
+  const readCaptures = async (picked: File[]) => {
+    const images = picked.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SCREENSHOTS);
+    const videos = picked.filter((f) => f.type.startsWith('video/')).slice(0, MAX_RECORDINGS);
+    if (images.length === 0 && videos.length === 0) return;
     if (!isSignedIn) { requireSignIn('Sign in to import from screenshots'); return; }
 
     setParseError('');
@@ -214,18 +223,34 @@ export const ImportRestaurants: React.FC = () => {
     setImportResults([]);
     setIsDone(false);
     setAiReading(true);
+    setReadingStage('');
     try {
-      // Each screenshot becomes 1–4 overlapping high-resolution tiles so
+      // Each capture becomes 1–4 overlapping high-resolution tiles so
       // small row text (Beli's decimal score circles especially) stays
       // legible to the vision model; the extractor dedupes the overlap.
-      const tilesPerShot: string[][] = [];
-      for (const f of files) tilesPerShot.push(await prepareScreenshotTiles(f));
-      setShotPreviews(tilesPerShot.map((t) => t[0]));
-      const result = await extractRestaurantsFromScreenshots(tilesPerShot.flat());
+      const tileGroups: string[][] = [];
+      for (const f of images) tileGroups.push(await prepareScreenshotTiles(f));
+      for (const v of videos) {
+        setReadingStage('Scanning your recording…');
+        const frames = await extractFramesFromRecording(v, (p) => {
+          setReadingStage(`Scanning your recording… ${Math.round(p * 100)}%`);
+        });
+        for (const frame of frames) tileGroups.push(await prepareScreenshotTiles(frame));
+      }
+      setShotPreviews(tileGroups.map((t) => t[0]));
+      const result = await extractRestaurantsFromCaptures(tileGroups, {
+        onBatchProgress: (i, total) => {
+          setReadingStage(total > 1 ? `Reading part ${i + 1} of ${total}…` : '');
+        },
+      });
       if (!result.ok || !result.restaurants) {
-        setParseError(result.error || "Couldn't read those screenshots. Try again with clearer images.");
+        setParseError(result.error || "Couldn't read those captures. Try again with clearer ones.");
         return;
       }
+      const labelParts = [
+        images.length > 0 ? `${images.length} screenshot${images.length === 1 ? '' : 's'}` : '',
+        videos.length > 0 ? `${videos.length === 1 ? 'a screen recording' : `${videos.length} screen recordings`}` : '',
+      ].filter(Boolean);
       acceptParsed(
         result.restaurants.map((r) => ({
           name: r.name,
@@ -238,12 +263,17 @@ export const ImportRestaurants: React.FC = () => {
           priceRange: 0,
           isWishlist: !!r.wishlist,
         })),
-        `${files.length} screenshot${files.length === 1 ? '' : 's'}`,
+        labelParts.join(' + '),
       );
-    } catch {
-      setParseError("Couldn't read one of those images. Use JPG or PNG screenshots and try again.");
+    } catch (err) {
+      setParseError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Couldn't read one of those files. Use JPG/PNG screenshots or an MP4/MOV recording and try again.",
+      );
     } finally {
       setAiReading(false);
+      setReadingStage('');
       setShotPreviews([]);
     }
   };
@@ -251,7 +281,7 @@ export const ImportRestaurants: React.FC = () => {
   const handleScreenshots = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = e.target.files ? Array.from(e.target.files as ArrayLike<File>) : [];
     e.target.value = ''; // allow re-picking the same files
-    void readScreenshots(files);
+    void readCaptures(files);
   };
 
   // Desktop: drag screenshots anywhere onto the acquisition step.
@@ -269,7 +299,7 @@ export const ImportRestaurants: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer) void readScreenshots(Array.from(e.dataTransfer.files));
+    if (e.dataTransfer) void readCaptures(Array.from(e.dataTransfer.files));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -422,7 +452,7 @@ export const ImportRestaurants: React.FC = () => {
           </button>
           <div>
             <h1 className="text-lg font-serif font-semibold text-primary">Import Restaurants</h1>
-            <p className="text-xs text-on-surface/45">From Beli screenshots, or a file</p>
+            <p className="text-xs text-on-surface/45">From Beli screenshots, a screen recording, or a file</p>
           </div>
         </div>
       </motion.div>
@@ -452,11 +482,11 @@ export const ImportRestaurants: React.FC = () => {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-bold leading-tight">
-                    {dragOver ? 'Drop your screenshots' : 'Import from screenshots'}
+                    {dragOver ? 'Drop your screenshots or recording' : 'Import from screenshots or a recording'}
                   </span>
                   <span className="block text-[12px] text-white/80 mt-1 leading-snug">
-                    Screenshot your Beli lists (or Google Maps, Notes — anything) and we'll read the restaurants, scores and all.
-                    <span className="hidden md:inline"> You can also drag &amp; drop them here.</span>
+                    Screenshot your Beli lists — or just screen-record yourself scrolling through one — and we'll read the restaurants, scores and all.
+                    <span className="hidden md:inline"> You can also drag &amp; drop here.</span>
                   </span>
                 </span>
               </div>
@@ -468,8 +498,8 @@ export const ImportRestaurants: React.FC = () => {
                 <Sparkles size={12} className="text-primary" /> Importing from Beli
               </p>
               <ol className="space-y-1.5 text-xs text-on-surface/65 list-none">
-                <li className="flex gap-2"><span className="font-bold text-primary">1.</span> Open your list in Beli and screenshot it — scroll and screenshot again until you've covered it.</li>
-                <li className="flex gap-2"><span className="font-bold text-primary">2.</span> Tap the button above and pick those screenshots (up to {MAX_SCREENSHOTS} at a time).</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">1.</span> Open your list in Beli. Easiest: start a screen recording and scroll steadily to the bottom. Or screenshot as you scroll (up to {MAX_SCREENSHOTS} at a time).</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">2.</span> Tap the button above and pick the recording or the screenshots.</li>
                 <li className="flex gap-2"><span className="font-bold text-primary">3.</span> Review the matches and import — scores come across exactly as rated.</li>
               </ol>
             </div>
@@ -484,7 +514,7 @@ export const ImportRestaurants: React.FC = () => {
               <p className="text-xs text-on-surface/35 mt-1">CSV or JSON with a "name" column — ratings, cities and notes come along if present</p>
             </div>
 
-            <input ref={screenshotInputRef} type="file" accept="image/*" multiple onChange={handleScreenshots} className="hidden" />
+            <input ref={screenshotInputRef} type="file" accept="image/*,video/*" multiple onChange={handleScreenshots} className="hidden" />
             <input ref={fileInputRef} type="file" accept=".csv,.json,.txt" onChange={handleFileUpload} className="hidden" />
 
             {parseError && (
@@ -513,9 +543,9 @@ export const ImportRestaurants: React.FC = () => {
             )}
             <div className="flex items-center justify-center gap-2 text-sm font-semibold text-on-surface/70">
               <Loader2 size={16} className="animate-spin text-primary" />
-              Reading your screenshots…
+              {readingStage || 'Reading your list…'}
             </div>
-            <p className="text-xs text-on-surface/40">Pulling out every restaurant, score and city. This takes a few seconds.</p>
+            <p className="text-xs text-on-surface/40">Pulling out every restaurant, score and city. This takes a few seconds{readingStage.startsWith('Reading part') ? ' per part' : ''}.</p>
           </div>
         )}
 
