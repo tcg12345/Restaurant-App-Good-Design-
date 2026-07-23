@@ -434,7 +434,11 @@ export const AddRestaurantModal: React.FC = () => {
             className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
-                : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                // The Rate page hugs its content on desktop — a floating
+                // dialog, not a full-height sheet with dead space.
+                : page === 'rate'
+                  ? "h-full sm:h-auto sm:min-h-[560px] sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+                  : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
             {photoInput}
@@ -445,33 +449,27 @@ export const AddRestaurantModal: React.FC = () => {
                   Details live on the next page. */}
               {page === 'rate' && (
                 <motion.div key="rate" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
-                  className="flex flex-col flex-1 min-h-0">
-                  <div className="px-5 pt-safe-4 sm:pt-5 pb-1 flex items-center justify-between flex-shrink-0">
-                    {existing && !tieBreakActive ? (
-                      <button
-                        onClick={() => setPage('main')}
-                        aria-label="Back to details"
-                        className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.08] transition-colors"
-                      >
-                        <ChevronLeft size={18} />
-                      </button>
-                    ) : <span className="w-9 h-9" />}
-                    <button onClick={closeAddRestaurantModal} aria-label="Close"
-                      className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.08] transition-colors">
-                      <X size={18} />
+                  className="relative flex flex-col flex-1 min-h-0 bg-on-surface/[0.025]">
+                  {/* Floating chrome — the step content owns the page. */}
+                  {existing && !tieBreakActive && (
+                    <button
+                      onClick={() => setPage('main')}
+                      aria-label="Back to details"
+                      style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
+                      className="absolute left-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors"
+                    >
+                      <ChevronLeft size={18} />
                     </button>
-                  </div>
-                  <div className="px-5 pb-4 flex-shrink-0">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary/75 mb-2">
-                      {tieBreakActive ? 'Tie-break' : existing && isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : existing ? 'Re-rank' : 'Rate'}
-                    </p>
-                    <h2 className="font-serif font-bold text-[27px] leading-[1.08] tracking-[-0.015em] text-on-surface">
-                      How was {restaurant.name}?
-                    </h2>
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-[12vh] flex flex-col">
+                  )}
+                  <button onClick={closeAddRestaurantModal} aria-label="Close"
+                    style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
+                    className="absolute right-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors">
+                    <X size={17} />
+                  </button>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-16 flex flex-col">
                     {tieBreakActive && (
-                      <div className="pt-1 pb-2 text-center">
+                      <div className="pt-2 pb-3 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70 mb-1.5">Tie-break</p>
                         <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
                           You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
                         </p>
@@ -487,6 +485,10 @@ export const AddRestaurantModal: React.FC = () => {
                             resolveMeta={getRestaurantInfo}
                             settlePreview={previewSettledScore}
                             scoresUnlocked={scoresUnlocked}
+                            heading={{
+                              eyebrow: existing && isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : existing ? 'Re-rank' : 'Rate',
+                              title: `How was ${restaurant.name}?`,
+                            }}
                             state={h2hState}
                             setState={setH2hState}
                             skipTierSelect={tieBreakActive}
@@ -535,6 +537,12 @@ export const AddRestaurantModal: React.FC = () => {
                           transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
                           className="flex-1 flex flex-col items-center justify-center"
                         >
+                          <div className="text-center mb-7 px-2">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70 mb-2.5">Your own score</p>
+                            <h2 className="font-serif font-bold text-[26px] leading-[1.12] tracking-[-0.015em] text-on-surface">
+                              How was {restaurant.name}?
+                            </h2>
+                          </div>
                           <div className="text-center mb-4">
                             <div className={cn("font-serif font-bold tabular-nums leading-none text-[44px] sm:text-[48px] transition-colors duration-300", scoreClr)}>
                               {score.toFixed(1)}

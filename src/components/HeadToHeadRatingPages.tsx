@@ -165,7 +165,10 @@ export const InlineH2H: React.FC<{
   /** Beli-style score lock: below the unlock threshold the reveal shows
    *  rank + sentiment instead of a number. */
   scoresUnlocked?: boolean;
-}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta, settlePreview, onChooseOwnScore, scoresUnlocked = true }) => {
+  /** Eyebrow + question rendered as the sentiment step's own headline, so
+   *  the step reads as one composed cluster instead of a stranded title. */
+  heading?: { eyebrow: string; title: string };
+}> = ({ ratings, excludeId, newRestaurant, state, setState, onComplete, onCancelFromStart, skipTierSelect, skipResult, resolveMeta, settlePreview, onChooseOwnScore, scoresUnlocked = true, heading }) => {
   const complete = state !== null && state !== undefined && isComplete(state);
   // Comparison for the compare step (computed once per render — also feeds
   // the auto-complete check below).
@@ -191,6 +194,7 @@ export const InlineH2H: React.FC<{
     if (skipTierSelect) return null;
     return (
       <SentimentSelect
+        heading={heading}
         onChooseOwnScore={onChooseOwnScore}
         onPick={(tier) => {
           const target: SimilarityInput = {
@@ -271,24 +275,31 @@ const TIER_DOT_HEX: Record<Tier, string> = {
 const SentimentSelect: React.FC<{
   onPick: (tier: Tier) => void;
   onChooseOwnScore?: () => void;
-}> = ({ onPick, onChooseOwnScore }) => (
+  heading?: { eyebrow: string; title: string };
+}> = ({ onPick, onChooseOwnScore, heading }) => (
   <motion.div key="sentiment" {...stepMotion} className="flex-1 flex flex-col justify-center">
-    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-5 text-center">
-      How did you feel overall?
-    </p>
-    <div className="space-y-2.5 w-full max-w-md mx-auto">
+    {heading && (
+      <div className="text-center mb-8 px-2">
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70 mb-2.5">{heading.eyebrow}</p>
+        <h2 className="font-serif font-bold text-[28px] leading-[1.12] tracking-[-0.015em] text-on-surface">
+          {heading.title}
+        </h2>
+      </div>
+    )}
+    <div className="space-y-3.5 w-full max-w-md mx-auto">
       {TIER_ORDER.map((tier, idx) => (
         <motion.button
           key={tier}
           type="button"
           onClick={() => onPick(tier)}
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.04 + idx * 0.05, type: 'spring', stiffness: 400, damping: 30 }}
+          whileHover={{ y: -2 }}
           whileTap={{ scale: 0.98 }}
-          className="w-full flex items-center justify-between gap-4 px-6 py-[22px] rounded-2xl bg-white border border-on-surface/[0.09] text-left shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-on-surface/25 hover:shadow-[0_4px_14px_-6px_rgba(0,0,0,0.10)] transition-all"
+          className="w-full flex items-center justify-between gap-4 px-6 py-5 rounded-[20px] bg-surface border border-on-surface/[0.05] text-left shadow-[0_10px_28px_-14px_rgba(28,24,22,0.18),0_2px_6px_-2px_rgba(28,24,22,0.06)] hover:shadow-[0_16px_38px_-16px_rgba(28,24,22,0.24),0_2px_6px_-2px_rgba(28,24,22,0.06)] transition-shadow"
         >
-          <span className="font-serif font-bold text-[20px] tracking-[-0.01em] text-on-surface">
+          <span className="font-serif font-bold text-[19px] tracking-[-0.01em] text-on-surface">
             {TIER_LABELS[tier]}
           </span>
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: TIER_DOT_HEX[tier] }} />
@@ -300,7 +311,7 @@ const SentimentSelect: React.FC<{
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.25 }}
-        className="mt-7 text-center"
+        className="mt-8 text-center"
       >
         <button
           type="button"
@@ -343,85 +354,88 @@ const InlineCompare: React.FC<{
   );
   return (
     <motion.div key="inline-compare" {...stepMotion} className="flex-1 flex flex-col justify-center">
-      <div className="flex items-center justify-between mb-2">
+      <div className="relative w-full max-w-md mx-auto">
         <button
           type="button"
           onClick={onBack}
-          className="p-1 -ml-1 rounded-full hover:bg-on-surface/5 text-on-surface/45 hover:text-on-surface transition-colors"
+          className="absolute -top-1.5 left-0 w-9 h-9 -ml-2 rounded-full grid place-items-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/5 transition-colors"
           aria-label="Back"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={18} />
         </button>
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
-          Which did you enjoy more?
-        </p>
-        <span className="text-[10.5px] font-semibold text-on-surface/40 tabular-nums w-9 text-right">
-          {done + 1} / {total || done + 1}
-        </span>
-      </div>
-      <div className="h-px bg-on-surface/[0.07] rounded-full overflow-hidden mb-6 relative">
-        <motion.div
-          className="absolute inset-y-0 left-0 bg-on-surface/60"
-          initial={false}
-          animate={{ width: `${progress * 100}%` }}
-          transition={{ type: 'spring', stiffness: 200, damping: 28 }}
-        />
-      </div>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={comparison.restaurantId + ':' + state.history.length}
-          initial={{ opacity: 0, x: 26 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -26 }}
-          transition={{ type: 'tween', duration: 0.24, ease: EASE }}
-          className="w-full max-w-md mx-auto"
-        >
-          <CompareCard
-            label="Rating now"
-            labelTone="primary"
-            name={newRestaurant.name}
-            cuisine={newRestaurant.cuisine}
-            price={newRestaurant.price}
-            address={newRestaurant.address}
-            onPick={() => onPick(true)}
-          />
-          <div className="flex items-center gap-4 my-1.5 px-2">
-            <span className="flex-1 h-px bg-on-surface/[0.07]" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface/30">or</span>
-            <span className="flex-1 h-px bg-on-surface/[0.07]" />
+        <div className="text-center mb-6 px-10">
+          <h2 className="font-serif font-bold text-[24px] leading-[1.15] tracking-[-0.015em] text-on-surface">
+            Which did you enjoy more?
+          </h2>
+          <div className="mt-3 flex items-center justify-center gap-2.5">
+            <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/35 tabular-nums">
+              {done + 1} of {total || done + 1}
+            </span>
+            <span className="relative w-16 h-[3px] rounded-full bg-on-surface/[0.08] overflow-hidden">
+              <motion.span
+                className="absolute inset-y-0 left-0 bg-primary/70 rounded-full"
+                initial={false}
+                animate={{ width: `${progress * 100}%` }}
+                transition={{ type: 'spring', stiffness: 200, damping: 28 }}
+              />
+            </span>
           </div>
-          <CompareCard
-            label="Already rated"
-            labelTone="neutral"
-            name={comparison.name}
-            cuisine={comparison.cuisine}
-            price={comparison.price}
-            address={comparison.address}
-            notes={comparison.notes}
-            onPick={() => onPick(false)}
-          />
-          {hint && (
-            <p className="mt-3 text-center text-[11px] font-medium text-on-surface/35">{hint}</p>
-          )}
-        </motion.div>
-      </AnimatePresence>
-      <div className="mt-6 flex items-center gap-2 w-full max-w-md mx-auto">
-        <button
-          type="button"
-          onClick={onTie}
-          className="flex-1 py-3 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.08] text-on-surface/70 hover:text-on-surface font-semibold text-[13px] transition-colors active:scale-[0.98]"
-        >
-          Too close to call
-        </button>
-        <button
-          type="button"
-          onClick={onSkip}
-          className="inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/[0.05] font-semibold text-[13px] transition-colors active:scale-[0.98]"
-          aria-label="Skip this comparison"
-        >
-          <SkipForward size={14} />
-          Skip
-        </button>
+        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={comparison.restaurantId + ':' + state.history.length}
+            initial={{ opacity: 0, x: 26 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -26 }}
+            transition={{ type: 'tween', duration: 0.24, ease: EASE }}
+          >
+            <CompareCard
+              label="Rating now"
+              labelTone="primary"
+              name={newRestaurant.name}
+              cuisine={newRestaurant.cuisine}
+              price={newRestaurant.price}
+              address={newRestaurant.address}
+              onPick={() => onPick(true)}
+            />
+            <div className="flex items-center justify-center my-2.5">
+              <span className="w-8 h-8 rounded-full bg-surface shadow-[0_4px_12px_-4px_rgba(28,24,22,0.18)] ring-1 ring-on-surface/[0.06] grid place-items-center text-[9.5px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
+                or
+              </span>
+            </div>
+            <CompareCard
+              label="Already rated"
+              labelTone="neutral"
+              name={comparison.name}
+              cuisine={comparison.cuisine}
+              price={comparison.price}
+              address={comparison.address}
+              notes={comparison.notes}
+              onPick={() => onPick(false)}
+            />
+            {hint && (
+              <p className="mt-3.5 text-center text-[11px] font-medium text-on-surface/35">{hint}</p>
+            )}
+          </motion.div>
+        </AnimatePresence>
+        <div className="mt-6 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onTie}
+            className="flex-1 py-3 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.08] text-on-surface/70 hover:text-on-surface font-semibold text-[13px] transition-colors active:scale-[0.98]"
+          >
+            Too close to call
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            className="inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-full text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/[0.05] font-semibold text-[13px] transition-colors active:scale-[0.98]"
+            aria-label="Skip this comparison"
+          >
+            <SkipForward size={14} />
+            Skip
+          </button>
+        </div>
       </div>
     </motion.div>
   );
@@ -456,9 +470,10 @@ const CompareCard: React.FC<{
     <motion.button
       type="button"
       onClick={onPick}
+      whileHover={{ y: -2 }}
       whileTap={{ scale: 0.985 }}
       transition={{ type: 'spring', stiffness: 400, damping: 26 }}
-      className="group w-full rounded-2xl bg-white border border-on-surface/[0.09] shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-on-surface/25 hover:shadow-[0_4px_14px_-6px_rgba(0,0,0,0.10)] transition-all text-left px-6 py-5"
+      className="group w-full rounded-[20px] bg-surface border border-on-surface/[0.05] shadow-[0_10px_28px_-14px_rgba(28,24,22,0.18),0_2px_6px_-2px_rgba(28,24,22,0.06)] hover:shadow-[0_16px_38px_-16px_rgba(28,24,22,0.24),0_2px_6px_-2px_rgba(28,24,22,0.06)] transition-shadow text-left px-6 py-5"
     >
       <p className={cn(
         'text-[10px] font-bold uppercase tracking-[0.16em] mb-1.5',
