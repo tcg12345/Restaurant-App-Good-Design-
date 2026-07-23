@@ -1,5 +1,8 @@
 import React, { useState, useRef } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Bookmark, CheckCircle, XCircle, Loader2, FileUp, Images, Sparkles, X, AlertTriangle } from 'lucide-react';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
@@ -160,6 +163,9 @@ const MAX_SCREENSHOTS = 6;
 
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
+  // Mobile top bar dissolves with scroll, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const { ratings, rateRestaurant, cacheRestaurantMeta, addToWishlist, wishlist } = useLists();
   const { isSignedIn } = useAuth();
   const { requireSignIn } = useSignInModal();
@@ -405,7 +411,11 @@ export const ImportRestaurants: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface">
-      <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3">
+      <motion.div
+        ref={headerFade.headerRef}
+        style={headerFade.headerStyle}
+        className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3"
+      >
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 hover:bg-primary/5 rounded-full transition-colors">
             <ArrowLeft className="w-5 h-5 text-primary" />
@@ -415,7 +425,7 @@ export const ImportRestaurants: React.FC = () => {
             <p className="text-xs text-on-surface/45">From Beli screenshots, or a file</p>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
         {/* Acquisition step — screenshots (primary) or a file (secondary).

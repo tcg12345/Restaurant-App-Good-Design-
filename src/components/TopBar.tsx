@@ -1,8 +1,10 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import { ArrowLeft, Users, MessageCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 
 interface TopBarProps {
   title?: string;
@@ -18,15 +20,21 @@ interface TopBarProps {
   centerLogo?: boolean;
   showBackButton?: boolean;
   onBack?: () => void;
+  /** Discover-style scroll fade: the bar dissolves as the page scrolls
+   *  and returns near the top. For body-scrolling pages that render the
+   *  bar directly (Profile); Discover animates its own wrapper instead. */
+  fadeOnScroll?: boolean;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack }) => {
+export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
   const navigate = useNavigate();
   const location = useLocation();
 
   const isCirclePage = location.pathname === '/circle';
+  const fade = useHeaderFade({ enabled: fadeOnScroll, windowScroll: true });
+  const fadeProps = fadeOnScroll ? { ref: fade.headerRef, style: fade.headerStyle } : {};
 
   const handleBack = () => {
     if (onBack) {
@@ -88,23 +96,23 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   // doesn't sit awkwardly next to the leftAction.
   if (centerLogo) {
     return (
-      <header className="sticky top-0 w-full px-4 pt-safe-4 pb-4 grid grid-cols-[1fr_auto_1fr] items-center bg-surface/70 backdrop-blur-md z-40">
+      <motion.header {...fadeProps} className="sticky top-0 w-full px-4 pt-safe-4 pb-4 grid grid-cols-[1fr_auto_1fr] items-center bg-surface/70 backdrop-blur-md z-40">
         <div className="flex items-center justify-start">
           {leftAction ?? (showBackButton ? backButton : null)}
         </div>
         <div className="flex items-center justify-center">{logo}</div>
         <div className="flex items-center justify-end">{rightCluster}</div>
-      </header>
+      </motion.header>
     );
   }
 
   return (
-    <header className="sticky top-0 w-full px-6 pt-safe-4 pb-4 flex items-center justify-between bg-surface/70 backdrop-blur-md z-40">
+    <motion.header {...fadeProps} className="sticky top-0 w-full px-6 pt-safe-4 pb-4 flex items-center justify-between bg-surface/70 backdrop-blur-md z-40">
       <div className="flex items-center gap-3">
         {leftAction ?? (showBackButton ? backButton : logo)}
         <h1 className="text-xl font-serif font-bold tracking-tight">{title}</h1>
       </div>
       {rightCluster}
-    </header>
+    </motion.header>
   );
 };

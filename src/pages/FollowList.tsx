@@ -23,7 +23,10 @@
  *                          request for private ones; sign-in gated)
  */
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Heart, Loader2, Lock, MapPin, Search, Star, UserCircle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -53,6 +56,9 @@ export const FollowList: React.FC = () => {
   const { requireSignIn } = useSignInModal();
   const { showToast } = useToast();
   const listsCtx = useLists();
+  const { phoneMode } = useSettings();
+  // Header (username + tabs) dissolves as the list scrolls, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const userId = user?.id ?? null;
 
   // Active tab is the last path segment (/user/:username/<tab>).
@@ -295,7 +301,11 @@ export const FollowList: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface pb-24">
       {/* header — back on the left, the profile's username centered */}
-      <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-line">
+      <motion.header
+        ref={headerFade.headerRef}
+        style={headerFade.headerStyle}
+        className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-line"
+      >
         <div className="mx-auto max-w-[560px] grid grid-cols-[44px_1fr_44px] items-center px-2 pt-safe-3 pb-2">
           <button
             onClick={() => navigate(-1)}
@@ -339,7 +349,7 @@ export const FollowList: React.FC = () => {
             })}
           </div>
         )}
-      </header>
+      </motion.header>
 
       {!canView ? (
         // Private account the viewer doesn't follow — mirror UserProfile's

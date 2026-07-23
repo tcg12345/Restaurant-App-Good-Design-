@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Loader2, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreChipBg } from '../lib/score';
@@ -51,6 +54,9 @@ export const RestaurantCircleReviews: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { phoneMode } = useSettings();
+  // Mobile top bar dissolves with scroll, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
 
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
@@ -131,8 +137,8 @@ export const RestaurantCircleReviews: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-24 bg-cream">
-      {/* Top bar */}
-      <header className="sticky top-0 z-10 backdrop-blur-md bg-cream/90">
+      {/* Top bar — fades away with scroll, back near the top */}
+      <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-10 backdrop-blur-md bg-cream/90">
         <div className="flex items-center gap-3 px-3 pt-safe-4 pb-3">
           <button
             type="button"
@@ -169,7 +175,7 @@ export const RestaurantCircleReviews: React.FC = () => {
             )}
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <main className="px-3 pt-2">
         {entries.length === 0 ? (

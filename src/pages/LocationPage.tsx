@@ -101,6 +101,7 @@ import {
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { getGuidesForLocation, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import {
   FilterDrillSection,
@@ -444,6 +445,9 @@ export const LocationPage: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isMobile = phoneMode || isNarrowViewport;
+  // Mobile header (back · location pill · share) dissolves with scroll,
+  // Discover-style, and returns near the top.
+  const headerFade = useHeaderFade({ enabled: isMobile, windowScroll: true });
   // Drives the headless HomeLocationBar picker opened from the mobile
   // header's "{city} ▾" button.
   const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
@@ -2188,7 +2192,11 @@ export const LocationPage: React.FC = () => {
           row: the back arrow lives inside the sticky filter bar below,
           so the page chrome is one bar instead of two stacked strips. */}
       {isMobile && (
-      <div className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3" style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)' }}>
+      <motion.div
+        ref={headerFade.headerRef}
+        className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3"
+        style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)', ...headerFade.headerStyle }}
+      >
         <div className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
           <button
             type="button"
@@ -2225,7 +2233,7 @@ export const LocationPage: React.FC = () => {
             <Share2 size={20} />
           </button>
         </div>
-      </div>
+      </motion.div>
       )}
 
       {/* Headless location picker — opened by tapping "{city} ▾" in the

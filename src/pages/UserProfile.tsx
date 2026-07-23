@@ -6,6 +6,7 @@ import {
   Share2, Send, ArrowUpDown, Image as ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { cn } from '../lib/utils';
 import { scoreHex } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -82,6 +83,8 @@ export const UserProfile: React.FC = () => {
   const { phoneMode } = useSettings();
   const { restaurantMeta } = useLists();
   const userId = user?.id ?? null;
+  // Mobile top bar dissolves as you scroll, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1179,8 +1182,12 @@ export const UserProfile: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-surface pb-16">
-      {/* sticky glass top bar */}
-      <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur-xl">
+      {/* sticky glass top bar — fades away with scroll, back near the top */}
+      <motion.header
+        ref={headerFade.headerRef}
+        style={headerFade.headerStyle}
+        className="sticky top-0 z-30 bg-surface/80 backdrop-blur-xl"
+      >
         <div className="flex items-center justify-between px-3 pt-safe-3 pb-2.5">
           <button
             onClick={() => navigate(-1)}
@@ -1200,7 +1207,7 @@ export const UserProfile: React.FC = () => {
             </button>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       {/* identity */}
       <div className="flex flex-col items-center text-center px-6 pt-2">

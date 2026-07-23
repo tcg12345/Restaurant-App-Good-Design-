@@ -9,6 +9,7 @@ import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, t
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -1491,6 +1492,9 @@ const MobileMessageList: React.FC<{
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
   const q = query.trim().toLowerCase();
+  // Header (title + search + tabs) floats over the list and dissolves
+  // with scroll, Discover-style. This view only renders on phones.
+  const headerFade = useHeaderFade();
 
   const matchesConv = (c: Conversation) => {
     if (!q) return true;
@@ -1522,8 +1526,14 @@ const MobileMessageList: React.FC<{
   ];
 
   return (
-    <div className="h-screen flex flex-col bg-surface">
-      <header className="flex-shrink-0 px-4 pt-safe-4 pb-2.5 bg-surface/90 backdrop-blur-md border-b border-on-surface/[0.06]">
+    <div className="h-screen flex flex-col bg-surface relative">
+      {/* Floating header — absolute so the list scrolls beneath it while it
+          fades; the list's paddingTop clears its measured height. */}
+      <motion.header
+        ref={headerFade.headerRef}
+        style={headerFade.headerStyle}
+        className="absolute top-0 inset-x-0 z-30 px-4 pt-safe-4 pb-2.5 bg-surface/90 backdrop-blur-md border-b border-on-surface/[0.06]"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <button onClick={onBack} className="p-1.5 -ml-1.5 text-on-surface/45 active:text-on-surface"><ArrowLeft size={22} /></button>
@@ -1543,9 +1553,14 @@ const MobileMessageList: React.FC<{
             </button>
           ))}
         </div>
-      </header>
+      </motion.header>
 
-      <div className="flex-1 overflow-y-auto pb-safe-5">
+      <div
+        ref={headerFade.scrollRef}
+        onScroll={headerFade.onScroll}
+        className="flex-1 overflow-y-auto pb-safe-5"
+        style={{ paddingTop: headerFade.headerH }}
+      >
         {tab === 'all' && !q && rail.length > 0 && (
           <div className="flex gap-3.5 px-4 pt-3.5 pb-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button onClick={onCompose} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">

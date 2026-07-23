@@ -26,6 +26,8 @@ import { useReels, reelRowToUi, type Reel } from '../contexts/ReelsContext';
 import { usePosts, postRowToUi, type Post } from '../contexts/PostsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { listReelIdsCommentedByUser, listReels } from '../lib/supabase-reels';
 import { listPostIdsCommentedByUser, listPosts } from '../lib/supabase-posts';
 import {
@@ -335,19 +337,29 @@ const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
 
 /* ── Top header (back arrow + title) ──────────────────────────────────── */
 
-const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => (
-  <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.07] px-5 pt-safe-3 pb-3 flex items-center gap-3">
-    <button
-      type="button"
-      onClick={onBack}
-      aria-label="Back"
-      className="w-9 h-9 rounded-full hover:bg-on-surface/[0.05] flex items-center justify-center text-on-surface/65 transition-colors"
+const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
+  // On phones the bar dissolves as you scroll (Discover-style) and
+  // returns at the top; desktop keeps it pinned.
+  const { phoneMode } = useSettings();
+  const fade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
+  return (
+    <motion.header
+      ref={fade.headerRef}
+      style={fade.headerStyle}
+      className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.07] px-5 pt-safe-3 pb-3 flex items-center gap-3"
     >
-      <ArrowLeft size={18} />
-    </button>
-    <h1 className="font-serif font-bold text-on-surface text-[18px] leading-none">{title}</h1>
-  </header>
-);
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back"
+        className="w-9 h-9 rounded-full hover:bg-on-surface/[0.05] flex items-center justify-center text-on-surface/65 transition-colors"
+      >
+        <ArrowLeft size={18} />
+      </button>
+      <h1 className="font-serif font-bold text-on-surface text-[18px] leading-none">{title}</h1>
+    </motion.header>
+  );
+};
 
 /* ── The page ─────────────────────────────────────────────────────────── */
 

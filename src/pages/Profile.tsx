@@ -1231,6 +1231,7 @@ export const Profile: React.FC = () => {
       {!isDesktop && (
         <TopBar
           centerLogo={phoneMode}
+          fadeOnScroll={phoneMode}
           leftAction={phoneMode ? (
             <button
               type="button"

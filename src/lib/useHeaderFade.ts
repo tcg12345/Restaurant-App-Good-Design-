@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useMotionValue, useTransform, type MotionValue } from 'motion/react';
 
 /* ── Scroll-linked header fade ──────────────────────────────────────────────
@@ -33,6 +33,10 @@ export interface HeaderFade {
     y: MotionValue<number>;
     pointerEvents: MotionValue<string>;
   };
+  /** Measured header height (px). Pages that float the header as an
+   *  absolute overlay (flex-column layouts, like Discover home) use this
+   *  as the scroll content's paddingTop so nothing hides underneath. */
+  headerH: number;
 }
 
 export function useHeaderFade({
@@ -51,6 +55,7 @@ export function useHeaderFade({
   const headerEl = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fadeDistRef = useRef(fadeDist ?? 96);
+  const [headerH, setHeaderH] = useState(0);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   const explicitDist = fadeDist !== undefined;
@@ -81,19 +86,20 @@ export function useHeaderFade({
   const headerRef = useCallback(
     (el: HTMLElement | null) => {
       headerEl.current = el;
-      if (el && !explicitDist) fadeDistRef.current = Math.max(40, el.offsetHeight);
+      if (el) {
+        if (!explicitDist) fadeDistRef.current = Math.max(40, el.offsetHeight);
+        setHeaderH(el.offsetHeight);
+      }
     },
     [explicitDist],
   );
   useEffect(() => {
-    if (explicitDist) {
-      fadeDistRef.current = fadeDist!;
-      return;
-    }
+    if (explicitDist) fadeDistRef.current = fadeDist!;
     const el = headerEl.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
-      fadeDistRef.current = Math.max(40, el.offsetHeight);
+      if (!explicitDist) fadeDistRef.current = Math.max(40, el.offsetHeight);
+      setHeaderH(el.offsetHeight);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -120,5 +126,5 @@ export function useHeaderFade({
     }
   }, [enabled, windowScroll, applyScroll, opacity, y]);
 
-  return { headerRef, scrollRef, onScroll, headerStyle: { opacity, y, pointerEvents } };
+  return { headerRef, scrollRef, onScroll, headerStyle: { opacity, y, pointerEvents }, headerH };
 }

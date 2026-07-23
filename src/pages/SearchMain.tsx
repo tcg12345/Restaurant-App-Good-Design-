@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
@@ -284,6 +286,9 @@ export const SearchMain: React.FC = () => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  // Mobile header dissolves with scroll (Discover-style); scroll back to
+  // the top to search again — same as the home feed's search bar.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const recipesSectionRef = useRef<HTMLElement>(null);
   const friendsSectionRef = useRef<HTMLElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1052,7 +1057,14 @@ export const SearchMain: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <header ref={headerRef} className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40">
+      <motion.header
+        ref={(el: HTMLElement | null) => {
+          headerRef.current = el;
+          headerFade.headerRef(el);
+        }}
+        style={headerFade.headerStyle}
+        className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40"
+      >
         <div className="px-4 pt-safe-3 pb-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
           <button
             type="button"
@@ -1089,7 +1101,7 @@ export const SearchMain: React.FC = () => {
             )}
           </form>
         </div>
-      </header>
+      </motion.header>
 
       <main className={cn('pt-2 md:max-w-2xl md:mx-auto md:px-4', !phoneMode && 'px-4')}>
         {hasQuery ? (

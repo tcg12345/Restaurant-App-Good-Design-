@@ -8,6 +8,8 @@ import {
 import { cn } from '../lib/utils';
 import { scoreColor, scoreRingStrong, scoreGradientOverlay } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import {
   getProfilesByIds, getCommunityPhotos, getLikesForRatings,
@@ -54,6 +56,9 @@ export const FriendReviewDetail: React.FC = () => {
   const { ratingId } = useParams<{ ratingId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { phoneMode } = useSettings();
+  // Mobile top bar dissolves with scroll, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const userId = user?.id ?? null;
 
   const [loading, setLoading] = useState(true);
@@ -214,8 +219,8 @@ export const FriendReviewDetail: React.FC = () => {
       exit={{ opacity: 0 }}
       className="min-h-screen bg-surface pb-28"
     >
-      {/* Sticky header */}
-      <div className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">
+      {/* Sticky header — fades away with scroll, back near the top */}
+      <motion.div ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">
         <div className="flex items-center gap-3 px-3 pt-safe-3 pb-3">
           <button
             onClick={() => navigate(-1)}
@@ -228,7 +233,7 @@ export const FriendReviewDetail: React.FC = () => {
             <p className="text-sm font-semibold truncate">{authorName}</p>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Hero — score-matched gradient overlay; tap to cycle photos */}
       <div className="relative w-full aspect-[16/10] bg-on-surface/5 overflow-hidden">
