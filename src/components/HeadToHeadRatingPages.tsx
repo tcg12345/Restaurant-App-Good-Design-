@@ -498,8 +498,9 @@ const InlineResult: React.FC<{
   excludeId: string;
   scoresUnlocked: boolean;
   /** What the score becomes after the tier settles (may differ from the raw
-   *  H2H midpoint — e.g. a "too close to call" lands one display step below
-   *  the pivot). When provided, the dial shows this saved-to-list value. */
+   *  H2H midpoint — e.g. a score that collides with a neighbor settles one
+   *  display step away). When provided, the dial shows this saved-to-list
+   *  value. */
   settledScore?: number;
   onUse: () => void;
   onRedo: () => void;

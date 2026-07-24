@@ -272,7 +272,7 @@ describe('comparison budget', () => {
       kind: 'choice', pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
       prevLo: 0, prevHi: 0, prevUpper: 0, prevLower: 0,
       prevUpperFromComparison: false, prevLowerFromComparison: false,
-      prevExcluded: [], prevTiedScores: [], prevTerminalTie: null,
+      prevExcluded: [], prevTiedScores: [],
     });
     const base: Omit<H2HState, 'similarity'> = {
       tier: 'loved',
@@ -285,7 +285,6 @@ describe('comparison budget', () => {
       lowerBoundFromComparison: true,
       excluded: [],
       tiedScores: [],
-      terminalTie: null,
       history: [fakeStep(), fakeStep(), fakeStep()],
       initialPoolSize: 3,
       target: null,
@@ -303,45 +302,77 @@ describe('comparison budget', () => {
 /* ── Ties ──────────────────────────────────────────────────────────────── */
 
 describe('tie handling', () => {
-  it('one tie is terminal and anchors the final score to the pivot', () => {
+  it('a tie is NOT terminal — the search continues with other candidates', () => {
     const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
     const pivot = pickComparison(state)!;
     expect(pivot.restaurantId).toBe('b'); // midpoint of the 3-item window
     state = applyTie(state);
-    expect(state.terminalTie).toEqual({ comparisonId: 'b', score: 7.5 });
-    expect(isComplete(state)).toBe(true); // decisive — no more questions
-    expect(state.history.length).toBe(1);
-    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6); // the pivot's score
+    expect(isComplete(state)).toBe(false); // soft signal — keep asking
+    expect(state.tiedScores).toEqual([7.5]);
+    // The tied pivot is set aside; a DIFFERENT candidate is shown next.
+    expect(pickComparison(state)!.restaurantId).not.toBe('b');
+    expect(comparisonsMade(state)).toBe(1); // ties consume budget
   });
 
-  it('a tie after real choices still returns the pivot score, not the bounds midpoint', () => {
+  it('a tie with no decisive answers anywhere lands on the tied average', () => {
+    const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    while (!isComplete(state)) state = applyTie(state); // ties all the way down
+    expect(state.tiedScores.length).toBe(3);
+    expect(computeFinalScore(state)).toBeCloseTo((8.0 + 7.5 + 7.0) / 3, 6);
+  });
+
+  it('a tie pulls the final score toward the tied pivot within strict bounds', () => {
+    // Hand-built completed state: decisive bounds [7,9], one tie at 8.6.
+    const cand = (id: string, score: number): H2HCandidate => ({
+      restaurantId: id, name: id, image: '', cuisine: '', price: '', address: '',
+      notes: '', tags: [], score,
+    });
+    const step = (kind: 'choice' | 'tie'): H2HStep => ({
+      kind, pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
+      prevLo: 0, prevHi: 0, prevUpper: 0, prevLower: 0,
+      prevUpperFromComparison: false, prevLowerFromComparison: false,
+      prevExcluded: [], prevTiedScores: [],
+    });
+    const state: H2HState = {
+      tier: 'loved',
+      candidates: [cand('hi', 9.0), cand('tied', 8.6), cand('lo', 7.0)],
+      lo: 2, hi: 1, // window closed
+      upperBound: 9.0, lowerBound: 7.0,
+      upperBoundFromComparison: true, lowerBoundFromComparison: true,
+      excluded: [1], tiedScores: [8.6],
+      history: [step('choice'), step('tie'), step('choice')],
+      initialPoolSize: 3, target: null,
+      similarity: [0, 0, 0], locationScores: [0, 0, 0],
+      budget: 8,
+    };
+    // Midpoint of [7,9] is 8.0; the tie at 8.6 pulls halfway → 8.3.
+    expect(computeFinalScore(state)).toBeCloseTo(8.3, 6);
+  });
+
+  it('decisive answers cap the tie pull — strict bounds always rule', () => {
     const ratings = Array.from({ length: 7 }, (_, i) => mk(`r${i}`, 9.6 - i * 0.4));
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
-    state = applyChoice(state, true); // beat the first pivot → window moves up
+    state = applyTie(state); // ≈ the first pivot
     expect(isComplete(state)).toBe(false);
-    const pivot = pickComparison(state)!;
-    state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
-    // Anchored to the tied pivot exactly — ignores lower/upper bound midpoints.
-    expect(computeFinalScore(state)).toBeCloseTo(pivot.score, 6);
-    expect(comparisonsMade(state)).toBe(2);
+    while (!isComplete(state)) state = applyChoice(state, false); // then loses every one shown
+    // However hard the tie pulls, losses bound the score from above.
+    expect(computeFinalScore(state)).toBeLessThanOrEqual(state.upperBound);
   });
 
-  it('a terminal tie is undoable and the same pivot comes back', () => {
+  it('a tie is undoable and the same pivot comes back', () => {
     const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
     state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
+    expect(state.tiedScores).toEqual([7.5]);
     state = undoLastChoice(state);
-    expect(state.terminalTie).toBeNull();
+    expect(state.tiedScores).toEqual([]);
     expect(isComplete(state)).toBe(false);
     expect(pickComparison(state)!.restaurantId).toBe('b'); // session resumes intact
-    state = applyTie(state);
-    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6);
   });
 
-  it('a tie in a tie-break session terminates at the tied score', () => {
+  it('ties through a tie-break session land on the tied score', () => {
     const ratings = [
       mk('x', 8.0),
       mk('y', 8.0),
@@ -351,9 +382,7 @@ describe('tie handling', () => {
     ];
     let state = initH2HTieBreak(ratings, 8.0, 'self')!;
     expect(state.candidates).toHaveLength(3);
-    state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
-    expect(state.history.length).toBe(1);
+    while (!isComplete(state)) state = applyTie(state);
     expect(computeFinalScore(state)).toBeCloseTo(8.0, 6);
   });
 

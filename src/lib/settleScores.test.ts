@@ -335,10 +335,10 @@ describe('placementOrder', () => {
     expect(order).toEqual(['r10', 'r99', 'r98', 'new', 'r97', 'r96']);
   });
 
-  it('terminal tie: lands directly below the pivot', () => {
+  it('tie: lands directly below the tied pivot', () => {
     const all = [mk('a', 9.9), mk('b', 9.5), mk('c', 9.1)];
     let st = initH2H(all, 'loved');
-    st = applyTie(st); // pivot = b (midpoint)
+    st = applyTie(st); // pivot = b (midpoint) — soft signal, search continues
     const order = placementOrder(st, 'new', computeFinalScore(st));
     expect(order).toEqual(['a', 'b', 'new', 'c']);
   });
