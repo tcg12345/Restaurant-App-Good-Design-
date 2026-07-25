@@ -2440,6 +2440,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
       }
     }
+    // Photos now save as compressed inline data: URLs (the rating modal no
+    // longer blocks on Storage uploads) — kick the pending-upload pass so
+    // they move to Storage right away instead of waiting for the next
+    // boot/foreground trigger. Self-guarding no-op when nothing's pending.
+    window.setTimeout(retryPendingPhotoUploads, 100);
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
       {
@@ -2447,7 +2452,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow, syncCommunityPhotos, retryPendingPhotoUploads]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     // Compute from the eager ref and keep every side effect OUT of the

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2 } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
-import { processPhoto } from '../lib/images';
+import { compressImage } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { settleScores, tierOfScore } from '../lib/settleScores';
@@ -103,6 +103,12 @@ export const AddRestaurantModal: React.FC = () => {
   const [visitCount, setVisitCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  // Photos still being compressed. Previews (object URLs) land in state the
+  // instant the picker closes; each is swapped for its compressed inline
+  // JPEG as it finishes. Saving is blocked until this hits zero so a fast
+  // Save can never race the pipeline and lose photos.
+  const [photosProcessing, setPhotosProcessing] = useState(0);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (addRestaurantModalOpen && restaurant) {
@@ -132,6 +138,10 @@ export const AddRestaurantModal: React.FC = () => {
       }
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
+      // A previous session's in-flight previews are dead weight now.
+      for (const u of previewUrlsRef.current) URL.revokeObjectURL(u);
+      previewUrlsRef.current.clear();
+      setPhotosProcessing(0);
       // Restore the saved price when editing — resetting to -1 made "Update"
       // silently revert a hand-picked price back to the meta default. A new
       // visit keeps it too: the restaurant's price tier doesn't change
@@ -212,25 +222,51 @@ export const AddRestaurantModal: React.FC = () => {
   // stamp a made-up tier on the rating.
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const totalFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
+    const totalFiles = files ? (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/')) : [];
+    e.target.value = '';
     if (totalFiles.length === 0) return;
 
-    const newPhotos: PhotoItem[] = [];
-    for (const file of totalFiles) {
-      try {
-        const url = await processPhoto(file);
-        newPhotos.push({ url, caption: '', isFavorite: false });
-      } catch { /* skip undecodable photos (e.g. HEIC on a browser that can't decode it) */ }
-    }
-    setPhotos((prev) => {
-      const updated = [...prev, ...newPhotos];
-      setTimeout(() => setPage('photos'), 0);
-      return updated;
+    // The old pipeline compressed AND uploaded every photo to Storage before
+    // the Photos page even appeared — 20 screenshots meant 20 sequential
+    // network round-trips of dead air, during which Save could fire without
+    // them. Now: object-URL previews land in state IMMEDIATELY and the page
+    // opens; each preview is swapped for its compressed inline JPEG as it
+    // finishes (a small pool — parallel decodes of 12MP camera files spike
+    // memory); the Storage upload happens AFTER save via the pending-photo
+    // retry pass (an inline data: URL *is* that queue's membership card).
+    const staged = totalFiles.map((file) => {
+      const preview = URL.createObjectURL(file);
+      previewUrlsRef.current.add(preview);
+      return { file, preview };
     });
-    e.target.value = '';
+    setPhotos((prev) => [...prev, ...staged.map((s): PhotoItem => ({ url: s.preview, caption: '', isFavorite: false }))]);
+    setPage('photos');
+    setPhotosProcessing((n) => n + staged.length);
+
+    const queue = [...staged];
+    const worker = async () => {
+      for (;;) {
+        const item = queue.shift();
+        if (!item) return;
+        try {
+          const dataUrl = await compressImage(item.file);
+          // Swap by URL identity — reorders/caption edits/deletes made while
+          // compressing can't mis-target. A deleted preview simply matches
+          // nothing and the result is discarded.
+          setPhotos((prev) => prev.map((p) => (p.url === item.preview ? { ...p, url: dataUrl } : p)));
+        } catch {
+          // Undecodable (e.g. HEIC on a browser that can't) — drop the preview.
+          setPhotos((prev) => prev.filter((p) => p.url !== item.preview));
+        } finally {
+          window.setTimeout(() => URL.revokeObjectURL(item.preview), 1000);
+          previewUrlsRef.current.delete(item.preview);
+          setPhotosProcessing((n) => Math.max(0, n - 1));
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(3, staged.length) }, () => worker()));
   };
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
@@ -293,7 +329,11 @@ export const AddRestaurantModal: React.FC = () => {
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
         cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags, photos,
+        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags,
+        // blob: previews are session-scoped — they'd be dead links after a
+        // reload. Save is blocked while any remain; this filter is the
+        // safety net for programmatic saves (tie-break auto-save).
+        photos: photos.filter((p) => !p.url.startsWith('blob:')),
         favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
         listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
         // Provenance: how THIS session produced the score. A details-only
@@ -312,6 +352,12 @@ export const AddRestaurantModal: React.FC = () => {
 
   const handleSaveRating = () => {
     if (!restaurant) return;
+    // Photos still compressing — saving now would drop them. The button is
+    // disabled in this state; this guard covers keyboard/programmatic paths.
+    if (photosProcessing > 0) {
+      setPage('photos');
+      return;
+    }
     // A brand-new rating can't save without a score having been produced.
     if (!existing && sessionMethod === null) {
       setPage('rate');
@@ -790,9 +836,11 @@ export const AddRestaurantModal: React.FC = () => {
                         Pick a visit date to save this visit.
                       </p>
                     )}
-                    <button onClick={handleSaveRating} disabled={saving}
+                    <button onClick={handleSaveRating} disabled={saving || photosProcessing > 0}
                       className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none">
-                      {saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
+                      {photosProcessing > 0
+                        ? `Preparing ${photosProcessing} photo${photosProcessing === 1 ? '' : 's'}…`
+                        : saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}
@@ -989,6 +1037,11 @@ export const AddRestaurantModal: React.FC = () => {
                           <div key={idx} className="flex gap-3 px-5 py-4">
                             <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
                               <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                              {photo.url.startsWith('blob:') && (
+                                <div className="absolute inset-0 grid place-items-center bg-black/25">
+                                  <Loader2 size={16} className="text-white animate-spin" />
+                                </div>
+                              )}
                               <button onClick={() => removePhoto(idx)}
                                 className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
                                 <X size={10} className="text-white" />
