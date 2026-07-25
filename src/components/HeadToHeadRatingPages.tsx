@@ -672,11 +672,6 @@ const InlineResult: React.FC<{
               : 'Nothing else in this range to compare against yet.')
           : `Based on ${comparisonsMade(state)} comparison${comparisonsMade(state) === 1 ? '' : 's'}.`}
       </p>
-      {rebalanced && scoresUnlocked && (
-        <p className="text-center text-[10.5px] font-medium text-primary/80 mt-1.5 max-w-[260px] leading-relaxed">
-          Your rankings were rebalanced to make room.
-        </p>
-      )}
       <div className="mt-4 flex items-center gap-2 w-full max-w-xs">
         <button
           type="button"
