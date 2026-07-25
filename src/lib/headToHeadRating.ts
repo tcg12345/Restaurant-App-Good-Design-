@@ -42,14 +42,16 @@ export type CandidateMetaResolver = (
 
 /* ── Similarity-aware selection tunables ───────────────────────────────── */
 
-/** Max real comparisons (choices + ties) before we finalize by interpolation.
- *  Plain bisection resolves up to 2^8−1 = 255 candidates in 8 probes, and the
- *  budget guard in `pickComparisonIndex` only allows similarity-biased (off-
- *  midpoint) pivots while the remaining budget still covers the worst case —
- *  so for any realistic pool the search always closes the window completely
- *  and the final position is exactly what plain binary search would produce. */
+/** BIAS budget — how many real answers (choices + ties) may use similarity-
+ *  biased (off-midpoint) pivots. It does NOT end the session: the search
+ *  always continues until every candidate left inside the window has been
+ *  shown (decisively answered, tied, or skipped), so a placement can never
+ *  sit between two restaurants the user was never asked about. Once the
+ *  budget is spent, `pickComparisonIndex`'s guard falls back to pure midpoint
+ *  bisection, keeping the decisive-answer count near ceil(log2(pool)) —
+ *  8 covers pools up to 2^8−1 = 255. Ties/skips each add one extra question. */
 export const DEFAULT_BUDGET = 8;
-/** Effectively no cap — used by the tie-break flow to preserve old behavior. */
+/** No bias cap — used by the tie-break flow (pure bisection anyway). */
 export const UNLIMITED_BUDGET = Number.POSITIVE_INFINITY;
 /** Pivots may only come from this centered fraction of the live window, so
  *  every answer is guaranteed to cut the window by at least ~25%. Never pick
@@ -129,7 +131,8 @@ export interface H2HState {
    *  so unknown-location rows are neither boosted nor penalized. Lets early
    *  comparisons emphasize location specifically. */
   locationScores: number[];
-  /** Max comparisons before finalizing by interpolation (ties count). */
+  /** Bias budget: real answers that may use similarity-biased pivots. Never
+   *  ends the session — see DEFAULT_BUDGET. */
   budget: number;
 }
 
@@ -360,10 +363,10 @@ function selectionProgress(state: H2HState): number {
  *  - The pivot NEVER leaves the middle band, no matter how similar an edge
  *    candidate is — every answer cuts the window by at least the band margin.
  *  - A budget guard only allows off-midpoint pivots while the remaining
- *    budget still covers the worst-case window they could leave behind;
- *    otherwise we fall back to the exact midpoint. Consequently any pool of
- *    ≤ 2^budget−1 candidates always resolves fully within budget, and the
- *    final position is identical to plain binary search.
+ *    bias budget still covers the worst-case window they could leave behind;
+ *    otherwise we fall back to the exact midpoint. Biasing can therefore
+ *    never inflate the decisive-answer count past what plain bisection
+ *    needs, and the final position is identical to plain binary search.
  *
  * Selection only picks *which* in-window item to ask about — it never prunes
  * the window itself, so every answer still moves exactly one boundary and
@@ -571,11 +574,13 @@ export function comparisonsMade(state: H2HState): number {
   return n;
 }
 
+/** The session ends ONLY when no un-shown candidate remains inside the
+ *  window — every answer strictly shrinks the pickable set (a choice moves a
+ *  boundary past the pivot; a tie/skip excludes it), so this always
+ *  terminates, and at completion every candidate still between the bounds
+ *  was directly shown to the user. The budget never cuts a search short. */
 export function isComplete(state: H2HState): boolean {
-  return (
-    pickComparisonIndex(state) === null ||
-    comparisonsMade(state) >= state.budget
-  );
+  return pickComparisonIndex(state) === null;
 }
 
 /** Peer indices to anchor a budget-capped final score. Prefers peers still
@@ -593,8 +598,9 @@ function peerIndicesForFinalize(state: H2HState): number[] {
   return inWindow.length > 0 ? inWindow : all;
 }
 
-/** When the budget runs out with the window still open, place the score
- *  between the bounding remaining candidates (clamped to the comparison-derived
+/** When the window still spans candidates at completion — which can only
+ *  mean every one of them was tied or skipped by the user — place the score
+ *  between the bounding leftover candidates (clamped to the comparison-derived
  *  envelope), optionally pulled toward the peer prior. */
 function interpolateOpenWindow(state: H2HState): number {
   // Candidates are sorted desc: candidates[lo] is the highest-scored item
@@ -635,11 +641,14 @@ export function computeFinalScore(state: H2HState): number {
     return clamp(round1(avg), 0, 10);
   }
 
-  // Budget exhausted with the window still open: interpolate between the
-  // bounding remaining candidates rather than the (still-wide) tier bounds.
-  const windowOpen = activeIndices(state).length > 0;
+  // Tied/skipped candidates remain between real comparison bounds: anchor
+  // between the bounding leftover candidates (clamped by the strict bounds)
+  // rather than the wider bound midpoint. The comparison-derived-bound gate
+  // matters: an all-skips session has no bounds and no tie signal, and must
+  // fall through to the tier midpoint below.
   let raw =
-    windowOpen && comparisonsMade(state) >= state.budget
+    state.lo <= state.hi &&
+    (state.upperBoundFromComparison || state.lowerBoundFromComparison)
       ? interpolateOpenWindow(state)
       : (state.upperBound + state.lowerBound) / 2;
   // "Too close to call" pivots pull the placement toward their average —
@@ -686,8 +695,10 @@ export function computeFinalScore(state: H2HState): number {
  *    item, everything from `lo` down lost to it. ("Too close to call"
  *    pivots were set aside without moving the window; the tie-pulled final
  *    score decides which side of them the new item lands on.)
- *  - Budget-capped open window → indices inside [lo..hi] were never compared;
- *    they order against the interpolated final score.
+ *  - Open window at completion → every index inside [lo..hi] was tied or
+ *    skipped by the user (never-shown candidates can't remain — isComplete
+ *    requires the pickable set to be empty); they order against the
+ *    anchored final score.
  */
 export function placementOrder(
   state: H2HState,
@@ -714,10 +725,10 @@ export function placementOrder(
 export function estimateRemainingComparisons(state: H2HState): number {
   if (isComplete(state)) return 0;
   const remaining = activeIndices(state).length;
-  const est = Math.max(1, Math.ceil(Math.log2(remaining + 1)));
-  // Never promise more comparisons than the budget allows.
-  const budgetLeft = Math.max(0, state.budget - comparisonsMade(state));
-  return Math.min(est, budgetLeft);
+  // No budget clamp: the session runs until the window is exhausted, so the
+  // estimate must stay ≥ 1 while incomplete (a clamp to spent budget would
+  // peg the progress bar at 100% with questions still coming).
+  return Math.max(1, Math.ceil(Math.log2(remaining + 1)));
 }
 
 export function totalEstimatedComparisons(state: H2HState): number {

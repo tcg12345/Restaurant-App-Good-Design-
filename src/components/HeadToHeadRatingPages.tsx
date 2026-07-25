@@ -21,6 +21,7 @@ import {
   computeFinalScore,
   comparisonsMade,
   totalEstimatedComparisons,
+  placementOrder,
 } from '../lib/headToHeadRating';
 import { relevanceHint, type SimilarityInput } from '../lib/restaurantSimilarity';
 
@@ -39,10 +40,14 @@ export interface H2HNewRestaurant {
   tags?: string[];
 }
 
-/** Rank of `score` among `ratings` (1 = best), excluding `excludeId`. */
+/** Rank of `score` among `ratings` (1 = best), excluding `excludeId`.
+ *  Counts `>=` so an equal-scored incumbent ranks ABOVE the new arrival —
+ *  the same rule the settle pass applies to a just-rated row without an
+ *  explicit H2H order (slider saves), so the displayed rank matches what
+ *  actually persists. */
 export function rankAmong(ratings: RestaurantRating[], score: number, excludeId?: string): { rank: number; total: number } {
   const others = ratings.filter((r) => r.restaurantId !== excludeId);
-  const rank = 1 + others.filter((r) => r.score > score).length;
+  const rank = 1 + others.filter((r) => r.score >= score).length;
   return { rank, total: others.length + 1 };
 }
 
@@ -78,7 +83,10 @@ export const RankingContext: React.FC<{
   let below: RestaurantRating | null = null;
   let rank = 1;
   for (const r of sorted) {
-    if (r.score > score) {
+    // `>=`: an equal-scored incumbent sits ABOVE the new pick — the settle
+    // pass places a just-rated row below its equal on slider saves, and the
+    // preview must agree with what will persist.
+    if (r.score >= score) {
       above = r;
       rank += 1;
     } else {
@@ -106,9 +114,11 @@ export const RankingContext: React.FC<{
 
 const NeighborRow: React.FC<{
   direction: 'up' | 'down';
-  item: RestaurantRating | null;
+  item: { name: string; cuisine?: string; score: number } | null;
   fallback: string;
-}> = ({ direction, item, fallback }) => (
+  /** Hide the numeric score (locked mode — own scores aren't revealed yet). */
+  hideScore?: boolean;
+}> = ({ direction, item, fallback, hideScore }) => (
   <div className="px-3.5 py-2 flex items-center gap-2.5">
     {direction === 'up'
       ? <ArrowUp size={12} className="text-on-surface/35 flex-shrink-0" />
@@ -121,9 +131,11 @@ const NeighborRow: React.FC<{
             <div className="text-[10px] text-on-surface/40 truncate leading-snug">{item.cuisine}</div>
           )}
         </div>
-        <span className={cn("text-[12.5px] font-serif font-bold tabular-nums flex-shrink-0", scoreColor(item.score))}>
-          {item.score.toFixed(1)}
-        </span>
+        {!hideScore && (
+          <span className={cn("text-[12.5px] font-serif font-bold tabular-nums flex-shrink-0", scoreColor(item.score))}>
+            {item.score.toFixed(1)}
+          </span>
+        )}
       </>
     ) : (
       <span className="text-[11.5px] italic text-on-surface/40">{fallback}</span>
@@ -508,7 +520,39 @@ const InlineResult: React.FC<{
   const raw = computeFinalScore(state);
   const target = settledScore ?? raw;
   const rebalanced = settledScore !== undefined && settledScore !== raw;
-  const { rank, total } = rankAmong(ratings, target, excludeId);
+  // Rank + bracketing neighbors from a comparator that mirrors the settle
+  // pass EXACTLY (score desc → the search's explicit placement order for a
+  // score collision → the just-rated row yields below an equal it wasn't
+  // explicitly ordered against → id). rankAmong can't do this: a search that
+  // BEAT into a collision ranks the new item ABOVE its equal, which only the
+  // placement order knows. Sorted with the RAW score — the same value the
+  // save-time settle sorts with.
+  const { rank, total, above, below } = useMemo(() => {
+    const order = placementOrder(state, excludeId, raw);
+    const orderIndex = new Map(order.map((id, i) => [id, i]));
+    const rows = [
+      { id: excludeId, name: '', cuisine: '', score: raw },
+      ...ratings
+        .filter((r) => r.restaurantId !== excludeId)
+        .map((r) => ({ id: r.restaurantId, name: r.name, cuisine: r.cuisine, score: r.score })),
+    ];
+    rows.sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      const ai = orderIndex.get(a.id);
+      const bi = orderIndex.get(b.id);
+      if (ai !== undefined && bi !== undefined) return ai - bi;
+      if (a.id === excludeId) return 1;
+      if (b.id === excludeId) return -1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    const selfAt = rows.findIndex((r) => r.id === excludeId);
+    return {
+      rank: selfAt + 1,
+      total: rows.length,
+      above: selfAt > 0 ? rows[selfAt - 1] : null,
+      below: selfAt >= 0 && selfAt < rows.length - 1 ? rows[selfAt + 1] : null,
+    };
+  }, [state, ratings, excludeId, raw]);
   const firstEver = total === 1;
   const [display, setDisplay] = useState(0);
   useEffect(() => {
@@ -601,6 +645,23 @@ const InlineResult: React.FC<{
               {toGo === 0 ? 'Unlocking…' : `${toGo} more rating${toGo === 1 ? '' : 's'} to go`}
             </p>
           </div>
+        </motion.div>
+      )}
+
+      {/* Bracketing neighbors — the placement's direct context, so the user
+          can verify it before saving (and hit Redo if it looks wrong). */}
+      {!firstEver && (above || below) && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.35, ease: EASE }}
+          className="w-full max-w-[300px] rounded-2xl bg-white border border-on-surface/[0.08] divide-y divide-on-surface/[0.06] overflow-hidden mt-4"
+        >
+          {/* Neighbor scores are the CURRENT values — when the save is about
+              to rebalance the tier they'd disagree with the settled dial, so
+              show names-only in that case (and in locked mode). */}
+          <NeighborRow direction="up" item={above} fallback="Top of your list" hideScore={!scoresUnlocked || rebalanced} />
+          <NeighborRow direction="down" item={below} fallback="Bottom of your list" hideScore={!scoresUnlocked || rebalanced} />
         </motion.div>
       )}
 
