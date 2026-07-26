@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
+import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown, Bookmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -436,9 +436,14 @@ export const FollowingFeed: React.FC = () => {
 
       {/* Filter pill row — mirrors the Pantry / All Recipes chrome so every
           filterable list shares the same affordance. Each pill opens the
-          unified filter sheet; active pills show their value + inline clear. */}
+          unified filter sheet; active pills show their value + inline clear.
+          Geometry matters here: the pills' 44px hit overlays overflow their
+          32px boxes, and an overflow-x-auto row computes overflow-y to auto
+          — without the explicit h-11 + overflow-y-hidden the whole row could
+          be dragged vertically by a few pixels. City lives in the sheet
+          only; five pills keep the row scannable. */}
       <div
-        className={cn('flex gap-2 overflow-x-auto scrollbar-hide pb-1', phoneMode && '-mx-4 px-4')}
+        className={cn('flex items-center gap-2 h-11 overflow-x-auto overflow-y-hidden scrollbar-hide overscroll-x-contain', phoneMode && '-mx-4 px-4')}
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
         <FilterPill onClick={() => setFiltersOpen(true)}
@@ -454,10 +459,6 @@ export const FollowingFeed: React.FC = () => {
           label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
           active={cuisineFilter.length > 0}
           onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
-          active={cityFilter.length > 0}
-          onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
         <FilterPill onClick={() => setFiltersOpen(true)}
           label={priceFilter ?? 'Price'}
           active={!!priceFilter}
@@ -555,44 +556,69 @@ export const FollowingFeed: React.FC = () => {
                     aria-label={`View ${r.restaurant_name}`}
                     className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
-                    <div className={cn('flex items-center', phoneMode ? 'gap-3 py-3.5' : 'gap-4 px-4 py-3.5')}>
-                      <CardMedia
-                        src={r.photo_url}
-                        alt={r.restaurant_name || ''}
-                        aspect="thumb"
-                        rounded="xl"
-                        className="h-16 w-16 flex-shrink-0"
-                        imgClassName="group-hover:scale-[1.04]"
-                        zoomOnHover
-                        placeholderSize="sm"
-                      />
+                    <div className={cn('flex items-center', phoneMode ? 'gap-3 py-4' : 'gap-4 px-4 py-3.5')}>
+                      {/* Photos are noise in a text feed — desktop keeps the
+                          thumb, the phone row is typographic only. */}
+                      {!phoneMode && (
+                        <CardMedia
+                          src={r.photo_url}
+                          alt={r.restaurant_name || ''}
+                          aspect="thumb"
+                          rounded="xl"
+                          className="h-16 w-16 flex-shrink-0"
+                          imgClassName="group-hover:scale-[1.04]"
+                          zoomOnHover
+                          placeholderSize="sm"
+                        />
+                      )}
                       <div className="flex min-w-0 flex-1 flex-col justify-center">
-                        <h3 className="truncate font-serif text-[16px] font-bold leading-tight group-hover:text-primary transition-colors">
+                        <h3 className={cn('truncate font-serif font-bold leading-tight group-hover:text-primary transition-colors', phoneMode ? 'text-[16.5px] tracking-[-0.01em]' : 'text-[16px]')}>
                           {r.restaurant_name}
                         </h3>
-                        <MetaRow items={[cuisine, r.price, city]} className="mt-0.5" />
+                        <MetaRow items={[cuisine, r.price, city]} className="mt-1" />
                         {/* Attribution — the point of this feed: who rated it, when. */}
                         {profile && (
                           <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
-                            <span className={cn('grid h-[18px] w-[18px] flex-shrink-0 place-items-center rounded-full', color.bg)}>
-                              <span className={cn('text-[9px] font-serif font-bold leading-none', color.text)}>{initialOf(reviewer)}</span>
+                            <span className={cn('grid h-[16px] w-[16px] flex-shrink-0 place-items-center rounded-full', color.bg)}>
+                              <span className={cn('text-[8.5px] font-serif font-bold leading-none', color.text)}>{initialOf(reviewer)}</span>
                             </span>
-                            <p className="truncate text-[11.5px] font-medium text-on-surface/45">
-                              <span className="font-semibold text-on-surface/70">{reviewer}</span>
+                            <p className="truncate text-[11.5px] font-medium text-on-surface/40">
+                              <span className="font-semibold text-on-surface/60">{reviewer}</span>
                               {profile.is_verified && (
                                 <VerifiedBadge size={12} inline className="ml-1" />
                               )}
                               <span className="mx-1 text-on-surface/25">·</span>
                               {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}
+                              {r.rating_method === 'slider' ? ' · self-scored' : ''}
                             </p>
                           </div>
                         )}
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-2">
-                        <ScoreBadge rating={score} size={phoneMode ? 'sm' : 'md'} />
-                        <SaveButton filled={wishlisted} onClick={() => toggleWishlist(meta)} />
-                        <AddButton onClick={() => openAddRestaurantModal(meta)} />
-                      </div>
+                      {phoneMode ? (
+                        /* Phone: the reviewer's score + one quiet save action.
+                           Rating-it-yourself lives on the restaurant page —
+                           three stacked circles were the old row's clutter. */
+                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                          <ScoreBadge rating={score} size="sm" />
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
+                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                            className={cn(
+                              'grid h-9 w-9 place-items-center rounded-full transition-colors',
+                              wishlisted ? 'text-primary' : 'text-on-surface/30 hover:text-on-surface/60 active:text-primary',
+                            )}
+                          >
+                            <Bookmark size={17} className={cn(wishlisted && 'fill-primary')} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <ScoreBadge rating={score} size="md" />
+                          <SaveButton filled={wishlisted} onClick={() => toggleWishlist(meta)} />
+                          <AddButton onClick={() => openAddRestaurantModal(meta)} />
+                        </div>
+                      )}
                     </div>
                   </CardShell>
                 </li>

@@ -1026,8 +1026,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
         </div>
       </div>
 
-      {/* Body — scrolls */}
-      <div className="flex-1 overflow-y-auto px-6 pt-5 pb-6">
+      {/* Body — scrolls. Safe-area bottom padding: the page variant has no
+          bottom nav, so the last rows must clear the iPhone home indicator. */}
+      <div className="flex-1 overflow-y-auto px-6 pt-5 pb-safe-6">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
         ) : (

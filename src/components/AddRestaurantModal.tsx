@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2 } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2 } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
-import { processPhoto } from '../lib/images';
+import { compressImage } from '../lib/images';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
-import { settleScores } from '../lib/settleScores';
+import { settleScores, tierOfScore } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,16 +13,17 @@ import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type F
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
 import { useDeferredFocus } from '../lib/useDeferredFocus';
-import { type H2HState, initH2HTieBreak, placementOrder } from '../lib/headToHeadRating';
-import { MethodToggle, MethodChooser, InlineH2H, RankingContext } from './HeadToHeadRatingPages';
+import { type H2HState, initH2HTieBreak, placementOrder, TIER_LABELS } from '../lib/headToHeadRating';
+import { InlineH2H, RankingContext, rankAmong } from './HeadToHeadRatingPages';
+import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'favorite-dishes';
+type Page = 'rate' | 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'favorite-dishes';
 
 export const AddRestaurantModal: React.FC = () => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating,
-    lists, createList, ratings, getRestaurantInfo,
+    lists, createList, ratings, getRestaurantInfo, scoresUnlocked,
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
@@ -74,18 +75,21 @@ export const AddRestaurantModal: React.FC = () => {
   // autoFocus popped the keyboard mid-animation and the two fought.
   const notesFocusRef = useDeferredFocus<HTMLTextAreaElement>(page === 'notes');
   const dishFocusRef = useDeferredFocus<HTMLInputElement>(page === 'favorite-dishes');
-  // Inline rating method choice. `null` means the user hasn't picked one yet
-  // and the prominent chooser is shown. Set to a concrete method on pick or
-  // when there are no other ratings to compare against (slider only).
-  const [ratingMethod, setRatingMethod] = useState<'slider' | 'h2h' | null>(null);
-  // Active head-to-head session state. null while user is on the slider or
-  // before they've picked a tier.
+  // Which sub-flow the Rate page shows. Head-to-head is THE rating method;
+  // the slider lives behind the quiet "choose my own score" link.
+  const [rateMode, setRateMode] = useState<'h2h' | 'slider'>('h2h');
+  // How the CURRENT score value was produced this session. null = untouched
+  // (editing details of an existing rating) — the save preserves the
+  // rating's existing method so a note edit can't change provenance.
+  const [sessionMethod, setSessionMethod] = useState<'h2h' | 'slider' | null>(null);
+  // Active head-to-head session state. null before a sentiment is picked.
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
-  // Set to the H2H-computed score when the user lands on the slider via the
-  // head-to-head "Use this score" hand-off. Used to show the "from
-  // head-to-head" pill and surface a revert button when the slider drifts
-  // off the computed value.
+  // The completed head-to-head's raw score. Once set, the score is LOCKED —
+  // there is no slider hand-off; changing it means re-ranking.
   const [h2hScore, setH2hScore] = useState<number | null>(null);
+  // Settled preview of the H2H score (what actually lands after the tier
+  // rebalances) — shown on the details page's score chip.
+  const [settledDisplay, setSettledDisplay] = useState<number | null>(null);
   // Exact descending placement from the completed head-to-head — captured at
   // completion (the state itself is cleared) and passed to the settle so a
   // score collision can't invert the order the comparisons decided.
@@ -99,6 +103,12 @@ export const AddRestaurantModal: React.FC = () => {
   const [visitCount, setVisitCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  // Photos still being compressed. Previews (object URLs) land in state the
+  // instant the picker closes; each is swapped for its compressed inline
+  // JPEG as it finishes. Saving is blocked until this hits zero so a fast
+  // Save can never race the pipeline and lose photos.
+  const [photosProcessing, setPhotosProcessing] = useState(0);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (addRestaurantModalOpen && restaurant) {
@@ -128,6 +138,10 @@ export const AddRestaurantModal: React.FC = () => {
       }
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
+      // A previous session's in-flight previews are dead weight now.
+      for (const u of previewUrlsRef.current) URL.revokeObjectURL(u);
+      previewUrlsRef.current.clear();
+      setPhotosProcessing(0);
       // Restore the saved price when editing — resetting to -1 made "Update"
       // silently revert a hand-picked price back to the meta default. A new
       // visit keeps it too: the restaurant's price tier doesn't change
@@ -135,24 +149,29 @@ export const AddRestaurantModal: React.FC = () => {
       // meta price on save.
       setPriceIndex(ex?.price ? PRICE_RANGES.findIndex((pr) => pr.signs === ex.price) : -1);
       setPriceAmount('');
-      // Caller-requested initial page wins (e.g. opening directly to "notes"
-      // from RestaurantPanel); otherwise the modal always opens on main.
-      // NOTE: `initialPage` doubles as a mode hint — 'new-visit' means "open the
-      // main chooser in Log-New-Visit mode" (handled via `startAsNewVisit`
-      // above), NOT a sub-page. Anything that isn't a real Page must fall back
-      // to 'main', else `setPage('new-visit')` renders a blank body (no case
-      // matches) — which is exactly what broke the Re-rate button.
+      // Where the modal opens:
+      // - NEW rating (or Log New Visit) → the Rate page: the score comes
+      //   first, details after. Head-to-head is the default method.
+      // - EDITING an existing rating → the details page; the score shows as
+      //   a locked chip with "Re-rank" (fresh comparisons) as the way to
+      //   change it. A caller-requested sub-page ('notes' etc.) still wins.
+      // NOTE: `initialPage` doubles as a mode hint — 'new-visit' means "open
+      // in Log-New-Visit mode" (handled via `startAsNewVisit` above), NOT a
+      // sub-page; anything that isn't a real Page falls back to the default.
       const VALID_PAGES: Page[] = ['main', 'notes', 'tags', 'photos', 'price', 'date', 'friends', 'favorite-dishes'];
       const requestedInitial = addRestaurantModalInitialPage as Page | null;
-      setPage(requestedInitial && requestedInitial !== 'main' && VALID_PAGES.includes(requestedInitial) ? requestedInitial : 'main');
-      // Make the user pick a method first (no default) when there are other
-      // rated restaurants to compare against; jump straight to the slider only
-      // when there's no pool for head-to-head.
-      const othersOnOpen = ratings.filter((r) => r.restaurantId !== restaurant.id);
-      setRatingMethod(othersOnOpen.length > 0 ? null : 'slider');
+      const isFreshRating = !ex || startAsNewVisit;
+      if (requestedInitial && requestedInitial !== 'main' && VALID_PAGES.includes(requestedInitial) && ex && !startAsNewVisit) {
+        setPage(requestedInitial);
+      } else {
+        setPage(isFreshRating ? 'rate' : 'main');
+      }
+      setRateMode('h2h');
+      setSessionMethod(null);
       setH2hState(null);
       setH2hScore(null);
       setH2hOrder(null);
+      setSettledDisplay(null);
       setTieBreakActive(false);
       setConfirmDelete(false);
       setCreatingList(false);
@@ -172,18 +191,21 @@ export const AddRestaurantModal: React.FC = () => {
     }
   }, [addRestaurantModalOpen, restaurant]);
 
-  // When the user toggles between Log New Visit and Update Current, reset
-  // the method choice so they re-pick — switching visit context invalidates
-  // any in-progress head-to-head and the choice itself.
-  useEffect(() => {
-    if (!restaurant) return;
-    const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
-    setRatingMethod(others.length > 0 ? null : 'slider');
+  // Toggling between Log New Visit and Update Current changes the visit
+  // context — any in-progress or completed head-to-head no longer applies.
+  // Called from the toggle buttons (not an effect: the modal is mounted
+  // once globally, and an isNewVisit effect re-firing across opens could
+  // clobber the open logic's page choice).
+  const resetRatingSession = (nextPage: Page) => {
+    setRateMode('h2h');
+    setSessionMethod(null);
     setH2hState(null);
     setH2hScore(null);
     setH2hOrder(null);
+    setSettledDisplay(null);
     setTieBreakActive(false);
-  }, [isNewVisit]);
+    setPage(nextPage);
+  };
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -200,25 +222,51 @@ export const AddRestaurantModal: React.FC = () => {
   // stamp a made-up tier on the rating.
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const totalFiles = (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/'));
+    const totalFiles = files ? (Array.from(files) as File[]).filter((f) => f.type.startsWith('image/')) : [];
+    e.target.value = '';
     if (totalFiles.length === 0) return;
 
-    const newPhotos: PhotoItem[] = [];
-    for (const file of totalFiles) {
-      try {
-        const url = await processPhoto(file);
-        newPhotos.push({ url, caption: '', isFavorite: false });
-      } catch { /* skip undecodable photos (e.g. HEIC on a browser that can't decode it) */ }
-    }
-    setPhotos((prev) => {
-      const updated = [...prev, ...newPhotos];
-      setTimeout(() => setPage('photos'), 0);
-      return updated;
+    // The old pipeline compressed AND uploaded every photo to Storage before
+    // the Photos page even appeared — 20 screenshots meant 20 sequential
+    // network round-trips of dead air, during which Save could fire without
+    // them. Now: object-URL previews land in state IMMEDIATELY and the page
+    // opens; each preview is swapped for its compressed inline JPEG as it
+    // finishes (a small pool — parallel decodes of 12MP camera files spike
+    // memory); the Storage upload happens AFTER save via the pending-photo
+    // retry pass (an inline data: URL *is* that queue's membership card).
+    const staged = totalFiles.map((file) => {
+      const preview = URL.createObjectURL(file);
+      previewUrlsRef.current.add(preview);
+      return { file, preview };
     });
-    e.target.value = '';
+    setPhotos((prev) => [...prev, ...staged.map((s): PhotoItem => ({ url: s.preview, caption: '', isFavorite: false }))]);
+    setPage('photos');
+    setPhotosProcessing((n) => n + staged.length);
+
+    const queue = [...staged];
+    const worker = async () => {
+      for (;;) {
+        const item = queue.shift();
+        if (!item) return;
+        try {
+          const dataUrl = await compressImage(item.file);
+          // Swap by URL identity — reorders/caption edits/deletes made while
+          // compressing can't mis-target. A deleted preview simply matches
+          // nothing and the result is discarded.
+          setPhotos((prev) => prev.map((p) => (p.url === item.preview ? { ...p, url: dataUrl } : p)));
+        } catch {
+          // Undecodable (e.g. HEIC on a browser that can't) — drop the preview.
+          setPhotos((prev) => prev.filter((p) => p.url !== item.preview));
+        } finally {
+          window.setTimeout(() => URL.revokeObjectURL(item.preview), 1000);
+          previewUrlsRef.current.delete(item.preview);
+          setPhotosProcessing((n) => Math.max(0, n - 1));
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: Math.min(3, staged.length) }, () => worker()));
   };
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
@@ -271,9 +319,9 @@ export const AddRestaurantModal: React.FC = () => {
 
   const persistRating = (finalScore: number, orderOverride?: string[]) => {
     if (!restaurant || !tryLock()) return;
-    // The H2H placement order only binds while the score being saved is the
-    // one the search produced — dragging the slider afterwards is a manual
-    // override and the comparison order no longer applies.
+    // The H2H placement order binds whenever the score being saved is the
+    // one the search produced (post-H2H the score is locked, so it always
+    // is — the equality check is a defensive invariant, not a UX path).
     const settleOrder =
       orderOverride ??
       (h2hOrder && h2hScore !== null && finalScore === h2hScore ? h2hOrder : undefined);
@@ -281,9 +329,17 @@ export const AddRestaurantModal: React.FC = () => {
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
         cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags, photos,
+        score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags,
+        // blob: previews are session-scoped — they'd be dead links after a
+        // reload. Save is blocked while any remain; this filter is the
+        // safety net for programmatic saves (tie-break auto-save).
+        photos: photos.filter((p) => !p.url.startsWith('blob:')),
         favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
         listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
+        // Provenance: how THIS session produced the score. A details-only
+        // edit (sessionMethod null) preserves whatever the rating had —
+        // fixing a typo must never change how a score counts.
+        ratingMethod: sessionMethod ?? existing?.ratingMethod,
       },
       // Only archive the existing rating into visit history when the
       // user is on the "Log New Visit" tab. The "Update Current" tab
@@ -296,6 +352,17 @@ export const AddRestaurantModal: React.FC = () => {
 
   const handleSaveRating = () => {
     if (!restaurant) return;
+    // Photos still compressing — saving now would drop them. The button is
+    // disabled in this state; this guard covers keyboard/programmatic paths.
+    if (photosProcessing > 0) {
+      setPage('photos');
+      return;
+    }
+    // A brand-new rating can't save without a score having been produced.
+    if (!existing && sessionMethod === null) {
+      setPage('rate');
+      return;
+    }
     // A visit date is required when logging a new visit — without it
     // we can't sort the visit correctly in the history timeline and
     // the card above the visit list would render with a blank date.
@@ -304,16 +371,17 @@ export const AddRestaurantModal: React.FC = () => {
       setPage('date');
       return;
     }
-    // Slider tie-break: if the user picked a score that ties with
-    // existing rated restaurants (and they didn't already go through an
-    // H2H), force a quick H2H against just the tied ones so the new
-    // rating lands in the right spot relative to them.
-    if (ratingMethod === 'slider' && h2hScore === null) {
+    // Slider tie-break: a self-picked score that ties with existing rated
+    // restaurants forces a quick H2H against just the tied ones so the new
+    // rating lands in the right spot relative to them. (The rating still
+    // counts as slider-made — the comparisons only refine its ORDER.)
+    if (sessionMethod === 'slider') {
       const tieBreakState = initH2HTieBreak(ratings, score, restaurant.id);
       if (tieBreakState) {
         setH2hState(tieBreakState);
-        setRatingMethod('h2h');
+        setRateMode('h2h');
         setTieBreakActive(true);
+        setPage('rate');
         return;
       }
     }
@@ -412,11 +480,165 @@ export const AddRestaurantModal: React.FC = () => {
             className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
-                : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+                // The Rate page hugs its content on desktop — a floating
+                // dialog, not a full-height sheet with dead space.
+                : page === 'rate'
+                  ? "h-full sm:h-auto sm:min-h-[560px] sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+                  : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
             {photoInput}
             <AnimatePresence mode="wait">
+              {/* ═══════════ RATE PAGE — the score comes first ═══════════
+                  Sentiment → head-to-head comparisons → reveal (locked
+                  score), or the slider behind "choose my own score".
+                  Details live on the next page. */}
+              {page === 'rate' && (
+                <motion.div key="rate" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
+                  className="relative flex flex-col flex-1 min-h-0 bg-on-surface/[0.025]">
+                  {/* Floating chrome — the step content owns the page. */}
+                  {existing && !tieBreakActive && (
+                    <button
+                      onClick={() => setPage('main')}
+                      aria-label="Back to details"
+                      style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
+                      className="absolute left-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                  )}
+                  <button onClick={closeAddRestaurantModal} aria-label="Close"
+                    style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
+                    className="absolute right-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors">
+                    <X size={17} />
+                  </button>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-16 flex flex-col">
+                    {tieBreakActive && (
+                      <div className="pt-2 pb-3 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70 mb-1.5">Tie-break</p>
+                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
+                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
+                        </p>
+                      </div>
+                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                      {rateMode === 'h2h' ? (
+                        <motion.div key="h2h-flow" initial={false} className="flex-1 flex flex-col">
+                          <InlineH2H
+                            ratings={ratings}
+                            excludeId={restaurant.id}
+                            newRestaurant={{ ...restaurant, tags: selectedTags }}
+                            resolveMeta={getRestaurantInfo}
+                            settlePreview={previewSettledScore}
+                            scoresUnlocked={scoresUnlocked}
+                            heading={{
+                              eyebrow: existing && isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : existing ? 'Re-rank' : 'Rate',
+                              title: `How was ${restaurant.name}?`,
+                            }}
+                            state={h2hState}
+                            setState={setH2hState}
+                            skipTierSelect={tieBreakActive}
+                            skipResult={tieBreakActive}
+                            onChooseOwnScore={tieBreakActive ? undefined : () => { setRateMode('slider'); setH2hState(null); }}
+                            onCancelFromStart={tieBreakActive ? () => {
+                              // Backing out of a tie-break returns to the
+                              // slider so the score can be nudged instead.
+                              setTieBreakActive(false);
+                              setH2hState(null);
+                              setRateMode('slider');
+                            } : undefined}
+                            onComplete={(finalScore) => {
+                              // Capture the search's exact placement BEFORE
+                              // the state is cleared — the settle needs it to
+                              // keep the decided order through score ties.
+                              const order = h2hState && restaurant
+                                ? placementOrder(h2hState, restaurant.id, finalScore)
+                                : null;
+                              if (tieBreakActive) {
+                                // Tie-break completion auto-saves with the
+                                // refined score — the rating stays slider-made.
+                                setTieBreakActive(false);
+                                setH2hState(null);
+                                persistRating(finalScore, order ?? undefined);
+                                return;
+                              }
+                              // The head-to-head result is FINAL — no slider
+                              // hand-off. Continue to the details page.
+                              setScore(finalScore);
+                              setH2hScore(finalScore);
+                              setH2hOrder(order);
+                              setSettledDisplay(previewSettledScore(finalScore));
+                              setSessionMethod('h2h');
+                              setH2hState(null);
+                              setPage('main');
+                            }}
+                          />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="slider-step"
+                          initial={{ opacity: 0, x: 36 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -28 }}
+                          transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                          className="flex-1 flex flex-col items-center justify-center"
+                        >
+                          <div className="text-center mb-7 px-2">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary/70 mb-2.5">Your own score</p>
+                            <h2 className="font-serif font-bold text-[26px] leading-[1.12] tracking-[-0.015em] text-on-surface">
+                              How was {restaurant.name}?
+                            </h2>
+                          </div>
+                          <div className="text-center mb-4">
+                            <div className={cn("font-serif font-bold tabular-nums leading-none text-[44px] sm:text-[48px] transition-colors duration-300", scoreClr)}>
+                              {score.toFixed(1)}
+                            </div>
+                            <span className={cn("inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-gradient-to-b", scoreBg, scoreClr)}>
+                              {score >= 9 ? 'Exceptional' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                            </span>
+                          </div>
+                          <div className="w-full max-w-[320px] mb-2">
+                            <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
+                              className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="flex justify-between mt-2 text-[10px] text-on-surface/25 font-semibold px-0.5">
+                              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+                            </div>
+                          </div>
+                          {scoresUnlocked ? (
+                            <div className="mt-3">
+                              <RankingContext score={score} ratings={ratings} excludeId={restaurant.id} />
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-[11px] text-on-surface/40 text-center max-w-[260px] leading-snug">
+                              Scores stay hidden until you've rated {SCORE_UNLOCK_THRESHOLD} places.
+                            </p>
+                          )}
+                          <p className="mt-4 text-[11px] text-on-surface/40 text-center max-w-[280px] leading-snug">
+                            Hand-picked scores don't count toward community ratings — comparisons do.
+                          </p>
+                          <div className="mt-3 flex items-center gap-2 w-full max-w-xs">
+                            <button
+                              type="button"
+                              onClick={() => { setRateMode('h2h'); setH2hState(null); }}
+                              className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl text-[12.5px] font-semibold text-on-surface/65 hover:text-on-surface bg-on-surface/[0.04] hover:bg-on-surface/[0.08] transition-colors"
+                            >
+                              Compare instead
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setSessionMethod('slider'); setSettledDisplay(null); setH2hScore(null); setH2hOrder(null); setPage('main'); }}
+                              className="flex-1 py-2.5 bg-primary text-white rounded-xl font-semibold text-[13px] active:scale-[0.98] transition-transform"
+                            >
+                              Continue
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </motion.div>
+              )}
+
               {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
@@ -429,10 +651,10 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
                   <div className="px-5 pb-4 flex-shrink-0">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary/75 mb-2">
-                      {existing ? (isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : 'Update rating') : 'Rate'}
+                      {existing ? (isNewVisit ? `New visit${visitCount > 0 ? ` · #${visitCount + 2}` : ''}` : 'Update rating') : 'Add details'}
                     </p>
                     <h2 className="font-serif font-bold text-[27px] leading-[1.08] tracking-[-0.015em] text-on-surface">
-                      How was {restaurant.name}?
+                      {restaurant.name}
                     </h2>
                   </div>
 
@@ -446,6 +668,8 @@ export const AddRestaurantModal: React.FC = () => {
                               setIsNewVisit(true);
                               setScore(7); setNotes(''); setVisitDate(localISODate());
                               setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
+                              // A fresh visit gets a fresh rating — back to the Rate step.
+                              resetRatingSession('rate');
                             }
                           }}
                           className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
@@ -463,6 +687,7 @@ export const AddRestaurantModal: React.FC = () => {
                                 setSelectedTags(ex.tags); setPhotos(ex.photos);
                                 setSelectedFriends(ex.friendIds || []);
                               }
+                              resetRatingSession('main');
                             }
                           }}
                           className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
@@ -517,143 +742,74 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    {ratingMethod !== null && !tieBreakActive && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
-                      <div className="pt-2 pb-3">
-                        <MethodToggle
-                          method={ratingMethod}
-                          onChange={(m) => {
-                            setRatingMethod(m);
-                            if (m === 'slider') setH2hState(null);
-                          }}
-                        />
-                      </div>
-                    )}
-                    {tieBreakActive && (
-                      <div className="pt-3 pb-2 text-center">
-                        <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-1">Tie-break</p>
-                        <p className="text-[12px] text-on-surface/55 max-w-[280px] mx-auto leading-snug">
-                          You picked {score.toFixed(1)} — let's see how it compares to your other {score.toFixed(1)}s.
-                        </p>
-                      </div>
-                    )}
-                    <AnimatePresence mode="wait" initial={false}>
-                      {ratingMethod === null ? (
-                        <MethodChooser
-                          key="chooser"
-                          onPick={(m) => {
-                            setRatingMethod(m);
-                            if (m === 'slider') setH2hState(null);
-                          }}
-                        />
-                      ) : ratingMethod === 'slider' ? (
-                        <motion.div
-                          key="slider"
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
-                          transition={{ duration: 0.18 }}
-                          className="flex flex-col items-center pt-1"
-                        >
-                          {h2hScore !== null && (
-                            <AnimatePresence mode="wait" initial={false}>
-                              {Math.abs(score - h2hScore) > 0.05 ? (
-                                <motion.button
-                                  key="revert"
-                                  type="button"
-                                  onClick={() => setScore(h2hScore)}
-                                  initial={{ opacity: 0, y: -4 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -4 }}
-                                  transition={{ duration: 0.18 }}
-                                  whileTap={{ scale: 0.96 }}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
-                                >
-                                  <RotateCcw size={11} />
-                                  Revert to {h2hScore.toFixed(1)}
-                                </motion.button>
-                              ) : (
-                                <motion.div
-                                  key="from-h2h"
-                                  initial={{ opacity: 0, y: -4 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -4 }}
-                                  transition={{ duration: 0.18 }}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
-                                >
-                                  <Sparkles size={11} />
-                                  From head-to-head
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          )}
-                          {/* Editorial score — clean number, no heavy ring */}
-                          <div className="text-center mb-4">
-                            <div className={cn("font-serif font-bold tabular-nums leading-none text-[40px] sm:text-[44px] transition-colors duration-300", scoreClr)}>
-                              {score.toFixed(1)}
-                            </div>
-                            <span className={cn("inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.16em] bg-gradient-to-b", scoreBg, scoreClr)}>
-                              {score >= 9 ? 'Exceptional' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                    {/* ── Score chip — the rating is FINAL here. Changing it
+                        means re-ranking (or adjusting, for slider-made
+                        ratings); there is no free-hand editing of a
+                        head-to-head result. ── */}
+                    {(() => {
+                      const currentMethod = sessionMethod ?? existing?.ratingMethod;
+                      const needsRating = (!existing || isNewVisit) && sessionMethod === null;
+                      const chipScore = settledDisplay ?? score;
+                      const { rank, total } = rankAmong(ratings, chipScore, restaurant.id);
+                      const tier = tierOfScore(chipScore);
+                      if (needsRating) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => { setRateMode('h2h'); setH2hState(null); setPage('rate'); }}
+                            className="w-full mt-1 mb-1 flex items-center gap-3.5 p-4 rounded-2xl bg-primary/[0.06] border border-primary/15 text-left hover:bg-primary/[0.09] transition-colors"
+                          >
+                            <span className="w-11 h-11 rounded-2xl bg-primary/10 text-primary grid place-items-center flex-shrink-0">
+                              <Sparkles size={18} />
                             </span>
-                          </div>
-                          <div className="w-full max-w-[320px] mb-2">
-                            <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                              className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary" />
-                            <div className="flex justify-between mt-2 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block font-serif font-bold text-[16px] text-on-surface">Rate this visit</span>
+                              <span className="block text-[11.5px] text-on-surface/50 mt-0.5">A few quick comparisons place it on your list.</span>
+                            </span>
+                            <ChevronRight size={16} className="text-on-surface/30 flex-shrink-0" />
+                          </button>
+                        );
+                      }
+                      return (
+                        <div className="mt-1 mb-1 flex items-center gap-3.5 p-4 rounded-2xl bg-white border border-on-surface/[0.08] shadow-sm">
+                          {scoresUnlocked ? (
+                            <div className={cn("w-14 h-14 rounded-2xl grid place-items-center bg-gradient-to-b ring-2 flex-shrink-0", scoreBgGradient(chipScore), scoreRingColor(chipScore))}>
+                              <span className={cn("font-serif font-bold text-[20px] tabular-nums leading-none", scoreColorLight(chipScore))}>
+                                {chipScore.toFixed(1)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="w-14 h-14 rounded-2xl grid place-items-center bg-on-surface/[0.04] ring-1 ring-on-surface/[0.06] flex-shrink-0">
+                              <span className="font-serif font-bold text-[17px] text-on-surface/80">#{rank}</span>
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-serif font-bold text-[15.5px] leading-snug text-on-surface">
+                              {scoresUnlocked
+                                ? (currentMethod === 'slider' ? 'Your score' : TIER_LABELS[tier])
+                                : TIER_LABELS[tier]}
+                            </div>
+                            <div className="text-[11.5px] font-medium text-on-surface/50 mt-0.5">
+                              #{rank} of {total} on your list
+                              {!scoresUnlocked && ' · scores unlock at ' + SCORE_UNLOCK_THRESHOLD}
+                              {currentMethod === 'slider' && ' · self-scored'}
                             </div>
                           </div>
-                          <div className="mt-3">
-                            <RankingContext score={score} ratings={ratings} excludeId={restaurant.id} />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <motion.div
-                          key="h2h"
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
-                          transition={{ duration: 0.18 }}
-                        >
-                          <InlineH2H
-                            ratings={ratings}
-                            excludeId={restaurant.id}
-                            newRestaurant={{ ...restaurant, tags: selectedTags }}
-                            resolveMeta={getRestaurantInfo}
-                            settlePreview={previewSettledScore}
-                            state={h2hState}
-                            setState={setH2hState}
-                            skipTierSelect={tieBreakActive}
-                            skipResult={tieBreakActive}
-                            onCancelFromStart={tieBreakActive ? () => {
-                              setTieBreakActive(false);
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRateMode(currentMethod === 'slider' ? 'slider' : 'h2h');
                               setH2hState(null);
-                              setRatingMethod('slider');
-                            } : undefined}
-                            onComplete={(finalScore) => {
-                              // Capture the search's exact placement BEFORE
-                              // the state is cleared — the settle needs it to
-                              // keep the decided order through score ties.
-                              const order = h2hState && restaurant
-                                ? placementOrder(h2hState, restaurant.id, finalScore)
-                                : null;
-                              if (tieBreakActive) {
-                                // Tie-break completion auto-saves with the
-                                // refined score; no return trip to the slider.
-                                setTieBreakActive(false);
-                                setH2hState(null);
-                                persistRating(finalScore, order ?? undefined);
-                                return;
-                              }
-                              setScore(finalScore);
-                              setH2hScore(finalScore);
-                              setH2hOrder(order);
-                              setH2hState(null);
-                              setRatingMethod('slider');
+                              setPage('rate');
                             }}
-                          />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.09] text-[12px] font-semibold text-on-surface/70 hover:text-on-surface transition-colors"
+                          >
+                            <RotateCcw size={12} />
+                            {currentMethod === 'slider' ? 'Adjust' : 'Re-rank'}
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <div className="border-t border-on-surface/[0.07] pt-5 mt-5">
                       <p className="text-[11px] uppercase tracking-[0.16em] text-on-surface/40 font-bold mb-1.5 px-1">Add details</p>
                       <div className="flex flex-col">
@@ -680,9 +836,11 @@ export const AddRestaurantModal: React.FC = () => {
                         Pick a visit date to save this visit.
                       </p>
                     )}
-                    <button onClick={handleSaveRating} disabled={saving}
+                    <button onClick={handleSaveRating} disabled={saving || photosProcessing > 0}
                       className="w-full py-4 bg-primary text-white rounded-full font-semibold text-[15px] shadow-lg shadow-primary/25 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none">
-                      {saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
+                      {photosProcessing > 0
+                        ? `Preparing ${photosProcessing} photo${photosProcessing === 1 ? '' : 's'}…`
+                        : saving ? 'Saving…' : existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}
@@ -879,6 +1037,11 @@ export const AddRestaurantModal: React.FC = () => {
                           <div key={idx} className="flex gap-3 px-5 py-4">
                             <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
                               <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                              {photo.url.startsWith('blob:') && (
+                                <div className="absolute inset-0 grid place-items-center bg-black/25">
+                                  <Loader2 size={16} className="text-white animate-spin" />
+                                </div>
+                              )}
                               <button onClick={() => removePhoto(idx)}
                                 className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
                                 <X size={10} className="text-white" />

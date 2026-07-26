@@ -4,6 +4,7 @@ import {
   scoreCandidates,
   buildCandidateQueries,
   sliceQueriesBalanced,
+  recPoolEligible,
   type TasteProfile,
   type CandidateSignals,
   type RecCandidate,
@@ -428,6 +429,67 @@ describe('v3 price fidelity', () => {
     const score = (id: string) => out.find((x) => x.id === id)!.recScore;
     expect(score('known-4')).toBeGreaterThan(score('mystery'));
     expect(score('mystery')).toBeGreaterThan(score('known-1'));
+  });
+});
+
+describe('rec pool eligibility (hotels)', () => {
+  it('excludes lodging even when Google stamps cuisine types on the property', () => {
+    // Palace-hotel POI: carries its restaurant's cuisine type AND lodging.
+    expect(recPoolEligible({ types: ['hotel', 'lodging', 'french_restaurant'] })).toBe(false);
+    expect(recPoolEligible({ types: ['resort_hotel', 'restaurant'] })).toBe(false);
+    expect(recPoolEligible({ types: ['lodging'] })).toBe(false);
+  });
+
+  it('keeps ordinary restaurants, including hotel-adjacent names', () => {
+    expect(recPoolEligible({ types: ['restaurant', 'french_restaurant'] })).toBe(true);
+    expect(recPoolEligible({ types: ['fine_dining_restaurant', 'restaurant'] })).toBe(true);
+  });
+
+  it('excludes non-food POIs outright', () => {
+    expect(recPoolEligible({ types: ['spa', 'point_of_interest'] })).toBe(false);
+  });
+});
+
+describe('hard price band (premium rater, cheap recs)', () => {
+  it('REGRESSION: $ and $$ spots are not recommended to a $$$/$$$$ rater — even in a loved cuisine', () => {
+    const p = premium70(); // Indian is one of their top cuisines
+    const base = { types: ['indian_restaurant'], rating: 4.7, userRatingCount: 900 };
+    const out = scoreCandidates(
+      [
+        place({ id: 'cheap-indian', ...base, priceLevel: 1 }),
+        place({ id: 'mid-indian', ...base, priceLevel: 2 }),
+        place({ id: 'premium-indian', ...base, priceLevel: 4 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+      { enforcePriceBand: true },
+    );
+    const ids = out.map((x) => x.id);
+    expect(ids).toContain('premium-indian');
+    expect(ids).not.toContain('cheap-indian');
+    expect(ids).not.toContain('mid-indian');
+  });
+
+  it('cuisine love does not transfer across the price band even without enforcement', () => {
+    const p = premium70();
+    const base = { types: ['indian_restaurant'], rating: 4.7, userRatingCount: 900 };
+    const out = scoreCandidates(
+      [
+        place({ id: 'cheap-indian', ...base, priceLevel: 1 }),
+        place({ id: 'premium-indian', ...base, priceLevel: 4 }),
+      ],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+      { enforcePriceBand: false },
+    );
+    const cheap = out.find((x) => x.id === 'cheap-indian')!;
+    const prem = out.find((x) => x.id === 'premium-indian')!;
+    expect(prem.recScore).toBeGreaterThan(cheap.recScore + 1.5);
+    expect(cheap.predicted!).toBeLessThan(prem.predicted!);
   });
 });
 

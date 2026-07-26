@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { ChevronDown, Search, Check } from 'lucide-react';
+import React, { useContext, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronRight, Search, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MEAL_KEYS, MEAL_LABELS, type HoursFilter, type MealKey } from '../lib/hours';
+import { FilterSheetNavContext } from './FilterSheet';
 
 /* Shared presentational primitives for filter sheets. They render the
    `fs-*` classes from filterSheet.css so every filter popup matches the
@@ -120,19 +122,162 @@ export const RangeSlider: React.FC<{
   );
 };
 
+/* ── Drill rows (Beli-style sub-page filters) ──
+   Option-list filters don't expand inline on the sheet: they render as a
+   settings-style row (label · current value · chevron) that slides a
+   dedicated sub-page in over the sheet body. The page mechanism lives in
+   FilterSheet; rows reach it through FilterSheetNavContext and PORTAL
+   their content into the sliding layer so it stays live as the caller's
+   selection state changes. */
+export const FilterDrillRow: React.FC<{
+  /** Stable id for this filter's sub-page (unique within the sheet). */
+  id: string;
+  label: string;
+  /** Current-selection summary shown on the right ("Italian +2"). */
+  value?: string;
+  isSet?: boolean;
+  /** The sub-page content. */
+  children: React.ReactNode;
+}> = ({ id, label, value, isSet, children }) => {
+  const nav = useContext(FilterSheetNavContext);
+  return (
+    <>
+      <button type="button" className="fs-drill-row" onClick={() => nav.openPage(id, label)}>
+        <span className="fs-drill-label">{label}</span>
+        <span className={cn('fs-drill-value', isSet && 'is-set')}>{value || 'Any'}</span>
+        <ChevronRight className="fs-drill-chev" />
+      </button>
+      {nav.activeId === id && nav.container
+        ? createPortal(<div className="fs-subpage-content">{children}</div>, nav.container)
+        : null}
+    </>
+  );
+};
+
+/* ── Full-page option list (the sub-page body for choose-from-a-list
+   filters) — search box + check rows, the drill-in successor to the old
+   inline FilterDropdown panel. */
+export const FilterOptionList: React.FC<{
+  options: DropdownOption[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  multiple?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+}> = ({ options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search' }) => {
+  const [query, setQuery] = useState('');
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+  return (
+    <div className="fs-optionlist">
+      {searchable && (
+        <div className="fs-dropdown-search is-page">
+          <Search />
+          <input
+            type="text"
+            placeholder={searchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+        </div>
+      )}
+      <div className="fs-optionlist-rows">
+        {filtered.length === 0 ? (
+          <div className="fs-dropdown-empty">No matches</div>
+        ) : (
+          filtered.map((o) => {
+            const active = selected.includes(o.value);
+            return (
+              <button
+                key={o.value}
+                type="button"
+                className={cn('fs-dropdown-row is-page', active && 'is-active')}
+                onClick={() => onToggle(o.value)}
+              >
+                <span className={cn('fs-checkbox', !multiple && 'is-radio', active && 'is-on')}>
+                  {active && <Check size={11} strokeWidth={3} />}
+                </span>
+                <span>{o.label}</span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** Summary text for a drill row: "Any" / the one label / "First +N". */
+export function drillSummary(options: DropdownOption[], selected: string[], empty = 'Any'): string {
+  if (selected.length === 0) return empty;
+  const first = options.find((o) => o.value === selected[0]);
+  const firstLabel = first?.label ?? selected[0];
+  if (selected.length === 1) return firstLabel;
+  return `${firstLabel} +${selected.length - 1}`;
+}
+
+/* ── Choose-from-a-list filter section as a drill row ──
+   The one-liner most sheets use for cuisine / city / friends: a drill row
+   whose sub-page is a searchable FilterOptionList. */
+export const FilterDrillSection: React.FC<{
+  id: string;
+  label: string;
+  options: DropdownOption[];
+  selected: string[];
+  onToggle: (value: string) => void;
+  multiple?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  /** Summary when nothing is selected. */
+  emptyLabel?: string;
+}> = ({ id, label, options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search', emptyLabel = 'Any' }) => (
+  <FilterDrillRow
+    id={id}
+    label={label}
+    value={drillSummary(options, selected, emptyLabel)}
+    isSet={selected.length > 0}
+  >
+    <FilterOptionList
+      options={options}
+      selected={selected}
+      onToggle={onToggle}
+      multiple={multiple}
+      searchable={searchable}
+      searchPlaceholder={searchPlaceholder}
+    />
+  </FilterDrillRow>
+);
+
 /* ── Hours / meal-time filter ──
-   A drop-in "Hours" section for any filter sheet: Open now + breakfast / lunch
-   / dinner toggle pills. The caller owns the HoursFilter value and a setter;
-   meal windows + matching live in lib/hours.ts. */
+   A drop-in "Hours" drill row for any filter sheet: its sub-page holds
+   Open now + breakfast / lunch / dinner toggle pills. The caller owns the
+   HoursFilter value and a setter; meal windows + matching live in
+   lib/hours.ts. */
+export function hoursFilterSummary(value: HoursFilter): string {
+  const parts: string[] = [];
+  if (value.openNow) parts.push('Open now');
+  for (const m of value.meals) parts.push(MEAL_LABELS[m]);
+  if (parts.length === 0) return 'Any';
+  if (parts.length <= 2) return parts.join(', ');
+  return `${parts[0]} +${parts.length - 1}`;
+}
+
 export const HoursFilterSection: React.FC<{
   value: HoursFilter;
   onChange: (next: HoursFilter) => void;
-  label?: React.ReactNode;
+  label?: string;
 }> = ({ value, onChange, label = 'Hours' }) => {
   const toggleMealKey = (m: MealKey) =>
     onChange({ ...value, meals: value.meals.includes(m) ? value.meals.filter((x) => x !== m) : [...value.meals, m] });
+  const isSet = value.openNow || value.meals.length > 0;
   return (
-    <FilterSection label={label} sub="Show places open for a meal.">
+    <FilterDrillRow id="hours" label={label} value={hoursFilterSummary(value)} isSet={isSet}>
+      <p className="fs-sub" style={{ marginTop: 10 }}>Show places open for a meal.</p>
       <PillRow>
         <Pill active={value.openNow} onClick={() => onChange({ ...value, openNow: !value.openNow })}>
           Open now
@@ -143,104 +288,12 @@ export const HoursFilterSection: React.FC<{
           </Pill>
         ))}
       </PillRow>
-    </FilterSection>
+    </FilterDrillRow>
   );
 };
 
-/* ── Searchable dropdown (cuisine / city / friends) ──
-   Single source of truth for the reference's collapsible chooser. The
-   caller supplies options + the selected list + a toggle handler; this
-   component owns only the open/search UI state. `multiple` switches between
-   a square checkbox (multi) and a round dot (single-select). */
+/* ── Option shape shared by FilterOptionList / FilterDrillSection ── */
 export interface DropdownOption {
   value: string;
   label: string;
 }
-
-export const FilterDropdown: React.FC<{
-  options: DropdownOption[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  multiple?: boolean;
-  searchable?: boolean;
-  placeholder?: string;
-  searchPlaceholder?: string;
-}> = ({
-  options,
-  selected,
-  onToggle,
-  multiple = true,
-  searchable = true,
-  placeholder = 'All',
-  searchPlaceholder = 'Search',
-}) => {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, query]);
-
-  const triggerLabel = (() => {
-    if (selected.length === 0) return placeholder;
-    const first = options.find((o) => o.value === selected[0]);
-    const firstLabel = first?.label ?? selected[0];
-    if (selected.length === 1) return firstLabel;
-    return `${firstLabel} + ${selected.length - 1} more`;
-  })();
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn('fs-dropdown-trigger', open && 'is-open', selected.length > 0 && 'is-set')}
-        aria-expanded={open}
-      >
-        <span>{triggerLabel}</span>
-        <ChevronDown className={cn('fs-dropdown-chev', open && 'is-open')} />
-      </button>
-      {open && (
-        <div className="fs-dropdown-panel">
-          {searchable && (
-            <div className="fs-dropdown-search">
-              <Search />
-              <input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                autoCapitalize="off"
-                autoCorrect="off"
-              />
-            </div>
-          )}
-          <div className="fs-dropdown-list">
-            {filtered.length === 0 ? (
-              <div className="fs-dropdown-empty">No matches</div>
-            ) : (
-              filtered.map((o) => {
-                const active = selected.includes(o.value);
-                return (
-                  <button
-                    key={o.value}
-                    type="button"
-                    className={cn('fs-dropdown-row', active && 'is-active')}
-                    onClick={() => onToggle(o.value)}
-                  >
-                    <span className={cn('fs-checkbox', !multiple && 'is-radio', active && 'is-on')}>
-                      {active && <Check size={11} strokeWidth={3} />}
-                    </span>
-                    <span>{o.label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};

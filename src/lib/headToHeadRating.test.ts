@@ -11,6 +11,9 @@ import {
   isComplete,
   computeFinalScore,
   comparisonsMade,
+  placementOrder,
+  estimateRemainingComparisons,
+  totalEstimatedComparisons,
   type H2HState,
   type H2HStep,
   type H2HCandidate,
@@ -237,42 +240,43 @@ describe('middle-band guardrail: an edge peer never hijacks the pivot', () => {
   });
 });
 
-/* ── Budget ────────────────────────────────────────────────────────────── */
+/* ── Bias budget (never a hard stop) ───────────────────────────────────── */
 
-describe('comparison budget', () => {
-  it('caps the number of comparisons and finalizes within the residual window', () => {
+describe('bias budget', () => {
+  it('a small budget no longer ends the search — it runs until the window closes', () => {
     const ratings = Array.from({ length: 20 }, (_, i) => mk(`r${i}`, 9.9 - i * 0.1));
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, 3);
     let n = 0;
     while (!isComplete(state)) {
+      // Past the bias budget every pivot must be the exact midpoint —
+      // biasing can't inflate the decisive-answer count.
+      if (comparisonsMade(state) >= 3) {
+        const oracle = oracleIndex(state.lo, state.hi, state.excluded)!;
+        expect(pickComparison(state)!.restaurantId).toBe(state.candidates[oracle].restaurantId);
+      }
       state = applyChoice(state, false);
-      n++;
+      if (++n > 50) throw new Error('did not terminate');
     }
-    expect(n).toBe(3);
-    expect(state.history.length).toBe(3);
-    // Window still open (20 items can't resolve in 3 probes).
-    expect(state.lo).toBeLessThanOrEqual(state.hi);
-
+    expect(n).toBeGreaterThan(3); // continued past the old hard stop
+    expect(state.lo).toBeGreaterThan(state.hi); // window fully resolved
     const final = computeFinalScore(state);
-    const upperNeighbor = state.candidates[state.lo].score;
-    const lowerNeighbor = state.candidates[state.hi].score;
-    expect(final).toBeGreaterThanOrEqual(lowerNeighbor - 0.06);
-    expect(final).toBeLessThanOrEqual(upperNeighbor + 0.06);
     expect(final).toBeGreaterThanOrEqual(state.lowerBound - 0.06);
     expect(final).toBeLessThanOrEqual(state.upperBound + 0.06);
   });
 
-  it('pulls a budget-capped score toward the peer prior', () => {
-    // Hand-built open-window state (lo..hi spans the whole pool, budget spent).
+  it('pulls a skip-stranded final score toward the peer prior', () => {
+    // Reachable end-state shape: every in-window candidate was SKIPPED and
+    // both bounds came from real comparisons — the only way a window can
+    // still span candidates at completion.
     const cand = (id: string, score: number): H2HCandidate => ({
       restaurantId: id, name: id, image: '', cuisine: '', price: '', address: '',
       notes: '', tags: [], score,
     });
-    const fakeStep = (): H2HStep => ({
-      kind: 'choice', pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
+    const fakeStep = (kind: 'choice' | 'skip'): H2HStep => ({
+      kind, pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
       prevLo: 0, prevHi: 0, prevUpper: 0, prevLower: 0,
       prevUpperFromComparison: false, prevLowerFromComparison: false,
-      prevExcluded: [], prevTiedScores: [], prevTerminalTie: null,
+      prevExcluded: [], prevTiedScores: [],
     });
     const base: Omit<H2HState, 'similarity'> = {
       tier: 'loved',
@@ -283,65 +287,158 @@ describe('comparison budget', () => {
       lowerBound: 7.0,
       upperBoundFromComparison: true,
       lowerBoundFromComparison: true,
-      excluded: [],
+      excluded: [0, 1, 2],
       tiedScores: [],
-      terminalTie: null,
-      history: [fakeStep(), fakeStep(), fakeStep()],
+      history: [fakeStep('choice'), fakeStep('choice'), fakeStep('skip'), fakeStep('skip'), fakeStep('skip')],
       initialPoolSize: 3,
       target: null,
       locationScores: [0, 0, 0],
-      budget: 3,
+      budget: 8,
     };
+    expect(isComplete({ ...base, similarity: [0, 0, 0] })).toBe(true);
     const withoutPeers = computeFinalScore({ ...base, similarity: [0, 0, 0] });
     const withHighPeer = computeFinalScore({ ...base, similarity: [0.9, 0, 0] });
-    expect(withoutPeers).toBeCloseTo(8.0, 6); // midpoint of [7,9]
+    expect(withoutPeers).toBeCloseTo(8.0, 6); // midpoint of the skipped envelope
     expect(withHighPeer).toBeGreaterThan(withoutPeers); // pulled up toward 9.0
     expect(withHighPeer).toBeCloseTo(8.3, 6); // 0.75*8 + 0.25*9 = 8.25 → 8.3
+  });
+});
+
+/* ── Regression: placements are always fully resolved ──────────────────── */
+
+describe('regression: no placement between never-shown candidates', () => {
+  it('ties past the old budget keep the search alive until every in-window candidate was shown', () => {
+    const ratings = Array.from({ length: 40 }, (_, i) => mk(`r${String(i).padStart(2, '0')}`, 9.9 - i * 0.07));
+    let state = initH2H(ratings, 'loved', 'new');
+    for (let i = 0; i < 9; i++) state = applyTie(state);
+    expect(comparisonsMade(state)).toBe(9); // past DEFAULT_BUDGET = 8
+    expect(isComplete(state)).toBe(false); // old engine finalized here — now it keeps asking
+    let guard = 0;
+    while (!isComplete(state)) {
+      const comp = pickComparison(state)!;
+      state = applyChoice(state, 8.6 > comp.score); // hidden true score
+      if (++guard > 80) throw new Error('did not terminate');
+    }
+    // The core invariant: anything still inside the window was tied/skipped —
+    // never-shown candidates cannot remain between the bounds.
+    for (let i = state.lo; i <= state.hi; i++) {
+      expect(state.excluded).toContain(i);
+    }
+    // Both placement neighbors were directly shown, or sit outside the final
+    // window (transitively resolved by a decisive answer).
+    const final = computeFinalScore(state);
+    const order = placementOrder(state, 'new', final);
+    const at = order.indexOf('new');
+    const shown = new Set(state.history.map((h) => h.comparisonId));
+    const idIndex = new Map(state.candidates.map((c, i) => [c.restaurantId, i]));
+    for (const nid of [order[at - 1], order[at + 1]]) {
+      if (!nid) continue;
+      const idx = idIndex.get(nid)!;
+      const inWindow = idx >= state.lo && idx <= state.hi;
+      expect(shown.has(nid) || !inWindow).toBe(true);
+    }
+    expect(final).toBeLessThanOrEqual(state.upperBound + 1e-9);
+    expect(final).toBeGreaterThanOrEqual(state.lowerBound - 1e-9);
+  });
+
+  it('a single tied pivot left in the window lands the new item exactly on it, directly below', () => {
+    const ratings = [mk('a', 9.4), mk('b', 9.0), mk('c', 8.0), mk('d', 7.4), mk('e', 7.0)];
+    let state = initH2H(ratings, 'loved', 'new');
+    state = applyTie(state); // pivot c (8.0) — too close to call
+    state = applyChoice(state, false); // lost to b → upper 9.0
+    state = applyChoice(state, true); // beat d → lower 7.4
+    expect(isComplete(state)).toBe(true); // only the tied c remains in-window
+    const final = computeFinalScore(state);
+    expect(final).toBeCloseTo(8.0, 6); // collapses to the tied score exactly
+    const order = placementOrder(state, 'new', final);
+    expect(order.indexOf('new')).toBe(order.indexOf('c') + 1); // directly below its tie partner
+  });
+
+  it('keeps promising at least one more comparison while incomplete past the bias budget', () => {
+    const ratings = Array.from({ length: 30 }, (_, i) => mk(`r${i}`, 9.9 - i * 0.09));
+    let state = initH2H(ratings, 'loved', 'new');
+    for (let i = 0; i < 9; i++) state = applyTie(state);
+    expect(isComplete(state)).toBe(false);
+    expect(comparisonsMade(state)).toBeGreaterThan(state.budget);
+    expect(estimateRemainingComparisons(state)).toBeGreaterThanOrEqual(1);
+    expect(totalEstimatedComparisons(state)).toBeGreaterThan(comparisonsMade(state));
   });
 });
 
 /* ── Ties ──────────────────────────────────────────────────────────────── */
 
 describe('tie handling', () => {
-  it('one tie is terminal and anchors the final score to the pivot', () => {
+  it('a tie is NOT terminal — the search continues with other candidates', () => {
     const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
     const pivot = pickComparison(state)!;
     expect(pivot.restaurantId).toBe('b'); // midpoint of the 3-item window
     state = applyTie(state);
-    expect(state.terminalTie).toEqual({ comparisonId: 'b', score: 7.5 });
-    expect(isComplete(state)).toBe(true); // decisive — no more questions
-    expect(state.history.length).toBe(1);
-    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6); // the pivot's score
+    expect(isComplete(state)).toBe(false); // soft signal — keep asking
+    expect(state.tiedScores).toEqual([7.5]);
+    // The tied pivot is set aside; a DIFFERENT candidate is shown next.
+    expect(pickComparison(state)!.restaurantId).not.toBe('b');
+    expect(comparisonsMade(state)).toBe(1); // ties consume budget
   });
 
-  it('a tie after real choices still returns the pivot score, not the bounds midpoint', () => {
+  it('a tie with no decisive answers anywhere lands on the tied average', () => {
+    const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
+    let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
+    while (!isComplete(state)) state = applyTie(state); // ties all the way down
+    expect(state.tiedScores.length).toBe(3);
+    expect(computeFinalScore(state)).toBeCloseTo((8.0 + 7.5 + 7.0) / 3, 6);
+  });
+
+  it('a tie pulls the final score toward the tied pivot within strict bounds', () => {
+    // Hand-built completed state: decisive bounds [7,9], one tie at 8.6.
+    const cand = (id: string, score: number): H2HCandidate => ({
+      restaurantId: id, name: id, image: '', cuisine: '', price: '', address: '',
+      notes: '', tags: [], score,
+    });
+    const step = (kind: 'choice' | 'tie'): H2HStep => ({
+      kind, pickedNew: false, comparisonId: 'x', comparisonIndex: 0,
+      prevLo: 0, prevHi: 0, prevUpper: 0, prevLower: 0,
+      prevUpperFromComparison: false, prevLowerFromComparison: false,
+      prevExcluded: [], prevTiedScores: [],
+    });
+    const state: H2HState = {
+      tier: 'loved',
+      candidates: [cand('hi', 9.0), cand('tied', 8.6), cand('lo', 7.0)],
+      lo: 2, hi: 1, // window closed
+      upperBound: 9.0, lowerBound: 7.0,
+      upperBoundFromComparison: true, lowerBoundFromComparison: true,
+      excluded: [1], tiedScores: [8.6],
+      history: [step('choice'), step('tie'), step('choice')],
+      initialPoolSize: 3, target: null,
+      similarity: [0, 0, 0], locationScores: [0, 0, 0],
+      budget: 8,
+    };
+    // Midpoint of [7,9] is 8.0; the tie at 8.6 pulls halfway → 8.3.
+    expect(computeFinalScore(state)).toBeCloseTo(8.3, 6);
+  });
+
+  it('decisive answers cap the tie pull — strict bounds always rule', () => {
     const ratings = Array.from({ length: 7 }, (_, i) => mk(`r${i}`, 9.6 - i * 0.4));
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
-    state = applyChoice(state, true); // beat the first pivot → window moves up
+    state = applyTie(state); // ≈ the first pivot
     expect(isComplete(state)).toBe(false);
-    const pivot = pickComparison(state)!;
-    state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
-    // Anchored to the tied pivot exactly — ignores lower/upper bound midpoints.
-    expect(computeFinalScore(state)).toBeCloseTo(pivot.score, 6);
-    expect(comparisonsMade(state)).toBe(2);
+    while (!isComplete(state)) state = applyChoice(state, false); // then loses every one shown
+    // However hard the tie pulls, losses bound the score from above.
+    expect(computeFinalScore(state)).toBeLessThanOrEqual(state.upperBound);
   });
 
-  it('a terminal tie is undoable and the same pivot comes back', () => {
+  it('a tie is undoable and the same pivot comes back', () => {
     const ratings = [mk('a', 8.0), mk('b', 7.5), mk('c', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
     state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
+    expect(state.tiedScores).toEqual([7.5]);
     state = undoLastChoice(state);
-    expect(state.terminalTie).toBeNull();
+    expect(state.tiedScores).toEqual([]);
     expect(isComplete(state)).toBe(false);
     expect(pickComparison(state)!.restaurantId).toBe('b'); // session resumes intact
-    state = applyTie(state);
-    expect(computeFinalScore(state)).toBeCloseTo(7.5, 6);
   });
 
-  it('a tie in a tie-break session terminates at the tied score', () => {
+  it('ties through a tie-break session land on the tied score', () => {
     const ratings = [
       mk('x', 8.0),
       mk('y', 8.0),
@@ -351,9 +448,7 @@ describe('tie handling', () => {
     ];
     let state = initH2HTieBreak(ratings, 8.0, 'self')!;
     expect(state.candidates).toHaveLength(3);
-    state = applyTie(state);
-    expect(isComplete(state)).toBe(true);
-    expect(state.history.length).toBe(1);
+    while (!isComplete(state)) state = applyTie(state);
     expect(computeFinalScore(state)).toBeCloseTo(8.0, 6);
   });
 
@@ -382,7 +477,7 @@ describe('skip', () => {
     expect(pickComparison(state)!.restaurantId).not.toBe(first.restaurantId);
   });
 
-  it('does not consume the comparison budget', () => {
+  it('never ends the session — completion requires exhausting the window', () => {
     const many = Array.from({ length: 10 }, (_, i) => mk(`r${i}`, 9.5 - i * 0.2));
     let state = initH2H(many, 'loved', 'none', undefined, undefined, 2);
     state = applySkip(state);
@@ -391,7 +486,18 @@ describe('skip', () => {
     expect(isComplete(state)).toBe(false); // three skips didn't end it
     state = applyChoice(state, false);
     state = applyChoice(state, false);
-    expect(isComplete(state)).toBe(true); // two real comparisons did
+    // Two real answers spent the (bias) budget, but un-shown candidates
+    // remain — the old engine stopped here; now it keeps asking.
+    expect(isComplete(state)).toBe(false);
+    let guard = 0;
+    while (!isComplete(state)) {
+      state = applyChoice(state, false);
+      if (++guard > 20) throw new Error('did not terminate');
+    }
+    // At completion nothing un-shown remains inside the window.
+    for (let i = state.lo; i <= state.hi; i++) {
+      expect(state.excluded).toContain(i);
+    }
   });
 
   it('skipping everything places at the tier midpoint with no signal', () => {
@@ -531,7 +637,10 @@ describe('property: similarity bias never changes the final placement', () => {
 /* ── Comparison-count bounds ───────────────────────────────────────────── */
 
 describe('comparison-count bounds', () => {
-  it('always finishes within the default budget and fully resolves the window', () => {
+  it('decisive-only sessions stay within ~log2 and fully resolve the window', () => {
+    // The bias budget no longer ends a session, but its pivot guard still
+    // bounds the DECISIVE-answer count: ≤ 8 for pools up to 255 (ties/skips
+    // would each add one question on top — none occur here).
     const rnd = makeRng(7);
     for (const n of [10, 25, 50, 120, 200]) {
       const ratings = randomRatings(rnd, n);
@@ -539,7 +648,7 @@ describe('comparison-count bounds', () => {
       for (let t = 0; t < 10; t++) {
         const trueScore = 7 + Math.floor(rnd() * 30) / 10 + 0.05;
         const end = runToCompletion(initH2H(ratings, 'loved', 'none', target), trueScore);
-        expect(comparisonsMade(end)).toBeLessThanOrEqual(8); // DEFAULT_BUDGET
+        expect(comparisonsMade(end)).toBeLessThanOrEqual(8); // bias-guard worst case
         expect(end.lo).toBeGreaterThan(end.hi); // exact placement, no truncation
       }
     }

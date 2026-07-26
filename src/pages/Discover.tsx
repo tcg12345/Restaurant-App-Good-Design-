@@ -16,7 +16,7 @@ import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, countsForCommunity, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
@@ -38,9 +38,9 @@ import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, ensureMichelinIndex, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, michelinBySyntheticId } from '../lib/michelin';
 import { MichelinBadge, MichelinMark } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
-import { MichelinDistinctionFilter } from '../components/MichelinDistinctionFilter';
+import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -143,9 +143,10 @@ const MAP_STYLES = [
   { id: 'streets', label: 'Streets', style: 'mapbox://styles/mapbox/streets-v12' },
 ] as const;
 
-type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
+type SortOption = 'recommended' | 'popularity' | 'rating' | 'price_low' | 'price_high';
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'recommended', label: 'Recommended' },
   { value: 'popularity', label: 'Most Popular' },
   { value: 'rating', label: 'Highest Rated' },
   { value: 'price_low', label: 'Price: Low to High' },
@@ -763,6 +764,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [darkMode]);
   const [places, setPlaces] = useState<PlaceResult[]>(() => tabDataCache.discoverPlaces);
+  // Where the Discover pool was fetched from + the radius it covered —
+  // the rec engine's distance term anchors here so the ranking doesn't
+  // reshuffle as the user pans the map between searches.
+  const [scoreAnchor, setScoreAnchor] = useState<{ lat: number; lng: number; radiusM: number } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -773,7 +778,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, [setHideBottomNav]);
 
   // Filter state — discover
-  const [sortBy, setSortBy] = useState<SortOption>('popularity');
+  const [sortBy, setSortBy] = useState<SortOption>('recommended');
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
@@ -865,7 +870,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
   const expertOverlayMarkersRef = useRef<mapboxgl.Marker[]>([]); // expert markers shown in discover mode
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[], hoursFilter: emptyHoursFilter() });
+  const filtersRef = useRef({ sortBy: 'recommended' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0, selectedMichelin: [] as string[], hoursFilter: emptyHoursFilter() });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
@@ -1248,11 +1253,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     );
   }, [mode, homeLocation, recRadiusMiles]);
 
-  // Refresh scoring signals on home-mode + (userId, home city, top tags)
-  // change. Fetches in parallel so one slow endpoint doesn't block the rest.
-  // Browse mode skips this entirely — scoreCandidates isn't called there.
+  // Refresh scoring signals on (userId, home city, top tags) change.
+  // Fetches in parallel so one slow endpoint doesn't block the rest. Runs in
+  // BOTH modes now: home mode feeds the recs rail, map mode feeds the
+  // rec-engine ranking of the Discover pool (discoverRanked below).
   useEffect(() => {
-    if (mode !== 'home') return;
     let cancelled = false;
     const city = homeLocation?.label.split(',')[0].trim() || '';
     (async () => {
@@ -1280,6 +1285,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const friendUserIds = new Set(friendRatings.map((r) => r.user_id));
       const communityByRestaurant = new Map<string, CommunityRating[]>();
       for (const row of [...tagSim, ...exprecs, ...friendRatings]) {
+        // Self-picked slider scores aren't calibrated data — they don't
+        // feed the friend/expert scoring lifts (same rule as /location).
+        if (!countsForCommunity(row)) continue;
         const arr = communityByRestaurant.get(row.restaurant_id);
         if (arr) arr.push(row);
         else communityByRestaurant.set(row.restaurant_id, [row]);
@@ -1686,6 +1694,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       case 'price_high':
         sorted.sort((a, b) => b.priceLevel - a.priceLevel);
         break;
+      case 'recommended':
+        // Placeholder order at fetch time — the rec-engine memo
+        // (discoverRanked) owns the DISPLAYED order for this sort, so the
+        // pool just falls back to popularity here.
       case 'popularity':
       default:
         sorted.sort((a, b) => b.userRatingCount - a.userRatingCount);
@@ -1746,6 +1758,84 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const userRatingMapRef = useRef(userRatingMap);
   userRatingMapRef.current = userRatingMap;
 
+  // ── Recommendation ranking for the map's Discover pool ──
+  // Same engine as /location and the recs browser: the fetched pool is
+  // re-scored at render time (fetch order is just a placeholder), so the
+  // results list can sort by personal fit and every row/pin can carry the
+  // predicted "for you" score. Scoring is synchronous and cheap, and
+  // re-running it here means friend/expert/tag lifts apply the moment the
+  // signals land instead of being frozen at fetch time.
+  const discoverRanked = useMemo<ScoredPlace[]>(() => {
+    if (mode !== 'map' || places.length === 0) return [];
+    // Anchor priority: the last search's center+radius; before any fetch
+    // (cached pool restored on mount) fall back to the pool's centroid so
+    // the distance term still measures from "where these results are".
+    let anchor = scoreAnchor;
+    if (!anchor) {
+      let lat = 0, lng = 0, n = 0;
+      for (const p of places) {
+        if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng) || (p.lat === 0 && p.lng === 0)) continue;
+        lat += p.lat; lng += p.lng; n++;
+      }
+      if (n === 0) return [];
+      anchor = { lat: lat / n, lng: lng / n, radiusM: 8000 };
+    }
+    // Stamp Michelin distinctions onto the pool before scoring — the same
+    // attach /location performs — so the engine's distinctiveness and
+    // michelin-taste terms fire here too, and dataset prices backfill an
+    // unknown Google price tier.
+    const candidates = !michelinReady
+      ? places
+      : places.map((p) => {
+          if (isMichelinSyntheticId(p.id)) return p;
+          const info = findMichelinMatchSync(p.name, p.lat, p.lng, p.fullAddress || p.address);
+          if (!info) return p;
+          return {
+            ...p,
+            michelin: { stars: info.stars, bibGourmand: info.bibGourmand, selected: info.selected },
+            priceLevel: p.priceLevel < 1 && info.priceTier >= 1 ? info.priceTier : p.priceLevel,
+          };
+        });
+    return scoreCandidates(
+      candidates,
+      userPreferences,
+      recSignals,
+      { label: referenceLocation?.name || '', lat: anchor.lat, lng: anchor.lng },
+      anchor.radiusM,
+      { limit: Infinity, skipUserHistory: false },
+    );
+  }, [mode, places, scoreAnchor, michelinReady, userPreferences, recSignals, referenceLocation]);
+
+  // Personal score per place — the exact rule /location rows use: your own
+  // rating when you've been, else the engine's predicted "for you" score,
+  // else the Google rating (×2) so the badge never blanks.
+  const displayScoreById = useMemo(() => {
+    const m = new Map<string, { score: number; forYou: boolean }>();
+    for (const p of discoverRanked) {
+      const own = userRatingMap[p.id] || 0;
+      if (own > 0) { m.set(p.id, { score: own, forYou: false }); continue; }
+      if (typeof p.predicted === 'number' && p.predicted > 0) { m.set(p.id, { score: p.predicted, forYou: true }); continue; }
+      if (p.rating > 0) m.set(p.id, { score: Math.min(10, p.rating > 5 ? p.rating : p.rating * 2), forYou: false });
+    }
+    return m;
+  }, [discoverRanked, userRatingMap]);
+  // Ref mirror for the stable marker builder (same pattern as userRatingMapRef).
+  const displayScoreByIdRef = useRef(displayScoreById);
+  displayScoreByIdRef.current = displayScoreById;
+
+  // The list the Discover tab actually renders: rec-engine order for the
+  // default "Recommended" sort, fetch-time order for the explicit sorts.
+  // Anything the engine dropped (defensive — e.g. a Michelin synthetic that
+  // duplicates a rated place) is appended so the list always matches the
+  // pins. An AI-chat takeover keeps the assistant's own curated order.
+  const displayPlaces = useMemo<PlaceResult[]>(() => {
+    if (mode !== 'map' || sortBy !== 'recommended' || discoverRanked.length === 0) return places;
+    if (assistantPlotActiveRef.current) return places;
+    const rankedIds = new Set(discoverRanked.map((p) => p.id));
+    const missing = places.filter((p) => !rankedIds.has(p.id));
+    return missing.length > 0 ? [...discoverRanked, ...missing] : discoverRanked;
+  }, [mode, places, sortBy, discoverRanked]);
+
   // Create a marker element for a place — a score badge matching the location
   // map: a filled, score-coloured circle with the rating in white. Shows the
   // user's own rating if they've rated it, otherwise the Google rating mapped
@@ -1753,7 +1843,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // fill reads softly on both light and dark map themes (vs. a stark white pin).
   const createMarkerElement = useCallback((place: PlaceResult) => {
     const userScore = userRatingMapRef.current[place.id] || 0;
-    const score = userScore > 0 ? userScore : (place.rating > 0 ? place.rating * 2 : 0);
+    const personal = displayScoreByIdRef.current.get(place.id)?.score || 0;
+    const score = userScore > 0 ? userScore : personal > 0 ? personal : (place.rating > 0 ? place.rating * 2 : 0);
     const color = score > 0 ? scoreHex(score) : '#94a3b8';
     const label = score > 0
       ? `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${score.toFixed(1)}</span>`
@@ -1869,6 +1960,32 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     });
   }, [createMarkerElement, showPopup]);
 
+  // Keep pin labels in sync with the personal-score source. Markers are
+  // created at fetch time — before the rec engine has scored the new pool —
+  // so when the ranked scores land (or change as signals arrive), restyle
+  // the existing pins in place instead of rebuilding them.
+  useEffect(() => {
+    if (mode !== 'map') return;
+    (Object.entries(markersRef.current) as [string, MapboxMarker][]).forEach(([id, marker]) => {
+      const pin = marker.getElement().querySelector('.marker-pin') as HTMLElement | null;
+      if (!pin) return;
+      const entry = displayScoreById.get(id);
+      if (!entry || entry.score <= 0) return;
+      const color = scoreHex(entry.score);
+      const label = entry.score.toFixed(1);
+      pin.dataset.baseColor = color;
+      // The selection effect owns the background of the picked pin.
+      if (id !== selectedMarker) pin.style.background = color;
+      const span = pin.querySelector('span');
+      if (span) {
+        if (span.textContent !== label) span.textContent = label;
+      } else {
+        // Pin previously had no score (glyph) — swap in the score label.
+        pin.innerHTML = `<span style="color:#fff;font:700 12px/1 ui-sans-serif,system-ui,sans-serif;font-variant-numeric:tabular-nums;">${label}</span>`;
+      }
+    });
+  }, [mode, displayScoreById, selectedMarker]);
+
   // Monotonic token shared by fetchNearby/handleSearch: with the 500ms
   // debounce, a slow earlier request can resolve AFTER a newer one and
   // overwrite the list, pins, and camera with stale results.
@@ -1918,6 +2035,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const merged = await mergeMichelinResults(results, center.lat, center.lng, radius);
       const sorted = getFilteredPlaces(merged, filtersRef.current.sortBy, 0); // price already filtered server-side
       if (placesReqRef.current !== req) return; // a newer search superseded this one
+      setScoreAnchor({ lat: center.lat, lng: center.lng, radiusM: radius });
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -2045,6 +2163,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const merged = await mergeMichelinResults(results, lat, lng, searchRadius);
       const filtered = getFilteredPlaces(merged, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
+      setScoreAnchor({ lat, lng, radiusM: searchRadius });
       setPlaces(filtered);
       syncMarkers(filtered);
 
@@ -2169,7 +2288,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       filters: {
         cuisines: selectedCuisines.length > 0 ? selectedCuisines : undefined,
         price: selectedPrice > 0 ? selectedPrice : undefined,
-        sort: sortBy !== 'popularity' ? sortBy : undefined,
+        sort: sortBy !== 'recommended' ? sortBy : undefined,
         radius: discoverRadius,
       },
       origin: referenceLocation
@@ -2550,7 +2669,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'recommended' ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
     }
     if (mapMode === 'myratings') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0) + (selectedMichelin.length > 0 ? 1 : 0) + (isHoursFilterActive(hoursFilter) ? 1 : 0);
@@ -3089,7 +3208,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const panelMyRatings = useMemo(() => filteredMyRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredMyRatings, matchesPanelQ]);
   const panelFriendRatings = useMemo(() => filteredFriendRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredFriendRatings, matchesPanelQ]);
   const panelExpertRatings = useMemo(() => filteredExpertRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredExpertRatings, matchesPanelQ]);
-  const panelDiscoverPlaces = useMemo(() => places.filter((p) => matchesPanelQ(p.name)), [places, matchesPanelQ]);
+  const panelDiscoverPlaces = useMemo(() => displayPlaces.filter((p) => matchesPanelQ(p.name)), [displayPlaces, matchesPanelQ]);
   const panelRecipes = useMemo(() => friendRecipes.filter((m) => matchesPanelQ(m.name || '')), [friendRecipes, matchesPanelQ]);
 
   const panelResultCount =
@@ -3169,11 +3288,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     lat?: number | null;
     lng?: number | null;
     score?: number;
+    /** Tiny caption under the score disc — "For you" on predicted scores. */
+    scoreLabel?: string;
     extra?: React.ReactNode;
     restData: { id: string; name: string; image: string; cuisine: string; price: string; address: string; lat?: number; lng?: number };
     michHit?: React.ComponentProps<typeof MichelinMark>['michelin'] | null;
   }) => {
-    const { key, onClick, selected, image, name, cuisine, price, city, lat, lng, score, extra, restData, michHit } = opts;
+    const { key, onClick, selected, image, name, cuisine, price, city, lat, lng, score, scoreLabel, extra, restData, michHit } = opts;
     // Route through safeImage so billed Google Places photo URLs are never
     // fetched — those coerce to '' and the row falls back to the no-photo
     // (inline actions) variant. Real uploads (community / base64) still show.
@@ -3243,7 +3364,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             </button>
           </div>
         )}
-        {mapScoreCircle(score)}
+        {score != null && score > 0 && scoreLabel ? (
+          <div className="flex flex-col items-center gap-1 flex-shrink-0">
+            {mapScoreCircle(score)}
+            <span className="text-[8.5px] font-bold uppercase tracking-[0.08em] text-on-surface/40 leading-none">{scoreLabel}</span>
+          </div>
+        ) : mapScoreCircle(score)}
       </div>
     );
   };
@@ -3302,11 +3428,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         )}
       </span>
     ) : undefined;
+    // Personal score first: own rating → predicted "for you" → Google (×2).
+    const disp = displayScoreById.get(p.id);
     return renderMapRow({
       key: p.id, onClick: () => focusPanelPlace(p), selected,
       image: p.photoUrl || undefined, name: p.name,
       cuisine, price, city, lat: p.lat, lng: p.lng,
-      score: p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
+      score: disp ? disp.score : p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
+      scoreLabel: disp?.forYou ? 'For you' : undefined,
       extra, restData, michHit,
     });
   };
@@ -4097,7 +4226,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         onReset={() => {
           setHoursFilter(emptyHoursFilter());
           if (mapMode === 'discover') {
-            setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
+            setSortBy('recommended'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5); setSelectedMichelin([]);
           } else {
             setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setSelectedMichelin([]);
             if (mapMode === 'friends') setSelectedFriendIds(new Set());
@@ -4127,18 +4256,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </Segment>
             </FilterSection>
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
-            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
-            </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+            <MichelinDrillSection selected={selectedMichelin} onToggle={toggleMichelin} />
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={CUISINE_TYPES.filter((c) => c.type !== '').map((c) => ({ value: c.type, label: c.label }))}
                 selected={selectedCuisines}
                 onToggle={(t) => setSelectedCuisines((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
           </>
         )}
 
@@ -4165,28 +4292,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </Segment>
             </FilterSection>
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
-            <FilterSection label="Michelin" sub="Show only restaurants in the Michelin Guide.">
-              <MichelinDistinctionFilter selected={selectedMichelin} onToggle={toggleMichelin} />
-            </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+            <MichelinDrillSection selected={selectedMichelin} onToggle={toggleMichelin} />
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueMyRatingCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
             {uniqueMyRatingCities.length > 0 && (
-              <FilterSection label="City / Location">
-                <FilterDropdown
+                          <FilterDrillSection
+              id="city"
+              label="City / Location"
                   options={uniqueMyRatingCities.map((c) => ({ value: c, label: c }))}
                   selected={ratingCities}
                   onToggle={(v) => setRatingCities((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                  placeholder="All locations"
+                  emptyLabel="Any"
                   searchPlaceholder="Search locations"
-                />
-              </FilterSection>
+            />
             )}
             {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
               <FilterSection label="List">
@@ -4205,16 +4330,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         {mapMode === 'friends' && (
           <>
             {Object.keys(friendProfiles).length > 0 && (
-              <FilterSection label="Filter by friend">
-                <FilterDropdown
+                          <FilterDrillSection
+              id="friend"
+              label="Filter by friend"
                   options={Object.values(friendProfiles).map((p: UserProfile) => ({ value: p.user_id, label: p.display_name || `@${p.username}` }))}
                   selected={Array.from(selectedFriendIds)}
                   onToggle={(id) => setSelectedFriendIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; })}
                   searchable={Object.keys(friendProfiles).length > 5}
-                  placeholder="All friends"
+                  emptyLabel="Any"
                   searchPlaceholder="Search friends"
-                />
-              </FilterSection>
+            />
             )}
             <FilterSection label="Sort by">
               <PillRow>
@@ -4227,15 +4352,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
             </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueFriendCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
             <HoursFilterSection value={hoursFilter} onChange={setHoursFilter} />
           </>
         )}
@@ -4254,15 +4379,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
             </FilterSection>
-            <FilterSection label="Cuisine">
-              <FilterDropdown
+                        <FilterDrillSection
+              id="cuisine"
+              label="Cuisine"
                 options={uniqueExpertCuisines.map((c) => ({ value: c, label: c }))}
                 selected={ratingCuisines}
                 onToggle={(v) => setRatingCuisines((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v])}
-                placeholder="All cuisines"
+                emptyLabel="Any"
                 searchPlaceholder="Search cuisines"
-              />
-            </FilterSection>
+            />
           </>
         )}
 
@@ -5197,7 +5322,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           </span>
                         </div>
                         <div className={cn('divide-y divide-on-surface/[0.06] transition-opacity', isSearching && 'opacity-50')}>
-                          {places.map((place) => renderPlaceCard(place))}
+                          {displayPlaces.map((place) => renderPlaceCard(place))}
                         </div>
                       </>
                     )
@@ -5219,7 +5344,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                       </div>
                       <div className="divide-y divide-on-surface/[0.06]">
-                        {places.map((place) => renderPlaceCard(place))}
+                        {displayPlaces.map((place) => renderPlaceCard(place))}
                       </div>
                     </section>
                   ) : null}

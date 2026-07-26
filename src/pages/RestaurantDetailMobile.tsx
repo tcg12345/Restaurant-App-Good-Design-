@@ -8,6 +8,8 @@ import {
   Car, Footprints, Award, Images, Plus, Heart,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
+import { tierOfScore } from '../lib/settleScores';
+import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -66,7 +68,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
 
   // Swipe the hero to step through photos — a finger-following slide over a
@@ -962,7 +964,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <span className="section-eyebrow">My rating</span>
                     <span className={cn('inline-flex items-center justify-center h-6 px-2.5 rounded-lg', chipBg(myRating.score))}>
                       <span className="text-white tabular-nums" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '12.5px', fontWeight: 600 }}>
-                        {myRating.score.toFixed(1)}
+                        {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
                       </span>
                     </span>
                   </span>
@@ -988,8 +990,14 @@ export const RestaurantDetailMobile: React.FC = () => {
                           <button onClick={() => openAt('main')} className="flex-1 p-4 text-left active:opacity-70 transition-opacity">
                             <div className="uppercase text-ink-4" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em' }}>Score</div>
                             <div className="mt-1.5">
-                              <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '25px', fontWeight: 600 }}>{myRating.score.toFixed(1)}</span>
-                              <span className="text-ink-4" style={{ fontSize: '13px' }}> / 10</span>
+                              {scoresUnlocked ? (
+                                <>
+                                  <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '25px', fontWeight: 600 }}>{myRating.score.toFixed(1)}</span>
+                                  <span className="text-ink-4" style={{ fontSize: '13px' }}> / 10</span>
+                                </>
+                              ) : (
+                                <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '19px', fontWeight: 600 }}>{TIER_LABELS[tierOfScore(myRating.score)]}</span>
+                              )}
                             </div>
                           </button>
                           {(

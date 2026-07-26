@@ -138,7 +138,10 @@ export const Sidebar: React.FC = () => {
       onMouseLeave={onAsideMouseLeave}
       className={cn(
         'fixed left-0 top-0 h-screen border-r border-on-surface/[0.07] bg-surface',
-        'flex flex-col z-30 transition-shadow duration-200',
+        // Above page chrome (sticky headers cap at z-40 — SearchMain's
+        // translucent header was punching through the expanded rail) but
+        // below full-screen overlays and sheets (z-50+).
+        'flex flex-col z-[45] transition-shadow duration-200',
         // Expanded, the rail floats OVER the page content — the shadow
         // sells the overlay so it doesn't read as content being shoved.
         !collapsed && 'shadow-[12px_0_32px_-16px_rgba(0,0,0,0.28)]',

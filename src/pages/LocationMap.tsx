@@ -16,7 +16,7 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDropdown, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import {
@@ -814,15 +814,15 @@ export const LocationMap: React.FC = () => {
           ))}
         </PillRow>
       </FilterSection>
-      <FilterSection label="Cuisine">
-        <FilterDropdown
+      <FilterDrillSection
+          id="cuisine"
+          label="Cuisine"
           options={CUISINE_TYPES.filter((c) => c.type !== '').map((c) => ({ value: c.type, label: c.label }))}
           selected={selectedCuisines}
           onToggle={toggleCuisine}
-          placeholder="All cuisines"
+          emptyLabel="Any"
           searchPlaceholder="Search cuisines"
         />
-      </FilterSection>
     </FilterSheetShell>
   );
 

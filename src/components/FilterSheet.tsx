@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { createContext, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X } from 'lucide-react';
+import { ChevronLeft, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
@@ -8,15 +8,24 @@ import './filterSheet.css';
 
 /**
  * Shared chrome for every filter popup in the app (Discover, Pantry,
- * wishlist, recipes, public profile). Provides the overlay, the
- * desktop-card / phone-bottom-sheet container, drag-to-dismiss handle,
- * header (title + optional icon/subtitle), a scrollable body slot, and a
- * Reset / Apply footer — matching the Location page's reference design.
+ * wishlist, recipes, public profile, recommendations). Provides the
+ * overlay, the desktop-card / phone-bottom-sheet container,
+ * drag-to-dismiss handle, header (title + optional icon/subtitle), a
+ * scrollable body slot, and a Reset / Apply footer — matching the
+ * Location page's reference design.
  *
  * Callers compose the body from the primitives in `filterPrimitives.tsx`
- * (FilterSection, Pill, Segment, RangeSlider, FilterDropdown) plus the
- * shared `MichelinDistinctionFilter`. Filter LOGIC stays in each caller;
- * this component is presentation only.
+ * (FilterSection, Pill, Segment, RangeSlider, FilterDrillSection) plus the
+ * shared `MichelinDrillSection`. Filter LOGIC stays in each caller; this
+ * component is presentation only.
+ *
+ * ── Sub-pages (Beli-style drill-in) ──
+ * Option-list filters don't expand inline: a FilterDrillSection renders a
+ * row (label · current value · chevron) and pushes a SUB-PAGE that slides
+ * in over the main list, with the sheet header swapping to a back arrow +
+ * the filter's name. The mechanism lives here: drill rows reach it
+ * through FilterSheetNavContext and portal their page content into the
+ * sliding layer, so selections stay live while the caller re-renders.
  */
 interface FilterSheetProps {
   open: boolean;
@@ -33,8 +42,29 @@ interface FilterSheetProps {
   onApply?: () => void;
   /** Overlay stacking; defaults to 60. Wishlist/Recipe keep 120. */
   zIndex?: number;
+  /** Open directly on a drill sub-page (id must match a FilterDrillSection
+   *  in children). Consumed on each closed→open transition. */
+  initialPage?: { id: string; title: string } | null;
   children: React.ReactNode;
 }
+
+export interface FilterSheetNav {
+  /** The drill page currently open, or null (main list). */
+  activeId: string | null;
+  openPage: (id: string, title: string) => void;
+  closePage: () => void;
+  /** Mount point for the active drill page's content (portal target). */
+  container: HTMLDivElement | null;
+}
+
+/** Default no-ops let primitives render outside a sheet (never expected —
+ *  they'd just do nothing on tap). */
+export const FilterSheetNavContext = createContext<FilterSheetNav>({
+  activeId: null,
+  openPage: () => {},
+  closePage: () => {},
+  container: null,
+});
 
 export const FilterSheet: React.FC<FilterSheetProps> = ({
   open,
@@ -47,11 +77,30 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   applyLabel = 'Apply',
   onApply,
   zIndex = 60,
+  initialPage = null,
   children,
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const handleApply = onApply ?? onClose;
+
+  // ── Drill sub-page state ──
+  const [page, setPage] = useState<{ id: string; title: string } | null>(null);
+  const [subContainer, setSubContainer] = useState<HTMLDivElement | null>(null);
+  // Apply initialPage on each closed→open transition (read via ref so a
+  // parent re-render can't re-trigger it mid-session).
+  const initialPageRef = useRef(initialPage);
+  initialPageRef.current = initialPage;
+  useEffect(() => {
+    setPage(open ? initialPageRef.current : null);
+  }, [open]);
+
+  const nav: FilterSheetNav = {
+    activeId: page?.id ?? null,
+    openPage: (id, pageTitle) => setPage({ id, title: pageTitle }),
+    closePage: () => setPage(null),
+    container: subContainer,
+  };
 
   return (
     <AnimatePresence>
@@ -95,27 +144,81 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
             )}
 
             <div className="fs-head">
-              <div className="fs-head-main">
-                {titleIcon && <span className="fs-title-icon">{titleIcon}</span>}
-                <div className="fs-head-text">
-                  <h3 className="fs-title">{title}</h3>
-                  {subtitle && <p className="fs-subtitle">{subtitle}</p>}
+              {page ? (
+                <div className="fs-head-main">
+                  <button
+                    type="button"
+                    onClick={() => setPage(null)}
+                    className="fs-back"
+                    aria-label="Back to all filters"
+                  >
+                    <ChevronLeft size={17} />
+                  </button>
+                  <div className="fs-head-text">
+                    <h3 className="fs-title">{page.title}</h3>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="fs-head-main">
+                  {titleIcon && <span className="fs-title-icon">{titleIcon}</span>}
+                  <div className="fs-head-text">
+                    <h3 className="fs-title">{title}</h3>
+                    {subtitle && <p className="fs-subtitle">{subtitle}</p>}
+                  </div>
+                </div>
+              )}
               <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
                 <X size={16} />
               </button>
             </div>
 
-            <div className="fs-body">{children}</div>
+            <FilterSheetNavContext.Provider value={nav}>
+              <div className="fs-body-zone">
+                <motion.div
+                  className="fs-body"
+                  animate={{ x: page ? -28 : 0, opacity: page ? 0.25 : 1 }}
+                  transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+                  aria-hidden={!!page || undefined}
+                >
+                  {children}
+                </motion.div>
+                <AnimatePresence>
+                  {page && (
+                    <motion.div
+                      key={page.id}
+                      className="fs-subpage"
+                      initial={{ x: '100%' }}
+                      animate={{ x: 0 }}
+                      exit={{ x: '100%' }}
+                      transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                    >
+                      <div ref={setSubContainer} className="fs-subpage-scroll" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </FilterSheetNavContext.Provider>
 
             <div className="fs-foot">
-              <button type="button" onClick={onReset} className="fs-reset">
-                {resetLabel}
-              </button>
-              <button type="button" onClick={handleApply} className="fs-apply">
-                {applyLabel}
-              </button>
+              {page ? (
+                <>
+                  <button type="button" onClick={onReset} className="fs-reset">
+                    {resetLabel}
+                  </button>
+                  <button type="button" onClick={() => setPage(null)} className="fs-apply">
+                    Done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={onReset} className="fs-reset">
+                    {resetLabel}
+                  </button>
+                  <button type="button" onClick={handleApply} className="fs-apply">
+                    {applyLabel}
+                  </button>
+                </>
+              )}
             </div>
           </motion.div>
         </motion.div>

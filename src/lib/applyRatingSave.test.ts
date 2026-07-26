@@ -115,3 +115,32 @@ describe('applyRatingSave derivation', () => {
     }
   });
 });
+
+/* ── skipSettle: bulk imports must land scores digit-for-digit ─────────── */
+
+describe('skipSettle (bulk import)', () => {
+  it('a crowded burst of saves preserves every raw score exactly', () => {
+    // Same crowding as the settle case above — without skipSettle these
+    // collisions WOULD move neighbors; an import must never do that.
+    const scores = [9.9, 9.9, 9.8, 9.8, 9.9, 9.7, 9.7, 9.7, 8.8, 8.8];
+    let current: RestaurantRating[] = [];
+    for (let i = 0; i < scores.length; i++) {
+      const result = applyRatingSave(current, mk(`r${i}`, scores[i]), { now: 1000 + i, skipSettle: true });
+      expect(result.otherChanged).toEqual([]);
+      expect(result.settledSelf.score).toBe(scores[i]);
+      current = result.next;
+    }
+    for (let i = 0; i < scores.length; i++) {
+      expect(current.find((r) => r.restaurantId === `r${i}`)?.score).toBe(scores[i]);
+    }
+  });
+
+  it('leaves pre-existing ratings untouched too', () => {
+    const prev = [mk('old-a', 9.9), mk('old-b', 9.9), mk('old-c', 9.8)];
+    const { next, otherChanged } = applyRatingSave(prev, mk('imported', 9.9), { now: 1, skipSettle: true });
+    expect(otherChanged).toEqual([]);
+    for (const r of prev) {
+      expect(next.find((n) => n.restaurantId === r.restaurantId)?.score).toBe(r.score);
+    }
+  });
+});

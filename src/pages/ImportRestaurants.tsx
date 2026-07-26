@@ -1,9 +1,17 @@
 import React, { useState, useRef } from 'react';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, CheckCircle, XCircle, Loader2, FileUp, X, AlertTriangle } from 'lucide-react';
+import { useSettings } from '../contexts/SettingsContext';
+import { useHeaderFade } from '../lib/useHeaderFade';
+import { ArrowLeft, Bookmark, CheckCircle, XCircle, Loader2, FileUp, Images, Sparkles, X, AlertTriangle } from 'lucide-react';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useSignInModal } from '../contexts/SignInModalContext';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { extractRestaurantsFromCaptures, prepareScreenshotTiles } from '../lib/import-restaurants-client';
+import { extractFramesFromRecording } from '../lib/video-frames';
 
 interface ParsedRestaurant {
   name: string;
@@ -19,7 +27,9 @@ interface ParsedRestaurant {
 
 interface ImportResult {
   restaurant: ParsedRestaurant;
-  status: 'pending' | 'searching' | 'found' | 'not_found' | 'skipped' | 'no_data' | 'error';
+  /** 'updated' — the place was already rated with a DIFFERENT score, so the
+   *  import corrected the score in place (a re-run heals earlier drift). */
+  status: 'pending' | 'searching' | 'found' | 'updated' | 'not_found' | 'skipped' | 'no_data' | 'error';
   placeResult?: PlaceResult;
   error?: string;
 }
@@ -149,10 +159,21 @@ async function findGooglePlace(
   }
 }
 
+/** Max screenshots per AI read — 6 shots × up to 4 tiles fills one call. */
+const MAX_SCREENSHOTS = 6;
+/** Max screen recordings per read — each extracts to many frames. */
+const MAX_RECORDINGS = 2;
+
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
+  // Mobile top bar dissolves with scroll, Discover-style.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const { ratings, rateRestaurant, cacheRestaurantMeta, addToWishlist, wishlist } = useLists();
+  const { isSignedIn } = useAuth();
+  const { requireSignIn } = useSignInModal();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const [parsedRestaurants, setParsedRestaurants] = useState<ParsedRestaurant[]>([]);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
@@ -160,12 +181,126 @@ export const ImportRestaurants: React.FC = () => {
   const [parseError, setParseError] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
+  // Screenshot path: previews of the picked images while Claude reads them.
+  const [shotPreviews, setShotPreviews] = useState<string[]>([]);
+  const [aiReading, setAiReading] = useState(false);
+  // Substatus while reading — recording scan %, then "part x of y".
+  const [readingStage, setReadingStage] = useState('');
   // Shown when every parsed rating is ≤ 5 — almost certainly a 5-point
   // scale that would import as terrible /10 scores.
   const [scalePrompt, setScalePrompt] = useState(false);
   const abortRef = useRef(false);
 
+  // Place-level duplicate guards for the resolve loop. Both sets also grow
+  // as rows import, so two rows that RESOLVE to the same Google place
+  // (e.g. the same restaurant read from two overlapping screenshots under
+  // slightly different names) can only ever create one entry — the second
+  // reports "skipped".
   const existingIds = new Set(ratings.map((r) => r.restaurantId));
+  const existingWishlistIds = new Set(wishlist.map((w) => w.restaurantId));
+
+  /** Feed a parsed batch (from either path) into the shared review flow. */
+  const acceptParsed = (parsed: ParsedRestaurant[], label: string) => {
+    setFileName(label);
+    setParsedRestaurants(parsed);
+    setImportResults(parsed.map((r) => ({ restaurant: r, status: 'pending' as const })));
+    const parsedRatings = parsed.map((r) => r.rating).filter((n): n is number => n !== null);
+    setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
+  };
+
+  // ── Capture path: pick or drop screenshots and/or a screen recording →
+  //    Claude vision reads the list. A recording is first distilled into
+  //    still frames covering the scroll (video-frames.ts); from there both
+  //    kinds flow through the same tiling + extraction pipeline.
+  const readCaptures = async (picked: File[]) => {
+    const images = picked.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SCREENSHOTS);
+    const videos = picked.filter((f) => f.type.startsWith('video/')).slice(0, MAX_RECORDINGS);
+    if (images.length === 0 && videos.length === 0) return;
+    if (!isSignedIn) { requireSignIn('Sign in to import from screenshots'); return; }
+
+    setParseError('');
+    setParsedRestaurants([]);
+    setImportResults([]);
+    setIsDone(false);
+    setAiReading(true);
+    setReadingStage('');
+    try {
+      // Each capture becomes 1–4 overlapping high-resolution tiles so
+      // small row text (Beli's decimal score circles especially) stays
+      // legible to the vision model; the extractor dedupes the overlap.
+      const tileGroups: string[][] = [];
+      for (const f of images) tileGroups.push(await prepareScreenshotTiles(f));
+      for (const v of videos) {
+        setReadingStage('Scanning your recording…');
+        const frames = await extractFramesFromRecording(v, (p) => {
+          setReadingStage(`Scanning your recording… ${Math.round(p * 100)}%`);
+        });
+        for (const frame of frames) tileGroups.push(await prepareScreenshotTiles(frame));
+      }
+      setShotPreviews(tileGroups.map((t) => t[0]));
+      const result = await extractRestaurantsFromCaptures(tileGroups, {
+        onBatchProgress: (i, total) => {
+          setReadingStage(total > 1 ? `Reading part ${i + 1} of ${total}…` : '');
+        },
+      });
+      if (!result.ok || !result.restaurants) {
+        setParseError(result.error || "Couldn't read those captures. Try again with clearer ones.");
+        return;
+      }
+      const labelParts = [
+        images.length > 0 ? `${images.length} screenshot${images.length === 1 ? '' : 's'}` : '',
+        videos.length > 0 ? `${videos.length === 1 ? 'a screen recording' : `${videos.length} screen recordings`}` : '',
+      ].filter(Boolean);
+      acceptParsed(
+        result.restaurants.map((r) => ({
+          name: r.name,
+          address: '',
+          city: r.city || '',
+          cuisine: r.cuisine || '',
+          rating: r.score ?? null,
+          notes: r.notes || '',
+          dateVisited: '',
+          priceRange: 0,
+          isWishlist: !!r.wishlist,
+        })),
+        labelParts.join(' + '),
+      );
+    } catch (err) {
+      setParseError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Couldn't read one of those files. Use JPG/PNG screenshots or an MP4/MOV recording and try again.",
+      );
+    } finally {
+      setAiReading(false);
+      setReadingStage('');
+      setShotPreviews([]);
+    }
+  };
+
+  const handleScreenshots = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files: File[] = e.target.files ? Array.from(e.target.files as ArrayLike<File>) : [];
+    e.target.value = ''; // allow re-picking the same files
+    void readCaptures(files);
+  };
+
+  // Desktop: drag screenshots anywhere onto the acquisition step.
+  const [dragOver, setDragOver] = useState(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Ignore moves between children of the drop zone.
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer) void readCaptures(Array.from(e.dataTransfer.files));
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -193,11 +328,7 @@ export const ImportRestaurants: React.FC = () => {
         return;
       }
 
-      setParsedRestaurants(parsed);
-      setImportResults(parsed.map((r) => ({ restaurant: r, status: 'pending' as const })));
-      // Every rating ≤ 5 → probably a 5-point export; offer to double.
-      const parsedRatings = parsed.map((r) => r.rating).filter((n): n is number => n !== null);
-      setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
+      acceptParsed(parsed, file.name);
     };
     reader.readAsText(file);
   };
@@ -213,7 +344,7 @@ export const ImportRestaurants: React.FC = () => {
 
   const stats = {
     total: importResults.length,
-    found: importResults.filter((r) => r.status === 'found').length,
+    found: importResults.filter((r) => r.status === 'found' || r.status === 'updated').length,
     notFound: importResults.filter((r) => r.status === 'not_found').length,
     skipped: importResults.filter((r) => r.status === 'skipped').length,
     noData: importResults.filter((r) => r.status === 'no_data').length,
@@ -224,6 +355,10 @@ export const ImportRestaurants: React.FC = () => {
   const runImport = async () => {
     setIsRunning(true);
     abortRef.current = false;
+    // Current rating per place id — lets a re-run CORRECT a score that
+    // drifted (or was mistyped) instead of skipping it, while preserving
+    // the rating's notes, photos, lists and visit history.
+    const ratingByPlaceId = new Map<string, RestaurantRating>(ratings.map((r) => [r.restaurantId, r]));
     const home = loadLastSelectedLocation();
     const homeBias = home && Number.isFinite(home.lat) && Number.isFinite(home.lng)
       ? { lat: home.lat, lng: home.lng }
@@ -246,7 +381,27 @@ export const ImportRestaurants: React.FC = () => {
       try {
         const place = await findGooglePlace(restaurant, homeBias);
         if (!place) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'not_found' }; return next; }); continue; }
-        if (existingIds.has(place.id)) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; }); continue; }
+        // Already rated (or imported earlier in this run) — never duplicate.
+        // A wishlist row is also skipped when the place is already on the
+        // wishlist; a RATING for a place that's only wishlisted still
+        // imports (that's an upgrade, not a duplicate).
+        const isDuplicate = existingIds.has(place.id)
+          || (restaurant.isWishlist && existingWishlistIds.has(place.id));
+        if (isDuplicate) {
+          // Same place, different score → correct the score in place (keep
+          // the rating's notes / photos / lists / history). This is what
+          // lets re-running an import fix earlier drift or misreads.
+          const existing = ratingByPlaceId.get(place.id);
+          const importedScore = restaurant.rating !== null ? clampScore(restaurant.rating) : null;
+          if (!restaurant.isWishlist && importedScore !== null && existing && existing.score !== importedScore) {
+            rateRestaurant({ ...existing, score: importedScore, ratingMethod: 'import' }, { skipSettle: true });
+            ratingByPlaceId.set(place.id, { ...existing, score: importedScore });
+            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'updated', placeResult: place }; return next; });
+          } else {
+            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; });
+          }
+          continue;
+        }
 
         const price = priceLevelToString(restaurant.priceRange || place.priceLevel);
         const meta: RestaurantMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: restaurant.cuisine, price, address: place.address || restaurant.address };
@@ -258,14 +413,20 @@ export const ImportRestaurants: React.FC = () => {
             cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
             notes: restaurant.notes, listIds: [], addedAt: Date.now() - (importResults.length - i),
           });
+          existingWishlistIds.add(place.id);
         } else if (restaurant.rating !== null) {
           rateRestaurant({
             restaurantId: place.id, name: place.name, image: place.photoUrl || '',
             cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
             score: clampScore(restaurant.rating), notes: restaurant.notes, visitDate: restaurant.dateVisited || '',
-            wouldReturn: true, tags: [], photos: [], listIds: [],
+            wouldReturn: true, tags: [], photos: [], listIds: [], friendIds: [],
+            ratingMethod: 'import',
             createdAt: Date.now() - (importResults.length - i),
-          });
+            // Imported scores are transcriptions of ratings the user already
+            // made elsewhere — they must land EXACTLY as shown. The settle
+            // engine (which nudges tier-mates on every save) reshuffled the
+            // whole batch during bulk imports.
+          }, { skipSettle: true });
         }
         existingIds.add(place.id);
 
@@ -281,31 +442,80 @@ export const ImportRestaurants: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface">
-      <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3">
+      <motion.div
+        ref={headerFade.headerRef}
+        style={headerFade.headerStyle}
+        className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3"
+      >
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 hover:bg-primary/5 rounded-full transition-colors">
             <ArrowLeft className="w-5 h-5 text-primary" />
           </button>
           <div>
             <h1 className="text-lg font-serif font-semibold text-primary">Import Restaurants</h1>
-            <p className="text-xs text-muted">Upload a CSV or JSON file</p>
+            <p className="text-xs text-on-surface/45">From Beli screenshots, a screen recording, or a file</p>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
-        {/* File upload area */}
-        {parsedRestaurants.length === 0 && (
-          <div className="space-y-4">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-on-surface/15 rounded-2xl p-8 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/3 transition-all"
+        {/* Acquisition step — screenshots (primary) or a file (secondary).
+            The whole step doubles as a drag-and-drop target for screenshots
+            on desktop. */}
+        {parsedRestaurants.length === 0 && !aiReading && (
+          <div
+            className="space-y-4"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {/* Screenshot import — the easy path */}
+            <button
+              type="button"
+              onClick={() => screenshotInputRef.current?.click()}
+              className={`w-full text-left rounded-2xl bg-primary text-white p-5 shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all ${
+                dragOver ? 'ring-4 ring-primary/30 scale-[1.01]' : ''
+              }`}
             >
-              <FileUp size={32} className="mx-auto text-on-surface/25 mb-3" />
-              <p className="text-sm font-semibold text-on-surface/60">Click to upload a file</p>
-              <p className="text-xs text-on-surface/35 mt-1">Supports CSV and JSON files</p>
+              <div className="flex items-center gap-4">
+                <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
+                  <Images size={22} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-bold leading-tight">
+                    {dragOver ? 'Drop your screenshots or recording' : 'Import from screenshots or a recording'}
+                  </span>
+                  <span className="block text-[12px] text-white/80 mt-1 leading-snug">
+                    Screenshot your Beli lists — or just screen-record yourself scrolling through one — and we'll read the restaurants, scores and all.
+                    <span className="hidden md:inline"> You can also drag &amp; drop here.</span>
+                  </span>
+                </span>
+              </div>
+            </button>
+
+            {/* How-to for the Beli case — three tiny steps, no jargon */}
+            <div className="bg-on-surface/3 rounded-2xl p-4">
+              <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <Sparkles size={12} className="text-primary" /> Importing from Beli
+              </p>
+              <ol className="space-y-1.5 text-xs text-on-surface/65 list-none">
+                <li className="flex gap-2"><span className="font-bold text-primary">1.</span> Open your list in Beli. Easiest: start a screen recording and scroll steadily to the bottom. Or screenshot as you scroll (up to {MAX_SCREENSHOTS} at a time).</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">2.</span> Tap the button above and pick the recording or the screenshots.</li>
+                <li className="flex gap-2"><span className="font-bold text-primary">3.</span> Review the matches and import — scores come across exactly as rated.</li>
+              </ol>
             </div>
 
+            {/* File path — secondary */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-on-surface/15 rounded-2xl p-5 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/3 transition-all"
+            >
+              <FileUp size={22} className="mx-auto text-on-surface/25 mb-2" />
+              <p className="text-sm font-semibold text-on-surface/60">Or upload a file</p>
+              <p className="text-xs text-on-surface/35 mt-1">CSV or JSON with a "name" column — ratings, cities and notes come along if present</p>
+            </div>
+
+            <input ref={screenshotInputRef} type="file" accept="image/*,video/*" multiple onChange={handleScreenshots} className="hidden" />
             <input ref={fileInputRef} type="file" accept=".csv,.json,.txt" onChange={handleFileUpload} className="hidden" />
 
             {parseError && (
@@ -314,55 +524,68 @@ export const ImportRestaurants: React.FC = () => {
                 <p className="text-xs text-red-600">{parseError}</p>
               </div>
             )}
+          </div>
+        )}
 
-            {/* Format guide */}
-            <div className="bg-on-surface/3 rounded-2xl p-4 space-y-3">
-              <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider">Supported Formats</p>
-              <div>
-                <p className="text-xs font-semibold text-on-surface/70 mb-1">CSV (comma-separated)</p>
-                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto whitespace-pre-wrap">
-                  name,address,city,cuisine,rating,notes,date_visited,is_wishlist,price_range{'\n'}
-                  Nobu Downtown,"195 Broadway, New York",New York,Japanese,8.8,Amazing,2025-01-15,false,4
-                </code>
+        {/* Screenshot reading state — thumbnails + progress */}
+        {aiReading && (
+          <div className="rounded-2xl border border-on-surface/10 bg-white p-6 text-center space-y-4">
+            {shotPreviews.length > 0 && (
+              <div className="flex justify-center gap-2">
+                {shotPreviews.slice(0, 4).map((src, i) => (
+                  <img key={i} src={src} alt="" className="w-14 h-24 rounded-lg object-cover object-top border border-on-surface/10" />
+                ))}
+                {shotPreviews.length > 4 && (
+                  <div className="w-14 h-24 rounded-lg bg-on-surface/[0.05] border border-on-surface/10 flex items-center justify-center text-xs font-bold text-on-surface/50">
+                    +{shotPreviews.length - 4}
+                  </div>
+                )}
               </div>
-              <div>
-                <p className="text-xs font-semibold text-on-surface/70 mb-1">JSON</p>
-                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto">
-                  {'[{"name":"Nobu","city":"New York","cuisine":"Japanese","rating":8.8,"price_range":4}]'}
-                </code>
-              </div>
+            )}
+            <div className="flex items-center justify-center gap-2 text-sm font-semibold text-on-surface/70">
+              <Loader2 size={16} className="animate-spin text-primary" />
+              {readingStage || 'Reading your list…'}
             </div>
+            <p className="text-xs text-on-surface/40">Pulling out every restaurant, score and city. This takes a few seconds{readingStage.startsWith('Reading part') ? ' per part' : ''}.</p>
           </div>
         )}
 
         {/* Parsed results */}
         {parsedRestaurants.length > 0 && (
           <>
-            {/* File info */}
-            <div className="flex items-center justify-between bg-white rounded-xl border border-on-surface/8 px-3 py-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <FileUp size={14} className="text-primary flex-shrink-0" />
-                <span className="text-xs font-medium truncate">{fileName}</span>
-                <span className="text-[10px] text-on-surface/40">{parsedRestaurants.length} restaurants</span>
+            {/* Batch header */}
+            <div className="flex items-center justify-between gap-3 pt-1 px-1">
+              <div className="min-w-0">
+                <p className="font-serif font-bold text-[19px] leading-tight text-on-surface">
+                  {parsedRestaurants.length} restaurant{parsedRestaurants.length === 1 ? '' : 's'} found
+                </p>
+                <p className="text-[12.5px] font-medium text-on-surface/50 mt-0.5 truncate">
+                  From {fileName} — review the list, then import
+                </p>
               </div>
-              <button onClick={() => { setParsedRestaurants([]); setImportResults([]); setFileName(''); setIsDone(false); }}
-                className="p-1 text-on-surface/30 hover:text-on-surface/60"><X size={14} /></button>
+              <button
+                onClick={() => { setParsedRestaurants([]); setImportResults([]); setFileName(''); setIsDone(false); }}
+                className="w-9 h-9 flex-none rounded-full grid place-items-center text-on-surface/45 hover:bg-on-surface/[0.06] hover:text-on-surface transition-colors"
+                aria-label="Start over"
+              >
+                <X size={16} />
+              </button>
             </div>
 
             {/* 5-point-scale prompt */}
             {scalePrompt && !isRunning && !isDone && (
-              <div className="flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200/70 rounded-2xl">
                 <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-amber-800">
-                    Every rating in this file is 5 or below — looks like a 5-point scale.
+                  <p className="text-[13px] font-bold text-amber-900">
+                    These scores look like a 5-point scale.
                   </p>
-                  <p className="text-[11px] text-amber-700 mt-0.5">This app rates out of 10. Double the scores so a 4/5 imports as 8/10?</p>
-                  <div className="flex gap-2 mt-2">
+                  <p className="text-[12px] text-amber-800/80 mt-0.5">This app rates out of 10 — double them so a 4/5 imports as 8/10?</p>
+                  <div className="flex gap-2 mt-2.5">
                     <button type="button" onClick={() => applyScale(true)}
-                      className="px-3 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-bold">Double to /10</button>
+                      className="h-8 px-3.5 rounded-full bg-amber-500 text-white text-[12px] font-bold">Double to /10</button>
                     <button type="button" onClick={() => applyScale(false)}
-                      className="px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 text-xs font-semibold">Keep as-is</button>
+                      className="h-8 px-3.5 rounded-full border border-amber-300 text-amber-800 text-[12px] font-semibold">Keep as-is</button>
                   </div>
                 </div>
               </div>
@@ -370,74 +593,91 @@ export const ImportRestaurants: React.FC = () => {
 
             {/* Stats */}
             {(isRunning || isDone) && (
-              <div className="grid grid-cols-5 gap-2 text-center text-xs">
-                <div className="bg-emerald-50 rounded-lg p-2"><div className="text-emerald-600 font-bold text-lg">{stats.found}</div><div className="text-emerald-600">Found</div></div>
-                <div className="bg-amber-50 rounded-lg p-2"><div className="text-amber-600 font-bold text-lg">{stats.skipped}</div><div className="text-amber-600">Skipped</div></div>
-                <div className="bg-red-50 rounded-lg p-2"><div className="text-red-600 font-bold text-lg">{stats.notFound}</div><div className="text-red-600">Not Found</div></div>
-                <div className="bg-slate-100 rounded-lg p-2"><div className="text-slate-500 font-bold text-lg">{stats.noData}</div><div className="text-slate-500">No Data</div></div>
-                <div className="bg-on-surface/[0.05] rounded-lg p-2"><div className="text-on-surface/60 font-bold text-lg">{stats.pending}</div><div className="text-on-surface/60">Pending</div></div>
+              <div className="grid grid-cols-5 gap-1.5 text-center">
+                {([
+                  [stats.found, 'Added', 'text-emerald-600'],
+                  [stats.skipped, 'Skipped', 'text-amber-600'],
+                  [stats.notFound, 'No match', 'text-red-500'],
+                  [stats.noData, 'No data', 'text-on-surface/45'],
+                  [stats.pending, 'Left', 'text-on-surface/60'],
+                ] as const).map(([n, label, color]) => (
+                  <div key={label} className="rounded-xl bg-white border border-on-surface/[0.06] py-2.5">
+                    <div className={`font-serif font-bold text-[19px] leading-none tabular-nums ${color}`}>{n}</div>
+                    <div className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40 mt-1">{label}</div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Action buttons */}
-            <div className="flex gap-3">
-              {!isRunning && !isDone && (
-                <button onClick={runImport}
-                  className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium hover:bg-primary/90 transition-colors">
-                  <Upload className="w-4 h-4" /> Start Import
-                </button>
-              )}
-              {isRunning && (
-                <button onClick={() => { abortRef.current = true; }}
-                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 text-white py-3 rounded-xl font-medium">Stop</button>
-              )}
-              {isDone && (
-                <button onClick={() => navigate('/pantry')}
-                  className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium">View My Ratings</button>
-              )}
-            </div>
+            {/* Primary action */}
+            {!isRunning && !isDone && (
+              <button onClick={runImport}
+                className="w-full h-12 rounded-2xl bg-primary text-white text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
+                Import {parsedRestaurants.length === 1 ? 'this restaurant' : `all ${parsedRestaurants.length}`}
+              </button>
+            )}
+            {isRunning && (
+              <button onClick={() => { abortRef.current = true; }}
+                className="w-full h-12 rounded-2xl bg-on-surface/[0.06] border border-on-surface/10 text-on-surface text-[15px] font-bold hover:bg-on-surface/10 transition-colors">
+                Stop
+              </button>
+            )}
+            {isDone && (
+              <button onClick={() => navigate('/pantry')}
+                className="w-full h-12 rounded-2xl bg-primary text-white text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
+                View my ratings
+              </button>
+            )}
 
             {/* Progress */}
             {isRunning && (
-              <div className="w-full bg-on-surface/15 rounded-full h-2">
-                <div className="bg-primary h-2 rounded-full transition-all duration-300"
+              <div className="w-full bg-on-surface/[0.08] rounded-full h-1.5 overflow-hidden">
+                <div className="bg-primary h-full rounded-full transition-all duration-300"
                   style={{ width: `${((stats.found + stats.notFound + stats.skipped + stats.noData + stats.errors) / stats.total) * 100}%` }} />
               </div>
             )}
 
-            {/* Restaurant list */}
+            {/* Restaurant list — neutral cards; state lives in the icon,
+                the status line, and the score badge, not pastel washes. */}
             <div className="space-y-2">
               {importResults.map((item, idx) => (
                 <div key={idx}
-                  className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                    item.status === 'found' ? 'bg-emerald-50 border-emerald-200' :
-                    item.status === 'skipped' ? 'bg-amber-50 border-amber-200' :
-                    item.status === 'no_data' ? 'bg-slate-50 border-slate-200' :
-                    item.status === 'not_found' || item.status === 'error' ? 'bg-red-50 border-red-200' :
-                    item.status === 'searching' ? 'bg-blue-50 border-blue-200' : 'bg-white border-on-surface/10'
-                  }`}>
-                  <div className="flex-shrink-0">
-                    {item.status === 'pending' && <div className="w-5 h-5 rounded-full border-2 border-on-surface/25" />}
-                    {item.status === 'searching' && <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />}
-                    {item.status === 'found' && <CheckCircle className="w-5 h-5 text-emerald-500" />}
-                    {item.status === 'skipped' && <AlertTriangle className="w-5 h-5 text-amber-500" />}
-                    {item.status === 'no_data' && <AlertTriangle className="w-5 h-5 text-slate-400" />}
-                    {(item.status === 'not_found' || item.status === 'error') && <XCircle className="w-5 h-5 text-red-400" />}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-2xl border bg-white transition-colors ${
+                    item.status === 'searching' ? 'border-primary/30' : 'border-on-surface/[0.07]'
+                  } ${item.status === 'no_data' || item.status === 'not_found' || item.status === 'error' ? 'opacity-80' : ''}`}>
+                  <div className="flex-shrink-0 w-6 grid place-items-center">
+                    {item.status === 'pending' && <span className="w-2 h-2 rounded-full bg-on-surface/15" />}
+                    {item.status === 'searching' && <Loader2 size={18} className="text-primary animate-spin" />}
+                    {(item.status === 'found' || item.status === 'updated') && <CheckCircle size={19} className="text-emerald-500" />}
+                    {item.status === 'skipped' && <AlertTriangle size={18} className="text-amber-500" />}
+                    {item.status === 'no_data' && <AlertTriangle size={18} className="text-on-surface/25" />}
+                    {(item.status === 'not_found' || item.status === 'error') && <XCircle size={19} className="text-red-400" />}
                   </div>
                   {item.placeResult?.photoUrl && (
-                    <img src={item.placeResult.photoUrl} alt={item.restaurant.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                    <img src={item.placeResult.photoUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{item.restaurant.name}</div>
-                    <div className="text-xs text-muted truncate">
-                      {item.restaurant.city}{item.restaurant.city && item.restaurant.cuisine ? ' · ' : ''}{item.restaurant.cuisine}
-                      {item.restaurant.rating !== null && ` · ${item.restaurant.rating}/10`}
-                      {item.restaurant.isWishlist && ' · Wishlist'}
-                    </div>
-                    {item.status === 'skipped' && <div className="text-xs text-amber-600">Already imported</div>}
-                    {item.status === 'no_data' && <div className="text-xs text-slate-500">No rating or wishlist flag — nothing to import</div>}
-                    {item.status === 'not_found' && <div className="text-xs text-red-500">Not found on Google Places</div>}
+                    <div className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{item.restaurant.name}</div>
+                    {(item.restaurant.city || item.restaurant.cuisine) && (
+                      <div className="text-[12px] font-medium text-on-surface/55 truncate mt-0.5">
+                        {[item.restaurant.city, item.restaurant.cuisine].filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                    {item.status === 'updated' && item.restaurant.rating !== null && (
+                      <div className="text-[11.5px] font-semibold text-emerald-600 mt-0.5">Score corrected to {clampScore(item.restaurant.rating).toFixed(1)}</div>
+                    )}
+                    {item.status === 'skipped' && <div className="text-[11.5px] font-semibold text-amber-600 mt-0.5">Already in your ratings</div>}
+                    {item.status === 'no_data' && <div className="text-[11.5px] font-medium text-on-surface/40 mt-0.5">No score or wishlist flag — nothing to import</div>}
+                    {item.status === 'not_found' && <div className="text-[11.5px] font-semibold text-red-500 mt-0.5">No match found on Google</div>}
+                    {item.status === 'error' && <div className="text-[11.5px] font-semibold text-red-500 mt-0.5">Something went wrong</div>}
                   </div>
+                  {item.restaurant.rating !== null ? (
+                    <div className="flex-none"><ScoreBadge rating={clampScore(item.restaurant.rating)} size="sm" /></div>
+                  ) : item.restaurant.isWishlist ? (
+                    <span className="flex-none inline-flex items-center gap-1 h-6 px-2 rounded-full bg-on-surface/[0.05] text-[10.5px] font-bold text-on-surface/55">
+                      <Bookmark size={11} /> Wishlist
+                    </span>
+                  ) : null}
                 </div>
               ))}
             </div>

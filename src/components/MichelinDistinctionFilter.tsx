@@ -1,6 +1,7 @@
 import { Star, Soup, Utensils } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MICHELIN_DISTINCTIONS, type MichelinDistinction } from '../lib/michelin';
+import { FilterDrillRow } from './filterPrimitives';
 
 interface MichelinDistinctionFilterProps {
   /** Currently-selected distinction keys (multi-select, OR semantics). */
@@ -60,5 +61,25 @@ export function MichelinDistinctionFilter({ selected, onToggle, className }: Mic
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The Michelin filter as a FilterSheet drill row: "Michelin · <summary> ›"
+ * pushing a sub-page with the distinction card grid. Drop-in replacement
+ * for the old inline `<FilterSection label="Michelin">…</FilterSection>`
+ * blocks so every sheet gets the same Beli-style page navigation.
+ */
+export function MichelinDrillSection({ selected, onToggle }: Omit<MichelinDistinctionFilterProps, 'className'>) {
+  const value = selected.length === 0
+    ? 'Any'
+    : selected.length === 1
+      ? selected[0]
+      : `${selected[0]} +${selected.length - 1}`;
+  return (
+    <FilterDrillRow id="michelin" label="Michelin" value={value} isSet={selected.length > 0}>
+      <p className="fs-sub" style={{ marginTop: 10 }}>Show only restaurants in the Michelin Guide.</p>
+      <MichelinDistinctionFilter selected={selected} onToggle={onToggle} />
+    </FilterDrillRow>
   );
 }

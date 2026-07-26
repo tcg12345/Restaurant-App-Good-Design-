@@ -18,6 +18,9 @@ verify_jwt = false
 [functions.import-recipe]
 verify_jwt = false
 
+[functions.import-restaurants]
+verify_jwt = false
+
 [functions.generate-recipe-image]
 verify_jwt = false
 

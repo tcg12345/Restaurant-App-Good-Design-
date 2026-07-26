@@ -1482,7 +1482,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       <VerifiedBadge size={13} />
                     )}
                   </div>
-                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}</p>
+                  <p className="mt-0.5 text-[12px] leading-tight text-on-surface/45">Rated · {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}{r.rating_method === 'slider' ? ' · self-scored' : ''}</p>
                 </div>
               </div>
 

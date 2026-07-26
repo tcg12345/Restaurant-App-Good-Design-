@@ -12,7 +12,9 @@
  * editorial tokens don't leak into other routes.
  */
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import {
   ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat,
   ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown,
@@ -205,6 +207,9 @@ export const RecipesForYou: React.FC = () => {
   const { homeMeals, lists, addRecipeToList, removeRecipeFromList } = useLists();
   const { phoneMode } = useSettings();
   const { setOverride: setPageAddAction } = usePageAddAction();
+  // Mobile header (title + search + filters) dissolves with scroll,
+  // Discover-style, and returns near the top.
+  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
 
   // On the Recipe Box, the desktop header's "Add Rating" CTA becomes
   // "Add Recipe" (→ the create flow). Reverts on unmount.
@@ -589,7 +594,7 @@ export const RecipesForYou: React.FC = () => {
         {/* ── Sticky header — app-standard chrome: round back button,
             centered serif title, icon actions; search + filter row
             beneath. ─────────────────────────────────────────────── */}
-        <header className="m-header">
+        <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="m-header">
           <div className="m-header-row">
             <button type="button" className="m-back-btn" onClick={() => navigate(-1)} aria-label="Back">
               <ArrowLeft />
@@ -629,7 +634,7 @@ export const RecipesForYou: React.FC = () => {
               {sheetFilterCount > 0 && <span className="badge">{sheetFilterCount}</span>}
             </button>
           </div>
-        </header>
+        </motion.header>
 
         {/* ── Recipe of the Day (stacked) — hidden while searching so
             only the filtered results + filters show. ──────────────── */}

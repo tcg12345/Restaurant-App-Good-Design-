@@ -26,10 +26,8 @@ import {
   Share2,
   SlidersHorizontal,
   Soup,
-  Star,
   UserCheck,
   Users,
-  Utensils,
   X,
 } from 'lucide-react';
 import './LocationPage.css';
@@ -61,6 +59,7 @@ import {
   type ScoredPlace,
 } from '../lib/recommendations';
 import {
+  countsForCommunity,
   followPublicAccount,
   getAllFriendRatings,
   getExpertProfiles,
@@ -92,7 +91,6 @@ import { MichelinMark } from '../components/MichelinBadge';
 import { findMichelinMatchSync, michelinPriceDisplay, passesMichelinFilter, michelinNearbySync, michelinToPlaceResult, isMichelinSyntheticId, parseMichelinSyntheticId } from '../lib/michelin';
 import type { UserContext } from '../lib/location-chat-client';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   HomeLocationBar,
   isExactAddress,
@@ -104,7 +102,18 @@ import {
 import { useSetAssistantPageContext } from '../contexts/AssistantContext';
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { getGuidesForLocation, getGuideSaveCounts, type Guide as GuideRow } from '../lib/supabase-guides';
-import { HoursFilterSection } from '../components/filterPrimitives';
+import { useHeaderFade } from '../lib/useHeaderFade';
+import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
+import {
+  FilterDrillSection,
+  FilterSection,
+  HoursFilterSection,
+  Pill,
+  PillRow,
+  Segment,
+  SegmentItem,
+} from '../components/filterPrimitives';
+import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 
 /* ── Guide card view-model ────────────────────────────────────────────────────
@@ -437,6 +446,9 @@ export const LocationPage: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isMobile = phoneMode || isNarrowViewport;
+  // Mobile header (back · location pill · share) dissolves with scroll,
+  // Discover-style, and returns near the top.
+  const headerFade = useHeaderFade({ enabled: isMobile, windowScroll: true });
   // Drives the headless HomeLocationBar picker opened from the mobile
   // header's "{city} ▾" button.
   const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
@@ -636,6 +648,9 @@ export const LocationPage: React.FC = () => {
           // on ratings from followed experts that made the global slice.
           if (seenRatingIds.has(row.id)) continue;
           seenRatingIds.add(row.id);
+          // Self-picked slider scores don't feed circle signals or the
+          // "N friends rated" counts — they're not calibrated data.
+          if (!countsForCommunity(row)) continue;
           const arr = communityByRestaurant.get(row.restaurant_id);
           if (arr) arr.push(row);
           else communityByRestaurant.set(row.restaurant_id, [row]);
@@ -2181,7 +2196,11 @@ export const LocationPage: React.FC = () => {
           row: the back arrow lives inside the sticky filter bar below,
           so the page chrome is one bar instead of two stacked strips. */}
       {isMobile && (
-      <div className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3" style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)' }}>
+      <motion.div
+        ref={headerFade.headerRef}
+        className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3"
+        style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)', ...headerFade.headerStyle }}
+      >
         <div className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
           <button
             type="button"
@@ -2218,7 +2237,7 @@ export const LocationPage: React.FC = () => {
             <Share2 size={20} />
           </button>
         </div>
-      </div>
+      </motion.div>
       )}
 
       {/* Headless location picker — opened by tapping "{city} ▾" in the
@@ -3311,19 +3330,10 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   hoursFilter,
   onHoursChange,
 }) => {
-  const { phoneMode } = useSettings();
-  const { dragProps, startDrag } = useBottomSheet(open, onClose);
-  const [cuisineOpen, setCuisineOpen] = useState(false);
-  const [cuisineQuery, setCuisineQuery] = useState('');
   const cuisineOptions = useMemo(
-    () => CUISINE_TYPES.filter((c) => c.type),
+    () => CUISINE_TYPES.filter((c) => c.type).map((c) => ({ value: c.type, label: c.label })),
     [],
   );
-  const filteredCuisines = useMemo(() => {
-    const q = cuisineQuery.trim().toLowerCase();
-    if (!q) return cuisineOptions;
-    return cuisineOptions.filter((c) => c.label.toLowerCase().includes(q));
-  }, [cuisineOptions, cuisineQuery]);
 
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
@@ -3345,308 +3355,135 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onHoursChange(emptyHoursFilter());
   };
 
-  // Trigger label for the cuisine dropdown — "All cuisines" / "Italian" /
-  // "Italian + 2 more" so the closed state still communicates state.
-  const cuisineTriggerLabel = (() => {
-    if (selectedCuisines.length === 0) return 'All cuisines';
-    const first = cuisineOptions.find((c) => c.type === selectedCuisines[0]);
-    const firstLabel = first?.label || selectedCuisines[0];
-    if (selectedCuisines.length === 1) return firstLabel;
-    return `${firstLabel} + ${selectedCuisines.length - 1} more`;
-  })();
-
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className="lp-filter-overlay"
-          onClick={onClose}
-        >
-          <motion.div
-            {...(phoneMode
-              ? {
-                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                  ...dragProps,
-                }
-              : {
-                  initial: { opacity: 0, scale: 0.96, y: -8 },
-                  animate: { opacity: 1, scale: 1, y: 0 },
-                  exit: { opacity: 0, scale: 0.97, y: -4 },
-                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                })}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn('lp-filter-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
-          >
-            {phoneMode && (
-              <div
-                className="lp-filter-drag-handle"
-                onPointerDown={startDrag}
-                style={{ touchAction: 'none' }}
-                aria-hidden="true"
-              >
-                <span />
-              </div>
+    <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={reset}>
+      {/* ── Sort by ─────────────────────────────────────────── */}
+      <FilterSection label="Sort by">
+        <PillRow>
+          {SORT_OPTIONS.map((opt) => (
+            <Pill key={opt.value} active={sortBy === opt.value} onClick={() => onSortChange(opt.value)}>
+              {opt.label}
+            </Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
+
+      {/* ── Price ───────────────────────────────────────────── */}
+      <FilterSection label="Price">
+        <Segment>
+          {PRICE_LEVELS.map((p) => (
+            <SegmentItem key={p.value} active={selectedPrice === p.value} onClick={() => onPriceChange(p.value)}>
+              {p.label}
+            </SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
+
+      {/* ── Drill pages: hours / cuisine / Michelin ─────────── */}
+      <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
+      <FilterDrillSection
+        id="cuisine"
+        label="Cuisine"
+        options={cuisineOptions}
+        selected={selectedCuisines}
+        onToggle={toggleCuisine}
+        searchPlaceholder="Search cuisines"
+        emptyLabel="All cuisines"
+      />
+      <MichelinDrillSection selected={selectedMichelin} onToggle={onMichelinToggle} />
+
+      {/* ── Distance ────────────────────────────────────────── */}
+      <FilterSection
+        label="Distance"
+        value={selectedRadius === 0 ? 'Any' : `Within ${selectedRadius} mi`}
+        isSet={selectedRadius > 0}
+        sub="From the city centre. Drag to the far left for no limit."
+      >
+        <input
+          type="range"
+          min={0}
+          max={25}
+          step={1}
+          value={selectedRadius}
+          onChange={(e) => onRadiusChange(Number(e.target.value))}
+          aria-label="Maximum distance from city centre in miles"
+          className="lp-slider"
+        />
+        <div className="lp-slider-range">
+          <span>Any</span>
+          <span>25 mi</span>
+        </div>
+      </FilterSection>
+
+      {/* ── Walk / drive time caps ──────────────────────────── */}
+      {canFilterByTravelTime && (
+        <>
+          <FilterSection
+            label={(
+              <>
+                <Footprints size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
+                Walk time
+              </>
             )}
+            value={selectedWalkMin === 0 ? 'Any' : WALK_MIN_OPTIONS.find((o) => o.value === selectedWalkMin)?.label}
+            isSet={selectedWalkMin > 0}
+            sub={`From ${homeLabel || 'your address'}.`}
+          >
+            <PillRow>
+              {WALK_MIN_OPTIONS.map((o) => (
+                <Pill key={o.value} sm active={selectedWalkMin === o.value} onClick={() => onWalkMinChange(o.value)}>
+                  {o.label}
+                </Pill>
+              ))}
+            </PillRow>
+          </FilterSection>
 
-            <div className="lp-filter-head">
-              <h3 className="lp-filter-title">Filters</h3>
-              <button
-                type="button"
-                onClick={onClose}
-                className="lp-filter-close"
-                aria-label="Close filters"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="lp-filter-body">
-              {/* ── Sort by ─────────────────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label">Sort by</div>
-                <div className="lp-pill-row">
-                  {SORT_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => onSortChange(opt.value)}
-                      className={cn('lp-pill', sortBy === opt.value && 'is-active')}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/* ── Price ───────────────────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label">Price</div>
-                <div className="lp-segment">
-                  {PRICE_LEVELS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => onPriceChange(p.value)}
-                      className={cn('lp-segment-item', selectedPrice === p.value && 'is-active')}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {/* ── Hours (breakfast / lunch / dinner + open now) ────── */}
-              <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
-
-              {/* ── Distance ────────────────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label-row">
-                  <div className="lp-filter-label">Distance</div>
-                  <div className={cn('lp-filter-value', selectedRadius > 0 && 'is-set')}>
-                    {selectedRadius === 0 ? 'Any' : `Within ${selectedRadius} mi`}
-                  </div>
-                </div>
-                <p className="lp-filter-sub">
-                  From the city centre. Drag to the far left for no limit.
-                </p>
-                <input
-                  type="range"
-                  min={0}
-                  max={25}
-                  step={1}
-                  value={selectedRadius}
-                  onChange={(e) => onRadiusChange(Number(e.target.value))}
-                  aria-label="Maximum distance from city centre in miles"
-                  className="lp-slider"
-                />
-                <div className="lp-slider-range">
-                  <span>Any</span>
-                  <span>25 mi</span>
-                </div>
-              </section>
-
-              {/* ── Walk / drive time caps ──────────────────────────── */}
-              {canFilterByTravelTime && (
-                <>
-                  <section className="lp-filter-section">
-                    <div className="lp-filter-label-row">
-                      <div className="lp-filter-label">
-                        <Footprints size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
-                        Walk time
-                      </div>
-                      <div className={cn('lp-filter-value', selectedWalkMin > 0 && 'is-set')}>
-                        {selectedWalkMin === 0 ? 'Any' : WALK_MIN_OPTIONS.find((o) => o.value === selectedWalkMin)?.label}
-                      </div>
-                    </div>
-                    <p className="lp-filter-sub">From {homeLabel || 'your address'}.</p>
-                    <div className="lp-pill-row">
-                      {WALK_MIN_OPTIONS.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          onClick={() => onWalkMinChange(o.value)}
-                          className={cn('lp-pill', 'is-sm', selectedWalkMin === o.value && 'is-active')}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  <section className="lp-filter-section">
-                    <div className="lp-filter-label-row">
-                      <div className="lp-filter-label">
-                        <Car size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
-                        Drive time
-                      </div>
-                      <div className={cn('lp-filter-value', selectedDriveMin > 0 && 'is-set')}>
-                        {selectedDriveMin === 0 ? 'Any' : DRIVE_MIN_OPTIONS.find((o) => o.value === selectedDriveMin)?.label}
-                      </div>
-                    </div>
-                    <p className="lp-filter-sub">From {homeLabel || 'your address'}.</p>
-                    <div className="lp-pill-row">
-                      {DRIVE_MIN_OPTIONS.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          onClick={() => onDriveMinChange(o.value)}
-                          className={cn('lp-pill', 'is-sm', selectedDriveMin === o.value && 'is-active')}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                </>
-              )}
-
-              {/* ── From your circle ────────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label">From your circle</div>
-                <p className="lp-filter-sub">
-                  Show only places with ratings from people you trust.
-                </p>
-                <div className="lp-circle-grid">
-                  <button
-                    type="button"
-                    onClick={() => onFriendsOnlyChange(!friendsOnly)}
-                    className={cn('lp-circle-card', friendsOnly && 'is-active')}
-                  >
-                    <Users size={16} className="lp-circle-icon" />
-                    <span className="lp-circle-label">Friends only</span>
-                    <span className={cn('lp-radio-dot', friendsOnly && 'is-on')} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onExpertsOnlyChange(!expertsOnly)}
-                    className={cn('lp-circle-card', expertsOnly && 'is-active')}
-                  >
-                    <UserCheck size={16} className="lp-circle-icon" />
-                    <span className="lp-circle-label">Experts only</span>
-                    <span className={cn('lp-radio-dot', expertsOnly && 'is-on')} />
-                  </button>
-                </div>
-              </section>
-
-              {/* ── Cuisine (dropdown) ──────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label">Cuisine</div>
-                <button
-                  type="button"
-                  onClick={() => setCuisineOpen((v) => !v)}
-                  className={cn('lp-cuisine-trigger', cuisineOpen && 'is-open', selectedCuisines.length > 0 && 'is-set')}
-                  aria-expanded={cuisineOpen}
-                >
-                  <span>{cuisineTriggerLabel}</span>
-                  <ChevronDown className={cn('lp-cuisine-chev', cuisineOpen && 'is-open')} />
-                </button>
-                {cuisineOpen && (
-                  <div className="lp-cuisine-panel">
-                    <div className="lp-cuisine-search">
-                      <Search />
-                      <input
-                        type="text"
-                        placeholder="Search cuisines"
-                        value={cuisineQuery}
-                        onChange={(e) => setCuisineQuery(e.target.value)}
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                      />
-                    </div>
-                    <div className="lp-cuisine-list">
-                      {filteredCuisines.length === 0 ? (
-                        <div className="lp-cuisine-empty">No matches</div>
-                      ) : (
-                        filteredCuisines.map((c) => {
-                          const active = selectedCuisines.includes(c.type);
-                          return (
-                            <button
-                              key={c.type}
-                              type="button"
-                              className={cn('lp-cuisine-row', active && 'is-active')}
-                              onClick={() => toggleCuisine(c.type)}
-                            >
-                              <span className={cn('lp-checkbox', active && 'is-on')}>
-                                {active && <Check size={11} strokeWidth={3} />}
-                              </span>
-                              <span>{c.label}</span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {/* ── Michelin distinction ────────────────────────────── */}
-              <section className="lp-filter-section">
-                <div className="lp-filter-label">Michelin</div>
-                <p className="lp-filter-sub">
-                  Show only restaurants in the Michelin Guide.
-                </p>
-                <div className="lp-michelin-grid">
-                  {([
-                    { key: '3 Stars', label: '3 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /><Star /></span> },
-                    { key: '2 Stars', label: '2 Stars', mark: <span className="lp-michelin-stars"><Star /><Star /></span> },
-                    { key: '1 Star', label: '1 Star', mark: <span className="lp-michelin-stars"><Star /></span> },
-                    { key: 'Bib Gourmand', label: 'Bib Gourmand', mark: <Soup className="lp-michelin-glyph" /> },
-                    { key: 'Selected', label: 'Selected', mark: <Utensils className="lp-michelin-glyph" /> },
-                  ] as const).map(({ key, label, mark }) => {
-                    const active = selectedMichelin.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => onMichelinToggle(key)}
-                        aria-pressed={active}
-                        className={cn('lp-michelin-card', active && 'is-active')}
-                      >
-                        <span className="lp-michelin-mark">{mark}</span>
-                        <span className="lp-michelin-label">{label}</span>
-                        <span className={cn('lp-michelin-check', active && 'is-on')} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            </div>
-
-            <div className="lp-filter-foot">
-              <button type="button" onClick={reset} className="lp-reset">
-                Reset
-              </button>
-              <button type="button" onClick={onClose} className="lp-apply">
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
+          <FilterSection
+            label={(
+              <>
+                <Car size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
+                Drive time
+              </>
+            )}
+            value={selectedDriveMin === 0 ? 'Any' : DRIVE_MIN_OPTIONS.find((o) => o.value === selectedDriveMin)?.label}
+            isSet={selectedDriveMin > 0}
+            sub={`From ${homeLabel || 'your address'}.`}
+          >
+            <PillRow>
+              {DRIVE_MIN_OPTIONS.map((o) => (
+                <Pill key={o.value} sm active={selectedDriveMin === o.value} onClick={() => onDriveMinChange(o.value)}>
+                  {o.label}
+                </Pill>
+              ))}
+            </PillRow>
+          </FilterSection>
+        </>
       )}
-    </AnimatePresence>
+
+      {/* ── From your circle ────────────────────────────────── */}
+      <FilterSection label="From your circle" sub="Show only places with ratings from people you trust.">
+        <div className="lp-circle-grid">
+          <button
+            type="button"
+            onClick={() => onFriendsOnlyChange(!friendsOnly)}
+            className={cn('lp-circle-card', friendsOnly && 'is-active')}
+          >
+            <Users size={16} className="lp-circle-icon" />
+            <span className="lp-circle-label">Friends only</span>
+            <span className={cn('lp-radio-dot', friendsOnly && 'is-on')} />
+          </button>
+          <button
+            type="button"
+            onClick={() => onExpertsOnlyChange(!expertsOnly)}
+            className={cn('lp-circle-card', expertsOnly && 'is-active')}
+          >
+            <UserCheck size={16} className="lp-circle-icon" />
+            <span className="lp-circle-label">Experts only</span>
+            <span className={cn('lp-radio-dot', expertsOnly && 'is-on')} />
+          </button>
+        </div>
+      </FilterSection>
+    </FilterSheetShell>
   );
 };
 

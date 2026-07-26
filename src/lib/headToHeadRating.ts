@@ -42,14 +42,16 @@ export type CandidateMetaResolver = (
 
 /* ── Similarity-aware selection tunables ───────────────────────────────── */
 
-/** Max real comparisons (choices + ties) before we finalize by interpolation.
- *  Plain bisection resolves up to 2^8−1 = 255 candidates in 8 probes, and the
- *  budget guard in `pickComparisonIndex` only allows similarity-biased (off-
- *  midpoint) pivots while the remaining budget still covers the worst case —
- *  so for any realistic pool the search always closes the window completely
- *  and the final position is exactly what plain binary search would produce. */
+/** BIAS budget — how many real answers (choices + ties) may use similarity-
+ *  biased (off-midpoint) pivots. It does NOT end the session: the search
+ *  always continues until every candidate left inside the window has been
+ *  shown (decisively answered, tied, or skipped), so a placement can never
+ *  sit between two restaurants the user was never asked about. Once the
+ *  budget is spent, `pickComparisonIndex`'s guard falls back to pure midpoint
+ *  bisection, keeping the decisive-answer count near ceil(log2(pool)) —
+ *  8 covers pools up to 2^8−1 = 255. Ties/skips each add one extra question. */
 export const DEFAULT_BUDGET = 8;
-/** Effectively no cap — used by the tie-break flow to preserve old behavior. */
+/** No bias cap — used by the tie-break flow (pure bisection anyway). */
 export const UNLIMITED_BUDGET = Number.POSITIVE_INFINITY;
 /** Pivots may only come from this centered fraction of the live window, so
  *  every answer is guaranteed to cut the window by at least ~25%. Never pick
@@ -70,6 +72,10 @@ export const SMALL_WINDOW_SIZE = 4;
 export const SCHEDULE_ROUNDS_FULL = 4;
 /** How hard a budget-capped final score is pulled toward the peer prior. */
 export const PEER_PULL = 0.25;
+/** How hard "too close to call" pivots pull the final score toward their
+ *  average. A tie says "about equal to this one" — strong local evidence,
+ *  but later decisive answers (strict bounds) always cap the pull. */
+export const TIE_PULL = 0.5;
 /** At the very first comparison this fraction of the relevance signal comes
  *  purely from location, so opening matchups are dominated by "same area"
  *  before cuisine/price/tags weigh in. Decays to 0 as the search converges. */
@@ -90,7 +96,6 @@ export interface H2HStep {
   prevLowerFromComparison: boolean;
   prevExcluded: number[];
   prevTiedScores: number[];
-  prevTerminalTie: { comparisonId: string; score: number } | null;
 }
 
 export interface H2HState {
@@ -104,18 +109,14 @@ export interface H2HState {
   upperBoundFromComparison: boolean;
   /** True if `lowerBound` was tightened by a real comparison (strict >). */
   lowerBoundFromComparison: boolean;
-  /** Indices of candidates the user marked "too close to call". They get
-   *  skipped by `pickComparison` but feed the fallback in `computeFinalScore`
-   *  when nothing else narrowed the bounds. */
+  /** Indices of candidates set aside mid-search — "too close to call"
+   *  ties and skips. pickComparison won't show them again. */
   excluded: number[];
-  /** Scores of the tied candidates, in tie order — used to average a final
-   *  score when no real comparison ever tightened the bounds. */
+  /** Scores of the "too close to call" candidates, in tie order. A tie is
+   *  SOFT evidence, not a stop: the search continues with other candidates
+   *  and these scores pull the final placement toward the tied pivots
+   *  (they're the whole answer only when nothing decisive was ever said). */
   tiedScores: number[];
-  /** Set when the user says "too close to call": a decisive, terminal
-   *  signal — the new restaurant is treated as equal to this pivot and the
-   *  session ends. The settle pass then separates the pair by one display
-   *  step, landing the new item directly below the pivot. */
-  terminalTie: { comparisonId: string; score: number } | null;
   history: H2HStep[];
   /** Total candidates considered when the search started — used for progress. */
   initialPoolSize: number;
@@ -130,7 +131,8 @@ export interface H2HState {
    *  so unknown-location rows are neither boosted nor penalized. Lets early
    *  comparisons emphasize location specifically. */
   locationScores: number[];
-  /** Max comparisons before finalizing by interpolation (ties count). */
+  /** Bias budget: real answers that may use similarity-biased pivots. Never
+   *  ends the session — see DEFAULT_BUDGET. */
   budget: number;
 }
 
@@ -248,7 +250,6 @@ export function initH2H(
     lowerBoundFromComparison: false,
     excluded: [],
     tiedScores: [],
-    terminalTie: null,
     history: [],
     initialPoolSize: candidates.length,
     target: target ?? null,
@@ -302,7 +303,6 @@ export function initH2HTieBreak(
     lowerBoundFromComparison: false,
     excluded: [],
     tiedScores: [],
-    terminalTie: null,
     history: [],
     initialPoolSize: candidates.length,
     // No similarity target: every candidate scores neutral, so selection is
@@ -363,10 +363,10 @@ function selectionProgress(state: H2HState): number {
  *  - The pivot NEVER leaves the middle band, no matter how similar an edge
  *    candidate is — every answer cuts the window by at least the band margin.
  *  - A budget guard only allows off-midpoint pivots while the remaining
- *    budget still covers the worst-case window they could leave behind;
- *    otherwise we fall back to the exact midpoint. Consequently any pool of
- *    ≤ 2^budget−1 candidates always resolves fully within budget, and the
- *    final position is identical to plain binary search.
+ *    bias budget still covers the worst-case window they could leave behind;
+ *    otherwise we fall back to the exact midpoint. Biasing can therefore
+ *    never inflate the decisive-answer count past what plain bisection
+ *    needs, and the final position is identical to plain binary search.
  *
  * Selection only picks *which* in-window item to ask about — it never prunes
  * the window itself, so every answer still moves exactly one boundary and
@@ -465,7 +465,6 @@ export function applyChoice(state: H2HState, pickedNew: boolean): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
-    prevTerminalTie: state.terminalTie,
   };
   if (pickedNew) {
     // New restaurant beat the comparison → new is strictly above comp.score
@@ -506,25 +505,25 @@ export function applyTie(state: H2HState): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
-    prevTerminalTie: state.terminalTie,
   };
-  // "Too close to call" is decisive: the new restaurant is (as far as the
-  // user can tell) equal to this pivot, so asking more questions adds
-  // nothing. End the session anchored to the pivot's score — the settle
-  // pass separates the pair by one display step, new item just below.
+  // "Too close to call" is soft evidence, not a stop: the new restaurant
+  // sits somewhere near this pivot, but the user couldn't split them — so
+  // set the pivot aside and KEEP ASKING. Later decisive answers narrow the
+  // window as usual, and the tied score pulls the final placement toward
+  // the pivot (see computeFinalScore). Ties consume budget (they're real
+  // questions answered), so an all-ties session still terminates.
   return {
     ...state,
     excluded: [...state.excluded, mid],
     tiedScores: [...state.tiedScores, comp.score],
-    terminalTie: { comparisonId: comp.restaurantId, score: comp.score },
     history: [...state.history, step],
   };
 }
 
 /** Skip the current comparison: the user can't (or doesn't want to) judge it.
- *  Unlike a tie this carries no signal — the candidate is dropped from the
- *  pickable set so a different one is shown, but it does NOT nudge the score
- *  and does NOT consume the comparison budget. Undoable via undoLastChoice. */
+ *  Unlike a tie this carries NO signal at all — the candidate is dropped from
+ *  the pickable set so a different one is shown, but it neither pulls the
+ *  score (ties do) nor consumes the comparison budget. Undoable. */
 export function applySkip(state: H2HState): H2HState {
   const mid = pickComparisonIndex(state);
   if (mid === null) return state;
@@ -542,7 +541,6 @@ export function applySkip(state: H2HState): H2HState {
     prevLowerFromComparison: state.lowerBoundFromComparison,
     prevExcluded: state.excluded,
     prevTiedScores: state.tiedScores,
-    prevTerminalTie: state.terminalTie,
   };
   return {
     ...state,
@@ -564,7 +562,6 @@ export function undoLastChoice(state: H2HState): H2HState {
     lowerBoundFromComparison: last.prevLowerFromComparison,
     excluded: last.prevExcluded,
     tiedScores: last.prevTiedScores,
-    terminalTie: last.prevTerminalTie,
     history: state.history.slice(0, -1),
   };
 }
@@ -577,12 +574,13 @@ export function comparisonsMade(state: H2HState): number {
   return n;
 }
 
+/** The session ends ONLY when no un-shown candidate remains inside the
+ *  window — every answer strictly shrinks the pickable set (a choice moves a
+ *  boundary past the pivot; a tie/skip excludes it), so this always
+ *  terminates, and at completion every candidate still between the bounds
+ *  was directly shown to the user. The budget never cuts a search short. */
 export function isComplete(state: H2HState): boolean {
-  return (
-    state.terminalTie !== null ||
-    pickComparisonIndex(state) === null ||
-    comparisonsMade(state) >= state.budget
-  );
+  return pickComparisonIndex(state) === null;
 }
 
 /** Peer indices to anchor a budget-capped final score. Prefers peers still
@@ -600,8 +598,9 @@ function peerIndicesForFinalize(state: H2HState): number[] {
   return inWindow.length > 0 ? inWindow : all;
 }
 
-/** When the budget runs out with the window still open, place the score
- *  between the bounding remaining candidates (clamped to the comparison-derived
+/** When the window still spans candidates at completion — which can only
+ *  mean every one of them was tied or skipped by the user — place the score
+ *  between the bounding leftover candidates (clamped to the comparison-derived
  *  envelope), optionally pulled toward the peer prior. */
 function interpolateOpenWindow(state: H2HState): number {
   // Candidates are sorted desc: candidates[lo] is the highest-scored item
@@ -631,14 +630,8 @@ function round1(v: number): number {
 }
 
 export function computeFinalScore(state: H2HState): number {
-  // Decisive tie: the user said the new restaurant is equal to this pivot —
-  // anchor to its score. (The settle pass separates the pair afterwards.)
-  if (state.terminalTie) {
-    return clamp(round1(state.terminalTie.score), 0, 10);
-  }
-
-  // All-ties fallback: no real comparison ever tightened a bound, so use the
-  // average of the tied scores — that's the best signal the user gave us.
+  // All-ties fallback: no real comparison ever tightened a bound, so the
+  // average of the tied scores is the best signal the user gave us.
   if (
     !state.upperBoundFromComparison &&
     !state.lowerBoundFromComparison &&
@@ -648,13 +641,27 @@ export function computeFinalScore(state: H2HState): number {
     return clamp(round1(avg), 0, 10);
   }
 
-  // Budget exhausted with the window still open: interpolate between the
-  // bounding remaining candidates rather than the (still-wide) tier bounds.
-  const windowOpen = activeIndices(state).length > 0;
-  const raw =
-    windowOpen && comparisonsMade(state) >= state.budget
+  // Tied/skipped candidates remain between real comparison bounds: anchor
+  // between the bounding leftover candidates (clamped by the strict bounds)
+  // rather than the wider bound midpoint. The comparison-derived-bound gate
+  // matters: an all-skips session has no bounds and no tie signal, and must
+  // fall through to the tier midpoint below.
+  let raw =
+    state.lo <= state.hi &&
+    (state.upperBoundFromComparison || state.lowerBoundFromComparison)
       ? interpolateOpenWindow(state)
       : (state.upperBound + state.lowerBound) / 2;
+  // "Too close to call" pivots pull the placement toward their average —
+  // the user said the new restaurant sits ABOUT there, and the comparisons
+  // that followed only bracketed it. Decisive answers still rule: the pull
+  // is clamped inside the strict comparison-derived bounds.
+  if (state.tiedScores.length > 0) {
+    const tieAvg = state.tiedScores.reduce((s, x) => s + x, 0) / state.tiedScores.length;
+    raw = (1 - TIE_PULL) * raw + TIE_PULL * tieAvg;
+    const boundLo = Math.min(state.lowerBound, state.upperBound);
+    const boundHi = Math.max(state.lowerBound, state.upperBound);
+    raw = clamp(raw, boundLo, boundHi);
+  }
   let rounded = round1(raw);
 
   // Strict-bound nudge: when a bound came from a real comparison the user
@@ -684,11 +691,14 @@ export function computeFinalScore(state: H2HState): number {
  * shifts DOWN to make room instead of the new arrival being sorted under
  * the very restaurant it just beat.
  *
- *  - Terminal tie → directly below the pivot (matches the settle tie rule).
  *  - Closed window (lo > hi) → exact: everything above `lo` beat the new
- *    item, everything from `lo` down lost to it.
- *  - Budget-capped open window → indices inside [lo..hi] were never compared;
- *    they order against the interpolated final score.
+ *    item, everything from `lo` down lost to it. ("Too close to call"
+ *    pivots were set aside without moving the window; the tie-pulled final
+ *    score decides which side of them the new item lands on.)
+ *  - Open window at completion → every index inside [lo..hi] was tied or
+ *    skipped by the user (never-shown candidates can't remain — isComplete
+ *    requires the pickable set to be empty); they order against the
+ *    anchored final score.
  */
 export function placementOrder(
   state: H2HState,
@@ -696,20 +706,13 @@ export function placementOrder(
   finalScore: number,
 ): string[] {
   const ids = state.candidates.map((c) => c.restaurantId);
-  if (state.terminalTie) {
-    const pivot = state.terminalTie.comparisonId;
-    const out: string[] = [];
-    for (const id of ids) {
-      out.push(id);
-      if (id === pivot) out.push(newId);
-    }
-    if (!out.includes(newId)) out.push(newId);
-    return out;
-  }
   let insertAt = state.lo;
   if (state.lo <= state.hi) {
-    // Open window: place among the un-compared block by score.
-    while (insertAt <= state.hi && state.candidates[insertAt].score > finalScore) insertAt++;
+    // Open window: place among the un-compared block by score. `>=` keeps
+    // an equal-scored incumbent (a "too close to call" pivot, typically)
+    // ABOVE the new arrival — the settle sorts a just-rated row below its
+    // equal, and the order fed to it must agree.
+    while (insertAt <= state.hi && state.candidates[insertAt].score >= finalScore) insertAt++;
   }
   insertAt = Math.max(0, Math.min(ids.length, insertAt));
   return [...ids.slice(0, insertAt), newId, ...ids.slice(insertAt)];
@@ -722,10 +725,10 @@ export function placementOrder(
 export function estimateRemainingComparisons(state: H2HState): number {
   if (isComplete(state)) return 0;
   const remaining = activeIndices(state).length;
-  const est = Math.max(1, Math.ceil(Math.log2(remaining + 1)));
-  // Never promise more comparisons than the budget allows.
-  const budgetLeft = Math.max(0, state.budget - comparisonsMade(state));
-  return Math.min(est, budgetLeft);
+  // No budget clamp: the session runs until the window is exhausted, so the
+  // estimate must stay ≥ 1 while incomplete (a clamp to spent budget would
+  // peg the progress bar at 100% with questions still coming).
+  return Math.max(1, Math.ceil(Math.log2(remaining + 1)));
 }
 
 export function totalEstimatedComparisons(state: H2HState): number {

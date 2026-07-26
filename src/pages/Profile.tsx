@@ -26,7 +26,9 @@ import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
-import { ScoreBadge } from '../components/ScoreBadge';
+import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
+import { tierOfScore } from '../lib/settleScores';
+import { TIER_LABELS } from '../lib/headToHeadRating';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
@@ -81,6 +83,7 @@ const TopRatedCard: React.FC<{
   /** Bottom sub-line under the name. Defaults to cuisine · price · city. */
   metaText?: string;
 }> = ({ rank, rating, metaText }) => {
+  const { scoresUnlocked: scoresUnlockedCard } = useLists();
   const city = cityFromAddress(rating.address || '');
   const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
 
@@ -96,7 +99,7 @@ const TopRatedCard: React.FC<{
             {rank}
           </span>
         </div>
-        <ScoreBadge rating={numericScore(rating.score)} size="lg" />
+        <OwnScoreBadge rating={numericScore(rating.score)} unlocked={scoresUnlockedCard} size="lg" />
       </div>
 
       <p className="font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-1 mt-3">
@@ -191,13 +194,15 @@ const Top10Section: React.FC<{
   avg: number;
   onSeeAll?: () => void;
   children: React.ReactNode;
-}> = ({ name, total, avg, onSeeAll, children }) => (
+}> = ({ name, total, avg, onSeeAll, children }) => {
+  const { scoresUnlocked: sectionScoresUnlocked } = useLists();
+  return (
   <section>
     <div className="px-5 flex items-baseline justify-between gap-3 mb-1.5">
       <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight min-w-0 truncate">
         {name}
         <span className="text-on-surface/45 font-normal ml-1.5">
-          · {total} place{total === 1 ? '' : 's'} · {avg.toFixed(1)} avg
+          · {total} place{total === 1 ? '' : 's'}{sectionScoresUnlocked ? ` · ${avg.toFixed(1)} avg` : ''}
         </span>
       </h3>
       {onSeeAll && (
@@ -214,7 +219,8 @@ const Top10Section: React.FC<{
       {children}
     </div>
   </section>
-);
+  );
+};
 
 /* ── Desktop TOP-tab pieces ──────────────────────────────────────────
    The desktop "Top lists" view (left category rail + featured hero +
@@ -226,6 +232,7 @@ const FeaturedTopCard: React.FC<{
   rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string };
   scopeLabel: string;
 }> = ({ rating, scopeLabel }) => {
+  const { scoresUnlocked: scoresUnlockedCard } = useLists();
   const score = numericScore(rating.score);
   const meta = [rating.cuisine, rating.price, rating.address].filter(Boolean).join(' · ');
   return (
@@ -249,11 +256,17 @@ const FeaturedTopCard: React.FC<{
             'w-[128px] h-[128px] rounded-full border-[3px] flex items-center justify-center',
             score >= 8 ? 'border-green-400/70 bg-green-50' : score >= 5 ? 'border-yellow-400/70 bg-yellow-50' : 'border-red-400/70 bg-red-50',
           )}>
-            <span className={cn('font-serif font-bold text-[42px] leading-none tabular-nums', scoreColor(score))}>
-              {score.toFixed(1)}
-            </span>
+            {scoresUnlockedCard ? (
+              <span className={cn('font-serif font-bold text-[42px] leading-none tabular-nums', scoreColor(score))}>
+                {score.toFixed(1)}
+              </span>
+            ) : (
+              <span className={cn('font-serif font-bold text-[22px] leading-none text-center px-3', scoreColor(score))}>{TIER_LABELS[tierOfScore(score)]}</span>
+            )}
           </div>
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-2.5">Out of 10</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-2.5">
+            {scoresUnlockedCard ? 'Out of 10' : 'Your #1'}
+          </span>
         </div>
       </div>
     </Link>
@@ -266,6 +279,7 @@ const DesktopRankCard: React.FC<{
   rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string };
   metaText?: string;
 }> = ({ rank, rating, metaText }) => {
+  const { scoresUnlocked: scoresUnlockedCard } = useLists();
   const city = cityFromAddress(rating.address || '');
   const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
   return (
@@ -283,7 +297,7 @@ const DesktopRankCard: React.FC<{
         <p className="font-serif font-bold text-on-surface text-[17px] leading-tight truncate">{rating.name}</p>
         <p className="text-[12.5px] text-on-surface/45 truncate mt-1">{resolvedMeta}</p>
       </div>
-      <ScoreBadge rating={numericScore(rating.score)} size="lg" />
+      <OwnScoreBadge rating={numericScore(rating.score)} unlocked={scoresUnlockedCard} size="lg" />
     </Link>
   );
 };
@@ -295,14 +309,18 @@ const DesktopTopSection: React.FC<{
   avg: number;
   onSeeAll?: () => void;
   children: React.ReactNode;
-}> = ({ name, total, avg, onSeeAll, children }) => (
+}> = ({ name, total, avg, onSeeAll, children }) => {
+  const { scoresUnlocked: sectionScoresUnlocked } = useLists();
+  return (
   <section>
     <div className="flex items-center justify-between gap-3 mb-3.5">
       <div className="flex items-center gap-3 min-w-0">
         <h3 className="font-serif font-bold text-on-surface text-[26px] leading-none truncate">{name}</h3>
-        <span className={cn('flex-shrink-0 px-2 py-0.5 rounded-md border text-[12.5px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
-          {avg.toFixed(1)} avg
-        </span>
+        {sectionScoresUnlocked && (
+          <span className={cn('flex-shrink-0 px-2 py-0.5 rounded-md border text-[12.5px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
+            {avg.toFixed(1)} avg
+          </span>
+        )}
         <span className="flex-shrink-0 text-[13.5px] text-on-surface/40">{total} place{total === 1 ? '' : 's'}</span>
       </div>
       {onSeeAll && (
@@ -319,7 +337,8 @@ const DesktopTopSection: React.FC<{
       {children}
     </div>
   </section>
-);
+  );
+};
 
 /* ── Recommended guides ──
    Real published + public guides from the community, mapped into the
@@ -719,6 +738,7 @@ export const Profile: React.FC = () => {
   // composer (Instagram-style).
   const { openPicker: openUnifiedPicker, pickerInput } = useUnifiedCreatePicker();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
+  const scoresUnlocked = listsCtx.scoresUnlocked;
 
   // Dismiss the friend-request banner for this session (reappears on reload
   // while requests are still pending, so a real request isn't lost).
@@ -1231,6 +1251,7 @@ export const Profile: React.FC = () => {
       {!isDesktop && (
         <TopBar
           centerLogo={phoneMode}
+          fadeOnScroll={phoneMode}
           leftAction={phoneMode ? (
             <button
               type="button"
@@ -1632,9 +1653,11 @@ export const Profile: React.FC = () => {
                           </span>
                           <span className="ml-auto flex items-center gap-2 flex-shrink-0">
                             <span className="text-[12px] font-semibold text-on-surface/30 tabular-nums">{total}</span>
-                            <span className={cn('px-1.5 py-0.5 rounded-md border text-[12px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
-                              {avg.toFixed(1)}
-                            </span>
+                            {scoresUnlocked && (
+                              <span className={cn('px-1.5 py-0.5 rounded-md border text-[12px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
+                                {avg.toFixed(1)}
+                              </span>
+                            )}
                           </span>
                         </button>
                       );
@@ -1840,7 +1863,7 @@ export const Profile: React.FC = () => {
                               {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
                             </p>
                           </div>
-                          <ScoreBadge rating={numericScore(r.score)} size="sm" />
+                          <OwnScoreBadge rating={numericScore(r.score)} unlocked={scoresUnlocked} size="sm" />
                         </Link>
                       </li>
                     ))}
@@ -2087,6 +2110,16 @@ export const Profile: React.FC = () => {
                           />
                         </SettingsSection>
                       )}
+
+                      <SettingsSection label="Data">
+                        <SettingsRow
+                          icon={<Upload size={17} />}
+                          label="Import restaurants"
+                          hint="Bring lists over — Beli screenshots or a file"
+                          onClick={() => { setSettingsOpen(false); navigate('/import'); }}
+                          isLast
+                        />
+                      </SettingsSection>
 
                       <SettingsSection label="About">
                         <SettingsRow
