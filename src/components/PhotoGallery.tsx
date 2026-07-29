@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search } from 'lucide-react';
+import { X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
@@ -24,20 +24,12 @@ export const PhotoGallery: React.FC<{
 }> = ({ photos, communityPhotos, name, initialIndex, onClose }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDish, setActiveDish] = useState<string | null>(null);
-  const [expandedPhoto, setExpandedPhoto] = useState<GalleryPhoto | null>(null);
+  // Full-screen viewer: index into the CURRENT displayPhotos (the grid the
+  // user tapped from) + slide direction for the swipe animation. `dir: 0`
+  // marks the initial open (no slide).
+  const [expanded, setExpanded] = useState<{ index: number; dir: 1 | -1 | 0 } | null>(null);
 
   const { dragProps } = useBottomSheet(true, onClose);
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (expandedPhoto) setExpandedPhoto(null);
-        else onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => { window.removeEventListener('keydown', handleKey); };
-  }, [onClose, expandedPhoto]);
 
   // Build unified photo list with captions
   const allPhotos: GalleryPhoto[] = React.useMemo(() => {
@@ -77,6 +69,31 @@ export const PhotoGallery: React.FC<{
     }
     return allPhotos;
   }, [allPhotos, searchQuery, activeDish]);
+
+  const expandedPhoto = expanded !== null ? displayPhotos[expanded.index] : null;
+
+  // Step the full-screen viewer to the previous (-1) / next (+1) photo.
+  // No-op at either end — the swipe just rubber-bands back.
+  const paginate = useCallback((dir: 1 | -1) => {
+    setExpanded((cur) => {
+      if (cur === null) return cur;
+      const next = cur.index + dir;
+      if (next < 0 || next >= displayPhotos.length) return cur;
+      return { index: next, dir };
+    });
+  }, [displayPhotos.length]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (expanded) setExpanded(null);
+        else onClose();
+      } else if (expanded && e.key === 'ArrowRight') paginate(1);
+      else if (expanded && e.key === 'ArrowLeft') paginate(-1);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => { window.removeEventListener('keydown', handleKey); };
+  }, [onClose, expanded, paginate]);
 
   return (
     <motion.div
@@ -191,7 +208,7 @@ export const PhotoGallery: React.FC<{
                 {displayPhotos.map((photo, i) => (
                   <button
                     key={i}
-                    onClick={() => setExpandedPhoto(photo)}
+                    onClick={() => setExpanded({ index: i, dir: 0 })}
                     className="relative aspect-square rounded-2xl overflow-hidden"
                   >
                     <img
@@ -212,33 +229,92 @@ export const PhotoGallery: React.FC<{
           )}
         </div>
 
-        {/* Expanded single photo overlay */}
+        {/* Expanded full-screen viewer — swipe (or arrow keys / desktop
+            chevrons) moves through the photos of the grid the user tapped. */}
         <AnimatePresence>
-          {expandedPhoto && (
+          {expanded !== null && expandedPhoto && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-10 bg-black/90 flex flex-col items-center justify-center"
-              onClick={() => setExpandedPhoto(null)}
+              className="absolute inset-0 z-10 bg-black/90 flex flex-col"
+              onClick={() => setExpanded(null)}
             >
               <button
-                onClick={() => setExpandedPhoto(null)}
+                onClick={() => setExpanded(null)}
                 aria-label="Close photo"
                 className="absolute top-[max(1.5rem,env(safe-area-inset-top))] right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
               >
                 <X size={22} className="text-white" />
               </button>
-              <img
-                src={expandedPhoto.url}
-                alt={expandedPhoto.caption || name}
-                className="max-w-full max-h-[75vh] object-contain rounded-xl"
-                referrerPolicy="no-referrer"
-                onClick={(e) => e.stopPropagation()}
-              />
-              {expandedPhoto.caption && (
-                <p className="text-white/80 text-sm font-medium mt-3 px-8 text-center">{expandedPhoto.caption}</p>
+              {displayPhotos.length > 1 && (
+                <div className="absolute top-[max(1.75rem,calc(env(safe-area-inset-top)+0.25rem))] left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-white/10 text-white/85 text-[12px] font-semibold tabular-nums z-20 pointer-events-none">
+                  {expanded.index + 1} of {displayPhotos.length}
+                </div>
               )}
+
+              {/* Slide track. Images are absolutely stacked so the exiting
+                  one can slide out while the next slides in. */}
+              <div className="relative flex-1 min-h-0 overflow-hidden">
+                <AnimatePresence initial={false} custom={expanded.dir}>
+                  <motion.img
+                    key={expanded.index}
+                    src={expandedPhoto.url}
+                    alt={expandedPhoto.caption || name}
+                    custom={expanded.dir}
+                    variants={{
+                      enter: (dir: number) => ({ x: dir === 0 ? 0 : dir > 0 ? '100%' : '-100%', opacity: dir === 0 ? 1 : 0.5 }),
+                      center: { x: 0, opacity: 1 },
+                      exit: (dir: number) => ({ x: dir > 0 ? '-100%' : '100%', opacity: 0.5 }),
+                    }}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ x: { type: 'spring', stiffness: 340, damping: 34 }, opacity: { duration: 0.16 } }}
+                    drag={displayPhotos.length > 1 ? 'x' : false}
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.9}
+                    onDragEnd={(_e, info) => {
+                      if (info.offset.x < -70 || info.velocity.x < -500) paginate(1);
+                      else if (info.offset.x > 70 || info.velocity.x > 500) paginate(-1);
+                    }}
+                    className="absolute inset-0 w-full h-full object-contain px-2 py-4 touch-pan-y"
+                    referrerPolicy="no-referrer"
+                    draggable={false}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </AnimatePresence>
+
+                {/* Desktop chevrons (touch swipes on phones) */}
+                {displayPhotos.length > 1 && (
+                  <>
+                    {expanded.index > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); paginate(-1); }}
+                        aria-label="Previous photo"
+                        className="hidden md:flex absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 items-center justify-center transition-colors z-20"
+                      >
+                        <ChevronLeft size={22} className="text-white" />
+                      </button>
+                    )}
+                    {expanded.index < displayPhotos.length - 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); paginate(1); }}
+                        aria-label="Next photo"
+                        className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 items-center justify-center transition-colors z-20"
+                      >
+                        <ChevronRight size={22} className="text-white" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex-shrink-0 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-1 min-h-[3.25rem]">
+                {expandedPhoto.caption && (
+                  <p className="text-white/80 text-sm font-medium px-8 text-center">{expandedPhoto.caption}</p>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
