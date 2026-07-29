@@ -432,3 +432,65 @@ describe('normalizeScores', () => {
     }
   });
 });
+
+/* ── Equal-score block insertion (the "always lands at the top" bug) ───── */
+
+describe('equal-score block insertion', () => {
+  it('an explicit placement INSIDE an equal block survives the settle (order outranks the nudged score)', () => {
+    // a..d imported with identical scores; the search placed e between b
+    // and c. Bracketed inside the block, computeFinalScore nudges e one
+    // display step off it (7.9) — the old score-first comparator then
+    // dumped e below the whole block (or above it when nudged up).
+    const all = [mk('e', 7.9), mk('a', 8.0), mk('b', 8.0), mk('c', 8.0), mk('d', 8.0)];
+    const next = settleAndApply(all, { justRatedId: 'e', explicitOrder: ['a', 'b', 'e', 'c', 'd'] });
+    const byId = Object.fromEntries(next.map((r) => [r.restaurantId, r.score]));
+    expect(byId.a).toBeGreaterThan(byId.b);
+    expect(byId.b).toBeGreaterThan(byId.e);
+    expect(byId.e).toBeGreaterThan(byId.c);
+    expect(byId.c).toBeGreaterThan(byId.d);
+  });
+
+  it('end-to-end: rating into a 4-equal block through the real search lands mid-block', () => {
+    const all = [mk('a', 8.0), mk('b', 8.0), mk('c', 8.0), mk('d', 8.0)];
+    // Ground truth: e sits between b and c (beats c/d, loses to a/b).
+    const beats = new Set(['c', 'd']);
+    let st = initH2H(all, 'loved', 'e');
+    let guard = 0;
+    while (!isComplete(st)) {
+      const comp = pickComparison(st)!;
+      st = applyChoice(st, beats.has(comp.restaurantId));
+      if (++guard > 20) throw new Error('did not terminate');
+    }
+    const raw = computeFinalScore(st);
+    const order = placementOrder(st, 'e', raw);
+    expect(order).toEqual(['a', 'b', 'e', 'c', 'd']);
+    const next = settleAndApply(
+      [mk('e', raw), ...all],
+      { justRatedId: 'e', explicitOrder: order },
+    );
+    // The plain score sort every list uses reproduces the placement exactly.
+    const sorted = [...next].sort((x, y) => y.score - x.score).map((r) => r.restaurantId);
+    expect(sorted).toEqual(['a', 'b', 'e', 'c', 'd']);
+  });
+
+  it('overflow: a mid-block insert stays mid-block and scores are STRICTLY descending', () => {
+    // 40 loved rows — past the 31-slot 0.1 grid. The old uniform fill
+    // rounded to duplicate scores, so display sorts (stable, with the
+    // just-rated row at the array head) showed the new row at the TOP of
+    // its equal run instead of where the comparisons placed it.
+    const all = Array.from({ length: 40 }, (_, i) => mk(`r${String(i).padStart(2, '0')}`, round1(10 - (i * 3) / 39)));
+    const order = all.map((r) => r.restaurantId);
+    order.splice(20, 0, 'new'); // placed between r19 and r20
+    const next = settleAndApply(
+      [mk('new', all[20].score), ...all],
+      { justRatedId: 'new', explicitOrder: order },
+    );
+    const rows = tierRows(next, 'loved');
+    for (let i = 0; i < rows.length - 1; i++) {
+      expect(rows[i].score).toBeGreaterThan(rows[i + 1].score); // no duplicates
+    }
+    expect(rows.map((r) => r.restaurantId)).toEqual(order);
+    // Idempotent: settling the settled layout again moves nothing.
+    expect(settleScores(next, { justRatedId: 'new', explicitOrder: order })).toEqual([]);
+  });
+});

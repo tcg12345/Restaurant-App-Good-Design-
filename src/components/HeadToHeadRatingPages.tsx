@@ -537,10 +537,13 @@ const InlineResult: React.FC<{
         .map((r) => ({ id: r.restaurantId, name: r.name, cuisine: r.cuisine, score: r.score })),
     ];
     rows.sort((a, b) => {
-      if (a.score !== b.score) return b.score - a.score;
+      // Mirror settleScores.compare exactly: the placement order OUTRANKS
+      // raw scores for rows it covers (an equal-block bracket nudges the
+      // final score one step off the block; the order knows the true slot).
       const ai = orderIndex.get(a.id);
       const bi = orderIndex.get(b.id);
-      if (ai !== undefined && bi !== undefined) return ai - bi;
+      if (ai !== undefined && bi !== undefined && ai !== bi) return ai - bi;
+      if (a.score !== b.score) return b.score - a.score;
       if (a.id === excludeId) return 1;
       if (b.id === excludeId) return -1;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

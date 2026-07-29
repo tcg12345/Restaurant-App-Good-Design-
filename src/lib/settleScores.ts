@@ -52,9 +52,10 @@ export interface SettleOptions {
   previousScore?: number;
   /** Settle every tier in both categories (the Reorder page's save). */
   allTiers?: boolean;
-  /** Desired descending order (restaurant ids). Overrides score/id tiebreaks
-   *  for rows it contains — carries the Reorder page's dragged order through
-   *  duplicate scores. */
+  /** Desired descending order (restaurant ids). Takes precedence over the
+   *  raw scores for rows it contains — carries the H2H search's exact
+   *  placement (and the Reorder page's dragged order) through equal-score
+   *  blocks and off-by-a-step nudged scores. */
   explicitOrder?: string[];
 }
 
@@ -103,13 +104,20 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
   const { min: bandMin, max: bandMax } = tierRange(tier);
   const W = bandMax - bandMin;
 
+  // Overflow fill: more rows than distinct 0.1 slots. Rounding here would
+  // collapse neighbors into DUPLICATE scores — and every list in the app
+  // sorts by score, where ties fall back to array order (the just-rated row
+  // sits at the array head), so the settled order scrambled on display: a
+  // restaurant placed mid-block rendered at the top of it. Emit strictly-
+  // descending UNROUNDED scores instead — badges still display one decimal
+  // (visual ties are unavoidable past capacity), but the exact order now
+  // survives every score sort in the app.
   const uniformFill = (): number[] =>
-    s.map((_, i) => round1(tier === 'disliked'
+    s.map((_, i) => tier === 'disliked'
       ? bandMin + ((n - 1 - i) * W) / (n - 1)
-      : bandMax - (i * W) / (n - 1)));
+      : bandMax - (i * W) / (n - 1));
 
-  // Overflow: more rows than distinct grid slots — uniform band fill,
-  // rounded duplicates unavoidable with a score-only data model.
+  // Overflow: more rows than distinct grid slots — uniform band fill.
   if (n > bandCapacity(tier)) return uniformFill();
 
   const f = Math.min(1, (n - 1) / MATURITY_K);
@@ -200,10 +208,18 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
   }
 
   const compare = (a: RestaurantRating, b: RestaurantRating): number => {
-    if (b.score !== a.score) return b.score - a.score;
+    // The explicit order — the H2H search's exact placement (or the Reorder
+    // page's dragged order) — OUTRANKS the raw scores for rows it covers.
+    // A row bracketed inside an equal-scored block can't express "strictly
+    // above C, strictly below B" in one number: computeFinalScore nudges it
+    // one display step off the block, and a score-first sort would dump it
+    // at the block's edge (above/below ALL the equals) instead of the slot
+    // the user's comparisons decided. The order contains every tier-mate of
+    // a rated row, so this stays a total order within a tier's sort.
     const ai = orderIndex.get(a.restaurantId);
     const bi = orderIndex.get(b.restaurantId);
     if (ai !== undefined && bi !== undefined && ai !== bi) return ai - bi;
+    if (b.score !== a.score) return b.score - a.score;
     // The just-rated row yields to an equal-scored incumbent: a tie places it
     // directly BELOW the pivot; the incumbent keeps its exact spot.
     if (a.restaurantId === justRatedId) return 1;
@@ -220,7 +236,10 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
     if (rows.length <= 1) continue;
     const settled = settleTierScores(rows, tier);
     for (let i = 0; i < rows.length; i++) {
-      if (settled[i] !== round1(rows[i].score)) {
+      // Epsilon compare (not round1 equality): overflow fills emit unrounded
+      // scores, and a float that equals the stored value exactly must not
+      // re-register as a change on every settle.
+      if (Math.abs(settled[i] - rows[i].score) > 1e-9) {
         changes.push({ restaurantId: rows[i].restaurantId, score: settled[i] });
       }
     }
@@ -250,10 +269,12 @@ export function normalizeScores(
   const orderIndex = new Map<string, number>();
   if (opts.explicitOrder) opts.explicitOrder.forEach((id, i) => orderIndex.set(id, i));
   const compare = (a: RestaurantRating, b: RestaurantRating): number => {
-    if (b.score !== a.score) return b.score - a.score;
+    // Same precedence as settleScores: the dragged order outranks raw
+    // scores for rows it covers (see the comment there).
     const ai = orderIndex.get(a.restaurantId);
     const bi = orderIndex.get(b.restaurantId);
     if (ai !== undefined && bi !== undefined && ai !== bi) return ai - bi;
+    if (b.score !== a.score) return b.score - a.score;
     return a.restaurantId < b.restaurantId ? -1 : a.restaurantId > b.restaurantId ? 1 : 0;
   };
 
@@ -273,8 +294,9 @@ export function normalizeScores(
 
     let out: number[];
     if (n > bandCapacity(tier)) {
-      // More rows than 0.1 slots — uniform fill, duplicates unavoidable.
-      out = rows.map((_, i) => round1(bandMax - (i * W) / (n - 1)));
+      // More rows than 0.1 slots — uniform fill. Unrounded so the scores
+      // stay strictly descending (see settleTierScores.uniformFill).
+      out = rows.map((_, i) => bandMax - (i * W) / (n - 1));
     } else {
       const currentSpan = Math.max(0, s0 - sLast);
       const spanT = clamp(
@@ -318,7 +340,8 @@ export function normalizeScores(
     }
 
     for (let i = 0; i < n; i++) {
-      if (out[i] !== round1(rows[i].score)) {
+      // Epsilon compare — overflow fills are unrounded (see settleScores).
+      if (Math.abs(out[i] - rows[i].score) > 1e-9) {
         changes.push({ restaurantId: rows[i].restaurantId, score: out[i] });
       }
     }
