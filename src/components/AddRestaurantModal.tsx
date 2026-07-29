@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2 } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
 import { compressImage } from '../lib/images';
+import { dropDeadPhotos } from '../lib/pendingPhotos';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { settleScores, tierOfScore } from '../lib/settleScores';
@@ -332,8 +333,10 @@ export const AddRestaurantModal: React.FC = () => {
         score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags,
         // blob: previews are session-scoped — they'd be dead links after a
         // reload. Save is blocked while any remain; this filter is the
-        // safety net for programmatic saves (tie-break auto-save).
-        photos: photos.filter((p) => !p.url.startsWith('blob:')),
+        // safety net for programmatic saves (tie-break auto-save). It also
+        // drops dead entries (url '') left by an old sync bug, so editing a
+        // poisoned rating heals it instead of re-persisting blank tiles.
+        photos: dropDeadPhotos(photos),
         favoriteDishes: favoriteDishes.length > 0 ? favoriteDishes : undefined,
         listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
         // Provenance: how THIS session produced the score. A details-only

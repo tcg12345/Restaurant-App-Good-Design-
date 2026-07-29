@@ -3,7 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
-import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements } from '../lib/pendingPhotos';
+import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements, dropDeadPhotos } from '../lib/pendingPhotos';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -823,8 +823,13 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
     image: safeImage(r.image),
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
-    photos: (r.photos ?? []).map((p: PhotoItem | string) =>
-      typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
+    // dropDeadPhotos heals rows poisoned by a pre-C6 sync bug that blanked
+    // oversized inline photo urls to '' (entry kept → permanent blank tile)
+    // and clears any session-scoped blob: preview that slipped into storage.
+    photos: dropDeadPhotos(
+      (r.photos ?? []).map((p: PhotoItem | string) =>
+        typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
+      ),
     ),
   }));
 }
