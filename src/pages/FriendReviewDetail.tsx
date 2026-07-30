@@ -6,7 +6,7 @@ import {
   Loader2, Calendar, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreRingStrong, scoreGradientOverlay } from '../lib/score';
+import { scoreColor, scoreRingStrong } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
@@ -33,6 +33,13 @@ const avatarColor = (uid: string) => {
   return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
 };
 const initialOf = (name: string) => (name || 'U').trim().charAt(0).toUpperCase() || 'U';
+
+/* ── Shared surface language, matched to the restaurant detail pages ──── */
+/** Page gutter + max width. One container for the header and the body so
+ *  they stay in the same column on wide screens. */
+const SHELL = 'mx-auto w-full max-w-[1060px] px-4 sm:px-6 lg:px-8';
+const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
+const EYEBROW = 'text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/40';
 
 const timeAgo = (date: string) => {
   if (!date) return '';
@@ -208,6 +215,10 @@ export const FriendReviewDetail: React.FC = () => {
   const score = Number(rating.score) || 0;
   const hasPhotos = userPhotos.length > 0;
   const heroSrc = hasPhotos ? userPhotos[heroIdx]?.url : rating.photo_url;
+  // One gallery instead of a full-bleed hero PLUS a second big strip of the
+  // same shots: a contained lead image with small thumbnails under it.
+  const hasGallery = !!heroSrc;
+  const heroCaption = hasPhotos ? userPhotos[heroIdx]?.caption || '' : '';
   const visitDate = rating.visit_date
     ? new Date(rating.visit_date.length === 10 ? `${rating.visit_date}T12:00:00` : rating.visit_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : null;
@@ -219,239 +230,249 @@ export const FriendReviewDetail: React.FC = () => {
       exit={{ opacity: 0 }}
       className="min-h-screen bg-surface pb-28"
     >
-      {/* Sticky header — fades away with scroll, back near the top */}
-      <motion.div ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">
-        <div className="flex items-center gap-3 px-3 pt-safe-3 pb-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
-          >
-            <ArrowLeft size={18} className="text-on-surface/70" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Review</p>
-            <p className="text-sm font-semibold truncate">{authorName}</p>
+      {/* Sticky header — fades away with scroll on phones */}
+      <motion.div ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-on-surface/[0.06]">
+        <div className={SHELL}>
+          <div className="flex items-center gap-3 pt-safe-3 pb-3">
+            <button
+              onClick={() => navigate(-1)}
+              aria-label="Back"
+              className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
+            >
+              <ArrowLeft size={18} className="text-on-surface/70" />
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className={EYEBROW}>Review</p>
+              <p className="text-sm font-semibold truncate">{authorName}</p>
+            </div>
           </div>
         </div>
       </motion.div>
 
-      {/* Hero — score-matched gradient overlay; tap to cycle photos */}
-      <div className="relative w-full aspect-[16/10] bg-on-surface/5 overflow-hidden">
-        {heroSrc ? (
-          <img
-            src={heroSrc}
-            alt={rating.restaurant_name}
-            className={cn("w-full h-full object-cover", !hasPhotos && "opacity-60")}
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
-            <span className="font-serif text-5xl font-bold text-on-surface/15">{initialOf(rating.restaurant_name)}</span>
-          </div>
-        )}
-        <div className={cn("absolute inset-0 bg-gradient-to-t", scoreGradientOverlay(score))} />
-        {hasPhotos && userPhotos.length > 1 && (
-          <>
-            {/* Tap-to-advance overlay */}
-            <button
-              type="button"
-              onClick={() => setHeroIdx((i) => (i + 1) % userPhotos.length)}
-              className="absolute inset-0 cursor-pointer"
-              aria-label={`Next photo (${heroIdx + 1} of ${userPhotos.length})`}
-            />
-            {/* Fraction counter */}
-            <div className="absolute bottom-3 right-3 pointer-events-none px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-md">
-              <span className="text-[12px] font-semibold text-white tabular-nums tracking-tight">
-                {heroIdx + 1} / {userPhotos.length}
-              </span>
-            </div>
-          </>
-        )}
-      </div>
+      <div className={cn(SHELL, 'pt-4 sm:pt-6')}>
+        <div className={cn(
+          'grid items-start gap-4 sm:gap-5',
+          // Wide screens put the gallery beside the review instead of
+          // stacking one giant column (the old layout let the hero grow to
+          // the full viewport width — ~1200px tall on a desktop monitor).
+          hasGallery && 'lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,1fr)]',
+        )}>
 
-      {/* Author row */}
-      <div className="px-4 pt-4 flex items-center gap-3">
-        <Link to={`/user/${authorUsername}`}>
-          <div className={cn("w-11 h-11 rounded-full flex items-center justify-center ring-2 ring-white shadow-sm", authorColor.bg)}>
-            <span className={cn("text-base font-serif font-bold", authorColor.text)}>{authorInitial}</span>
-          </div>
-        </Link>
-        <div className="flex-1 min-w-0">
-          <Link to={`/user/${authorUsername}`} className="text-sm font-semibold hover:text-primary">{authorName}</Link>
-          <p className="text-[10px] text-on-surface/40 font-medium">{timeAgo(rating.created_at)}</p>
-        </div>
-      </div>
+          {/* ── Gallery: contained lead image + small thumbnails ── */}
+          {hasGallery && (
+            <section className={cn(CARD, 'overflow-hidden')}>
+              <button
+                type="button"
+                onClick={() => hasPhotos && setLightbox(heroIdx)}
+                aria-label={hasPhotos ? 'Open photo' : undefined}
+                className="relative block w-full h-[240px] sm:h-[320px] lg:h-[360px] bg-on-surface/[0.04] group"
+              >
+                <img
+                  src={heroSrc || ''}
+                  alt={rating.restaurant_name}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                {hasPhotos && userPhotos.length > 1 && (
+                  <div className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md">
+                    <span className="text-[11.5px] font-semibold text-white tabular-nums">
+                      {heroIdx + 1} / {userPhotos.length}
+                    </span>
+                  </div>
+                )}
+              </button>
 
-      {/* Restaurant info + score */}
-      <div className="px-4 pt-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <Link
-              to={`/restaurant/${rating.restaurant_id}`}
-              className="font-serif font-bold text-xl leading-tight hover:text-primary transition-colors"
-            >
-              {rating.restaurant_name}
-            </Link>
-            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              {rating.cuisine && (
-                <span className="text-[9px] font-bold uppercase tracking-wider text-on-surface/60 bg-on-surface/5 px-2 py-0.5 rounded-full">{rating.cuisine}</span>
+              {(userPhotos.length > 1 || heroCaption) && (
+                <div className="px-3 pt-3 pb-3.5">
+                  {userPhotos.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                      {userPhotos.map((p, i) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setHeroIdx(i)}
+                          aria-label={`Photo ${i + 1}`}
+                          aria-current={i === heroIdx}
+                          className={cn(
+                            'flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden transition-all',
+                            i === heroIdx
+                              ? 'ring-2 ring-primary ring-offset-1 ring-offset-white'
+                              : 'opacity-60 hover:opacity-100',
+                          )}
+                        >
+                          <img src={p.url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {heroCaption && (
+                    <p className={cn('font-serif italic text-[13px] text-on-surface/55 leading-snug', userPhotos.length > 1 && 'mt-3')}>
+                      {heroCaption}
+                    </p>
+                  )}
+                </div>
               )}
-              {rating.price && (
-                <span className="text-[9px] font-bold uppercase tracking-wider text-primary/80 bg-primary/8 px-2 py-0.5 rounded-full">{rating.price}</span>
-              )}
+            </section>
+          )}
+
+          {/* ── The review itself ── */}
+          <section className={cn(CARD, 'p-4 sm:p-5')}>
+            {/* Author */}
+            <div className="flex items-center gap-3">
+              <Link to={`/user/${authorUsername}`} className="flex-shrink-0">
+                <div className={cn('w-10 h-10 rounded-full flex items-center justify-center', authorColor.bg)}>
+                  <span className={cn('text-[15px] font-serif font-bold', authorColor.text)}>{authorInitial}</span>
+                </div>
+              </Link>
+              <div className="min-w-0 flex-1">
+                <Link to={`/user/${authorUsername}`} className="block text-[14.5px] font-semibold truncate hover:text-primary transition-colors">{authorName}</Link>
+                <p className="text-[11.5px] text-on-surface/45 font-medium">{timeAgo(rating.created_at)}</p>
+              </div>
             </div>
-            {rating.address && (
-              <div className="flex items-start gap-1.5 mt-2">
-                <MapPin size={12} className="text-on-surface/40 mt-0.5 flex-shrink-0" />
-                <p className="text-[11px] text-on-surface/50 leading-snug">{rating.address}</p>
+
+            <div className="h-px bg-on-surface/[0.07] my-4" />
+
+            {/* Restaurant + score */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <Link
+                  to={`/restaurant/${rating.restaurant_id}`}
+                  className="font-serif font-bold text-[20px] sm:text-[22px] leading-[1.15] tracking-[-0.02em] hover:text-primary transition-colors"
+                >
+                  {rating.restaurant_name}
+                </Link>
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {rating.cuisine && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface/55 bg-on-surface/[0.05] px-2 py-1 rounded-md">{rating.cuisine}</span>
+                  )}
+                  {rating.price && (
+                    <span className="text-[10px] font-bold tracking-wider text-primary/80 bg-primary/[0.08] px-2 py-1 rounded-md">{rating.price}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-shrink-0 flex flex-col items-center">
+                <div className={cn('w-[54px] h-[54px] sm:w-[62px] sm:h-[62px] rounded-full bg-white ring-[3px] flex items-center justify-center', scoreRingStrong(score))}>
+                  <span className={cn('text-[19px] sm:text-[21px] font-serif font-bold tabular-nums', scoreColor(score))}>{score.toFixed(1)}</span>
+                </div>
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mt-1.5">
+                  {rating.rating_method === 'slider' ? 'Self-scored' : 'out of 10'}
+                </span>
+              </div>
+            </div>
+
+            {/* Where + when — one quiet meta block instead of scattered pills */}
+            {(rating.address || visitDate) && (
+              <div className="mt-4 flex flex-col gap-1.5 text-[12.5px] text-on-surface/55">
+                {rating.address && (
+                  <div className="flex items-start gap-1.5">
+                    <MapPin size={13} className="text-on-surface/35 mt-[2px] flex-shrink-0" />
+                    <span className="leading-snug">{rating.address}</span>
+                  </div>
+                )}
+                {visitDate && (
+                  <div className="flex items-center gap-1.5">
+                    <Calendar size={13} className="text-on-surface/35 flex-shrink-0" />
+                    <span>Visited {visitDate}</span>
+                  </div>
+                )}
               </div>
             )}
-          </div>
 
-          {/* Score orb */}
-          <div className="flex-shrink-0 flex flex-col items-center">
-            <div className={cn(
-              "w-20 h-20 rounded-full bg-white ring-4 flex items-center justify-center shadow-sm",
-              scoreRingStrong(score)
-            )}>
-              <span className={cn("text-2xl font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
-            </div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mt-1.5">
-              {rating.rating_method === 'slider' ? 'Self-scored' : 'out of 10'}
-            </span>
-          </div>
-        </div>
-
-        {/* Visit date */}
-        {visitDate && (
-          <div className="flex items-center gap-2 mt-4 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-on-surface/60 bg-on-surface/5 px-2.5 py-1 rounded-full">
-              <Calendar size={11} /> {visitDate}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Notes — editorial quote: floating accent bar + quotation mark, no card */}
-      {rating.notes && (
-        <div className="px-4 pt-6">
-          <div className="relative pl-5">
-            <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-primary/70" />
-            <span className="absolute -top-3 left-3 font-serif text-5xl text-primary/25 leading-none select-none pointer-events-none">&ldquo;</span>
-            <p className="selectable font-serif italic text-[15px] text-on-surface/75 leading-relaxed whitespace-pre-wrap pt-1">{rating.notes}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Tags */}
-      {rating.tags && rating.tags.length > 0 && (
-        <div className="px-4 pt-4">
-          <div className="flex gap-1.5 flex-wrap">
-            {rating.tags.map((t) => (
-              <span key={t} className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-primary/8 text-primary/70">{t}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Photos — open horizontal scroll, no card wrapper */}
-      {hasPhotos && (
-        <div className="pt-6">
-          <div className="px-4 mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Photos</h3>
-            <span className="text-[10px] text-on-surface/40 font-medium tabular-nums">{userPhotos.length}</span>
-          </div>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-2 snap-x snap-mandatory">
-            {userPhotos.map((p, i) => (
-              <button
-                key={p.id}
-                onClick={() => setLightbox(i)}
-                className="flex-shrink-0 w-48 group snap-start text-left"
-              >
-                <div className="w-48 h-48 rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                  <img src={p.url} alt={p.caption || ''} className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500" referrerPolicy="no-referrer" />
-                </div>
-                {p.caption && <p className="text-[11px] text-on-surface/55 mt-1.5 line-clamp-2 leading-snug">{p.caption}</p>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Divider */}
-      <div className="mx-4 my-6 h-px bg-on-surface/8" />
-
-      {/* Like + Comment — 24px icons, 44x44 tap targets */}
-      <div className="px-2 flex items-center gap-1">
-        <button
-          onClick={handleLike}
-          aria-label={liked ? 'Unlike review' : 'Like review'}
-          className={cn(
-            "min-w-[44px] h-[44px] px-3 inline-flex items-center gap-2 rounded-full transition-colors",
-            liked ? "text-red-500" : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]",
-          )}
-        >
-          <Heart size={24} className={liked ? 'fill-red-500' : ''} />
-          <span className="text-[15px] font-semibold tabular-nums">{likeCount}</span>
-        </button>
-        <button
-          onClick={handleToggleComments}
-          aria-label="Toggle comments"
-          className={cn(
-            "min-w-[44px] h-[44px] px-3 inline-flex items-center gap-2 rounded-full transition-colors",
-            commentsOpen ? "text-primary" : "text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]",
-          )}
-        >
-          <MessageSquare size={24} />
-          <span className="text-[15px] font-semibold tabular-nums">{commentCount}</span>
-        </button>
-      </div>
-
-      {/* Inline comment preview — first 2 comments + "View all" toggle */}
-      {!commentsOpen && comments.length > 0 && (
-        <div className="px-4 pt-3 space-y-3">
-          {comments.slice(0, 2).map((c) => {
-            const cColor = avatarColor(c.user_id);
-            const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
-            return (
-              <div key={c.id} className="flex gap-2.5">
-                <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
-                  <span className={cn("text-[11px] font-serif font-bold", cColor.text)}>{cInitial}</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] leading-relaxed">
-                    <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
-                      {commentProfiles[c.user_id]?.display_name || 'User'}
-                    </Link>{' '}
-                    <span className="text-on-surface/65">{c.text}</span>
-                  </p>
-                  <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
-                </div>
+            {/* Notes — editorial quote with an accent rule */}
+            {rating.notes && (
+              <div className="mt-4 pt-4 border-t border-on-surface/[0.07]">
+                <p
+                  className="selectable font-serif italic text-[15.5px] text-on-surface/75 leading-[1.6] whitespace-pre-wrap pl-3.5"
+                  style={{ borderLeft: '2px solid var(--color-primary)' }}
+                >
+                  {rating.notes}
+                </p>
               </div>
-            );
-          })}
-          {commentCount > 2 && (
-            <button
-              type="button"
-              onClick={handleToggleComments}
-              className="text-[13px] font-semibold text-primary/80 hover:text-primary ml-[38px]"
-            >
-              View all {commentCount} comments
-            </button>
-          )}
-        </div>
-      )}
+            )}
 
-      {/* Comments — expanded view with full list + input */}
-      <AnimatePresence initial={false}>
-        {commentsOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <div className="mt-4 mx-4 border-t border-on-surface/8 pt-4 space-y-3">
-              {commentsLoading ? (
-                <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
-              ) : comments.length === 0 ? (
-                <p className="text-xs text-on-surface/40 py-1">No comments yet — be the first!</p>
-              ) : (() => {
+            {/* Tags */}
+            {rating.tags && rating.tags.length > 0 && (
+              <div className="mt-4 flex gap-1.5 flex-wrap">
+                {rating.tags.map((t) => (
+                  <span key={t} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-on-surface/[0.08] text-on-surface/60">{t}</span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Likes + comments ── */}
+          <section className={cn(CARD, 'p-3 sm:p-4', hasGallery && 'lg:col-span-2')}>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleLike}
+                aria-label={liked ? 'Unlike review' : 'Like review'}
+                className={cn(
+                  'min-w-[44px] h-11 px-3 inline-flex items-center gap-2 rounded-full transition-colors',
+                  liked ? 'text-red-500' : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                )}
+              >
+                <Heart size={21} className={liked ? 'fill-red-500' : ''} />
+                <span className="text-[14.5px] font-semibold tabular-nums">{likeCount}</span>
+              </button>
+              <button
+                onClick={handleToggleComments}
+                aria-label="Toggle comments"
+                className={cn(
+                  'min-w-[44px] h-11 px-3 inline-flex items-center gap-2 rounded-full transition-colors',
+                  commentsOpen ? 'text-primary' : 'text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]',
+                )}
+              >
+                <MessageSquare size={21} />
+                <span className="text-[14.5px] font-semibold tabular-nums">{commentCount}</span>
+              </button>
+            </div>
+
+            {/* Inline preview — first 2 comments + "View all" toggle */}
+            {!commentsOpen && comments.length > 0 && (
+              <div className="px-1 pt-3 pb-1 space-y-3">
+                {comments.slice(0, 2).map((c) => {
+                  const cColor = avatarColor(c.user_id);
+                  const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
+                  return (
+                    <div key={c.id} className="flex gap-2.5">
+                      <div className={cn('w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5', cColor.bg)}>
+                        <span className={cn('text-[11px] font-serif font-bold', cColor.text)}>{cInitial}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] leading-relaxed">
+                          <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
+                            {commentProfiles[c.user_id]?.display_name || 'User'}
+                          </Link>{' '}
+                          <span className="text-on-surface/65">{c.text}</span>
+                        </p>
+                        <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {commentCount > 2 && (
+                  <button
+                    type="button"
+                    onClick={handleToggleComments}
+                    className="text-[13px] font-semibold text-primary/80 hover:text-primary ml-[38px]"
+                  >
+                    View all {commentCount} comments
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Expanded thread + input */}
+            <AnimatePresence initial={false}>
+              {commentsOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="mt-3 border-t border-on-surface/[0.07] pt-4 px-1 space-y-3">
+                    {commentsLoading ? (
+                      <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
+                    ) : comments.length === 0 ? (
+                      <p className="text-xs text-on-surface/40 py-1">No comments yet — be the first!</p>
+                    ) : (() => {
                 // Thread replies under their parent (same grouping as
                 // SocialFeed) — rendering the array flat surfaced replies as
                 // context-free top-level comments.
@@ -483,30 +504,33 @@ export const FriendReviewDetail: React.FC = () => {
                     </div>
                   );
                 };
-                return <div className="space-y-3">{topLevel.map((c) => renderRow(c, false))}</div>;
-              })()}
-              <div className="flex gap-2 pt-2">
-                <input
-                  type="text"
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Write a comment..."
-                  className="flex-1 bg-on-surface/5 rounded-full py-2.5 px-4 text-[13px] focus:outline-none focus:bg-on-surface/[0.08] transition-colors"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(); }}
-                />
-                <button
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || commentSubmitting}
-                  aria-label="Post comment"
-                  className="w-11 h-11 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
-                >
-                  <Send size={18} />
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                      return <div className="space-y-3">{topLevel.map((c) => renderRow(c, false))}</div>;
+                    })()}
+                    <div className="flex gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        placeholder="Write a comment..."
+                        className="flex-1 bg-on-surface/[0.04] border border-on-surface/[0.07] rounded-full py-2.5 px-4 text-[13px] focus:outline-none focus:border-primary/40 focus:bg-white transition-colors"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(); }}
+                      />
+                      <button
+                        onClick={handleAddComment}
+                        disabled={!newComment.trim() || commentSubmitting}
+                        aria-label="Post comment"
+                        className="w-11 h-11 flex-shrink-0 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
+                      >
+                        <Send size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        </div>
+      </div>
 
       {/* Lightbox */}
       <AnimatePresence>
@@ -540,10 +564,27 @@ export const FriendReviewDetail: React.FC = () => {
                 </button>
               </>
             )}
-            <img
+            {userPhotos.length > 1 && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur-sm text-white/85 text-[12px] font-semibold tabular-nums z-10 pointer-events-none">
+                {lightbox + 1} of {userPhotos.length}
+              </div>
+            )}
+            {/* Swipe between photos on touch — same gesture as the
+                restaurant photo gallery. */}
+            <motion.img
+              key={lightbox}
               src={userPhotos[lightbox].url}
               alt={userPhotos[lightbox].caption || ''}
-              className="max-w-full max-h-full object-contain"
+              className="max-w-full max-h-full object-contain touch-pan-y"
+              drag={userPhotos.length > 1 ? 'x' : false}
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.9}
+              onDragEnd={(_e, info) => {
+                if (userPhotos.length < 2) return;
+                if (info.offset.x < -70 || info.velocity.x < -500) setLightbox((i) => (i === null ? 0 : (i + 1) % userPhotos.length));
+                else if (info.offset.x > 70 || info.velocity.x > 500) setLightbox((i) => (i === null ? 0 : (i - 1 + userPhotos.length) % userPhotos.length));
+              }}
+              draggable={false}
               onClick={(e) => e.stopPropagation()}
               referrerPolicy="no-referrer"
             />
