@@ -27,8 +27,6 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile } from '../lib/flavorProfile';
 import { scoreHex } from '../lib/score';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
@@ -542,37 +540,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     </div>
                   </div>
                 )}
-              </section>
-            );
-          })()}
-
-          {/* ── Flavor profile ── */}
-          {(() => {
-            const knownCuisines = ['italian','french','japanese','sushi','chinese','korean','thai','indian','mexican','mediterranean','american','seafood','steakhouse','pizza','cafe','bakery','vegan','bar & grill','breakfast','caribbean'];
-            const hasKnown = place.types.some((t) => knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim()));
-            if (!hasKnown) return null;
-            const ranked = [...getFlavorProfile(place.types, place.name)].sort((a, b) => b.value - a.value);
-            return (
-              <section>
-                <div className="flex items-baseline justify-between gap-4 mb-5">
-                  <h2 className={H2}>Flavor profile</h2>
-                  <span className="text-xs font-semibold text-on-surface/55">From the community</span>
-                </div>
-                <div className={cn(CARD, 'p-5 flex flex-col gap-3.5')}>
-                  {ranked.map((f) => {
-                    const pct = Math.round((f.value / f.fullMark) * 100);
-                    const muted = pct < 50;
-                    return (
-                      <div key={f.subject} className="grid grid-cols-[88px_1fr_44px] items-center gap-4">
-                        <div className={cn('text-[13px] font-semibold', muted ? 'text-on-surface/55' : 'text-on-surface')}>{f.subject}</div>
-                        <div className="relative h-1.5 bg-on-surface/[0.06] rounded-full overflow-hidden">
-                          <div className={cn('absolute inset-y-0 left-0 w-full rounded-full origin-left transition-transform duration-700', muted ? 'bg-on-surface/15' : 'bg-primary')} style={{ transform: `scaleX(${pct / 100})` }} />
-                        </div>
-                        <div className={cn('text-[13px] font-semibold tabular-nums text-right', muted ? 'text-on-surface/55' : 'text-on-surface')}>{pct}%</div>
-                      </div>
-                    );
-                  })}
-                </div>
               </section>
             );
           })()}

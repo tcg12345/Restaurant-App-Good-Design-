@@ -30,8 +30,6 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
-import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile } from '../lib/flavorProfile';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 
 /** Short "last week / last month" style recency label. */
@@ -176,7 +174,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   // Hours start collapsed — the summary row already shows the Open/Closed
   // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
-  const [flavorOpen, setFlavorOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(false);
   // Ref on the "My Rating Details" section so the Your Rating summary
   // card above can smooth-scroll down to it when tapped.
@@ -1126,55 +1123,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             </section>
           </>
         )}
-
-        {/* ── Flavor Profile — collapsible radar + ranked list. ── */}
-        {(() => {
-          if (!place) return null;
-          const knownCuisines = [
-            'italian', 'french', 'japanese', 'sushi', 'chinese', 'korean', 'thai', 'indian',
-            'mexican', 'mediterranean', 'american', 'seafood', 'steakhouse', 'pizza', 'cafe',
-            'bakery', 'vegan', 'bar & grill', 'breakfast', 'caribbean',
-          ];
-          const hasKnown = place.types.some((t) =>
-            knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim())
-          );
-          if (!hasKnown) return null;
-          const flavorData = getFlavorProfile(place.types, place.name);
-          const ranked = [...flavorData].sort((a, b) => b.value - a.value);
-          const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
-          return (
-            <>
-              {sep}
-              <section>
-                <button onClick={() => setFlavorOpen(!flavorOpen)} className="w-full flex items-center justify-between py-1 text-left active:opacity-70 transition-opacity">
-                  <span className="section-eyebrow">Flavor profile</span>
-                  <ChevronDown size={16} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', flavorOpen && 'rotate-180')} />
-                </button>
-                <AnimatePresence>
-                  {flavorOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                      <div className="flex items-center gap-4 pt-3">
-                        <RadarChart data={flavorData} color="#e85a2c" showLabels={false} className="w-[104px] h-[104px] flex-shrink-0" />
-                        <ul className="flex-1 min-w-0 space-y-1" style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', fontSize: '12px', lineHeight: 1.5 }}>
-                          {ranked.map((f) => {
-                            const pct = Math.round((f.value / f.fullMark) * 100);
-                            const isTop = topFlavorNames.has(f.subject);
-                            return (
-                              <li key={f.subject} className="flex items-baseline gap-1.5">
-                                <span className={cn('truncate', isTop ? 'font-semibold text-ink' : 'text-ink-3')}>{f.subject}</span>
-                                <span className={cn('tabular-nums flex-shrink-0', isTop ? 'text-ink-2' : 'text-ink-3')}>· {pct}%</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </section>
-            </>
-          );
-        })()}
 
         {/* ── Hours — flat accordion with today's status inline. ── */}
         {place.hours.length > 0 && (
