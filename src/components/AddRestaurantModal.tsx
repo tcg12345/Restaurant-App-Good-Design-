@@ -847,18 +847,28 @@ export const AddRestaurantModal: React.FC = () => {
                         toggle says exactly what will happen either way. */}
                     <button
                       type="button"
+                      role="switch"
+                      aria-checked={shareToFeed}
                       onClick={() => setShareToFeed((v) => !v)}
-                      aria-pressed={shareToFeed}
-                      className="w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.08] bg-white px-3.5 py-2.5 text-left active:scale-[0.99] transition-transform"
+                      className="w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.07] bg-white px-3.5 py-3 text-left transition-colors hover:border-on-surface/15 active:bg-on-surface/[0.02]"
                     >
-                      <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-primary/[0.08] text-primary">
+                      <motion.span
+                        key={shareToFeed ? 'on' : 'off'}
+                        initial={{ scale: 0.82, opacity: 0.5 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+                        className={cn(
+                          'grid h-8 w-8 flex-shrink-0 place-items-center rounded-full',
+                          shareToFeed ? 'bg-primary/[0.08] text-primary' : 'bg-on-surface/[0.05] text-on-surface/45',
+                        )}
+                      >
                         {shareToFeed ? <Users size={15} /> : <Lock size={15} />}
-                      </span>
+                      </motion.span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold text-on-surface">
+                        <span className="block font-serif text-[14px] font-bold leading-tight tracking-[-0.01em] text-on-surface">
                           {shareToFeed ? 'Share to your feed' : 'Keep this private'}
                         </span>
-                        <span className="block text-[11.5px] leading-snug text-on-surface/45">
+                        <span className="mt-0.5 block text-[11.5px] leading-snug text-on-surface/45">
                           {shareToFeed
                             ? hasPhotos
                               ? `Your circle sees this as a post with ${photos.length === 1 ? 'your photo' : `your ${photos.length} photos`}.`
@@ -867,13 +877,17 @@ export const AddRestaurantModal: React.FC = () => {
                         </span>
                       </span>
                       <span className={cn(
-                        'relative h-[26px] w-[44px] flex-shrink-0 rounded-full transition-colors',
+                        'relative h-[26px] w-[44px] flex-shrink-0 rounded-full transition-colors duration-200',
                         shareToFeed ? 'bg-primary' : 'bg-on-surface/15',
                       )}>
-                        <span className={cn(
-                          'absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm transition-all',
-                          shareToFeed ? 'left-[21px]' : 'left-[3px]',
-                        )} />
+                        <motion.span
+                          layout
+                          transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+                          className={cn(
+                            'absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm',
+                            shareToFeed ? 'left-[21px]' : 'left-[3px]',
+                          )}
+                        />
                       </span>
                     </button>
                     {dateError && isNewVisit && !hasDate && (
