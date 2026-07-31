@@ -9,6 +9,10 @@
 //            draggable bottom sheet (pull up for a full-screen
 //            gallery). Next routes Instagram-style — one video becomes
 //            a reel, anything else a post — into the full composer.
+//   Rate   — find the restaurant, then the rating flow. It lives here
+//            because rating used to be reachable ONLY from a restaurant
+//            page: the ＋ button offered Post/Guide/Recipe and testers
+//            reasonably concluded posting was how you logged a meal.
 //   Guide  — choose the guide type and name it; Continue opens the
 //            wizard pre-filled.
 //   Recipe — the four ways in (link / photo / scratch / AI), one tap
@@ -17,15 +21,18 @@
 // All surfaces stay mounted so half-written input survives wheel
 // spins. The full flows open as the usual overlays above this page.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
   Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
+  Search, Star,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
+import { searchPlacesByText, priceLevelToString } from '../lib/places';
+import { getCuisineLabel } from './useRestaurantDetail';
 import { useUnifiedComposer } from '../components/useUnifiedComposer';
 import { DraggableSheet, type SheetPos } from '../components/DraggableSheet';
 import { PhotoLibraryGrid } from '../components/PhotoLibraryGrid';
@@ -34,9 +41,9 @@ import { POST_MAX_ITEMS } from '../contexts/PostsContext';
 import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 
-type Mode = 'post' | 'guide' | 'recipe';
-const MODES: Mode[] = ['post', 'guide', 'recipe'];
-const MODE_LABELS: Record<Mode, string> = { post: 'Post', guide: 'Guide', recipe: 'Recipe' };
+type Mode = 'post' | 'rate' | 'guide' | 'recipe';
+const MODES: Mode[] = ['post', 'rate', 'guide', 'recipe'];
+const MODE_LABELS: Record<Mode, string> = { post: 'Post', rate: 'Rate', guide: 'Guide', recipe: 'Recipe' };
 
 const mod = (n: number, m: number) => ((n % m) + m) % m;
 
@@ -577,6 +584,146 @@ const PostSurface: React.FC<{
   );
 };
 
+/* ── Rate surface — find the place, then the rating flow ──────────
+   Rating was the one creation path with no home on this page, so the ＋
+   button implicitly taught people that "posting" was how you log a meal.
+   Your own rated places and wishlist come first (re-rating a favourite is
+   the common case); typing searches everywhere else. */
+
+interface RatePick {
+  id: string;
+  name: string;
+  cuisine: string;
+  price: string;
+  address: string;
+  image?: string;
+  /** Your current score, when you've already rated it. */
+  score?: number;
+}
+
+const RateSurface: React.FC = () => {
+  const { ratings, wishlist, restaurantMeta, openAddRestaurantModal } = useLists();
+  const [query, setQuery] = useState('');
+  const [remote, setRemote] = useState<RatePick[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  // Live place search, debounced. Each run aborts the previous one so a
+  // slow early keystroke can't overwrite fresher results.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 3) { setRemote([]); setSearching(false); return; }
+    const t = setTimeout(() => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      setSearching(true);
+      searchPlacesByText(q, null, null, undefined, false, undefined, ac.signal)
+        .then((places) => {
+          if (ac.signal.aborted) return;
+          setRemote(places.slice(0, 12).map((p) => ({
+            id: p.id,
+            name: p.name,
+            cuisine: getCuisineLabel(p.types),
+            price: priceLevelToString(p.priceLevel) || '',
+            address: p.fullAddress || p.address || '',
+          })));
+        })
+        .catch(() => { /* aborted or offline — local matches still show */ })
+        .finally(() => { if (!ac.signal.aborted) setSearching(false); });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const results = useMemo<RatePick[]>(() => {
+    const q = query.trim().toLowerCase();
+    const seen = new Set<string>();
+    const out: RatePick[] = [];
+    const scoreById = new Map<string, number>(ratings.map((r) => [r.restaurantId, r.score]));
+    const matches = (...parts: (string | undefined)[]) =>
+      !q || parts.filter(Boolean).join(' ').toLowerCase().includes(q);
+
+    for (const r of ratings) {
+      if (seen.has(r.restaurantId) || !matches(r.name, r.cuisine, r.address)) continue;
+      seen.add(r.restaurantId);
+      out.push({ id: r.restaurantId, name: r.name, cuisine: r.cuisine, price: r.price, address: r.address, image: r.image, score: r.score });
+    }
+    for (const w of wishlist) {
+      if (seen.has(w.restaurantId) || !matches(w.name, w.cuisine, w.address)) continue;
+      seen.add(w.restaurantId);
+      out.push({ id: w.restaurantId, name: w.name, cuisine: w.cuisine, price: w.price, address: w.address, image: w.image });
+    }
+    for (const [id, meta] of Object.entries(restaurantMeta || {})) {
+      const m = meta as { name?: string; cuisine?: string; price?: string; address?: string; image?: string };
+      if (id.startsWith('__') || seen.has(id) || !m?.name || !matches(m.name, m.cuisine, m.address)) continue;
+      seen.add(id);
+      out.push({ id, name: m.name, cuisine: m.cuisine || '', price: m.price || '', address: m.address || '', image: m.image, score: scoreById.get(id) });
+    }
+    for (const p of remote) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      out.push({ ...p, score: scoreById.get(p.id) });
+    }
+    return out.slice(0, q ? 30 : 12);
+  }, [query, ratings, wishlist, restaurantMeta, remote]);
+
+  return (
+    <div className="w-full max-w-md mx-auto">
+      <Eyebrow>Rate a restaurant</Eyebrow>
+
+      <div className="relative">
+        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search restaurants"
+          className="w-full rounded-full border border-on-surface/[0.1] bg-on-surface/[0.03] py-2.5 pl-10 pr-9 text-[14px] font-medium placeholder:text-on-surface/35 focus:border-primary/40 focus:bg-surface focus:outline-none transition-colors"
+        />
+        {searching && <Loader2 size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-on-surface/35" />}
+      </div>
+
+      <div className="mt-2">
+        {results.length === 0 ? (
+          <p className="py-10 text-center text-[13px] text-on-surface/40">
+            {query.trim() ? 'No restaurants match that yet.' : 'Search for a place to rate.'}
+          </p>
+        ) : (
+          results.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => openAddRestaurantModal({
+                id: r.id, name: r.name, image: r.image || '',
+                cuisine: r.cuisine, price: r.price, address: r.address,
+              })}
+              className="flex w-full items-center gap-3.5 border-b border-on-surface/[0.07] py-3 text-left last:border-0 active:bg-on-surface/[0.03] transition-colors"
+            >
+              <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                <MapPin size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-serif text-[15.5px] font-semibold text-on-surface">{r.name}</span>
+                {(r.cuisine || r.price || r.address) && (
+                  <span className="block truncate text-[12px] text-on-surface/45">
+                    {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join('  ·  ')}
+                  </span>
+                )}
+              </span>
+              {typeof r.score === 'number' && r.score > 0 ? (
+                <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg bg-on-surface/[0.05] px-2 py-1 text-[12px] font-bold tabular-nums text-on-surface/60">
+                  <Star size={10} className="fill-current" />{r.score.toFixed(1)}
+                </span>
+              ) : (
+                <ChevronRight size={15} className="flex-shrink-0 text-on-surface/25" />
+              )}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 /* ── Guide surface — type + title, wizard opens pre-filled ───────── */
 
 const GuideSurface: React.FC = () => {
@@ -718,6 +865,7 @@ export const Create: React.FC = () => {
               </button>
             )}
             {m === 'post' && <PostSurface onFullChange={setPostSheetFull} />}
+            {m === 'rate' && <RateSurface />}
             {m === 'guide' && <GuideSurface />}
             {m === 'recipe' && <RecipeSurface />}
           </div>
