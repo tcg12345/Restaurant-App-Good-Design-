@@ -92,6 +92,13 @@ export interface PostRow {
   audioLabel: string;
   isPublic: boolean;
   createdAt: string;
+  /** The rating this post shares, when it was published from the rating
+   *  flow. The feed drops the standalone rating row for a linked post so
+   *  one meal renders exactly once (see lib/feedEntry.mergeFeed). */
+  ratingId?: string | null;
+  /** Score at share time — kept on the post so a past visit's card stays a
+   *  faithful record even after the restaurant is re-rated. */
+  score?: number | null;
   items: PostItemRow[];
   author: PostAuthorSnapshot | null;
   likesCount: number;
@@ -269,6 +276,10 @@ const rowToPost = (
     audioLabel: String(row.audio_label || 'Original audio'),
     isPublic: row.is_public === undefined ? true : !!row.is_public,
     createdAt: String(row.created_at || ''),
+    // Migration 064. Absent on projects that haven't applied it yet, which
+    // simply means no post is linked to a rating — the feed still works.
+    ratingId: row.rating_id ? String(row.rating_id) : null,
+    score: row.score === null || row.score === undefined ? null : Number(row.score),
     items,
     author: null,
     likesCount: likesEmbed?.[0]?.count ?? 0,
@@ -299,6 +310,11 @@ export interface CreatePostInput {
   audioLabel: string;
   isPublic: boolean;
   items: NewPostItem[];
+  /** The rating this post shares (migration 064). Set when publishing from
+   *  the rating flow so the feed shows one card, not two. */
+  ratingId?: string | null;
+  /** Score at share time, stored alongside `ratingId`. */
+  score?: number | null;
   onProgress?: (fraction: number) => void;
   /** Cancels the media uploads (the long phase). createPost deletes the
    *  just-inserted post (items cascade), removes any uploaded photos, and
@@ -333,7 +349,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
   if (input.items.length === 0) throw new Error('Add at least one photo or video.');
   if (input.items.length > POST_MAX_ITEMS) throw new Error(`Posts cap at ${POST_MAX_ITEMS} items.`);
 
-  const { userId, caption, locationLabel, audioLabel, isPublic, items, onProgress } = input;
+  const { userId, caption, locationLabel, audioLabel, isPublic, items, ratingId, score, onProgress } = input;
 
   // Stable client ids so each video item can carry its id to Mux as passthrough
   // (the webhook maps the finished asset straight back to the row, race-free).
@@ -398,9 +414,18 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
 
   // Insert the post.
   const postPayload: Record<string, unknown> = { user_id: userId, caption, location_label: locationLabel, audio_label: audioLabel, is_public: isPublic };
+  if (ratingId) postPayload.rating_id = ratingId;
+  if (typeof score === 'number') postPayload.score = score;
   let postInsert = await supabase.from('posts').insert(postPayload).select('id').single();
   if (postInsert.error && postInsert.error.code === 'PGRST204' && /is_public/i.test(postInsert.error.message || '')) {
     delete postPayload.is_public;
+    postInsert = await supabase.from('posts').insert(postPayload).select('id').single();
+  }
+  // Same graceful degradation as is_public: a project that hasn't applied
+  // migration 064 yet still publishes the post, just unlinked.
+  if (postInsert.error && postInsert.error.code === 'PGRST204' && /rating_id|score/i.test(postInsert.error.message || '')) {
+    delete postPayload.rating_id;
+    delete postPayload.score;
     postInsert = await supabase.from('posts').insert(postPayload).select('id').single();
   }
   if (postInsert.error || !postInsert.data) {
@@ -765,6 +790,9 @@ export interface PostUpdate {
   caption?: string;
   locationLabel?: string;
   audioLabel?: string;
+  /** Re-rating a shared restaurant rewrites its share's score in place —
+   *  an edit shouldn't spawn a second card for the same visit. */
+  score?: number | null;
 }
 
 export async function updatePost(postId: string, updates: PostUpdate): Promise<boolean> {
@@ -773,6 +801,7 @@ export async function updatePost(postId: string, updates: PostUpdate): Promise<b
   if (updates.caption !== undefined) payload.caption = updates.caption;
   if (updates.locationLabel !== undefined) payload.location_label = updates.locationLabel;
   if (updates.audioLabel !== undefined) payload.audio_label = updates.audioLabel;
+  if (updates.score !== undefined) payload.score = updates.score;
   if (Object.keys(payload).length === 0) return true;
   const { error } = await supabase.from('posts').update(payload).eq('id', postId);
   if (error) { console.warn('[Posts] updatePost failed:', error.message); return false; }

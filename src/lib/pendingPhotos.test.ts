@@ -5,6 +5,7 @@ import {
   collectPendingPhotoUploads,
   countPendingPhotoUploads,
   applyPhotoUrlReplacements,
+  dropDeadPhotos,
 } from './pendingPhotos';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
@@ -120,5 +121,39 @@ describe('retry flow', () => {
     ).next;
     expect(countPendingPhotoUploads(ratings)).toBe(0);
     expect(ratings.every((r) => r.photos.every((p) => p.url.startsWith('https://')))).toBe(true);
+  });
+});
+
+/* ── Dead-entry healing (the blank-tile bug) ───────────────────────────── */
+
+describe('dropDeadPhotos', () => {
+  it('drops url:"" entries left by the old blank-instead-of-drop cloud sync', () => {
+    // Pre-C6 sync blanked oversized inline urls to '' in the cloud copy;
+    // those rows synced back down as photo entries that render as blank
+    // tiles forever. They carry no recoverable bytes — they must go.
+    const photos = [photo(''), photo(STORED), photo(''), photo(INLINE_A)];
+    const kept = dropDeadPhotos(photos);
+    expect(kept.map((p) => p.url)).toEqual([STORED, INLINE_A]);
+  });
+
+  it('drops session-scoped blob: previews and whitespace-only urls', () => {
+    const photos = [photo('blob:https://app/abc-123'), photo('   '), photo(STORED)];
+    expect(dropDeadPhotos(photos).map((p) => p.url)).toEqual([STORED]);
+  });
+
+  it('drops entries whose url is not a string (defensive against legacy shapes)', () => {
+    const photos = [photo(STORED), { url: null, caption: '', isFavorite: false } as unknown as PhotoItem];
+    expect(dropDeadPhotos(photos).map((p) => p.url)).toEqual([STORED]);
+  });
+
+  it('returns the SAME array reference when nothing needed dropping', () => {
+    const photos = [photo(STORED), photo(INLINE_A)];
+    expect(dropDeadPhotos(photos)).toBe(photos);
+  });
+
+  it('keeps captions and favorite flags on surviving entries', () => {
+    const keepMe = photo(STORED, { caption: 'the burrata', isFavorite: true });
+    const kept = dropDeadPhotos([photo(''), keepMe]);
+    expect(kept).toEqual([keepMe]);
   });
 });

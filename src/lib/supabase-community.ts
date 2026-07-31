@@ -88,8 +88,8 @@ export async function publishCommunityRating(
   userId: string,
   restaurantId: string,
   data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[]; lat?: number; lng?: number; photoUrl?: string; ratingMethod?: string }
-): Promise<boolean> {
-  if (!supabaseConfigured || !userId) return false;
+): Promise<string | null> {
+  if (!supabaseConfigured || !userId) return null;
   try {
     const payload: any = {
       user_id: userId,
@@ -112,10 +112,15 @@ export async function publishCommunityRating(
     // Only stamped when known — omitting the key on legacy rows leaves any
     // previously-published method untouched (upsert only writes present keys).
     if (data.ratingMethod) payload.rating_method = data.ratingMethod;
-    const { error } = await supabase.from('community_ratings').upsert(payload, { onConflict: 'user_id,restaurant_id' });
-    if (error) { console.error('[Community] publishRating error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Community] publishRating exception:', err); return false; }
+    // Return the row id: publishing a rating as a post needs it to stamp
+    // posts.rating_id, which is what keeps one meal to one feed card.
+    const { data: row, error } = await supabase.from('community_ratings')
+      .upsert(payload, { onConflict: 'user_id,restaurant_id' })
+      .select('id')
+      .single();
+    if (error) { console.error('[Community] publishRating error:', error); return null; }
+    return row?.id ? String(row.id) : null;
+  } catch (err) { console.error('[Community] publishRating exception:', err); return null; }
 }
 
 /**

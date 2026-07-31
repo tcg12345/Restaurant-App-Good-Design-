@@ -26,6 +26,28 @@ export function isPendingUploadUrl(url: string): boolean {
   return url.startsWith('data:');
 }
 
+/**
+ * Drop photo entries whose image can never render again:
+ *  - `url: ''` — a pre-C6 cloud sync BLANKED oversized inline photos to ''
+ *    (keeping the entry) instead of dropping them; those rows synced back
+ *    down and left permanent blank tiles. The bytes are gone — the dead
+ *    entry is all that remains.
+ *  - `blob:` object URLs — session-scoped previews; after any reload they
+ *    point at nothing. The rating save path filters them, but a copy that
+ *    slipped into storage must not survive as a blank tile.
+ * Returns the same array reference when nothing needed dropping, so callers
+ * can cheap-detect "no change".
+ */
+export function dropDeadPhotos<T extends { url?: unknown }>(photos: T[]): T[] {
+  const kept = photos.filter((p) => {
+    const url = p?.url;
+    if (typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    return trimmed !== '' && !trimmed.startsWith('blob:');
+  });
+  return kept.length === photos.length ? photos : kept;
+}
+
 export interface PendingPhotoUpload {
   restaurantId: string;
   /** The inline data: URL — doubles as the photo's identity for replacement,

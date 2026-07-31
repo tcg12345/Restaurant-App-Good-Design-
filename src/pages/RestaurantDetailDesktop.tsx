@@ -27,8 +27,6 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile } from '../lib/flavorProfile';
 import { scoreHex } from '../lib/score';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
@@ -111,8 +109,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
   const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
-  // Which circle review is expanded (one open at a time, like the reference).
-  const [openCircleId, setOpenCircleId] = useState<string | null>(null);
 
   useEffect(() => {
     const ids = (Array.from(new Set(friendsStats.ratings.map((r) => r.user_id))).filter(Boolean)) as string[];
@@ -130,13 +126,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
-
-  // Open the first circle review by default once friends load.
-  useEffect(() => {
-    if (openCircleId == null && friendsStats.ratings.length > 0) {
-      setOpenCircleId(friendsStats.ratings[0].id);
-    }
-  }, [friendsStats.ratings, openCircleId]);
 
   if (loading) {
     // Skeleton mirroring the page shape (hero + title/meta column) instead
@@ -478,10 +467,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
             );
           })()}
 
-          {/* ── Your circle — friend reviews accordion ── */}
+          {/* ── Your circle — one row per friend, straight into the review ── */}
           {(() => {
             const ratings = friendsStats.ratings;
             const hasFriends = ratings.length > 0;
+            const SHOWN = 5;
             return (
               <section>
                 <div className="flex items-end justify-between gap-4 mb-3.5">
@@ -489,7 +479,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary mb-1.5">From your circle</div>
                     <h2 className={H2}>People you trust</h2>
                   </div>
-                  {hasFriends && ratings.length > 1 && (
+                  {ratings.length > SHOWN && (
                     <button type="button" onClick={() => setShowFriendsDetail(true)}
                       className="inline-flex items-center gap-1.5 text-[13px] font-bold text-primary hover:opacity-70 transition-opacity flex-shrink-0">
                       See all {ratings.length}
@@ -500,59 +490,44 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
                 {hasFriends ? (
                   <div className={cn(CARD, 'overflow-hidden')}>
-                    {ratings.slice(0, 5).map((r, i) => {
+                    {ratings.slice(0, SHOWN).map((r, i) => {
                       const prof = friendReviewProfiles[r.user_id];
                       const name = prof?.display_name || 'Friend';
                       const initial = name.trim().charAt(0).toUpperCase() || 'F';
                       const when = r.visit_date ? timeAgo(r.visit_date) : r.created_at ? timeAgo(r.created_at) : '';
-                      const open = openCircleId === r.id;
                       const sc = Number(r.score);
+                      // One tap = the full review. No accordion: the row's job
+                      // is who / what they scored it / a way in.
                       return (
-                        <div key={r.id} className={cn(i > 0 && 'border-t border-on-surface/[0.06]')}>
-                          <button
-                            type="button"
-                            onClick={() => setOpenCircleId(open ? null : r.id)}
-                            className={cn('w-full flex items-center gap-3.5 px-[18px] py-4 text-left transition-colors', open ? 'bg-on-surface/[0.02]' : 'hover:bg-on-surface/[0.015]')}
-                          >
-                            <div className="w-11 h-11 rounded-full bg-primary/10 grid place-items-center flex-shrink-0">
-                              <span className="font-serif font-bold text-primary">{initial}</span>
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => navigate(`/review/${r.id}`)}
+                          className={cn(
+                            'group w-full flex items-center gap-4 px-[18px] py-[15px] text-left transition-colors hover:bg-on-surface/[0.018]',
+                            i > 0 && 'border-t border-on-surface/[0.06]',
+                          )}
+                        >
+                          <div className="w-11 h-11 rounded-full bg-primary/10 grid place-items-center flex-shrink-0 ring-1 ring-inset ring-primary/10">
+                            <span className="font-serif font-bold text-primary">{initial}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-serif font-bold text-[16.5px] tracking-[-0.01em] truncate leading-tight">{name}</div>
+                            <div className="flex items-center gap-1.5 mt-1 text-[12.5px] font-medium text-on-surface/50">
+                              {when && <span className="whitespace-nowrap">Visited {when}</span>}
+                              {when && r.notes && <span className="text-on-surface/20">·</span>}
+                              {r.notes && <span className="font-serif italic truncate">"{r.notes}"</span>}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-serif font-bold text-[16.5px] tracking-[-0.01em] truncate">{name}</div>
-                              {when && <div className="text-xs font-medium text-on-surface/55 mt-0.5">Visited {when}</div>}
-                            </div>
-                            <div className="inline-flex items-center justify-center min-w-[48px] h-8 px-2.5 rounded-[10px] font-serif font-bold text-[15.5px] tabular-nums flex-shrink-0"
-                              style={{ background: `${scoreColor(sc)}24`, color: scoreColor(sc), boxShadow: `inset 0 0 0 1px ${scoreColor(sc)}38` }}>
-                              {sc.toFixed(1)}
-                            </div>
-                            <ChevronDown size={16} className={cn('text-on-surface/40 flex-shrink-0 transition-transform', open && 'rotate-180')} />
-                          </button>
-                          <AnimatePresence initial={false}>
-                            {open && (
-                              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
-                                <div className="px-[18px] pb-5 pt-0.5">
-                                  {r.notes && (
-                                    <p className="font-serif italic text-[16px] leading-[1.55] text-on-surface/70 text-pretty">"{r.notes}"</p>
-                                  )}
-                                  {r.tags && r.tags.length > 0 && (
-                                    <div className="flex flex-wrap gap-1.5 mt-3.5">
-                                      {r.tags.map((t) => (
-                                        <span key={t} className="inline-flex items-center px-3 py-1 rounded-full border border-on-surface/[0.08] bg-white text-xs font-semibold text-on-surface/70">{t}</span>
-                                      ))}
-                                    </div>
-                                  )}
-                                  <div className="flex items-center mt-4 pt-3.5 border-t border-on-surface/[0.06]">
-                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)}
-                                      className="ml-auto inline-flex items-center gap-1.5 text-[12.5px] font-bold text-primary hover:opacity-70 transition-opacity">
-                                      View full review
-                                      <ChevronRight size={14} />
-                                    </button>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
+                          </div>
+                          <div className="inline-flex items-center justify-center min-w-[48px] h-8 px-2.5 rounded-[10px] font-serif font-bold text-[15.5px] tabular-nums flex-shrink-0"
+                            style={{ background: `${scoreColor(sc)}24`, color: scoreColor(sc), boxShadow: `inset 0 0 0 1px ${scoreColor(sc)}38` }}>
+                            {sc.toFixed(1)}
+                          </div>
+                          <span className="hidden xl:inline-flex items-center gap-1 text-[12.5px] font-bold text-primary opacity-0 -translate-x-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0 flex-shrink-0 whitespace-nowrap">
+                            Full review
+                          </span>
+                          <ChevronRight size={17} className="text-on-surface/25 flex-shrink-0 transition-all duration-200 group-hover:text-primary group-hover:translate-x-0.5" />
+                        </button>
                       );
                     })}
                   </div>
@@ -565,37 +540,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     </div>
                   </div>
                 )}
-              </section>
-            );
-          })()}
-
-          {/* ── Flavor profile ── */}
-          {(() => {
-            const knownCuisines = ['italian','french','japanese','sushi','chinese','korean','thai','indian','mexican','mediterranean','american','seafood','steakhouse','pizza','cafe','bakery','vegan','bar & grill','breakfast','caribbean'];
-            const hasKnown = place.types.some((t) => knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim()));
-            if (!hasKnown) return null;
-            const ranked = [...getFlavorProfile(place.types, place.name)].sort((a, b) => b.value - a.value);
-            return (
-              <section>
-                <div className="flex items-baseline justify-between gap-4 mb-5">
-                  <h2 className={H2}>Flavor profile</h2>
-                  <span className="text-xs font-semibold text-on-surface/55">From the community</span>
-                </div>
-                <div className={cn(CARD, 'p-5 flex flex-col gap-3.5')}>
-                  {ranked.map((f) => {
-                    const pct = Math.round((f.value / f.fullMark) * 100);
-                    const muted = pct < 50;
-                    return (
-                      <div key={f.subject} className="grid grid-cols-[88px_1fr_44px] items-center gap-4">
-                        <div className={cn('text-[13px] font-semibold', muted ? 'text-on-surface/55' : 'text-on-surface')}>{f.subject}</div>
-                        <div className="relative h-1.5 bg-on-surface/[0.06] rounded-full overflow-hidden">
-                          <div className={cn('absolute inset-y-0 left-0 w-full rounded-full origin-left transition-transform duration-700', muted ? 'bg-on-surface/15' : 'bg-primary')} style={{ transform: `scaleX(${pct / 100})` }} />
-                        </div>
-                        <div className={cn('text-[13px] font-semibold tabular-nums text-right', muted ? 'text-on-surface/55' : 'text-on-surface')}>{pct}%</div>
-                      </div>
-                    );
-                  })}
-                </div>
               </section>
             );
           })()}

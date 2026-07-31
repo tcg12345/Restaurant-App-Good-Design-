@@ -4,8 +4,8 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
-  Car, Footprints, Award, Images, Plus, Heart,
+  DollarSign, CalendarDays, Tag, Image, Edit3, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
+  Car, Footprints, Award, Images, Plus,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
@@ -19,8 +19,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
-import { useSignInModal } from '../contexts/SignInModalContext';
-import { getProfilesByIds, getCommunityStats, getLikesForRatings, toggleLike, type UserProfile as UP } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, type UserProfile as UP } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
@@ -31,8 +30,6 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
-import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile } from '../lib/flavorProfile';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 
 /** Short "last week / last month" style recency label. */
@@ -174,11 +171,9 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
-  const { requireSignIn } = useSignInModal();
   // Hours start collapsed — the summary row already shows the Open/Closed
   // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
-  const [flavorOpen, setFlavorOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(false);
   // Ref on the "My Rating Details" section so the Your Rating summary
   // card above can smooth-scroll down to it when tapped.
@@ -191,7 +186,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
   const [chatSent, setChatSent] = useState(false);
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
-  const [expandedFriendId, setExpandedFriendId] = useState<string | null>(null);
   // Profile lookup for the inline friend reviews under "Your Circle"
   // — keyed by user_id so each card can show display name + initial.
   const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
@@ -201,45 +195,6 @@ export const RestaurantDetailMobile: React.FC = () => {
     if (ids.length === 0) return;
     getProfilesByIds(ids).then(setFriendReviewProfiles);
   }, [friendsStats.ratings]);
-
-  // Like state for the featured circle review (the visible Like button).
-  const [reviewLikes, setReviewLikes] = useState<{ counts: Record<string, number>; mine: Set<string> }>({ counts: {}, mine: new Set() });
-  useEffect(() => {
-    const ratingIds = friendsStats.ratings.slice(0, 1).map((r) => r.id).filter(Boolean);
-    if (!user?.id || ratingIds.length === 0) return;
-    let cancelled = false;
-    getLikesForRatings(user.id, ratingIds)
-      .then(({ likes, userLiked }) => { if (!cancelled) setReviewLikes({ counts: likes, mine: userLiked }); })
-      .catch(() => { /* likes are decorative here — ignore load failures */ });
-    return () => { cancelled = true; };
-  }, [user?.id, friendsStats.ratings]);
-
-  const handleReviewLike = (ratingId: string) => {
-    if (!user?.id) { requireSignIn('Sign in to like reviews'); return; }
-    const uid = user.id;
-    let wasLiked = false;
-    setReviewLikes((prev) => {
-      const mine = new Set(prev.mine);
-      const counts = { ...prev.counts };
-      wasLiked = mine.has(ratingId);
-      if (wasLiked) mine.delete(ratingId); else mine.add(ratingId);
-      counts[ratingId] = Math.max(0, (counts[ratingId] || 0) + (wasLiked ? -1 : 1));
-      return { counts, mine };
-    });
-    void toggleLike(uid, ratingId).then((res) => {
-      // Roll back when the write failed or the server didn't actually move
-      // — the fire-and-forget version let the heart drift from the DB.
-      if (!res.ok || res.liked === wasLiked) {
-        setReviewLikes((prev) => {
-          const mine = new Set(prev.mine);
-          const counts = { ...prev.counts };
-          if (wasLiked) mine.add(ratingId); else mine.delete(ratingId);
-          counts[ratingId] = Math.max(0, (counts[ratingId] || 0) + (wasLiked ? 1 : -1));
-          return { counts, mine };
-        });
-      }
-    });
-  };
 
   const myRating = place ? getRating(place.id) : undefined;
 
@@ -754,16 +709,13 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── From your circle — matches the reference: a featured friend
-            review (colored avatar, soft-green score chip, italic Newsreader
-            quote with an accent rule, optional dish photos, and a
-            like/reply/full-review action row), then the rest as compact
-            expandable rows. ── */}
+        {/* ── From your circle — one row per friend: monogram avatar, name,
+            a one-line taste of their note, their score chip, and a chevron
+            into the full review (which owns likes, replies and photos). ── */}
         {(() => {
           const ratings = friendsStats.ratings;
           const hasFriends = ratings.length > 0;
-          const featured = ratings[0];
-          const rest = ratings.slice(1, 4);
+          const SHOWN = 4;
           // Deterministic avatar tint per name — echoes the reference's
           // colored monogram avatars.
           const AV = ['#B98A7A', '#6E8B6B', '#9C4A4A', '#7C6BAE', '#5B6B4A', '#A6371D', '#3F6F8F'];
@@ -791,7 +743,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   <span className="uppercase text-primary" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.12em' }}>
                     From your circle
                   </span>
-                  {hasFriends && (
+                  {ratings.length > SHOWN && (
                     <span className="inline-flex items-center gap-1 text-primary" style={{ fontSize: '13px', fontWeight: 600 }}>
                       See all {ratings.length}
                       <ChevronRight size={14} />
@@ -800,119 +752,40 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </button>
 
                 {hasFriends ? (
-                  <div>
-                    {/* Featured review */}
-                    {(() => {
-                      const name = nameOf(featured);
-                      const recency = recencyOf(featured);
-                      const dishes = ((featured as any).photos as { url: string }[] | undefined) || [];
+                  /* Uniform rows, no accordion: who rated it, their score, and
+                     one tap into the full review (where likes + replies live). */
+                  <div className="rounded-[16px] bg-paper overflow-hidden" style={{ boxShadow: 'inset 0 0 0 1px var(--color-line)' }}>
+                    {ratings.slice(0, SHOWN).map((r, i) => {
+                      const name = nameOf(r);
+                      const recency = recencyOf(r);
                       return (
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/review/${featured.id}`)}
-                            className="w-full text-left active:opacity-70 transition-opacity"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Avatar name={name} size={44} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-on-surface truncate" style={{ fontFamily: '"Newsreader", serif', fontSize: '17px', fontWeight: 600, lineHeight: 1.1 }}>
-                                  {name}
-                                </p>
-                                {recency && <p className="text-on-surface/45 mt-0.5" style={{ fontSize: '12.5px' }}>Visited {recency}</p>}
-                              </div>
-                              <span className={cn('flex-shrink-0 inline-flex items-center h-[30px] px-3 rounded-[9px] tabular-nums', softChip(Number(featured.score)))} style={{ fontSize: '14px', fontWeight: 700 }}>
-                                {Number(featured.score).toFixed(1)}
-                              </span>
-                            </div>
-                            {featured.notes && (
-                              <p
-                                className="italic text-on-surface/75 mt-3.5 pl-[15px]"
-                                style={{ fontFamily: '"Newsreader", serif', fontSize: '15.5px', lineHeight: 1.55, borderLeft: '2px solid var(--color-accent)' }}
-                              >
-                                "{featured.notes}"
-                              </p>
-                            )}
-                            {dishes.length > 0 && (
-                              <div className="flex gap-2 mt-3.5">
-                                {dishes.slice(0, 3).map((p, i) => (
-                                  <img key={i} src={p.url} className="flex-1 h-[78px] rounded-[13px] object-cover" referrerPolicy="no-referrer" />
-                                ))}
-                              </div>
-                            )}
-                          </button>
-                          <div className="flex items-center justify-between mt-3.5">
-                            <div className="flex items-center gap-5">
-                              <button
-                                type="button"
-                                onClick={() => handleReviewLike(featured.id)}
-                                className={cn(
-                                  'inline-flex items-center gap-1.5 active:opacity-60 transition-opacity',
-                                  reviewLikes.mine.has(featured.id) ? 'text-red-500' : 'text-on-surface/45',
-                                )}
-                                style={{ fontSize: '13px', fontWeight: 500 }}
-                                aria-label={reviewLikes.mine.has(featured.id) ? 'Unlike review' : 'Like review'}
-                              >
-                                <Heart size={16} className={reviewLikes.mine.has(featured.id) ? 'fill-red-500' : ''} />
-                                {(reviewLikes.counts[featured.id] || 0) > 0 ? reviewLikes.counts[featured.id] : 'Like'}
-                              </button>
-                              <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="inline-flex items-center gap-1.5 text-on-surface/45 active:opacity-60 transition-opacity" style={{ fontSize: '13px', fontWeight: 500 }}>
-                                <MessageCircle size={16} /> Reply
-                              </button>
-                            </div>
-                            <button type="button" onClick={() => navigate(`/review/${featured.id}`)} className="hit-44-y inline-flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
-                              Full review <ChevronRight size={13} />
-                            </button>
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => navigate(`/review/${r.id}`)}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-3.5 py-3.5 text-left active:bg-on-surface/[0.03] transition-colors',
+                            i > 0 && 'border-t border-line',
+                          )}
+                        >
+                          <Avatar name={name} size={42} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-on-surface truncate" style={{ fontFamily: '"Newsreader", serif', fontSize: '16.5px', fontWeight: 600, lineHeight: 1.15 }}>
+                              {name}
+                            </p>
+                            <p className="text-on-surface/45 mt-0.5 truncate" style={{ fontSize: '12.5px' }}>
+                              {r.notes
+                                ? <span className="italic" style={{ fontFamily: '"Newsreader", serif', fontSize: '13.5px' }}>"{r.notes}"</span>
+                                : recency ? `Visited ${recency}` : 'Rated this'}
+                            </p>
                           </div>
-                        </div>
+                          <span className={cn('flex-shrink-0 inline-flex items-center h-[30px] px-3 rounded-[9px] tabular-nums', softChip(Number(r.score)))} style={{ fontSize: '14px', fontWeight: 700 }}>
+                            {Number(r.score).toFixed(1)}
+                          </span>
+                          <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
+                        </button>
                       );
-                    })()}
-
-                    {/* Remaining friends — compact expandable rows */}
-                    {rest.length > 0 && (
-                      <div className="mt-1 border-t border-line">
-                        {rest.map((r) => {
-                          const name = nameOf(r);
-                          const recency = recencyOf(r);
-                          const isOpen = expandedFriendId === r.id;
-                          return (
-                            <div key={r.id} className="border-b border-line last:border-b-0 py-3.5">
-                              <button
-                                type="button"
-                                onClick={() => setExpandedFriendId(isOpen ? null : r.id)}
-                                className="w-full flex items-center gap-3 text-left active:opacity-70 transition-opacity"
-                              >
-                                <Avatar name={name} size={40} />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-on-surface truncate" style={{ fontFamily: '"Newsreader", serif', fontSize: '16px', fontWeight: 600, lineHeight: 1.1 }}>
-                                    {name}
-                                  </p>
-                                  {recency && <p className="text-on-surface/45 mt-0.5" style={{ fontSize: '12px' }}>Visited {recency}</p>}
-                                </div>
-                                <span className={cn('flex-shrink-0 inline-flex items-center h-7 px-2.5 rounded-lg tabular-nums', softChip(Number(r.score)))} style={{ fontSize: '13px', fontWeight: 700 }}>
-                                  {Number(r.score).toFixed(1)}
-                                </span>
-                                {r.notes && (
-                                  <ChevronDown size={15} className={cn('text-on-surface/30 flex-shrink-0 transition-transform duration-200', isOpen && 'rotate-180')} />
-                                )}
-                              </button>
-                              <AnimatePresence>
-                                {isOpen && r.notes && (
-                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                                    <p className="italic text-on-surface/75 mt-2.5 pl-[52px]" style={{ fontFamily: '"Newsreader", serif', fontSize: '14.5px', lineHeight: 1.5 }}>
-                                      "{r.notes}"
-                                    </p>
-                                    <button type="button" onClick={() => navigate(`/review/${r.id}`)} className="hit-44-y mt-2 ml-[52px] inline-flex items-center gap-1 text-primary" style={{ fontSize: '12.5px', fontWeight: 600 }}>
-                                      Full review <ChevronRight size={11} />
-                                    </button>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    })}
                   </div>
                 ) : (
                   <div className="rounded-[14px] bg-paper border border-line px-4 py-6 text-center">
@@ -1250,55 +1123,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             </section>
           </>
         )}
-
-        {/* ── Flavor Profile — collapsible radar + ranked list. ── */}
-        {(() => {
-          if (!place) return null;
-          const knownCuisines = [
-            'italian', 'french', 'japanese', 'sushi', 'chinese', 'korean', 'thai', 'indian',
-            'mexican', 'mediterranean', 'american', 'seafood', 'steakhouse', 'pizza', 'cafe',
-            'bakery', 'vegan', 'bar & grill', 'breakfast', 'caribbean',
-          ];
-          const hasKnown = place.types.some((t) =>
-            knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim())
-          );
-          if (!hasKnown) return null;
-          const flavorData = getFlavorProfile(place.types, place.name);
-          const ranked = [...flavorData].sort((a, b) => b.value - a.value);
-          const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
-          return (
-            <>
-              {sep}
-              <section>
-                <button onClick={() => setFlavorOpen(!flavorOpen)} className="w-full flex items-center justify-between py-1 text-left active:opacity-70 transition-opacity">
-                  <span className="section-eyebrow">Flavor profile</span>
-                  <ChevronDown size={16} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', flavorOpen && 'rotate-180')} />
-                </button>
-                <AnimatePresence>
-                  {flavorOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                      <div className="flex items-center gap-4 pt-3">
-                        <RadarChart data={flavorData} color="#e85a2c" showLabels={false} className="w-[104px] h-[104px] flex-shrink-0" />
-                        <ul className="flex-1 min-w-0 space-y-1" style={{ fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', fontSize: '12px', lineHeight: 1.5 }}>
-                          {ranked.map((f) => {
-                            const pct = Math.round((f.value / f.fullMark) * 100);
-                            const isTop = topFlavorNames.has(f.subject);
-                            return (
-                              <li key={f.subject} className="flex items-baseline gap-1.5">
-                                <span className={cn('truncate', isTop ? 'font-semibold text-ink' : 'text-ink-3')}>{f.subject}</span>
-                                <span className={cn('tabular-nums flex-shrink-0', isTop ? 'text-ink-2' : 'text-ink-3')}>· {pct}%</span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </section>
-            </>
-          );
-        })()}
 
         {/* ── Hours — flat accordion with today's status inline. ── */}
         {place.hours.length > 0 && (
