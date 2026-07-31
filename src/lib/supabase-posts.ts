@@ -92,6 +92,13 @@ export interface PostRow {
   audioLabel: string;
   isPublic: boolean;
   createdAt: string;
+  /** The rating this post shares, when it was published from the rating
+   *  flow. The feed drops the standalone rating row for a linked post so
+   *  one meal renders exactly once (see lib/feedEntry.mergeFeed). */
+  ratingId?: string | null;
+  /** Score at share time — kept on the post so a past visit's card stays a
+   *  faithful record even after the restaurant is re-rated. */
+  score?: number | null;
   items: PostItemRow[];
   author: PostAuthorSnapshot | null;
   likesCount: number;

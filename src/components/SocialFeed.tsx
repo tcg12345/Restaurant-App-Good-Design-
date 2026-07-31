@@ -23,6 +23,7 @@ import {
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
+import { mergeFeed } from '../lib/feedEntry';
 import { getGuidesForFeed } from '../lib/supabase-guides';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { toggleRecipeLike, getRecipeLikes, getRecipeCommentCounts } from '../lib/supabase-recipes';
@@ -536,11 +537,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
-  // Hoisted earlier than the header UI so the feedItems merge below can
-  // switch its sources based on the current tab. Posts = friends' photo
-  // posts; Activity = everything friends (or followed experts) have added:
-  // restaurant ratings + home-cooked recipes.
-  const [feedTab, setFeedTab] = useState<'posts' | 'activity'>('posts');
+  // ONE stream. There used to be a Posts / Activity tab pair here, and it
+  // was the root of the "why do I see two entries for one meal / which one
+  // is the rating?" confusion beta testers hit: posts and ratings could
+  // never appear together, so the same dinner showed up in two places
+  // depending on which tab you were standing in. The only switch left is a
+  // WHO filter — your circle, or the verified people you follow.
   const [activityFilter, setActivityFilter] = useState<'friends' | 'experts'>('friends');
 
   const [openComments, setOpenComments] = useState<string | null>(null);
@@ -723,29 +725,22 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     }
   }, [userId, expertLoaded, profiles]);
 
-  // Merge and sort feed items by recency. Posts shows friends' photo
-  // posts; Activity shows friend ratings + home-cooked recipes, or followed
-  // experts' ratings when the Experts filter is on (experts publish via
-  // ratings).
-  const ratingSource = feedTab === 'activity' ? (activityFilter === 'experts' ? expertActivity : activity) : [];
-  const mealSource = feedTab === 'activity' && activityFilter === 'friends' ? homeMeals : [];
-  const postSource = feedTab === 'posts' ? posts : [];
-  const feedItems: FeedItem[] = [
-    ...ratingSource.map((r): FeedItem => ({
-      type: 'rating', data: r,
-      // updated_at — matching the fetch window's ordering (see M22 note on
-      // activityTimestamp); created_at here let edited rows sort stale.
-      sortTime: activityTimestamp(r) ? Date.parse(activityTimestamp(r)) : 0,
-    })),
-    ...mealSource.map((m): FeedItem => ({
-      type: 'homeMeal', data: m,
-      sortTime: m.createdAt,
-    })),
-    ...postSource.map((p): FeedItem => ({
-      type: 'post', data: p,
-      sortTime: p.createdAt ? new Date(p.createdAt).getTime() : 0,
-    })),
-  ].sort((a, b) => b.sortTime - a.sortTime);
+  // One merged, time-sorted stream. lib/feedEntry owns the rules — a rating
+  // shared as a post appears once (never as both), imported ratings stay
+  // out, ordering is deterministic — and is unit-tested there. The verified
+  // filter narrows to followed experts, who publish via ratings.
+  const ratingSource = activityFilter === 'experts' ? expertActivity : activity;
+  const mealSource = activityFilter === 'friends' ? homeMeals : [];
+  const postSource = activityFilter === 'friends' ? posts : [];
+  const feedItems: FeedItem[] = mergeFeed({
+    posts: postSource,
+    ratings: ratingSource,
+    homeMeals: mealSource,
+  }).map((e): FeedItem => (
+    e.kind === 'post' ? { type: 'post', data: e.source.post!, sortTime: e.sortTime }
+    : e.kind === 'rating' ? { type: 'rating', data: e.source.rating!, sortTime: e.sortTime }
+    : { type: 'homeMeal', data: e.source.homeMeal!, sortTime: e.sortTime }
+  ));
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
@@ -995,16 +990,36 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Lazy-load expert ratings the first time the Experts filter is opened.
   // Subsequent switches reuse what's already in state.
   useEffect(() => {
-    if (feedTab === 'activity' && activityFilter === 'experts' && !expertLoaded && !expertLoading) loadExperts();
-  }, [feedTab, activityFilter, expertLoaded, expertLoading, loadExperts]);
+    if (activityFilter === 'experts' && !expertLoaded && !expertLoading) loadExperts();
+  }, [activityFilter, expertLoaded, expertLoading, loadExperts]);
+
+  // Header for the single stream. The only control is WHO you're looking
+  // at — your circle or the verified people you follow. Desktop keeps it to
+  // one compact row (title + live dot left, filter right); phone shows the
+  // filter alone, since the page chrome already carries the title.
+  const CircleFilter: React.FC<{ full?: boolean }> = ({ full }) => (
+    <div className={cn('flex items-center gap-0.5 rounded-full bg-on-surface/[0.045] p-0.5', full ? 'w-full' : 'flex-shrink-0')}>
+      {([['friends', 'Your circle'], ['experts', 'Verified']] as const).map(([key, label]) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => setActivityFilter(key)}
+          aria-pressed={activityFilter === key}
+          className={cn(
+            'inline-flex items-center justify-center gap-1.5 rounded-full py-1.5 text-[12.5px] font-semibold transition-colors whitespace-nowrap',
+            full ? 'flex-1 h-9 text-[13.5px]' : 'px-3.5',
+            activityFilter === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55 hover:text-on-surface',
+          )}
+        >
+          {key === 'experts' && <VerifiedBadge size={13} />}
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 
   const SectionHeader: React.FC = () => (
     <div className="mb-3">
-      {/* One switch, two meanings: Posts = photo posts; Activity = every
-          restaurant + recipe your people have added. Desktop keeps the
-          header to a single compact row — title + live dot left, slim
-          right-aligned tabs — so it doesn't tower over the feed. Phone
-          keeps the full-width tab bar (its title lives in the page chrome). */}
       {!phoneMode ? (
         <div className="flex items-center justify-between gap-4 border-b border-on-surface/[0.07] pb-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -1015,62 +1030,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </span>
             <span className="text-[11.5px] font-semibold text-emerald-600 flex-shrink-0">Live</span>
           </div>
-          <div className="flex flex-shrink-0 items-center gap-0.5 rounded-full bg-on-surface/[0.045] p-0.5">
-            {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFeedTab(key)}
-                aria-pressed={feedTab === key}
-                className={cn(
-                  'rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors whitespace-nowrap',
-                  feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55 hover:text-on-surface',
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <CircleFilter />
         </div>
       ) : (
-        <div className="flex h-10 rounded-full bg-on-surface/[0.05] p-1">
-          {([['posts', 'Posts'], ['activity', 'Activity']] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFeedTab(key)}
-              aria-pressed={feedTab === key}
-              className={cn(
-                'flex-1 rounded-full text-[13.5px] font-semibold transition-colors',
-                feedTab === key ? 'bg-paper text-on-surface shadow-sm' : 'text-on-surface/55',
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      {feedTab === 'activity' && (
-        <div className="mt-2.5 flex gap-2">
-          {([['friends', 'Friends'], ['experts', 'Verified']] as const).map(([key, label]) => {
-            const active = activityFilter === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setActivityFilter(key)}
-                aria-pressed={active}
-                className={cn(
-                  'inline-flex h-8 items-center gap-1.5 rounded-full border px-3.5 text-[12.5px] font-semibold transition-colors',
-                  active ? 'bg-on-surface text-surface border-on-surface' : 'text-on-surface/60 border-on-surface/15',
-                )}
-              >
-                {key === 'experts' && <VerifiedBadge size={13} />}
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <CircleFilter full />
       )}
     </div>
   );
@@ -1124,7 +1087,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}>
         <div className="xl:min-w-0">
       <SectionHeader />
-      {feedTab === 'activity' && activityFilter === 'experts' && expertLoading ? (
+      {activityFilter === 'experts' && expertLoading ? (
         <ul>
           {[0, 1, 2].map((i) => (
             <li key={i} className="border-b border-on-surface/[0.08] last:border-0 py-5">
@@ -1147,15 +1110,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           {inlineSlot && (
             <div className="border-b border-on-surface/[0.08] py-4">{inlineSlot.node}</div>
           )}
-          {feedTab === 'posts' ? (
-            <div className="mt-2 rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-12 px-6 text-center">
-              <p className="text-[14px] font-semibold text-on-surface/55">No photo posts from friends yet</p>
-              <p className="mt-1 text-[12.5px] text-on-surface/40">When people you follow share photos, they'll show up here.</p>
-              <Link to="/circle" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline underline-offset-2">
-                Find people to follow
-              </Link>
-            </div>
-          ) : activityFilter === 'experts' ? (
+          {activityFilter === 'experts' ? (
             <EmptyState
               icon={<VerifiedBadge size={48} />}
               heading="No picks from verified users yet"
