@@ -4,6 +4,8 @@ import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, s
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
 import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements, dropDeadPhotos } from '../lib/pendingPhotos';
+import { publishRatingShare, findRatingShare, syncRatingShare } from '../lib/shareRating';
+import { listPosts, deletePost } from '../lib/supabase-posts';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -2281,9 +2283,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    *  community until the user crosses the threshold — at which point
    *  rateRestaurant backfills every row at once. Held rows are never
    *  sig-stamped, so the boot-time delta sync is the catch-up safety net. */
-  const publishRatingRow = useCallback((uid: string, row: RestaurantRating) => {
-    if (ratingsRef.current.length < SCORE_UNLOCK_THRESHOLD) return;
-    publishCommunityRating(uid, row.restaurantId, {
+  const publishRatingRow = useCallback((uid: string, row: RestaurantRating): Promise<string | null> => {
+    if (ratingsRef.current.length < SCORE_UNLOCK_THRESHOLD) return Promise.resolve(null);
+    const done = publishCommunityRating(uid, row.restaurantId, {
       name: row.name, score: row.score, notes: row.notes,
       cuisine: row.cuisine, price: row.price, address: row.address,
       visitDate: row.visitDate, tags: row.tags, wouldReturn: row.wouldReturn,
@@ -2292,9 +2294,71 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
     // Record what was published so the boot-time delta sync skips this row.
     stampPublishedSig(row);
+    return done;
   }, []);
 
-  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean }) => {
+  /**
+   * Publish (or refresh) the feed share for a just-saved rating.
+   *
+   * A rating with photos IS a post — that's the rule that collapses the two
+   * things testers saw as duplicates. This is deliberately best-effort and
+   * fire-and-forget: the score is already saved locally and in the cloud, so
+   * a failed share costs the post, never the rating. Imports never reach
+   * here (bulk import calls rateRestaurant with skipSettle from its own
+   * path and no share intent).
+   */
+  const shareRatingToFeed = useCallback(async (
+    uid: string,
+    row: RestaurantRating,
+    ratingId: string | null,
+    isNewVisit: boolean,
+  ) => {
+    if (!ratingId || row.ratingMethod === 'import') return;
+    const photos = (row.photos || [])
+      .filter((p) => p.url && !p.url.startsWith('blob:'))
+      .map((p) => ({ url: p.url, caption: p.caption || '' }));
+    try {
+      const existingShare = await findRatingShare(uid, ratingId);
+      // An edit refreshes the card in place; a NEW VISIT is a new thing to
+      // say, so it gets its own card.
+      if (existingShare && !isNewVisit) {
+        await syncRatingShare(existingShare, { score: row.score, notes: row.notes || '' });
+        return;
+      }
+      if (photos.length === 0) return; // nothing to show — the rating alone carries the feed entry
+      await publishRatingShare({
+        userId: uid,
+        ratingId,
+        score: row.score,
+        notes: row.notes || '',
+        restaurant: {
+          id: row.restaurantId, name: row.name, cuisine: row.cuisine || '',
+          price: row.price || '', address: row.address || '', image: row.image || '',
+        },
+        photos,
+      });
+    } catch (err) {
+      console.warn('[Lists] share to feed failed (rating is saved):', err);
+    }
+  }, []);
+
+  /** Withdraw a rating from everywhere other people can see it: the
+   *  community row (which friends' feeds read) and any post published for
+   *  it. Best-effort — the local rating is untouched either way. */
+  const unshareRating = useCallback(async (uid: string, restaurantId: string) => {
+    try {
+      const shares = await listPosts({ viewerId: uid, userIds: [uid], limit: 100 });
+      const mine = (shares || []).filter((p) => p.ratingId
+        && p.items.some((it) => it.attachedKind === 'restaurant' && it.restaurant?.id === restaurantId));
+      for (const p of mine) await deletePost(p.id);
+    } catch (err) {
+      console.warn('[Lists] could not remove the shared post:', err);
+    }
+    removeCommunityRating(uid, restaurantId);
+    removeCommunityPhotos(uid, restaurantId);
+  }, []);
+
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
     // record needs to be pushed into visit history. When it's false
@@ -2421,8 +2485,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // This save just crossed the score-unlock threshold — the entire
         // held backlog publishes now, photos included. From here on the
         // per-save publishes below flow normally.
+        const uid = userIdRef.current;
         for (const row of next) {
-          publishRatingRow(userIdRef.current, row);
+          const isSaved = row.restaurantId === rating.restaurantId;
+          void publishRatingRow(uid, row).then((ratingId) => {
+            // Only the row the user just saved becomes a feed share — the
+            // rest of the backlog is history being caught up, not news.
+            if (!isSaved || options?.shareToFeed === false) return;
+            return shareRatingToFeed(uid, row, ratingId, isNewVisit);
+          });
           syncCommunityPhotos(row.restaurantId, row.photos);
         }
       } else {
@@ -2430,10 +2501,22 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // slider/H2H value); every other row the settle moved is republished
         // too, sequential fire-and-forget like the boot-time bulk sync.
         // (publishRatingRow holds everything below the unlock threshold.)
-        publishRatingRow(userIdRef.current, settledSelf);
+        const uid = userIdRef.current;
+        if (options?.shareToFeed === false) {
+          // "Keep this private" has to mean it. The community row IS what
+          // friends' feeds read, so opting out withdraws the rating (and any
+          // share published for it earlier) rather than merely skipping the
+          // post. The score stays in the user's own list and cloud backup.
+          void unshareRating(uid, settledSelf.restaurantId);
+        } else {
+          // The share (a post carrying this rating's photos) links the rating
+          // row, so it can only be written once the upsert returns its id.
+          void publishRatingRow(uid, settledSelf).then((ratingId) =>
+            shareRatingToFeed(uid, settledSelf, ratingId, isNewVisit));
+        }
         for (const c of otherChanged) {
           const row = next.find((r) => r.restaurantId === c.restaurantId);
-          if (row) publishRatingRow(userIdRef.current, row);
+          if (row) publishRatingRow(uid, row);
         }
         // Reconcile the community gallery with this save. Removal happens ONLY
         // when the photo set is empty (an intentional removal); a save made
@@ -2457,7 +2540,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow, syncCommunityPhotos, retryPendingPhotoUploads]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, syncWishlistToCloud, showToast, tombstone, untombstone, syncVisitHistoryToCloud, publishRatingRow, syncCommunityPhotos, retryPendingPhotoUploads, shareRatingToFeed, unshareRating]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     // Compute from the eager ref and keep every side effect OUT of the
@@ -3047,7 +3130,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setAddRestaurantModalOpen(true);
   }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
-
   const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai' }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);

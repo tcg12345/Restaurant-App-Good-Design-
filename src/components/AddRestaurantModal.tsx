@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2 } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2, Lock } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
 import { compressImage } from '../lib/images';
 import { dropDeadPhotos } from '../lib/pendingPhotos';
@@ -109,6 +109,10 @@ export const AddRestaurantModal: React.FC = () => {
   // JPEG as it finishes. Saving is blocked until this hits zero so a fast
   // Save can never race the pipeline and lose photos.
   const [photosProcessing, setPhotosProcessing] = useState(0);
+  // Auto-share, opt-out. ON by default so a rating reaches the people who
+  // follow you without a second decision; flipping it off keeps the score
+  // in your own list only. Imports never reach here (they bypass the modal).
+  const [shareToFeed, setShareToFeed] = useState(true);
   const previewUrlsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -139,6 +143,9 @@ export const AddRestaurantModal: React.FC = () => {
       }
       setDishDraft('');
       setIsNewVisit(startAsNewVisit);
+      // Auto-share is the default every time the flow opens — opting out is
+      // a per-save choice, not a sticky preference.
+      setShareToFeed(true);
       // A previous session's in-flight previews are dead weight now.
       for (const u of previewUrlsRef.current) URL.revokeObjectURL(u);
       previewUrlsRef.current.clear();
@@ -348,7 +355,7 @@ export const AddRestaurantModal: React.FC = () => {
       // user is on the "Log New Visit" tab. The "Update Current" tab
       // edits the existing record in place and shouldn't manufacture
       // a phantom visit.
-      { isNewVisit, settleOrder },
+      { isNewVisit, settleOrder, shareToFeed },
     );
     closeAddRestaurantModal();
   };
@@ -834,6 +841,41 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                   </div>
                   <div className="px-5 pt-3 pb-safe-4 flex-shrink-0 bg-surface space-y-2">
+                    {/* Share state, stated out loud. Adding photos is what
+                        turns a rating into a post in everyone's feed, and
+                        that rule is worthless if it's invisible — so the
+                        toggle says exactly what will happen either way. */}
+                    <button
+                      type="button"
+                      onClick={() => setShareToFeed((v) => !v)}
+                      aria-pressed={shareToFeed}
+                      className="w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.08] bg-white px-3.5 py-2.5 text-left active:scale-[0.99] transition-transform"
+                    >
+                      <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-full bg-primary/[0.08] text-primary">
+                        {shareToFeed ? <Users size={15} /> : <Lock size={15} />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-on-surface">
+                          {shareToFeed ? 'Share to your feed' : 'Keep this private'}
+                        </span>
+                        <span className="block text-[11.5px] leading-snug text-on-surface/45">
+                          {shareToFeed
+                            ? hasPhotos
+                              ? `Your circle sees this as a post with ${photos.length === 1 ? 'your photo' : `your ${photos.length} photos`}.`
+                              : 'Your circle sees your score. Add photos to share them too.'
+                            : "Only you. It won't post, and it won't count toward this restaurant's score."}
+                        </span>
+                      </span>
+                      <span className={cn(
+                        'relative h-[26px] w-[44px] flex-shrink-0 rounded-full transition-colors',
+                        shareToFeed ? 'bg-primary' : 'bg-on-surface/15',
+                      )}>
+                        <span className={cn(
+                          'absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm transition-all',
+                          shareToFeed ? 'left-[21px]' : 'left-[3px]',
+                        )} />
+                      </span>
+                    </button>
                     {dateError && isNewVisit && !hasDate && (
                       <p className="text-xs text-red-600 font-medium text-center">
                         Pick a visit date to save this visit.
