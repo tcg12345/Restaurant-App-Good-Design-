@@ -52,6 +52,11 @@ type FeedItem =
   | { kind: 'reel'; createdAt: number; reel: Reel }
   | { kind: 'post'; createdAt: number; post: Post };
 
+/** Posts that can fill a grid tile. A share published from the rating flow
+ *  without photos is a real post, but it has no cover — it would render as
+ *  an empty square here. Those live in the feed and on the Rated tab. */
+const withTiles = (posts: Post[]): Post[] => posts.filter((p) => p.items.length > 0);
+
 function formatCount(n: number): string {
   if (n >= 1000) {
     const k = n / 1000;
@@ -472,7 +477,7 @@ export const Activity: React.FC = () => {
     emptyBody = 'Tap the bookmark on any reel or post to save it here for later.';
     items = [
       ...savedReels.map((r) => ({ kind: 'reel' as const, reel: r, createdAt: r.createdAt || 0 })),
-      ...savedPosts.map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
+      ...withTiles(savedPosts).map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
     ].sort((a, b) => b.createdAt - a.createdAt);
     activeLoading = reelsLoading || postsLoading;
   } else if (tab === 'likes') {
@@ -482,7 +487,7 @@ export const Activity: React.FC = () => {
     emptyBody = 'Tap the heart on any reel or post to see it here.';
     items = [
       ...likedReels.map((r) => ({ kind: 'reel' as const, reel: r, createdAt: r.createdAt || 0 })),
-      ...likedPosts.map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
+      ...withTiles(likedPosts).map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
     ].sort((a, b) => b.createdAt - a.createdAt);
     activeLoading = reelsLoading || postsLoading;
   } else if (tab === 'comments') {
@@ -492,7 +497,7 @@ export const Activity: React.FC = () => {
     emptyBody = 'Reels and posts you comment on will show up here.';
     items = [
       ...commentedReels.map((r) => ({ kind: 'reel' as const, reel: r, createdAt: r.createdAt || 0 })),
-      ...commentedPosts.map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
+      ...withTiles(commentedPosts).map((p) => ({ kind: 'post' as const, post: p, createdAt: p.createdAt ? Date.parse(p.createdAt) : 0 })),
     ].sort((a, b) => b.createdAt - a.createdAt);
     activeLoading = commentsLoading || reelsLoading || postsLoading;
   }

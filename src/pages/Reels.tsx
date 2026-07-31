@@ -2059,7 +2059,10 @@ export const Reels: React.FC = () => {
     for (const r of reelsForTab) {
       items.push({ kind: 'reel', key: `reel-${r.id}`, createdAt: r.createdAt || 0, reel: r });
     }
-    const postsForTab = kind === 'recipe' ? allPosts.filter((p) => p.hasRecipe) : allPosts;
+    // A score-only share (rating published with no photos) is a post row
+    // with nothing to play — the vertical viewer would show a blank slide.
+    const withMedia = allPosts.filter((p) => p.items.length > 0);
+    const postsForTab = kind === 'recipe' ? withMedia.filter((p) => p.hasRecipe) : withMedia;
     for (const p of postsForTab) {
       const ts = p.createdAt ? Date.parse(p.createdAt) : 0;
       items.push({ kind: 'post', key: `post-${p.id}`, createdAt: Number.isFinite(ts) ? ts : 0, post: p });
