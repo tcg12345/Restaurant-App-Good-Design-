@@ -4,6 +4,7 @@ import { ArrowLeft, Users, MessageCircle } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 
 interface TopBarProps {
@@ -29,6 +30,10 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
+  // The Circle button is the only way into the notification centre on a
+  // phone, so its badge covers requests + alerts together.
+  const { unreadCount: alertCount } = useNotifications();
+  const circleBadge = pendingRequestCount + alertCount;
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -82,9 +87,9 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
           aria-label="Your Circle"
         >
           <Users size={21} />
-          {pendingRequestCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[12px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
-              {pendingRequestCount}
+          {circleBadge > 0 && (
+            <span className={`absolute -top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 text-white text-[12px] font-bold rounded-full flex items-center justify-center border-2 border-surface ${pendingRequestCount > 0 ? 'bg-red-500' : 'bg-primary'}`}>
+              {circleBadge}
             </span>
           )}
         </button>

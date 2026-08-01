@@ -1,6 +1,10 @@
 /**
  * Friends panel — Instagram-style slide-out on desktop, full page on
- * mobile. Three tabs: All (friends + experts + activity), Friends, Experts.
+ * mobile. Four tabs: All (friends + experts + activity), Friends,
+ * Experts, and Alerts — the notification centre, which is where you find
+ * out somebody liked your post or left a comment on a restaurant you
+ * rated. (Those comments were previously invisible to their own author:
+ * your rating shows up in your friends' feeds, never in yours.)
  *
  * Variants:
  *   - 'overlay'  → sticky-positioned panel anchored next to the desktop
@@ -11,10 +15,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
+import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationsContext';
+import type { AppNotification } from '../lib/supabase-notifications';
 import {
   getFriends, getProfilesByIds, getFriendActivity, getExpertProfiles,
   getExpertStats, followPublicAccount, removeFriend,
@@ -25,7 +31,7 @@ import {
 import { ScoreBadge } from './ScoreBadge';
 import { AddFriendSheet } from './AddFriendSheet';
 
-type Tab = 'all' | 'friends' | 'experts';
+type Tab = 'all' | 'friends' | 'experts' | 'alerts';
 type TimeBucket = 'today' | 'week' | 'earlier';
 
 const AVATAR_PALETTE = [
@@ -68,6 +74,9 @@ const bucketOf = (iso: string): TimeBucket => {
   return 'earlier';
 };
 const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+// Notifications carry epoch millis rather than the ISO strings the rest
+// of the panel's rows use.
+const isoOf = (ms: number) => (ms ? new Date(ms).toISOString() : '');
 
 interface CirclePanelProps {
   variant: 'overlay' | 'page';
@@ -117,6 +126,14 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
   const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
   const [expertsLoading, setExpertsLoading] = useState(false);
+
+  // ── Notification centre ────────────────────────────────────────────
+  const { notifications, actors: notifActors, unreadCount, markAllRead, clearAll: clearNotifications } = useNotifications();
+  // Opening the tab clears the badge immediately, but the rows the user
+  // arrived to see keep their "new" tint for the rest of the session —
+  // otherwise the list visibly resets the instant it appears and there's
+  // no way to tell which ones you hadn't seen.
+  const [highlightedNotifs, setHighlightedNotifs] = useState<Set<string>>(new Set());
 
   // Activity filter popover state
   const [filterOpen, setFilterOpen] = useState(false);
@@ -186,6 +203,23 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Landing on Alerts counts as reading them.
+  useEffect(() => {
+    if (tab !== 'alerts') return;
+    const unread = notifications.filter((n) => n.readAt == null).map((n) => n.id);
+    if (unread.length === 0) return;
+    setHighlightedNotifs((prev) => {
+      const next = new Set(prev);
+      unread.forEach((id) => next.add(id));
+      return next;
+    });
+    markAllRead();
+    // `notifications` is deliberately absent: re-running on every arriving
+    // row would mark things read the user hasn't looked at yet. New rows
+    // while the tab is open stay unread until it's re-opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // Close filter popover on outside click.
   useEffect(() => {
@@ -423,6 +457,28 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const allCount = friends.length + experts.length;
   const friendsCount = friends.length;
   const expertsCount = experts.length;
+
+  const notificationsFiltered = useMemo(() => {
+    if (!q) return notifications;
+    return notifications.filter((n) => {
+      const p = notifActors[n.actorId];
+      return [p?.display_name, p?.username, n.subjectLabel, n.preview]
+        .some((s) => (s || '').toLowerCase().includes(q));
+    });
+  }, [notifications, notifActors, q]);
+
+  const notificationBuckets = useMemo(() => {
+    const today: AppNotification[] = [];
+    const week: AppNotification[] = [];
+    const earlier: AppNotification[] = [];
+    notificationsFiltered.forEach((n) => {
+      const b = bucketOf(isoOf(n.createdAt));
+      if (b === 'today') today.push(n);
+      else if (b === 'week') week.push(n);
+      else earlier.push(n);
+    });
+    return { today, week, earlier };
+  }, [notificationsFiltered]);
 
   // ── Section renderers ─────────────────────────────────────────────
   // People search results — anyone on the app matching the query, each with a
@@ -942,6 +998,144 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     </section>
   );
 
+  // ── Notification centre ────────────────────────────────────────────
+  // Where a notification lands. Ratings go to the restaurant page rather
+  // than the review page, because that's the surface that now shows the
+  // comments left on your rating — the thing you came to read.
+  const notificationTarget = (n: AppNotification): string => {
+    if (n.subjectType === 'post') return `/r/post-${n.subjectId}`;
+    if (n.subjectType === 'reel') return `/r/reel-${n.subjectId}`;
+    return n.restaurantId ? `/restaurant/${n.restaurantId}` : `/review/${n.subjectId}`;
+  };
+
+  const renderNotificationRow = (n: AppNotification) => {
+    const p = notifActors[n.actorId];
+    const name = p?.display_name || p?.username || 'Someone';
+    const color = avatarColor(n.actorId);
+    const isLike = n.kind === 'like';
+    const isNew = n.readAt == null || highlightedNotifs.has(n.id);
+    const subject = n.subjectType === 'rating' ? 'rating' : n.subjectType;
+    const place = n.subjectLabel.trim();
+
+    return (
+      <li key={n.id}>
+        <Link
+          to={notificationTarget(n)}
+          state={n.subjectType === 'rating' ? { focusRatingComments: true } : undefined}
+          onClick={() => onClose?.()}
+          className={cn(
+            'flex items-start gap-3 px-3 -mx-3 py-2.5 rounded-2xl group transition-colors',
+            isNew ? 'bg-primary/[0.045] hover:bg-primary/[0.075]' : 'hover:bg-on-surface/[0.03]',
+          )}
+        >
+          <span className="relative flex-shrink-0">
+            <span
+              role="link"
+              tabIndex={0}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); } }}
+              className={cn('w-10 h-10 rounded-full flex items-center justify-center', color.bg)}
+            >
+              <span className={cn('text-[14px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+            </span>
+            <span
+              className={cn(
+                'absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] rounded-full grid place-items-center ring-2 ring-surface',
+                isLike ? 'bg-rose-500 text-white' : 'bg-primary text-white',
+              )}
+            >
+              {isLike
+                ? <Heart size={10} strokeWidth={0} className="fill-current" />
+                : <MessageCircle size={10} strokeWidth={3} />}
+            </span>
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-[13.5px] leading-snug text-on-surface/75">
+              <span
+                className="font-bold text-on-surface hover:text-primary"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); }}
+              >
+                {name}
+              </span>
+              <span className="font-normal">{isLike ? ' liked your ' : ' commented on your '}{subject}</span>
+              {place && (
+                <>
+                  <span className="font-normal">{n.subjectType === 'rating' ? ' of ' : ' · '}</span>
+                  <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">{place}</span>
+                </>
+              )}
+            </p>
+            {n.preview && (
+              <p className="text-[12.5px] italic text-on-surface/60 mt-1 line-clamp-2">
+                &ldquo;{n.preview}&rdquo;
+              </p>
+            )}
+            <p className="text-[11.5px] text-on-surface/40 mt-0.5">{timeAgoShort(isoOf(n.createdAt))}</p>
+          </div>
+
+          {isNew && <span className="mt-3 w-2 h-2 rounded-full bg-primary flex-shrink-0" aria-label="New" />}
+        </Link>
+      </li>
+    );
+  };
+
+  const renderNotifications = () => (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
+          Alerts
+          {notifications.length > 0 && <span className="text-on-surface/30 ml-1">· {notifications.length}</span>}
+        </h4>
+        {notifications.length > 0 && (
+          <button
+            type="button"
+            onClick={clearNotifications}
+            className="text-[12px] font-bold text-on-surface/55 hover:text-on-surface transition-colors"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+      {notificationsFiltered.length === 0 ? (
+        <div className="flex flex-col items-center text-center py-14">
+          <span className="w-12 h-12 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/30 mb-3">
+            <Bell size={20} />
+          </span>
+          <p className="font-serif text-[16px] font-bold text-on-surface">
+            {q ? 'Nothing matches' : 'No alerts yet'}
+          </p>
+          <p className="text-[12.5px] text-on-surface/45 mt-1 max-w-[260px]">
+            {q
+              ? 'Try a different search.'
+              : 'Likes and comments on your posts, reels and ratings land here.'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {notificationBuckets.today.length > 0 && (
+            <>
+              <BucketLabel>Today</BucketLabel>
+              <ul className="space-y-0.5 mb-2">{notificationBuckets.today.map(renderNotificationRow)}</ul>
+            </>
+          )}
+          {notificationBuckets.week.length > 0 && (
+            <>
+              <BucketLabel>This week</BucketLabel>
+              <ul className="space-y-0.5 mb-2">{notificationBuckets.week.map(renderNotificationRow)}</ul>
+            </>
+          )}
+          {notificationBuckets.earlier.length > 0 && (
+            <>
+              <BucketLabel>Earlier</BucketLabel>
+              <ul className="space-y-0.5">{notificationBuckets.earlier.map(renderNotificationRow)}</ul>
+            </>
+          )}
+        </>
+      )}
+    </section>
+  );
+
   // ── Body content ───────────────────────────────────────────────────
   const body = (
     <>
@@ -996,29 +1190,42 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — scrollable so the fourth one never wraps on a small phone. */}
       <div className="px-6 flex-shrink-0 border-b border-on-surface/[0.06]">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-6 overflow-x-auto no-scrollbar">
           {([
-            { value: 'all' as Tab, label: 'All', count: allCount },
-            { value: 'friends' as Tab, label: 'Friends', count: friendsCount },
-            { value: 'experts' as Tab, label: 'Experts', count: expertsCount },
+            { value: 'all' as Tab, label: 'All', count: allCount, alert: false },
+            { value: 'friends' as Tab, label: 'Friends', count: friendsCount, alert: false },
+            { value: 'experts' as Tab, label: 'Experts', count: expertsCount, alert: false },
+            { value: 'alerts' as Tab, label: 'Alerts', count: unreadCount, alert: true },
           ]).map((t) => {
             const active = tab === t.value;
+            // The Alerts count is unread-only, so a zero is silence, not a
+            // stat — hide it rather than showing a permanent "0".
+            const showCount = t.alert ? t.count > 0 : true;
             return (
               <button
                 key={t.value}
                 type="button"
                 onClick={() => setTab(t.value)}
                 className={cn(
-                  'relative pt-2.5 pb-3 inline-flex items-baseline gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] transition-colors',
+                  'relative pt-2.5 pb-3 inline-flex items-baseline gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] transition-colors flex-shrink-0',
                   active ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/75',
                 )}
               >
                 {t.label}
-                <span className={cn('text-[12px] font-bold tabular-nums', active ? 'text-on-surface/70' : 'text-on-surface/35')}>
-                  {t.count}
-                </span>
+                {showCount && (
+                  <span
+                    className={cn(
+                      'text-[12px] font-bold tabular-nums',
+                      t.alert
+                        ? 'min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10px] grid place-items-center self-center'
+                        : active ? 'text-on-surface/70' : 'text-on-surface/35',
+                    )}
+                  >
+                    {t.count}
+                  </span>
+                )}
                 {active && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-on-surface rounded-full" />}
               </button>
             );
@@ -1038,6 +1245,29 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             {q && renderPeople()}
             {tab === 'all' && (
               <>
+                {/* Unread alerts get a nudge on the default tab — the
+                    notification centre is new, and a badge on a tab
+                    nobody has learned to look at yet is easy to miss. */}
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTab('alerts')}
+                    className="w-full flex items-center gap-3 p-3.5 rounded-2xl border border-primary/20 bg-primary/[0.04] text-left hover:bg-primary/[0.07] transition-colors"
+                  >
+                    <span className="w-9 h-9 rounded-full bg-primary text-white grid place-items-center flex-shrink-0">
+                      <Bell size={16} />
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[13.5px] font-bold text-on-surface">
+                        {unreadCount} new {unreadCount === 1 ? 'alert' : 'alerts'}
+                      </span>
+                      <span className="block text-[12px] text-on-surface/55 truncate">
+                        Likes and comments on what you shared
+                      </span>
+                    </span>
+                    <span className="text-[12px] font-bold text-primary flex-shrink-0">View</span>
+                  </button>
+                )}
                 {renderRequests()}
                 {renderFriendsAvatars()}
                 {renderExpertsList(true)}
@@ -1051,6 +1281,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               </>
             )}
             {tab === 'experts' && renderExpertsList(false)}
+            {tab === 'alerts' && renderNotifications()}
           </div>
         )}
       </div>

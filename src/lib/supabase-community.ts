@@ -811,6 +811,23 @@ export async function getUserRatings(userId: string): Promise<CommunityRating[]>
   } catch { return []; }
 }
 
+/**
+ * The id of a user's own rating row for one restaurant, if it exists.
+ * Likes and comments hang off `community_ratings.id`, but the app tracks
+ * ratings locally by restaurantId — this is the bridge that lets a
+ * restaurant page ask "what did people say about MY rating of this
+ * place?" without pulling the user's entire rating history.
+ */
+export async function getOwnRatingId(userId: string, restaurantId: string): Promise<string | null> {
+  if (!supabaseConfigured || !userId || !restaurantId) return null;
+  try {
+    const { data, error } = await supabase.from('community_ratings')
+      .select('id').eq('user_id', userId).eq('restaurant_id', restaurantId).maybeSingle();
+    if (error || !data) return null;
+    return (data as { id: string }).id;
+  } catch { return null; }
+}
+
 /** Get all photos by a specific user */
 export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
   if (!supabaseConfigured || !userId) return [];
