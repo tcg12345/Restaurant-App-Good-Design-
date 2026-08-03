@@ -1037,10 +1037,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         </p>
       )}
       <ul className={cn(
-        'flex gap-2.5 overflow-x-auto no-scrollbar snap-x',
-        // The tiles' hover lift needs room, and on phones the strip runs
-        // to the screen edge like the rest of the flush-bleed content.
-        phoneMode ? '-mx-[18px] px-[18px]' : '-mx-1 px-1',
+        // Grid, not flex, so one class swap changes the whole geometry:
+        // a swipeable rail of percentage-width columns on a phone, four
+        // equal columns filling the row on a desktop feed.
+        'grid gap-3 snap-x',
+        // FOUR fixed columns rather than auto-cols-fr: a leftover strip of
+        // one would otherwise stretch that single card across the whole
+        // row, which reads as exactly the full-width card this replaces.
+        // Empty cells keep every card the same size.
+        phoneMode
+          ? 'grid-flow-col auto-cols-[82%] overflow-x-auto no-scrollbar -mx-[18px] px-[18px]'
+          : 'grid-flow-col auto-cols-[82%] overflow-x-auto no-scrollbar -mx-1 px-1 sm:grid-flow-row sm:grid-cols-4 sm:overflow-x-visible',
       )}>
         {entries.map((e) => {
           const r = e.source.rating!;
@@ -1048,29 +1055,70 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           const name = getName(e.authorId);
           const place = e.restaurant?.name || r.restaurant_name;
           const meta = [r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ');
+          const liked = userLiked.has(r.id);
           return (
-            <li key={e.key} className="snap-start flex-shrink-0 w-[152px] sm:w-[168px]">
-              <button
-                type="button"
-                onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                className="group flex h-full w-full flex-col rounded-2xl border border-on-surface/[0.07] bg-paper p-3 text-left transition-all hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_6px_20px_-10px_rgba(0,0,0,0.25)] focus-visible:outline-none focus-visible:border-primary/40"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full', color.bg)}>
-                    <span className={cn('text-[11px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
-                  </span>
-                  <ScoreRing score={Number(r.score)} size={34} className="flex-shrink-0" />
+            <li key={e.key} className="snap-start min-w-0">
+              <div className="group flex h-full min-w-0 flex-col rounded-2xl border border-on-surface/[0.07] bg-paper p-3.5 transition-all hover:border-on-surface/15 hover:shadow-[0_6px_20px_-10px_rgba(0,0,0,0.25)]">
+                {/* The card body is the tap target; the action bar below
+                    is deliberately outside it so a like isn't a navigate. */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none"
+                >
+                  {/* Author line gets the full width; the score sits beside
+                      the restaurant name, exactly where the full-width card
+                      puts it when there's no photo to host it. Sharing the
+                      header with the ring truncated every name to "Jenifer …". */}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full', color.bg)}>
+                      <span className={cn('text-[11px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+                    </span>
+                    <span className="min-w-0 truncate text-[12px] leading-tight">
+                      <span className="font-bold text-on-surface">{name}</span>
+                      <span className="text-on-surface/40"> · {timeAgo(activityTimestamp(r))}</span>
+                    </span>
+                  </div>
+                  <div className="mt-2.5 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-serif text-[17px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-2 transition-colors group-hover:text-primary">
+                        {place}
+                      </h3>
+                      {meta && (
+                        <p className="mt-1 truncate text-[12px] font-medium text-on-surface/50">{meta}</p>
+                      )}
+                    </div>
+                    <ScoreRing score={Number(r.score)} size={40} className="mt-0.5 flex-shrink-0" />
+                  </div>
+                  {r.notes && (
+                    <p className="mt-2 text-[13px] leading-[1.45] text-on-surface/70 line-clamp-2">{r.notes}</p>
+                  )}
+                </button>
+
+                <div className="mt-3 flex items-center gap-1 border-t border-on-surface/[0.06] pt-1.5 -ml-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleLike(r.id)}
+                    aria-label={liked ? `Unlike ${place}` : `Like ${place}`}
+                    className={cn(
+                      'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
+                      liked ? 'text-red-500' : 'text-on-surface/55 hover:bg-on-surface/[0.04] hover:text-red-500',
+                    )}
+                  >
+                    <Heart size={17} className={liked ? 'fill-red-500' : ''} />
+                    <span className="text-[12px] font-semibold tabular-nums">{likes[r.id] || 0}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenComments(r.id)}
+                    aria-label={`Comments on ${place}`}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-primary"
+                  >
+                    <MessageSquare size={17} />
+                    <span className="text-[12px] font-semibold tabular-nums">{commentCounts[r.id] || 0}</span>
+                  </button>
                 </div>
-                <h3 className="mt-2 font-serif text-[14.5px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-2 transition-colors group-hover:text-primary">
-                  {place}
-                </h3>
-                {meta && (
-                  <p className="mt-1 truncate text-[11px] font-medium text-on-surface/45">{meta}</p>
-                )}
-                <p className="mt-auto pt-2 truncate text-[11px] text-on-surface/40">
-                  {name} · {timeAgo(activityTimestamp(r))}
-                </p>
-              </button>
+              </div>
             </li>
           );
         })}

@@ -148,7 +148,23 @@ export function fromRating(r: CommunityRating): FeedEntry {
     sortTime: parseTime(activityTimestamp(r)),
     score: Number(r.score) || 0,
     selfScored: r.rating_method === 'slider',
-    media: cover ? [{ kind: 'photo', url: cover }] : [],
+    // A rating NEVER carries media of its own.
+    //
+    // `photo_url` looks like it should go here, but it is the restaurant's
+    // stock cover art — publishRatingRow fills it from
+    // `RestaurantRating.image`, the Places photo, while the user's own
+    // pictures live in a separate `photos[]` and go to community_photos.
+    // Treating it as the rating's media meant every rating of a place with
+    // a Places image counted as "has photos": it rendered full-width, and
+    // when that URL had expired the card drew no image at all AND hid the
+    // score (which the card only shows when there's no photo to host it) —
+    // an empty full-width row.
+    //
+    // The rule stands on its own anyway: a rating whose author added
+    // photos publishes them as a linked post, and that post is what the
+    // feed shows. A bare rating row is, by construction, a rating with
+    // nothing to look at.
+    media: [],
     caption: r.notes || '',
     tags: r.tags || [],
     restaurant: {

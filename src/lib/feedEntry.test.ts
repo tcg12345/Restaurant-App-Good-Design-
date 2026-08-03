@@ -80,16 +80,31 @@ describe('score and media flags', () => {
     expect(fromPost(mkPost()).score).toBeUndefined();
   });
 
-  it('a photoless rating carries no media (compact card, hidden from grids)', () => {
+  it('a rating carries no media (compact card, hidden from grids)', () => {
     const entry = fromRating(mkRating({ photo_url: '' }));
     expect(entry.media).toEqual([]);
     expect(hasMedia(entry)).toBe(false);
   });
 
-  it('a rating with a cover photo carries one media item', () => {
+  // photo_url is the RESTAURANT's stock cover, not the author's pictures.
+  // Counting it as media rendered these full-width, and drew an empty card
+  // whenever the Places URL had expired.
+  it('a stock cover photo is not the rating\'s own media', () => {
     const entry = fromRating(mkRating({ photo_url: 'https://cdn/cover.jpg' }));
-    expect(entry.media).toEqual([{ kind: 'photo', url: 'https://cdn/cover.jpg' }]);
-    expect(hasMedia(entry)).toBe(true);
+    expect(entry.media).toEqual([]);
+    expect(hasMedia(entry)).toBe(false);
+    // It still rides along as the restaurant's image for thumbnails.
+    expect(entry.restaurant?.image).toBe('https://cdn/cover.jpg');
+  });
+
+  it('every rating is compact, so none of them render full-width', () => {
+    const rows = layoutFeed([
+      fromPost(mkPost({ id: 'p1', createdAt: iso(9_000) })),
+      fromRating(mkRating({ id: 'r-cover', photo_url: 'https://cdn/cover.jpg', created_at: iso(8_000), updated_at: iso(8_000) })),
+      fromRating(mkRating({ id: 'r-bare', photo_url: '', created_at: iso(7_000), updated_at: iso(7_000) })),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(['full', 'strip']);
+    expect(rows[1].kind === 'strip' && rows[1].entries.map((e) => e.ratingId)).toEqual(['r-cover', 'r-bare']);
   });
 
   it('post media follows item position and keeps per-photo captions', () => {
@@ -205,8 +220,9 @@ describe('ordering', () => {
 
 describe('layoutFeed', () => {
   // Newest-first order matches mergeFeed's output; ids encode what they are.
-  const photoRating = (id: string, t: number) =>
-    fromRating(mkRating({ id, photo_url: 'https://cdn/x.jpg', created_at: iso(t), updated_at: iso(t) }));
+  // A rating never carries media (photo_url is the restaurant's cover, not
+  // the author's pictures), so every rating is a strip candidate — a
+  // rating whose author added photos reaches the feed as its linked post.
   const plainRating = (id: string, t: number) =>
     fromRating(mkRating({ id, photo_url: '', created_at: iso(t), updated_at: iso(t) }));
   const post = (id: string, t: number) => fromPost(mkPost({ id, createdAt: iso(t) }));
@@ -214,15 +230,15 @@ describe('layoutFeed', () => {
   const shape = (rows: ReturnType<typeof layoutFeed>) =>
     rows.map((r) => (r.kind === 'full' ? r.entry.key : `strip(${r.entries.map((e) => e.key).join(',')})`));
 
-  it('keeps posts and photo ratings full-width, strips the photoless ones', () => {
+  it('keeps posts full-width and strips every rating', () => {
     const rows = layoutFeed([
-      post('p1', 9_000), plainRating('r1', 8_000), photoRating('r2', 7_000),
+      post('p1', 9_000), plainRating('r1', 8_000), plainRating('r2', 7_000),
       plainRating('r3', 6_000), post('p2', 5_000), plainRating('r4', 4_000),
       post('p3', 3_000),
     ]);
     expect(shape(rows)).toEqual([
-      'post-p1', 'rating-r2', 'post-p2', 'post-p3',
-      'strip(rating-r1,rating-r3,rating-r4)',
+      'post-p1', 'post-p2', 'post-p3',
+      'strip(rating-r1,rating-r2,rating-r3,rating-r4)',
     ]);
   });
 
@@ -279,9 +295,9 @@ describe('layoutFeed', () => {
 
   it('loses no entry, whatever the split', () => {
     const entries = [
-      post('p1', 9_000), plainRating('r1', 8_500), photoRating('r2', 8_000),
+      post('p1', 9_000), plainRating('r1', 8_500), plainRating('r2', 8_000),
       plainRating('r3', 7_500), post('p2', 7_000), plainRating('r4', 6_500),
-      plainRating('r5', 6_000), post('p3', 5_500), photoRating('r6', 5_000),
+      plainRating('r5', 6_000), post('p3', 5_500), plainRating('r6', 5_000),
     ];
     const rows = layoutFeed(entries);
     const seen = rows.flatMap((r) => (r.kind === 'full' ? [r.entry.key] : r.entries.map((e) => e.key)));
