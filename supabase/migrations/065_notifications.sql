@@ -17,6 +17,62 @@
 --
 -- Self-engagement never notifies: liking your own post is not news.
 
+-- ── 0. Preflight ─────────────────────────────────────────────────────
+-- `notifications` is a name a database can easily already be carrying —
+-- an abandoned experiment, a template, a half-run earlier version of
+-- this file. CREATE TABLE IF NOT EXISTS would silently accept whatever
+-- is there and then the index below fails with a baffling
+-- 42703 "column subject_type does not exist".
+--
+-- So: check first. An empty table that isn't ours gets replaced. One
+-- with rows in it is somebody's data — stop, and say exactly what to do
+-- about it, rather than dropping it or limping on half-migrated.
+
+DO $$
+DECLARE
+  v_kind "char";
+  v_rows BIGINT;
+BEGIN
+  IF to_regclass('public.notifications') IS NULL THEN
+    RETURN;  -- nothing there: the CREATE TABLE below does the work
+  END IF;
+
+  SELECT c.relkind INTO v_kind
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relname = 'notifications';
+
+  IF v_kind <> 'r' THEN
+    RAISE EXCEPTION
+      'public.notifications already exists as a % (not a table). Rename or remove it, then re-run this migration.',
+      CASE v_kind WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view'
+                  WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table'
+                  -- The cast is load-bearing: "char" || unknown is ambiguous.
+                  ELSE 'relation of kind ' || v_kind::text END;
+  END IF;
+
+  -- Already ours (or a partial run of this file) — section 1 heals it.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute
+     WHERE attrelid = 'public.notifications'::regclass
+       AND attname = 'subject_type' AND NOT attisdropped
+  ) THEN
+    RETURN;
+  END IF;
+
+  EXECUTE 'SELECT count(*) FROM public.notifications' INTO v_rows;
+  IF v_rows > 0 THEN
+    RAISE EXCEPTION
+      'public.notifications already exists with a different shape and % row(s) of data. This migration will not touch it. Rename it (ALTER TABLE public.notifications RENAME TO notifications_legacy;) and re-run.',
+      v_rows;
+  END IF;
+
+  -- Empty and not ours. No CASCADE on purpose: if something genuinely
+  -- depends on it, fail loudly instead of taking the dependents down.
+  RAISE NOTICE 'Replacing an empty, unrelated public.notifications table.';
+  DROP TABLE public.notifications;
+END $$;
+
 -- ── 1. Table ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,6 +98,15 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   read_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Heal a table left behind by a partial run of an earlier version of
+-- this file: CREATE TABLE IF NOT EXISTS adds nothing to a table that
+-- already exists, so each column is also stated on its own.
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS subject_label TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS preview TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS restaurant_id TEXT;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS comment_id UUID;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 
 -- The list view: newest first, scoped to one recipient.
 CREATE INDEX IF NOT EXISTS notifications_user_created_idx
@@ -136,6 +201,14 @@ REVOKE ALL ON FUNCTION public.push_notification(UUID, UUID, TEXT, TEXT, UUID, TE
 -- These are the ones the app had no way of showing at all — a comment
 -- left on a rating in someone's feed was invisible to the person who
 -- wrote the rating.
+--
+-- Every trigger below FAILS OPEN. An AFTER INSERT trigger that raises
+-- takes the whole statement down with it, which would mean a broken
+-- notification stops the like or comment from being saved at all — the
+-- side effect killing the user's actual action. Losing a notification
+-- is a nuisance; losing the comment is not acceptable. The reply
+-- branches matter most here: they read `parent_id`, which only exists
+-- once migrations 024 and 057 have been applied.
 
 CREATE OR REPLACE FUNCTION public.notify_activity_like()
 RETURNS trigger
@@ -148,11 +221,15 @@ DECLARE
   v_name TEXT;
   v_place TEXT;
 BEGIN
-  SELECT r.user_id, r.restaurant_name, r.restaurant_id
-    INTO v_owner, v_name, v_place
-    FROM public.community_ratings r WHERE r.id = NEW.rating_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'like', 'rating', NEW.rating_id, v_name, '', v_place, NULL);
+  BEGIN
+    SELECT r.user_id, r.restaurant_name, r.restaurant_id
+      INTO v_owner, v_name, v_place
+      FROM public.community_ratings r WHERE r.id = NEW.rating_id;
+    PERFORM public.push_notification(
+      v_owner, NEW.user_id, 'like', 'rating', NEW.rating_id, v_name, '', v_place, NULL);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_activity_like] skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -173,20 +250,29 @@ DECLARE
   v_name TEXT;
   v_place TEXT;
 BEGIN
-  SELECT r.user_id, r.restaurant_name, r.restaurant_id
-    INTO v_owner, v_name, v_place
-    FROM public.community_ratings r WHERE r.id = NEW.rating_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'comment', 'rating', NEW.rating_id, v_name, NEW.text, v_place, NEW.id);
-
-  -- A reply also pings the person being replied to, when that is
-  -- somebody other than the rating's owner.
-  IF NEW.parent_id IS NOT NULL THEN
-    SELECT c.user_id INTO v_owner
-      FROM public.activity_comments c WHERE c.id = NEW.parent_id;
+  BEGIN
+    SELECT r.user_id, r.restaurant_name, r.restaurant_id
+      INTO v_owner, v_name, v_place
+      FROM public.community_ratings r WHERE r.id = NEW.rating_id;
     PERFORM public.push_notification(
       v_owner, NEW.user_id, 'comment', 'rating', NEW.rating_id, v_name, NEW.text, v_place, NEW.id);
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_activity_comment] skipped: %', SQLERRM;
+  END;
+
+  -- A reply also pings the person being replied to, when that is
+  -- somebody other than the rating's owner. Its own block, so a missing
+  -- parent_id column can't roll back the notification above.
+  BEGIN
+    IF NEW.parent_id IS NOT NULL THEN
+      SELECT c.user_id INTO v_owner
+        FROM public.activity_comments c WHERE c.id = NEW.parent_id;
+      PERFORM public.push_notification(
+        v_owner, NEW.user_id, 'comment', 'rating', NEW.rating_id, v_name, NEW.text, v_place, NEW.id);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_activity_comment] reply ping skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -199,6 +285,12 @@ CREATE TRIGGER trg_notify_activity_comment
 -- ── 5. Triggers: posts ───────────────────────────────────────────────
 -- A post that is a shared rating (posts.rating_id, migration 064)
 -- carries the restaurant through, so the row routes like a rating.
+--
+-- That enrichment is a SEPARATE step from resolving the owner, and
+-- deliberately so: joining posts to community_ratings in one query makes
+-- the whole notification depend on migration 064 having been applied,
+-- and on a deployment still on 063 every post like and comment would
+-- silently produce nothing.
 
 CREATE OR REPLACE FUNCTION public.notify_post_like()
 RETURNS trigger
@@ -210,16 +302,36 @@ DECLARE
   v_owner UUID;
   v_label TEXT;
   v_place TEXT;
+  v_rname TEXT;
+  v_rplace TEXT;
 BEGIN
-  SELECT p.user_id,
-         COALESCE(NULLIF(r.restaurant_name, ''), p.caption, ''),
-         r.restaurant_id
-    INTO v_owner, v_label, v_place
-    FROM public.posts p
-    LEFT JOIN public.community_ratings r ON r.id = p.rating_id
-    WHERE p.id = NEW.post_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'like', 'post', NEW.post_id, v_label, '', v_place, NULL);
+  BEGIN
+    SELECT p.user_id, COALESCE(p.caption, '') INTO v_owner, v_label
+      FROM public.posts p WHERE p.id = NEW.post_id;
+
+    -- Optional, and only meaningful once 064 has landed.
+    BEGIN
+      SELECT NULLIF(r.restaurant_name, ''), r.restaurant_id
+        INTO v_rname, v_rplace
+        FROM public.posts p
+        JOIN public.community_ratings r ON r.id = p.rating_id
+        WHERE p.id = NEW.post_id;
+      -- Guarded by FOUND: an ordinary post has no rating_id, the join
+      -- returns nothing, and SELECT INTO would otherwise NULL out the
+      -- caption we just resolved.
+      IF FOUND THEN
+        v_label := COALESCE(v_rname, v_label);
+        v_place := v_rplace;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;  -- no rating link on this deployment; the caption still works
+    END;
+
+    PERFORM public.push_notification(
+      v_owner, NEW.user_id, 'like', 'post', NEW.post_id, v_label, '', v_place, NULL);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_post_like] skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -239,23 +351,46 @@ DECLARE
   v_owner UUID;
   v_label TEXT;
   v_place TEXT;
+  v_rname TEXT;
+  v_rplace TEXT;
 BEGIN
-  SELECT p.user_id,
-         COALESCE(NULLIF(r.restaurant_name, ''), p.caption, ''),
-         r.restaurant_id
-    INTO v_owner, v_label, v_place
-    FROM public.posts p
-    LEFT JOIN public.community_ratings r ON r.id = p.rating_id
-    WHERE p.id = NEW.post_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'comment', 'post', NEW.post_id, v_label, NEW.body, v_place, NEW.id);
+  BEGIN
+    SELECT p.user_id, COALESCE(p.caption, '') INTO v_owner, v_label
+      FROM public.posts p WHERE p.id = NEW.post_id;
 
-  IF NEW.parent_id IS NOT NULL THEN
-    SELECT c.user_id INTO v_owner
-      FROM public.post_comments c WHERE c.id = NEW.parent_id;
+    BEGIN
+      SELECT NULLIF(r.restaurant_name, ''), r.restaurant_id
+        INTO v_rname, v_rplace
+        FROM public.posts p
+        JOIN public.community_ratings r ON r.id = p.rating_id
+        WHERE p.id = NEW.post_id;
+      -- Guarded by FOUND: an ordinary post has no rating_id, the join
+      -- returns nothing, and SELECT INTO would otherwise NULL out the
+      -- caption we just resolved.
+      IF FOUND THEN
+        v_label := COALESCE(v_rname, v_label);
+        v_place := v_rplace;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;  -- see notify_post_like
+    END;
+
     PERFORM public.push_notification(
       v_owner, NEW.user_id, 'comment', 'post', NEW.post_id, v_label, NEW.body, v_place, NEW.id);
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_post_comment] skipped: %', SQLERRM;
+  END;
+
+  BEGIN
+    IF NEW.parent_id IS NOT NULL THEN
+      SELECT c.user_id INTO v_owner
+        FROM public.post_comments c WHERE c.id = NEW.parent_id;
+      PERFORM public.push_notification(
+        v_owner, NEW.user_id, 'comment', 'post', NEW.post_id, v_label, NEW.body, v_place, NEW.id);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_post_comment] reply ping skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -277,10 +412,14 @@ DECLARE
   v_owner UUID;
   v_label TEXT;
 BEGIN
-  SELECT e.user_id, e.caption INTO v_owner, v_label
-    FROM public.reels e WHERE e.id = NEW.reel_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'like', 'reel', NEW.reel_id, v_label, '', NULL, NULL);
+  BEGIN
+    SELECT e.user_id, e.caption INTO v_owner, v_label
+      FROM public.reels e WHERE e.id = NEW.reel_id;
+    PERFORM public.push_notification(
+      v_owner, NEW.user_id, 'like', 'reel', NEW.reel_id, v_label, '', NULL, NULL);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_reel_like] skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -300,17 +439,25 @@ DECLARE
   v_owner UUID;
   v_label TEXT;
 BEGIN
-  SELECT e.user_id, e.caption INTO v_owner, v_label
-    FROM public.reels e WHERE e.id = NEW.reel_id;
-  PERFORM public.push_notification(
-    v_owner, NEW.user_id, 'comment', 'reel', NEW.reel_id, v_label, NEW.body, NULL, NEW.id);
-
-  IF NEW.parent_id IS NOT NULL THEN
-    SELECT c.user_id INTO v_owner
-      FROM public.reel_comments c WHERE c.id = NEW.parent_id;
+  BEGIN
+    SELECT e.user_id, e.caption INTO v_owner, v_label
+      FROM public.reels e WHERE e.id = NEW.reel_id;
     PERFORM public.push_notification(
       v_owner, NEW.user_id, 'comment', 'reel', NEW.reel_id, v_label, NEW.body, NULL, NEW.id);
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_reel_comment] skipped: %', SQLERRM;
+  END;
+
+  BEGIN
+    IF NEW.parent_id IS NOT NULL THEN
+      SELECT c.user_id INTO v_owner
+        FROM public.reel_comments c WHERE c.id = NEW.parent_id;
+      PERFORM public.push_notification(
+        v_owner, NEW.user_id, 'comment', 'reel', NEW.reel_id, v_label, NEW.body, NULL, NEW.id);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[notify_reel_comment] reply ping skipped: %', SQLERRM;
+  END;
   RETURN NEW;
 END;
 $$;
@@ -336,17 +483,31 @@ DECLARE
   v_subject_type TEXT := TG_ARGV[0];
   v_subject_id UUID;
 BEGIN
-  v_subject_id := CASE v_subject_type
-    WHEN 'rating' THEN OLD.rating_id
-    WHEN 'post' THEN OLD.post_id
-    ELSE OLD.reel_id
+  -- IF/ELSIF, not a CASE expression: plpgsql hands a CASE to the executor
+  -- as ONE expression and resolves every arm's parameters up front, so
+  -- `OLD.post_id` would be looked up even on activity_likes — where that
+  -- column doesn't exist — and the whole retraction would fail. Separate
+  -- statements are compiled lazily, so only the taken branch is touched.
+  --
+  -- Fails open like the insert triggers: un-liking must succeed even if
+  -- the retraction can't.
+  BEGIN
+    IF v_subject_type = 'rating' THEN
+      v_subject_id := OLD.rating_id;
+    ELSIF v_subject_type = 'post' THEN
+      v_subject_id := OLD.post_id;
+    ELSE
+      v_subject_id := OLD.reel_id;
+    END IF;
+    DELETE FROM public.notifications
+      WHERE kind = 'like'
+        AND actor_id = OLD.user_id
+        AND subject_type = v_subject_type
+        AND subject_id = v_subject_id
+        AND read_at IS NULL;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[retract_like_notification] skipped: %', SQLERRM;
   END;
-  DELETE FROM public.notifications
-    WHERE kind = 'like'
-      AND actor_id = OLD.user_id
-      AND subject_type = v_subject_type
-      AND subject_id = v_subject_id
-      AND read_at IS NULL;
   RETURN OLD;
 END;
 $$;
