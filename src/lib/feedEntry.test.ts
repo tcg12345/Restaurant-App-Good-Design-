@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CommunityRating, FriendHomeMeal } from './supabase-community';
 import type { PostRow, PostItemRow } from './supabase-posts';
-import { mergeFeed, fromPost, fromRating, hasMedia, isImportedRating } from './feedEntry';
+import { mergeFeed, fromPost, fromRating, hasMedia, isImportedRating, layoutFeed } from './feedEntry';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
 
@@ -200,5 +200,95 @@ describe('ordering', () => {
 
   it('empty input produces an empty feed', () => {
     expect(mergeFeed({})).toEqual([]);
+  });
+});
+
+describe('layoutFeed', () => {
+  // Newest-first order matches mergeFeed's output; ids encode what they are.
+  const photoRating = (id: string, t: number) =>
+    fromRating(mkRating({ id, photo_url: 'https://cdn/x.jpg', created_at: iso(t), updated_at: iso(t) }));
+  const plainRating = (id: string, t: number) =>
+    fromRating(mkRating({ id, photo_url: '', created_at: iso(t), updated_at: iso(t) }));
+  const post = (id: string, t: number) => fromPost(mkPost({ id, createdAt: iso(t) }));
+
+  const shape = (rows: ReturnType<typeof layoutFeed>) =>
+    rows.map((r) => (r.kind === 'full' ? r.entry.key : `strip(${r.entries.map((e) => e.key).join(',')})`));
+
+  it('keeps posts and photo ratings full-width, strips the photoless ones', () => {
+    const rows = layoutFeed([
+      post('p1', 9_000), plainRating('r1', 8_000), photoRating('r2', 7_000),
+      plainRating('r3', 6_000), post('p2', 5_000), plainRating('r4', 4_000),
+      post('p3', 3_000),
+    ]);
+    expect(shape(rows)).toEqual([
+      'post-p1', 'rating-r2', 'post-p2', 'post-p3',
+      'strip(rating-r1,rating-r3,rating-r4)',
+    ]);
+  });
+
+  it('lands a strip after every 4 full cards', () => {
+    const entries = [
+      ...Array.from({ length: 9 }, (_, i) => post(`p${i}`, 9_000 - i)),
+      ...Array.from({ length: 6 }, (_, i) => plainRating(`r${i}`, 5_000 - i)),
+    ];
+    const kinds = layoutFeed(entries).map((r) => r.kind);
+    // full×4, strip, full×4, strip, full×1, then the leftover strip.
+    expect(kinds).toEqual([
+      'full', 'full', 'full', 'full', 'strip',
+      'full', 'full', 'full', 'full', 'strip',
+      'full',
+    ]);
+  });
+
+  it('caps a strip at 4 and opens a new one for the rest', () => {
+    const rows = layoutFeed([
+      ...Array.from({ length: 4 }, (_, i) => post(`p${i}`, 9_000 - i)),
+      ...Array.from({ length: 6 }, (_, i) => plainRating(`r${i}`, 5_000 - i)),
+    ]);
+    const strips = rows.filter((r) => r.kind === 'strip');
+    expect(strips.map((r) => (r.kind === 'strip' ? r.entries.length : 0))).toEqual([4, 2]);
+  });
+
+  it('never opens the feed with a strip', () => {
+    const rows = layoutFeed([
+      plainRating('r1', 9_000), plainRating('r2', 8_000), post('p1', 7_000),
+    ]);
+    expect(rows[0].kind).toBe('full');
+  });
+
+  it('keeps the leftovers rather than dropping them', () => {
+    const entries = [
+      post('p1', 9_000),
+      ...Array.from({ length: 10 }, (_, i) => plainRating(`r${i}`, 8_000 - i)),
+    ];
+    const rows = layoutFeed(entries);
+    const stripped = rows.flatMap((r) => (r.kind === 'strip' ? r.entries : []));
+    expect(stripped).toHaveLength(10);
+  });
+
+  it('a feed of nothing but photoless ratings is all strips', () => {
+    const rows = layoutFeed(Array.from({ length: 5 }, (_, i) => plainRating(`r${i}`, 9_000 - i)));
+    expect(rows.map((r) => r.kind)).toEqual(['strip', 'strip']);
+  });
+
+  it('disabled renders everything full-width (the Verified tab)', () => {
+    const entries = [post('p1', 9_000), plainRating('r1', 8_000), plainRating('r2', 7_000)];
+    const rows = layoutFeed(entries, { enabled: false });
+    expect(rows.map((r) => r.kind)).toEqual(['full', 'full', 'full']);
+  });
+
+  it('loses no entry, whatever the split', () => {
+    const entries = [
+      post('p1', 9_000), plainRating('r1', 8_500), photoRating('r2', 8_000),
+      plainRating('r3', 7_500), post('p2', 7_000), plainRating('r4', 6_500),
+      plainRating('r5', 6_000), post('p3', 5_500), photoRating('r6', 5_000),
+    ];
+    const rows = layoutFeed(entries);
+    const seen = rows.flatMap((r) => (r.kind === 'full' ? [r.entry.key] : r.entries.map((e) => e.key)));
+    expect(seen.sort()).toEqual(entries.map((e) => e.key).sort());
+  });
+
+  it('empty input produces no rows', () => {
+    expect(layoutFeed([])).toEqual([]);
   });
 });

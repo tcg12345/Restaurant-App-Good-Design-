@@ -23,7 +23,7 @@ import {
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
-import { mergeFeed } from '../lib/feedEntry';
+import { mergeFeed, layoutFeed, type FeedEntry } from '../lib/feedEntry';
 import { getGuidesForFeed } from '../lib/supabase-guides';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { toggleRecipeLike, getRecipeLikes, getRecipeCommentCounts } from '../lib/supabase-recipes';
@@ -732,15 +732,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const ratingSource = activityFilter === 'experts' ? expertActivity : activity;
   const mealSource = activityFilter === 'friends' ? homeMeals : [];
   const postSource = activityFilter === 'friends' ? posts : [];
-  const feedItems: FeedItem[] = mergeFeed({
+  const feedEntries = mergeFeed({
     posts: postSource,
     ratings: ratingSource,
     homeMeals: mealSource,
-  }).map((e): FeedItem => (
+  });
+  const toFeedItem = (e: FeedEntry): FeedItem => (
     e.kind === 'post' ? { type: 'post', data: e.source.post!, sortTime: e.sortTime }
     : e.kind === 'rating' ? { type: 'rating', data: e.source.rating!, sortTime: e.sortTime }
     : { type: 'homeMeal', data: e.source.homeMeal!, sortTime: e.sortTime }
-  ));
+  );
+  const feedItems: FeedItem[] = feedEntries.map(toFeedItem);
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
@@ -1018,6 +1020,64 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     </div>
   );
 
+  /**
+   * A batch of ratings nobody photographed.
+   *
+   * At full width these were near-identical rows — a name, a score, and
+   * nothing to look at — and three of them in a row pushed the photos
+   * everyone came for off the screen. They still belong in the feed, just
+   * not at that size. Same ingredients as the full card (who, where,
+   * score), a quarter of the height.
+   */
+  const RatingStrip: React.FC<{ entries: FeedEntry[]; labelled?: boolean }> = ({ entries, labelled = true }) => (
+    <div>
+      {labelled && (
+        <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface/40">
+          Also rated
+        </p>
+      )}
+      <ul className={cn(
+        'flex gap-2.5 overflow-x-auto no-scrollbar snap-x',
+        // The tiles' hover lift needs room, and on phones the strip runs
+        // to the screen edge like the rest of the flush-bleed content.
+        phoneMode ? '-mx-[18px] px-[18px]' : '-mx-1 px-1',
+      )}>
+        {entries.map((e) => {
+          const r = e.source.rating!;
+          const color = avatarColor(e.authorId);
+          const name = getName(e.authorId);
+          const place = e.restaurant?.name || r.restaurant_name;
+          const meta = [r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ');
+          return (
+            <li key={e.key} className="snap-start flex-shrink-0 w-[152px] sm:w-[168px]">
+              <button
+                type="button"
+                onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                className="group flex h-full w-full flex-col rounded-2xl border border-on-surface/[0.07] bg-paper p-3 text-left transition-all hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_6px_20px_-10px_rgba(0,0,0,0.25)] focus-visible:outline-none focus-visible:border-primary/40"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full', color.bg)}>
+                    <span className={cn('text-[11px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+                  </span>
+                  <ScoreRing score={Number(r.score)} size={34} className="flex-shrink-0" />
+                </div>
+                <h3 className="mt-2 font-serif text-[14.5px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-2 transition-colors group-hover:text-primary">
+                  {place}
+                </h3>
+                {meta && (
+                  <p className="mt-1 truncate text-[11px] font-medium text-on-surface/45">{meta}</p>
+                )}
+                <p className="mt-auto pt-2 truncate text-[11px] text-on-surface/40">
+                  {name} · {timeAgo(activityTimestamp(r))}
+                </p>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+
   const SectionHeader: React.FC = () => (
     <div className="mb-3">
       {!phoneMode ? (
@@ -1076,8 +1136,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Interleave the optional inline slot (the Discover guides rail) after
   // the requested number of feed items; when the feed is short or empty it
   // lands at the end / above the empty state so it stays reachable.
-  type FeedRow = { kind: 'item'; item: FeedItem } | { kind: 'slot' };
-  const feedRows: FeedRow[] = feedItems.map((item) => ({ kind: 'item' as const, item }));
+  type FeedRow = { kind: 'item'; item: FeedItem } | { kind: 'strip'; entries: FeedEntry[] } | { kind: 'slot' };
+  const feedRows: FeedRow[] = layoutFeed(feedEntries, {
+    // Verified stays full-width: those users publish by rating, almost
+    // always without photos, so stripping them would leave a wall of
+    // tiles with no full cards to break it up.
+    enabled: activityFilter === 'friends',
+  }).map((row): FeedRow => (
+    row.kind === 'full'
+      ? { kind: 'item', item: toFeedItem(row.entry) }
+      : { kind: 'strip', entries: row.entries }
+  ));
   if (inlineSlot) feedRows.splice(Math.min(Math.max(inlineSlot.afterIndex, 0), feedRows.length), 0, { kind: 'slot' });
 
   return (
@@ -1128,11 +1197,28 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         </>
       ) : (
       <ul>
-        {feedRows.map((row) => {
+        {feedRows.map((row, rowIndex) => {
           if (row.kind === 'slot') {
             return (
               <li key="inline-slot" className="border-b border-on-surface/[0.08] py-4">
                 {inlineSlot!.node}
+              </li>
+            );
+          }
+          if (row.kind === 'strip') {
+            // Leftover strips run back-to-back once the full cards are
+            // spent; one heading over the run reads better than the same
+            // three words repeated down the page.
+            const heads = feedRows[rowIndex - 1]?.kind !== 'strip';
+            return (
+              <li
+                key={`strip-${row.entries[0]?.key ?? 'empty'}`}
+                className={cn(
+                  'border-b border-on-surface/[0.08] last:border-0',
+                  heads ? (phoneMode ? 'py-4' : 'py-5') : (phoneMode ? 'pb-4' : 'pb-5'),
+                )}
+              >
+                <RatingStrip entries={row.entries} labelled={heads} />
               </li>
             );
           }
