@@ -510,6 +510,7 @@ export const UserProfile: React.FC = () => {
                 // The community row itself can only be patched by its OWNER:
                 // the old unconditional publish fired one doomed RLS-rejected
                 // write per rating on every other user's profile, every mount.
+                // No activity stamp — see the matching backfill in Discover.
                 if (userId && r.user_id === userId) {
                   publishCommunityRating(r.user_id, r.restaurant_id, {
                     name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
