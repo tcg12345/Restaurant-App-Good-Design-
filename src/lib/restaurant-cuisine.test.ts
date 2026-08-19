@@ -130,3 +130,42 @@ describe('getRestaurantCuisineBatch', () => {
     expect(await getRestaurantCuisineBatch([])).toEqual({});
   });
 });
+
+// Phase 5's whole point: a correction has to reach other people's screens,
+// not just sit in the table.
+describe('settleRestaurantCuisine · a correction outranks local data', () => {
+  it("a user's correction beats what Google says about the place", async () => {
+    rows.push({ restaurant_id: 'p8', cuisine: 'Peruvian', source: 'user', confidence: 100 });
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'p8', place: { primaryType: 'mexican_restaurant' },
+    })).toBe('Peruvian');
+    expect(upserts).toEqual([]); // and we don't argue back
+  });
+
+  it("a user's correction beats a Michelin match", async () => {
+    rows.push({ restaurant_id: 'p9', cuisine: 'Basque', source: 'user', confidence: 100 });
+    expect(await settleRestaurantCuisine({ restaurantId: 'p9', michelinCuisine: 'Creative' })).toBe('Basque');
+    expect(upserts).toEqual([]);
+  });
+
+  it('but Michelin still beats what other people typed', async () => {
+    rows.push({ restaurant_id: 'p10', cuisine: 'French', source: 'community', confidence: 80 });
+    expect(await settleRestaurantCuisine({ restaurantId: 'p10', michelinCuisine: 'Creative' })).toBe('Creative');
+    expect(upserts).toEqual([{ restaurant_id: 'p10', cuisine: 'Creative', source: 'michelin' }]);
+  });
+
+  it('and a single rater beats what Google guessed', async () => {
+    rows.push({ restaurant_id: 'p11', cuisine: 'Laotian', source: 'community_single', confidence: 65 });
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'p11', place: { primaryType: 'thai_restaurant' },
+    })).toBe('Laotian');
+  });
+
+  it('spends no write when the cache already agrees', async () => {
+    rows.push({ restaurant_id: 'p12', cuisine: 'BBQ', source: 'google', confidence: 60 });
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'p12', place: { primaryType: 'barbecue_restaurant' },
+    })).toBe('BBQ');
+    expect(upserts).toEqual([]);
+  });
+});

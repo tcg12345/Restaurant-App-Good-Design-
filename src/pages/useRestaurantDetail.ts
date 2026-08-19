@@ -11,7 +11,7 @@ import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../conte
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
-import { settleRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { settleRestaurantCuisine, publishRestaurantCuisine } from '../lib/restaurant-cuisine';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
@@ -70,6 +70,9 @@ export function useRestaurantDetail() {
    *  when Google's payload has none, and the write that gives every other
    *  screen this place's cuisine. '' until it resolves. */
   const [settledCuisine, setSettledCuisine] = useState('');
+  /** A cuisine this user just set by hand. Outranks every derived source,
+   *  on this screen and — once published — on everyone else's. */
+  const [userCuisine, setUserCuisine] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -250,7 +253,7 @@ export function useRestaurantDetail() {
   // visit history whenever it changes (e.g. after saving a new visit,
   // the previous rating is pushed into the visit_history table and we
   // need to see it reflected on the page without a hard reload).
-  const { ratings, cacheRestaurantMeta } = useLists();
+  const { ratings, cacheRestaurantMeta, rateRestaurant } = useLists();
 
   // Cache the place's lat/lng on the meta so list cards can show distance.
   // Persist the FULL formatted address (rather than the truncated short
@@ -258,6 +261,8 @@ export function useRestaurantDetail() {
   // addresses often drop the country and state, which used to make cards
   // display the street name as a fake city. Keyed off place.id so we
   // don't write on every re-render.
+  useEffect(() => { setUserCuisine(''); }, [id]);
+
   useEffect(() => {
     if (!place?.id) return;
     let cancelled = false;
@@ -270,11 +275,41 @@ export function useRestaurantDetail() {
     return () => { cancelled = true; };
   }, [place, michelin]);
 
+  /**
+   * Record a cuisine the user picked by hand.
+   *
+   * Published at the `user` tier, which outranks Michelin, Google and every
+   * inference — so this is what the next person to open the place sees, and
+   * what the ratings backfill hands to everyone who saved it. Their own
+   * rating for this place is corrected too, since it carries its own copy
+   * of the cuisine and would otherwise keep the old one in their top lists.
+   */
+  const applyUserCuisine = useCallback((next: string) => {
+    const label = (next || '').trim();
+    if (!place?.id || !label) return;
+    setUserCuisine(label);
+    publishRestaurantCuisine(place.id, label, 'user');
+    cacheRestaurantMeta({
+      id: place.id,
+      name: place.name,
+      image: place.photoUrl || '',
+      cuisine: label,
+      price: priceLevelToString(place.priceLevel),
+      address: place.fullAddress || place.address,
+      lat: place.lat,
+      lng: place.lng,
+    });
+    const mine = ratings.find((r) => r.restaurantId === place.id);
+    // skipSettle: only a text field changed, so there is no score to
+    // re-rank; and with isNewVisit unset this edit carries no activity
+    // stamp, so fixing a label can't hoist an old rating into friends' feeds.
+    if (mine && mine.cuisine !== label) rateRestaurant({ ...mine, cuisine: label }, { skipSettle: true });
+  }, [place, ratings, rateRestaurant, cacheRestaurantMeta]);
+
   // Michelin names the cuisine outright; otherwise Google's payload, and
   // failing that whatever the shared cache settled on for this place.
-  const cuisine = michelin
-    ? michelin.cuisine
-    : (place ? getCuisineLabel(place) : '') || settledCuisine;
+  const cuisine = userCuisine
+    || (michelin ? michelin.cuisine : (place ? getCuisineLabel(place) : '') || settledCuisine);
 
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
@@ -458,6 +493,7 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
+    applyUserCuisine,
 
     photos,
     directionsUrl,

@@ -11,6 +11,7 @@ import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
 import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
 import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -59,12 +60,13 @@ export const RestaurantDetailMobile: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, michelin,
+    priceStr, cuisine, applyUserCuisine, michelin,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
     visitHistory, visitCount,
   } = useRestaurantDetail();
+  const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
@@ -469,10 +471,12 @@ export const RestaurantDetailMobile: React.FC = () => {
             : '';
           return (
             <section>
-              <p className="uppercase mb-2 text-on-surface/50" style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.12em' }}>
-                {cuisine}
-                {priceStr && <>{'  ·  '}{priceStr}</>}
-              </p>
+              <EditableCuisineLine
+                cuisine={cuisine}
+                priceStr={priceStr}
+                onEdit={() => setCuisinePickerOpen(true)}
+                className="group/cuisine uppercase mb-2 text-on-surface/50"
+              />
               <div className="flex items-center justify-between gap-3">
                 <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '31px', fontWeight: 600, lineHeight: 1.02, letterSpacing: '-0.01em' }}>
                   {place.name}
@@ -1292,6 +1296,17 @@ export const RestaurantDetailMobile: React.FC = () => {
         open={!!chatShareTarget}
         payload={chatShareTarget ? { sharedRestaurant: chatShareTarget } : null}
         onClose={() => setChatShareTarget(null)}
+      />
+
+      {/* Correcting the cuisine — the only thing that can write the `user`
+          tier of the shared cache, so it's what fixes a wrong label (or the
+          app's own guess) for everybody. */}
+      <CuisinePicker
+        open={cuisinePickerOpen}
+        onClose={() => setCuisinePickerOpen(false)}
+        onSelect={applyUserCuisine}
+        current={cuisine}
+        restaurantName={place?.name}
       />
 
     </div>

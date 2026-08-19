@@ -113,18 +113,23 @@ export function publishRestaurantCuisine(restaurantId: string, cuisine: string, 
  * Settle a place's cuisine and contribute whatever we learned back.
  *
  * The detail page is the one screen holding a full Google payload and a
- * Michelin match, so it is where the shared cache gets fed. Every other
- * surface only reads. Ordered by how much the answer can be trusted:
+ * Michelin match, so it is where the shared cache gets fed. It is also
+ * where a correction has to surface: someone fixing a wrong label is
+ * pointless if this screen keeps preferring the label they fixed. So the
+ * published answer and the locally derivable one are compared by rank, and
+ * the stronger wins:
  *
- *   1. Michelin — curated, and it names the cuisine outright.
- *   2. Google's own primaryType / types for the place.
- *   3. Google's display label, when it falls outside our taxonomy.
- *   4. Whatever anyone else already published for this place (people who
- *      rated it, a user correction, a device that saw better data).
- *   5. The restaurant's own name — a guess, ranked last, and the server
- *      keeps it from ever displacing 1–4.
+ *   michelin (90) — curated, and it names the cuisine outright
+ *   google   (60) — Google's own primaryType / types for the place
+ *   google_display (50) — Google's label, outside our taxonomy
+ *   name     (30) — read off the restaurant's name; a guess
  *
- * Publishing is fire-and-forget and the read never throws, so the caller
+ * against whatever is in the cache, where a human correction sits at 100
+ * and other people's ratings at 65–80. A write only goes out when what we
+ * derived here beats what is already published — so a screen that already
+ * agrees with the cache costs one read and nothing else.
+ *
+ * The read never throws and the write is fire-and-forget, so the caller
  * gets an answer (possibly '') without any of this being able to fail a
  * screen.
  */
@@ -139,26 +144,29 @@ export async function settleRestaurantCuisine(opts: {
   const { restaurantId, name, michelinCuisine, place } = opts;
   if (!restaurantId) return '';
 
+  // What this screen can work out on its own, and what that's worth.
+  let local: { label: string; source: CuisineSourceName } | null = null;
   const michelin = (michelinCuisine || '').trim();
   if (michelin) {
-    publishRestaurantCuisine(restaurantId, michelin, 'michelin');
-    return michelin;
-  }
-
-  const resolved = place ? resolveCuisine(place) : null;
-  if (resolved) {
-    publishRestaurantCuisine(restaurantId, resolved.label, resolved.canonical ? 'google' : 'google_display');
-    return resolved.label;
+    local = { label: michelin, source: 'michelin' };
+  } else {
+    const resolved = place ? resolveCuisine(place) : null;
+    if (resolved) {
+      local = { label: resolved.label, source: resolved.canonical ? 'google' : 'google_display' };
+    } else {
+      const guess = cuisineFromName(name);
+      if (guess) local = { label: guess, source: 'name' };
+    }
   }
 
   const cached = await getRestaurantCuisine(restaurantId);
-  if (cached?.cuisine) return cached.cuisine;
+  const localRank = local ? cuisineConfidence(local.source) : 0;
+  const cachedRank = cached?.cuisine ? cached.confidence : 0;
 
-  const guess = cuisineFromName(name);
-  if (guess) {
-    publishRestaurantCuisine(restaurantId, guess, 'name');
-    return guess;
+  // Contribute only when we actually know better than what's published.
+  if (local && localRank > cachedRank) {
+    publishRestaurantCuisine(restaurantId, local.label, local.source);
+    return local.label;
   }
-
-  return '';
+  return cached?.cuisine || local?.label || '';
 }

@@ -10,6 +10,8 @@ import { settleScores, tierOfScore } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
+import { CuisinePicker, EditableCuisineLine } from './CuisinePicker';
+import { publishRestaurantCuisine } from '../lib/restaurant-cuisine';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
@@ -51,6 +53,12 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
+  /** A cuisine the user set here. Rating a place is the moment they most
+   *  reliably know what it serves, and for the places this matters for —
+   *  the ones nothing could resolve — the rating would otherwise save with
+   *  no cuisine at all and their own top lists would lose it. */
+  const [cuisineOverride, setCuisineOverride] = useState('');
+  const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
   const [visitDate, setVisitDate] = useState(localISODate());
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
@@ -117,6 +125,10 @@ export const AddRestaurantModal: React.FC = () => {
 
   useEffect(() => {
     if (addRestaurantModalOpen && restaurant) {
+      // The override belongs to the restaurant, not the session — clear it
+      // whenever the modal opens on a different one.
+      setCuisineOverride('');
+      setCuisinePickerOpen(false);
       const ex = getRating(restaurant.id);
       const startAsNewVisit = addRestaurantModalInitialPage === 'new-visit';
       if (startAsNewVisit && ex) {
@@ -229,6 +241,7 @@ export const AddRestaurantModal: React.FC = () => {
   // No pick and no meta price → persist '' (unset); fabricating '$$' would
   // stamp a made-up tier on the rating.
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
+  const resolvedCuisine = cuisineOverride || restaurant?.cuisine || '';
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -310,7 +323,7 @@ export const AddRestaurantModal: React.FC = () => {
     if (!restaurant) return rawScore;
     const self: RestaurantRating = {
       restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+      cuisine: resolvedCuisine, price: resolvedPrice, address: restaurant.address,
       score: rawScore, notes: '', visitDate: '', wouldReturn: true, tags: [], photos: [],
       listIds: [], friendIds: [], createdAt: 0,
     };
@@ -336,7 +349,7 @@ export const AddRestaurantModal: React.FC = () => {
     rateRestaurant(
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+        cuisine: resolvedCuisine, price: resolvedPrice, address: restaurant.address,
         score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags,
         // blob: previews are session-scoped — they'd be dead links after a
         // reload. Save is blocked while any remain; this filter is the
@@ -666,6 +679,11 @@ export const AddRestaurantModal: React.FC = () => {
                     <h2 className="font-serif font-bold text-[27px] leading-[1.08] tracking-[-0.015em] text-on-surface">
                       {restaurant.name}
                     </h2>
+                    <EditableCuisineLine
+                      cuisine={resolvedCuisine}
+                      onEdit={() => setCuisinePickerOpen(true)}
+                      className="group/cuisine mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/45"
+                    />
                   </div>
 
                   {/* New Visit vs Update toggle */}
@@ -1283,6 +1301,20 @@ export const AddRestaurantModal: React.FC = () => {
         </>
       )}
     </AnimatePresence>
+
+    {/* Labelling the place while rating it. Published on pick rather than
+        on save: it's true about the restaurant whether or not this rating
+        is finished. */}
+    <CuisinePicker
+      open={cuisinePickerOpen}
+      onClose={() => setCuisinePickerOpen(false)}
+      onSelect={(c) => {
+        setCuisineOverride(c);
+        if (restaurant?.id) publishRestaurantCuisine(restaurant.id, c, 'user');
+      }}
+      current={resolvedCuisine}
+      restaurantName={restaurant?.name}
+    />
     </>
   );
 };
