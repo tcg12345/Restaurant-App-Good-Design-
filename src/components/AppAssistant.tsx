@@ -210,7 +210,7 @@ function labelForPath(path: string): string {
   if (path === '/search' || path === '/search/main') return 'the Search page';
   if (path === '/reels') return 'the Reels feed';
   if (path.startsWith('/r/')) return 'a focused reel / post';
-  if (path.startsWith('/activity')) return 'the Activity / notifications page';
+  if (path.startsWith('/activity')) return "the user's own activity archive (their saved, liked and commented-on posts and reels)";
   if (path === '/experts') return 'the Experts list';
   if (path === '/profile') return "the user's own profile";
   if (path === '/pantry') return 'the Pantry (saved recipes)';

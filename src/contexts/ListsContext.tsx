@@ -7,6 +7,7 @@ import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlRepl
 import { publishRatingShare, findRatingShare, syncRatingShare } from '../lib/shareRating';
 import { listPosts, deletePost } from '../lib/supabase-posts';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
+import type { ActivityStamp } from '../lib/ratingPayload';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
@@ -1545,8 +1546,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         // Sync ratings to community_ratings (ensures they're visible on user
         // profiles) — DELTAS ONLY. Republishing every row on every load was
-        // hundreds of writes per session for heavy raters, and each write
-        // reset updated_at, which is what orders the friends feed.
+        // hundreds of writes per session for heavy raters.
+        // No activity stamp: this is a mirror of data the user already has,
+        // and the signature map that decides what's "changed" lives in
+        // localStorage — so a new device, a new browser or a cleared cache
+        // republishes EVERYTHING, which used to dump a user's entire rating
+        // history into their friends' feeds stamped with the current minute.
         // Held entirely below the score-unlock threshold (nothing publishes
         // until the rankings have enough data to be accurate); since held
         // rows are never sig-stamped, the first load after crossing the
@@ -2283,7 +2288,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    *  community until the user crosses the threshold — at which point
    *  rateRestaurant backfills every row at once. Held rows are never
    *  sig-stamped, so the boot-time delta sync is the catch-up safety net. */
-  const publishRatingRow = useCallback((uid: string, row: RestaurantRating): Promise<string | null> => {
+  /**
+   * `activityAt` defaults to "not activity", which leaves the row's
+   * updated_at — and therefore its place in every friend's feed —
+   * exactly where it was. Only a first rating or a new visit passes
+   * 'now'. A settle nudge, a coordinate backfill and a device re-sync
+   * all write through here too, and none of them are news.
+   */
+  const publishRatingRow = useCallback((
+    uid: string,
+    row: RestaurantRating,
+    activityAt: ActivityStamp = undefined,
+  ): Promise<string | null> => {
     if (ratingsRef.current.length < SCORE_UNLOCK_THRESHOLD) return Promise.resolve(null);
     const done = publishCommunityRating(uid, row.restaurantId, {
       name: row.name, score: row.score, notes: row.notes,
@@ -2291,7 +2307,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       visitDate: row.visitDate, tags: row.tags, wouldReturn: row.wouldReturn,
       friendIds: row.friendIds || [], photoUrl: row.image || '',
       ratingMethod: row.ratingMethod,
-    });
+    }, activityAt);
     // Record what was published so the boot-time delta sync skips this row.
     stampPublishedSig(row);
     return done;
@@ -2382,6 +2398,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       { now: Date.now(), settleOrder: options?.settleOrder, skipSettle: options?.skipSettle },
     );
     const wasRated = existingForArchive !== undefined;
+    // What counts as news for a friend's feed: rating somewhere for the
+    // first time, or going back. Correcting a note, a tag or a price on
+    // a rating from months ago is not — it used to hoist that restaurant
+    // to the top of everyone's feed stamped "rated 2 minutes ago".
+    // (Adding photos to an old rating still surfaces: the share
+    // publishes a post, which carries its own timestamp.)
+    const ratingActivity: ActivityStamp = (!wasRated || isNewVisit) ? 'now' : undefined;
     // Only archive the existing rating when this is genuinely a new visit.
     // Skipping this on edits is what stops "Update Current" from creating a
     // phantom history entry every time the user tweaks a note or a tag. The
@@ -2488,7 +2511,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const uid = userIdRef.current;
         for (const row of next) {
           const isSaved = row.restaurantId === rating.restaurantId;
-          void publishRatingRow(uid, row).then((ratingId) => {
+          // Only the row just saved is activity; the rest of the backlog
+          // keeps whatever stamp it already had (or, for rows appearing
+          // for the first time, the insert default).
+          void publishRatingRow(uid, row, isSaved ? ratingActivity : undefined).then((ratingId) => {
             // Only the row the user just saved becomes a feed share — the
             // rest of the backlog is history being caught up, not news.
             if (!isSaved || options?.shareToFeed === false) return;
@@ -2511,9 +2537,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         } else {
           // The share (a post carrying this rating's photos) links the rating
           // row, so it can only be written once the upsert returns its id.
-          void publishRatingRow(uid, settledSelf).then((ratingId) =>
+          void publishRatingRow(uid, settledSelf, ratingActivity).then((ratingId) =>
             shareRatingToFeed(uid, settledSelf, ratingId, isNewVisit));
         }
+        // The settle nudges neighbours' scores by a tenth or two so the
+        // new rating fits between them. That's bookkeeping, not a visit —
+        // publishing it as activity used to drag a handful of unrelated
+        // restaurants to the top of everyone's feed on every save.
         for (const c of otherChanged) {
           const row = next.find((r) => r.restaurantId === c.restaurantId);
           if (row) publishRatingRow(uid, row);

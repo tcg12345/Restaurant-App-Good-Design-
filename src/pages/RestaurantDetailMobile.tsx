@@ -28,6 +28,7 @@ import { openExternalUrl } from '../lib/external-links';
 import { Link } from 'react-router-dom';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
+import { YourReviewComments } from '../components/YourReviewComments';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
@@ -960,6 +961,13 @@ export const RestaurantDetailMobile: React.FC = () => {
             </>
           );
         })()}
+
+        {/* ── On your rating — likes + comments friends left on it, which
+            otherwise only ever appeared in THEIR feeds. Renders nothing
+            when there's been no engagement. ── */}
+        {myRating && place && (
+          <YourReviewComments restaurantId={place.id} variant="mobile" leading={sep} />
+        )}
 
         {/* ── Visit History — date-badge timeline with score trend arrows. ── */}
         {myRating && visitHistory.length > 0 && place && (() => {

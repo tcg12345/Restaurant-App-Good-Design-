@@ -1037,7 +1037,7 @@ export const Profile: React.FC = () => {
     );
     if (result.success) {
       // saveProfile drops a column this database doesn't know rather than
-      // failing the whole write (see migration 065). The row saved, but
+      // failing the whole write (see migration 067). The row saved, but
       // those fields didn't — say so instead of flashing a success tick
       // over an edit that only partly landed.
       const lost = [...new Set((result.droppedColumns ?? []).map((c) => PROFILE_FIELD_LABELS[c] ?? c))];

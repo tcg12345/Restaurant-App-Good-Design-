@@ -3,7 +3,10 @@
  */
 import { supabase, supabaseConfigured } from './supabase';
 import { reportClientError } from './error-reporting';
+import { buildRatingPayload, type ActivityStamp, type RatingPayloadData } from './ratingPayload';
 import type { HomeMeal } from '../contexts/ListsContext';
+
+export type { ActivityStamp } from './ratingPayload';
 
 export interface CommunityRating {
   id: string;
@@ -85,34 +88,24 @@ export interface FriendsStats {
 /**
  * Publish a user's rating to the community table (called when user rates a restaurant).
  */
+/**
+ * Upsert a user's rating into the community table.
+ *
+ * `activityAt` decides whether this write counts as rating activity —
+ * i.e. whether it resurfaces in every friend's feed. It defaults to
+ * "no", because most callers here are housekeeping (coordinates, a
+ * settle nudge, a device re-sync) and none of that is news. See
+ * lib/ratingPayload for the full reasoning.
+ */
 export async function publishCommunityRating(
   userId: string,
   restaurantId: string,
-  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[]; lat?: number; lng?: number; photoUrl?: string; ratingMethod?: string }
+  data: RatingPayloadData,
+  activityAt: ActivityStamp = undefined,
 ): Promise<string | null> {
   if (!supabaseConfigured || !userId) return null;
   try {
-    const payload: any = {
-      user_id: userId,
-      restaurant_id: restaurantId,
-      restaurant_name: data.name,
-      score: data.score,
-      notes: data.notes,
-      cuisine: data.cuisine,
-      price: data.price,
-      address: data.address,
-      visit_date: data.visitDate,
-      tags: data.tags,
-      would_return: data.wouldReturn,
-      friend_ids: data.friendIds || [],
-      updated_at: new Date().toISOString(),
-    };
-    if (data.lat != null) payload.lat = data.lat;
-    if (data.lng != null) payload.lng = data.lng;
-    if (data.photoUrl) payload.photo_url = data.photoUrl;
-    // Only stamped when known — omitting the key on legacy rows leaves any
-    // previously-published method untouched (upsert only writes present keys).
-    if (data.ratingMethod) payload.rating_method = data.ratingMethod;
+    const payload = buildRatingPayload(userId, restaurantId, data, activityAt);
     // Return the row id: publishing a rating as a post needs it to stamp
     // posts.rating_id, which is what keeps one meal to one feed card.
     const { data: row, error } = await supabase.from('community_ratings')
@@ -576,7 +569,7 @@ const OPTIONAL_PROFILE_COLUMNS = new Set([
  * wizard could never finish signup (skipping the city step worked, because
  * then the payload carried no home_* keys at all). Callers use this to drop
  * the unknown column and retry — an optional field must never cost someone
- * their account. See migration 065 for the database-side repair.
+ * their account. See migration 067 for the database-side repair.
  */
 export function missingSchemaColumn(error: { code?: string; message?: string } | null): string | null {
   if (!error) return null;
@@ -858,6 +851,23 @@ export async function getUserRatings(userId: string): Promise<CommunityRating[]>
     if (error) return [];
     return (data || []) as CommunityRating[];
   } catch { return []; }
+}
+
+/**
+ * The id of a user's own rating row for one restaurant, if it exists.
+ * Likes and comments hang off `community_ratings.id`, but the app tracks
+ * ratings locally by restaurantId — this is the bridge that lets a
+ * restaurant page ask "what did people say about MY rating of this
+ * place?" without pulling the user's entire rating history.
+ */
+export async function getOwnRatingId(userId: string, restaurantId: string): Promise<string | null> {
+  if (!supabaseConfigured || !userId || !restaurantId) return null;
+  try {
+    const { data, error } = await supabase.from('community_ratings')
+      .select('id').eq('user_id', userId).eq('restaurant_id', restaurantId).maybeSingle();
+    if (error || !data) return null;
+    return (data as { id: string }).id;
+  } catch { return null; }
 }
 
 /** Get all photos by a specific user */

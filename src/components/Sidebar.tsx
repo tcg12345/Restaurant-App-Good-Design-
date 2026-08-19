@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
@@ -39,6 +40,10 @@ export const Sidebar: React.FC = () => {
   const { profile, pendingRequestCount } = useAuth();
   const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
+  // Friend requests and alerts both live behind the Circle button, so the
+  // badge on it has to speak for both.
+  const { unreadCount: alertCount } = useNotifications();
+  const circleBadge = pendingRequestCount + alertCount;
   // One "Post" entry covers photos AND video — the user picks media
   // first (Instagram-style) and the selection routes itself: a single
   // video continues as a reel, everything else as a post.
@@ -350,17 +355,26 @@ export const Sidebar: React.FC = () => {
             >
               <span className="relative flex-shrink-0">
                 <Users size={20} strokeWidth={(circleOpen || isCircleActive) ? 2.4 : 1.9} className={cn((circleOpen || isCircleActive) ? 'text-on-surface' : 'text-on-surface/65')} />
-                {pendingRequestCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
-                    {pendingRequestCount > 9 ? '9+' : pendingRequestCount}
+                {circleBadge > 0 && (
+                  <span className={cn(
+                    'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface',
+                    // A waiting friend request is the more urgent of the two.
+                    pendingRequestCount > 0 ? 'bg-red-500' : 'bg-primary',
+                  )}>
+                    {circleBadge > 9 ? '9+' : circleBadge}
                   </span>
                 )}
               </span>
               {!collapsed && (
                 <>
                   <span className="truncate flex-1 text-left">Circle</span>
-                  {pendingRequestCount > 0 && (
-                    <span className="text-[11px] font-bold text-red-500 tabular-nums">{pendingRequestCount}</span>
+                  {circleBadge > 0 && (
+                    <span className={cn(
+                      'text-[11px] font-bold tabular-nums',
+                      pendingRequestCount > 0 ? 'text-red-500' : 'text-primary',
+                    )}>
+                      {circleBadge}
+                    </span>
                   )}
                 </>
               )}

@@ -2879,7 +2879,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             r.lng = lng;
             saveRestaurantGeo(r.restaurant_id, lat, lng);
             // These are the CURRENT USER's own ratings, so patching the
-            // community row is allowed under RLS.
+            // community row is allowed under RLS. No activity stamp: this
+            // is a coordinate backfill for a map pin, and stamping it
+            // republished a whole run of old ratings into every friend's
+            // feed as "rated 2 minutes ago · edited".
             publishCommunityRating(r.user_id, r.restaurant_id, {
               name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
               price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,

@@ -1,4 +1,4 @@
--- 065: Repair the optional user_profiles columns — fixes signup dead-ending
+-- 067: Repair the optional user_profiles columns — fixes signup dead-ending
 -- on "Could not find the 'home_city' column of 'user_profiles' in the
 -- schema cache".
 -- ════════════════════════════════════════════════════════════════════
