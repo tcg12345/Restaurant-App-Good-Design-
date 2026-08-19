@@ -23,6 +23,12 @@ export interface PlaceResult {
   fullAddress: string;
   photoUrl: string | null;
   types: string[];
+  /** Google's single best type for the place, and its localized human
+   *  label. Far more reliable than `types` for cuisine — see
+   *  lib/cuisine.ts. Undefined on places saved before these were
+   *  requested, which the resolver handles. */
+  primaryType?: string;
+  primaryTypeDisplayName?: string;
   userRatingCount: number;
   /** Optional — Google v1 returns these when requested in the FieldMask.
    *  Used by formatLocationLabel() to build "Neighborhood, Borough" /
@@ -104,6 +110,8 @@ interface GooglePlace {
   formattedAddress?: string;
   addressComponents?: AddressComponent[];
   types?: string[];
+  primaryType?: string;
+  primaryTypeDisplayName?: { text: string };
   userRatingCount?: number;
   regularOpeningHours?: { weekdayDescriptions?: string[]; openNow?: boolean };
 }
@@ -122,6 +130,8 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     // See block comment above: Places Photos media is never requested.
     photoUrl: null,
     types: p.types || [],
+    primaryType: p.primaryType,
+    primaryTypeDisplayName: p.primaryTypeDisplayName?.text,
     userRatingCount: p.userRatingCount ?? 0,
     hours: p.regularOpeningHours?.weekdayDescriptions,
   }));
@@ -143,7 +153,13 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // Billing: searches already request rating/priceLevel/userRatingCount, which
 // put them in the Enterprise SKU — regularOpeningHours is the same tier, so
 // adding it does not change the per-request cost.
-const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.userRatingCount,places.regularOpeningHours';
+// primaryType / primaryTypeDisplayName are what make cuisine resolvable
+// outside big cities: rural places routinely come back with types =
+// ['restaurant','point_of_interest','establishment'] while primaryType says
+// `barbecue_restaurant`. Both are Pro-tier fields and these requests are
+// already Enterprise (rating / priceLevel / userRatingCount), so asking for
+// them does not change the per-request cost. See lib/cuisine.ts.
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.primaryType,places.primaryTypeDisplayName,places.userRatingCount,places.regularOpeningHours';
 
 // Google's `places:searchText` endpoint only accepts `locationRestriction`
 // with a `rectangle`; passing a `circle` there returns a 400. (The
@@ -704,7 +720,7 @@ export async function searchPlacesByTextPaged(
 // endpoint is separately billed and every rendered image is its own call.
 // The detail page now surfaces user-uploaded photos only; if none exist it
 // shows a "No photos added yet" placeholder.
-const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,addressComponents,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
+const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,addressComponents,types,primaryType,primaryTypeDisplayName,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
 
 // In-memory cache for place details (5 min TTL)
 const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
@@ -755,6 +771,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     photoUrl: null,
     photoUrls: [],
     types: p.types || [],
+    primaryType: (p as GooglePlace).primaryType,
+    primaryTypeDisplayName: (p as GooglePlace).primaryTypeDisplayName?.text,
     userRatingCount: p.userRatingCount ?? 0,
     phone: p.nationalPhoneNumber || '',
     website: p.websiteUri || '',

@@ -31,13 +31,13 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { cuisineLabel as placeCuisineLabel, labelForCuisineType } from '../lib/cuisine';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
   formatLocationLabel,
   priceLevelToString,
-  CUISINE_TYPES,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { isAllowedAppPath } from '../lib/app-routes';
@@ -62,24 +62,10 @@ import { uploadPhoto } from '../lib/images';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
 
-const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
-  const out: Record<string, string> = {};
-  for (const entry of CUISINE_TYPES) {
-    if (entry.type) out[entry.type] = entry.label;
-  }
-  return out;
-})();
-
-/** Map a Google place's types array to a human-readable cuisine label.
- *  Mirrors the helper LocationPage uses locally — duplicated here so
- *  this component has no dependency on LocationPage's internals. */
-function inferCuisineLabel(types: string[]): string {
-  for (const t of types) {
-    const label = GOOGLE_TYPE_TO_CUISINE_LABEL[t];
-    if (label && label !== 'All') return label;
-  }
-  return '';
-}
+/** Cuisine for a place. One shared resolver — lib/cuisine — so this and
+ *  LocationPage can't drift apart, and both get primaryType. Aliased
+ *  because buildSuggestions below has its own local `cuisineLabel`. */
+const inferCuisineLabel = placeCuisineLabel;
 
 export interface AssistantUser {
   username: string;
@@ -299,7 +285,7 @@ function buildCompactRestaurants(
   origin: { lat: number; lng: number } | null,
 ): CompactRestaurant[] {
   return visible.slice(0, 50).map((p) => {
-    const cuisine = inferCuisineLabel(p.types);
+    const cuisine = inferCuisineLabel(p);
     const priceLabel = priceLevelToString(p.priceLevel);
     const score = p.rating > 0 ? (p.rating * 2).toFixed(1) : '';
     const placeMeta = meta[p.id];
@@ -585,7 +571,7 @@ const ChatTurn = React.memo<ChatTurnProps>(({
               const scoreClass = score >= 8
                 ? 'is-good'
                 : score >= 5 ? 'is-mid' : 'is-low';
-              const cuisine = inferCuisineLabel(place.types);
+              const cuisine = inferCuisineLabel(place);
               const priceLabel = priceLevelToString(place.priceLevel);
               const placeMeta = restaurantMeta[place.id];
               const areaLabel = formatLocationLabel(
@@ -765,9 +751,7 @@ interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
  *  so the cards read as "about this search", not boilerplate. `prompt` is
  *  sent to the model; `title` / `subtitle` drive the horizontal card. */
 function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
-  const cuisineLabel = (filters.cuisines?.[0] && (
-    GOOGLE_TYPE_TO_CUISINE_LABEL[filters.cuisines[0]] || ''
-  )) || '';
+  const cuisineLabel = labelForCuisineType(filters.cuisines?.[0]);
   const cuisineLc = cuisineLabel.toLowerCase();
   const hood = filters.neighborhoods?.[0] || '';
   const area = hood || shortCity;
@@ -1946,7 +1930,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     return next;
                   });
                   const lines = found.slice(0, 10).map((p, i) => {
-                    const cuisine = inferCuisineLabel(p.types);
+                    const cuisine = inferCuisineLabel(p);
                     const price = priceLevelToString(p.priceLevel);
                     const score = p.rating > 0 ? `${(p.rating * 2).toFixed(1)}/10` : '';
                     const meta = [cuisine, price, score].filter(Boolean).join(' · ');

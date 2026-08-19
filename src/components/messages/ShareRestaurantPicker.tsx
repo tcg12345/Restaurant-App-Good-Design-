@@ -38,7 +38,7 @@ function placeToShared(p: PlaceResult): SharedRestaurant {
     restaurantId: p.id,
     name: p.name,
     image: p.photoUrl || '',
-    cuisine: getCuisineLabel(p.types) || '',
+    cuisine: getCuisineLabel(p),
     price: priceLevelToString(p.priceLevel) || '',
     address: p.address || '',
     isReview: false,

@@ -43,24 +43,14 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
-import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { cuisineLabel } from '../lib/cuisine';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { PhotoLibraryGrid } from './PhotoLibraryGrid';
 import { ModalFloatingNav } from './ModalFloatingNav';
 
 // Build a Google Places type → human label lookup once.
-const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
-for (const c of CUISINE_TYPES) {
-  if (c.type) PLACE_TYPE_TO_CUISINE[c.type] = c.label;
-}
-const cuisineFromTypes = (types: string[] | undefined): string => {
-  if (!types) return '';
-  for (const t of types) {
-    if (PLACE_TYPE_TO_CUISINE[t]) return PLACE_TYPE_TO_CUISINE[t];
-  }
-  return '';
-};
 
 const DEFAULT_LAT = 40.735;
 const DEFAULT_LNG = -74.027;
@@ -405,7 +395,7 @@ export const AddReelModal: React.FC = () => {
         if (seen.has(p.id)) continue;
         seen.add(p.id);
         items.push({
-          id: p.id, name: p.name, cuisine: cuisineFromTypes(p.types),
+          id: p.id, name: p.name, cuisine: cuisineLabel(p),
           price: priceLevelToString(p.priceLevel) || '',
           address: p.address || p.fullAddress || '',
           image: undefined, score: ratingScoreById.get(p.id), fromUser: false,

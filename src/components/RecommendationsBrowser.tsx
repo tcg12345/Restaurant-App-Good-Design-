@@ -322,7 +322,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     () =>
       results.map((p) => ({
         place: p,
-        cuisineLabel: getCuisineLabel(p.types || []),
+        cuisineLabel: getCuisineLabel(p),
         distanceMi: target
           ? haversineKm({ lat: p.lat, lng: p.lng }, { lat: target.lat, lng: target.lng }) * 0.621371
           : Number.NaN,

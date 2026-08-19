@@ -319,7 +319,7 @@ export const SearchPopup: React.FC<Props> = ({
                         // (location kept for context); else the usual derived sub.
                         const sub = mich
                           ? [mich.cuisine, michelinPriceDisplay(mich), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ')
-                          : [getCuisineLabel(p.types || []), priceLevelToString(p.priceLevel), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ');
+                          : [getCuisineLabel(p), priceLevelToString(p.priceLevel), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ');
                         return (
                           <PopupRow
                             key={p.id}

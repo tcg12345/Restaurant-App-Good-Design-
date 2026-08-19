@@ -9,7 +9,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
-import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
+import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
+import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
@@ -29,15 +30,22 @@ export function formatReviewCount(count: number): string {
   return String(count);
 }
 
-export function getCuisineLabel(types: string[]): string {
-  for (const t of types) {
-    const match = CUISINE_TYPES.find((c) => c.type === t);
-    if (match && match.label !== 'All') return match.label;
-  }
-  if (types.includes('restaurant')) return 'Restaurant';
-  if (types.includes('cafe')) return 'Café';
-  if (types.includes('bakery')) return 'Bakery';
-  return 'Restaurant';
+/**
+ * A place's cuisine label, or '' when we genuinely don't know.
+ *
+ * Thin wrapper over lib/cuisine so every call site shares one resolution
+ * order. Accepts a whole place OR a bare `types` array — passing the place
+ * is strictly better, since that's what carries `primaryType` and
+ * `primaryTypeDisplayName`.
+ *
+ * It used to answer 'Restaurant' when it had nothing, which read as a real
+ * cuisine everywhere downstream: rural places showed "Restaurant" as their
+ * cuisine and saved ratings carried it, which is how profile top lists grew
+ * a "Restaurant" category. Unknown is '' now and drops out of the meta
+ * lines, which are all built with .filter(Boolean).
+ */
+export function getCuisineLabel(source: string[] | CuisineSource): string {
+  return cuisineLabel(Array.isArray(source) ? { types: source } : source);
 }
 
 export function getTodayHours(hours: string[]): string {
@@ -251,7 +259,7 @@ export function useRestaurantDetail() {
       id: place.id,
       name: place.name,
       image: place.photoUrl || '',
-      cuisine: getCuisineLabel(place.types),
+      cuisine: getCuisineLabel(place),
       price: priceLevelToString(place.priceLevel),
       address: place.fullAddress || place.address,
       lat: place.lat,
@@ -349,7 +357,7 @@ export function useRestaurantDetail() {
   const cuisine = michelin
     ? michelin.cuisine
     : place
-      ? getCuisineLabel(place.types)
+      ? getCuisineLabel(place)
       : '';
 
   // Load community photos: the cover first (one tiny row → instant hero), then
