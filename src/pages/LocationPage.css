@@ -77,8 +77,19 @@
 /* Button reset for the page's own chrome. The shared filter sheet
    (.fs-overlay, from components/filterSheet.css) is carved out: its
    single-class button styles (.fs-pill, .fs-segment-item, …) would lose
-   to this higher-specificity reset and render unpadded/unstyled. */
-.location-page-root button:not(.fs-overlay *) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+   to this reset and render unpadded/unstyled.
+   
+   The carve-out MUST stay inside :where(). A bare :not(.fs-overlay *)
+   takes the specificity of its argument, which lifted this reset to
+   (0,2,1) — above every `.location-page-root .thing` rule in this file
+   (0,2,0). So the reset was quietly beating the page's own chrome: chips,
+   toggles, the sort control, the view switcher and every map overlay
+   button rendered with no padding, no background, no border and inherited
+   16px/400 type — which is why the header's cuisines ran together as one
+   string and "Open map" showed up as bare text in a shadow ring. :where()
+   contributes zero specificity, so the reset lands at (0,1,1) and normalises
+   only buttons nothing else styles, which is all it was ever meant to do. */
+.location-page-root button:not(:where(.fs-overlay *)) { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
 .location-page-root a { color: inherit; text-decoration: none; }
 
 /* ============ DARK MODE ============
@@ -130,8 +141,10 @@
   --shadow-md: 0 6px 18px -8px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.7), 0 4px 10px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
-/* Hardcoded light surfaces that don't ride a token — flip explicitly. */
-.dark .location-page-root .minimap-expand:hover { background: var(--surface); }
+/* Hardcoded light surfaces that don't ride a token — flip explicitly.
+   The mini-map controls are deliberately NOT in here: the canvas under
+   them stays light-v11 in dark mode, so they keep the light-map palette
+   pinned on .minimap. */
 .dark .lp-chat-history-search input:focus { background: var(--surface); }
 
 /* ============ PAGE CONTAINER ============ */
@@ -216,15 +229,36 @@
   backdrop-filter: saturate(160%) blur(16px);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
   margin: 0 -24px 22px;
-  padding: 14px 24px;
+  padding: 14px 28px;
   border-bottom: 1px solid var(--border);
   box-shadow: 0 14px 28px -26px rgba(31, 26, 23, 0.35);
-  display: flex; align-items: center; gap: 4px;
-  /* Never scroll the bar — at narrow widths chips wrap to a new row
-     instead. overflow:visible is critical so the .fb-menu dropdown
-     opening below a chip isn't clipped by the bar's bounds. */
-  flex-wrap: wrap;
+  /* Three zones — back · what you're filtering by · how you're viewing —
+     with a wide gap between them, so the bar reads as groups rather than
+     one undifferentiated run of words. Only the filters zone wraps. */
+  display: flex; align-items: center; gap: 10px;
+  /* overflow:visible is critical so the .fb-menu dropdown opening below
+     the Sort control isn't clipped by the bar's bounds. */
+  flex-wrap: nowrap;
   overflow: visible;
+}
+/* The two zones. `is-filters` takes the slack and is the only thing that
+   may wrap; `is-actions` is held together so Sort, Filters and the view
+   switcher can never end up on different rows from each other. */
+.location-page-root .fb-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.location-page-root .fb-group.is-filters {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.location-page-root .fb-group.is-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-left: auto;
 }
 .location-page-root .fb-back {
   flex-shrink: 0;
@@ -253,19 +287,27 @@
      expansion — it would overlap the neighbours). */
   position: relative;
   display: inline-flex; align-items: center; gap: 7px;
-  height: 34px; padding: 0 12px;
+  height: 34px; padding: 0 13px;
   border-radius: 999px;
-  background: transparent;
-  border: none;
+  /* A hairline at rest is what makes five cuisines read as five
+     buttons. Transparent chips at a 4px gap rendered as one string —
+     "Japanese Italian French Korean American" — with nothing to say any
+     of it was tappable. */
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   font-size: 13px; font-weight: 600;
   color: var(--ink-2);
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background-color .18s ease, color .18s ease;
+  transition: background-color .18s ease, color .18s ease, border-color .18s ease;
 }
-.location-page-root .fb-chip:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
+.location-page-root .fb-chip:hover {
+  background: rgba(31, 26, 23, 0.05);
+  border-color: rgba(31, 26, 23, 0.3);
+  color: var(--ink);
+}
 .location-page-root .fb-chip.active {
-  background: var(--ink); color: var(--bg);
+  background: var(--ink); color: var(--bg); border-color: var(--ink);
 }
 .location-page-root .fb-chip::after {
   content: '';
@@ -298,21 +340,27 @@
   letter-spacing: 0;
   margin-left: 4px;
 }
-.location-page-root .fb-divider { width: 1px; height: 16px; background: var(--border-strong); margin: 0 5px; flex-shrink: 0; }
+.location-page-root .fb-divider { width: 1px; height: 22px; background: var(--border-strong); margin: 0 2px; flex-shrink: 0; }
 .location-page-root .fb-toggle {
   display: inline-flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 11px;
+  height: 34px; padding: 0 13px;
   border-radius: 999px;
-  background: transparent;
-  border: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   font-size: 13px; font-weight: 600;
   color: var(--ink-2);
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background-color .18s ease, color .18s ease;
+  transition: background-color .18s ease, color .18s ease, border-color .18s ease;
 }
-.location-page-root .fb-toggle:hover { background: rgba(31, 26, 23, 0.06); color: var(--ink); }
-.location-page-root .fb-toggle.active { color: var(--green); background: var(--green-soft); }
+.location-page-root .fb-toggle:hover {
+  background: rgba(31, 26, 23, 0.05);
+  border-color: rgba(31, 26, 23, 0.3);
+  color: var(--ink);
+}
+.location-page-root .fb-toggle.active {
+  color: var(--green); background: var(--green-soft); border-color: transparent;
+}
 .location-page-root .fb-toggle .sw {
   width: 28px; height: 16px;
   background: var(--border-strong);
@@ -331,11 +379,10 @@
 }
 .location-page-root .fb-toggle.active .sw { background: var(--green); }
 .location-page-root .fb-toggle.active .sw::after { left: 14px; }
-.location-page-root .fb-spacer { flex: 1; }
 .location-page-root .fb-view-group {
-  display: flex; gap: 2px;
+  display: flex; gap: 3px;
   background: rgba(31, 26, 23, 0.06);
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px;
   flex-shrink: 0;
@@ -359,16 +406,19 @@
 .location-page-root .fb-sort {
   position: relative;
   display: inline-flex; align-items: center; gap: 6px;
-  height: 34px; padding: 0 11px;
+  height: 34px; padding: 0 13px;
   border-radius: 999px;
-  background: transparent;
-  border: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   font-size: 13px; font-weight: 600;
   color: var(--ink);
   flex-shrink: 0;
-  transition: background-color .18s ease;
+  transition: background-color .18s ease, border-color .18s ease;
 }
-.location-page-root .fb-sort:hover { background: rgba(31, 26, 23, 0.06); }
+.location-page-root .fb-sort:hover {
+  background: rgba(31, 26, 23, 0.05);
+  border-color: rgba(31, 26, 23, 0.3);
+}
 .location-page-root .fb-sort .label {
   color: var(--muted);
   font-weight: 500;
@@ -402,7 +452,15 @@
 .location-page-root .fb-menu-item .check { color: var(--accent); }
 
 /* ============ MINI MAP ============ */
+/* The canvas is always mapbox/light-v11 — it does NOT flip with the app
+   theme. Its floating controls therefore ride a pinned light-map palette
+   instead of --ink/--surface: on the token path, dark mode painted "63
+   spots nearby" as light text on a white pill and sank the expand icon
+   into its own white disc. */
 .location-page-root .minimap {
+  --map-ink: #1C1816;
+  --map-surface: #FFFFFF;
+  --map-hairline: rgba(31, 26, 23, 0.16);
   position: relative;
   z-index: 1;
   border-radius: var(--radius-lg);
@@ -550,25 +608,25 @@
 /* "Search this area" — floating pill, top-centre. */
 .location-page-root .minimap-search-here {
   position: absolute;
-  top: 14px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
   display: inline-flex; align-items: center; gap: 6px;
   height: 34px;
   padding: 0 14px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
+  background: var(--map-surface);
+  border: 1px solid var(--map-hairline);
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--map-ink);
   box-shadow: 0 4px 14px -4px rgba(28, 24, 22, 0.25);
   cursor: pointer;
   transition: border-color .15s, background .15s, transform .12s;
 }
 .location-page-root .minimap-search-here:hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--map-ink);
   transform: translateX(-50%) translateY(-1px);
 }
 .location-page-root .minimap-search-here:disabled {
@@ -577,13 +635,15 @@
 }
 .location-page-root .minimap-search-here svg { width: 14px; height: 14px; }
 
+/* All four map overlays share a 16px inset from the map's edge, which
+   keeps the pills clear of its 20px corner radius. */
 .location-page-root .minimap-cta {
-  position: absolute; bottom: 14px; right: 14px;
+  position: absolute; bottom: 16px; right: 16px;
   z-index: 10;
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 16px;
-  background: var(--ink);
-  color: var(--bg);
+  background: var(--map-ink);
+  color: var(--map-surface);
   font-size: 13px; font-weight: 600;
   border-radius: 999px;
   box-shadow: var(--shadow-md);
@@ -728,16 +788,16 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 .location-page-root .minimap-info {
-  position: absolute; top: 14px; left: 14px;
+  position: absolute; top: 16px; left: 16px;
   z-index: 10;
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 12px;
-  background: rgba(255,255,255,0.94);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(4px);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--map-ink);
 }
 .location-page-root .minimap-info .pulse {
   width: 8px; height: 8px; border-radius: 50%;
@@ -747,8 +807,8 @@
 }
 .location-page-root .minimap-expand {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 16px;
+  right: 16px;
   z-index: 10;
   width: 34px;
   height: 34px;
@@ -757,9 +817,9 @@
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  border: 1px solid var(--border);
+  border: 1px solid var(--map-hairline);
   border-radius: 50%;
-  color: var(--ink);
+  color: var(--map-ink);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   cursor: pointer;
   transition: transform .18s, box-shadow .18s, background .15s;

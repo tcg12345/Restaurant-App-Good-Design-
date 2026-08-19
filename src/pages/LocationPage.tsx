@@ -2286,6 +2286,12 @@ export const LocationPage: React.FC = () => {
             <ArrowLeft />
           </button>
 
+          <span className="fb-divider" />
+
+          {/* What you're filtering BY. Flexes, and is the only part
+              allowed to wrap — so a narrow desktop gets two tidy rows
+              instead of four ragged ones. */}
+          <div className="fb-group is-filters">
           {/* Clear-all-cuisines chip */}
           <button
             type="button"
@@ -2321,9 +2327,12 @@ export const LocationPage: React.FC = () => {
             <span className="sw" />
             Open now
           </button>
+          </div>
 
-          <span className="fb-spacer" />
-
+          {/* How you're viewing the results. Held together so Sort,
+              Filters and the view switcher can never end up on
+              different rows from each other. */}
+          <div className="fb-group is-actions">
           {/* Sort */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
@@ -2380,6 +2389,7 @@ export const LocationPage: React.FC = () => {
             >
               <MapIcon /> Map
             </button>
+          </div>
           </div>
         </div>
         )}
