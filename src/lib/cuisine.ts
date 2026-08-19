@@ -133,6 +133,86 @@ export function labelForCuisineType(type: string | undefined): string {
   return (type && TYPE_TO_LABEL[type]) || '';
 }
 
+/* ── Inference from the restaurant's name ──────────────────────────────
+   The rural long tail is exactly where Google's structured data is
+   thinnest and where names are most explicit: a "Taqueria", a "Trattoria",
+   a "Sushi House" tell you what they are. This is a guess and is ranked
+   below every human source in the shared cache (migration 068) — it is
+   shown, never persisted into someone's own rating.
+
+   Two rules keep it accurate rather than merely productive:
+     • whole words only, so "Barbounia" is not barbecue and "Phoenix" is
+       not pho;
+     • no weak tokens. "Grill", "Kitchen", "House", "Bar" and "Restaurant"
+       appear in the names of every cuisine on earth and are left out. */
+const NAME_HINTS: Array<[RegExp, string]> = [
+  // Cuisine-specific venue words — the strongest signal a name can carry.
+  [/\b(taqueria|taquer[ií]a|cantina|burrito|burritos)\b/i, 'Mexican'],
+  [/\b(taco|tacos)\b/i, 'Taco'],
+  [/\b(trattoria|osteria|ristorante|enoteca)\b/i, 'Italian'],
+  [/\b(pizzeria|pizza)\b/i, 'Pizza'],
+  [/\b(sushi|izakaya|omakase|yakitori)\b/i, 'Sushi'],
+  [/\bramen\b/i, 'Ramen'],
+  [/\b(pho|banh\s?mi)\b/i, 'Vietnamese'],
+  [/\b(brasserie|bistro|bistrot|creperie|cr[êe]perie|boulangerie)\b/i, 'French'],
+  [/\b(patisserie|p[âa]tisserie|bakery|bakehouse|panaderia|panader[ií]a)\b/i, 'Bakery'],
+  [/\b(taverna|souvlaki|gyro|gyros)\b/i, 'Greek'],
+  [/\b(tandoori|masala|curry|biryani|dhaba)\b/i, 'Indian'],
+  [/\b(bbq|barbecue|barbeque|smokehouse|pit\s?bbq)\b/i, 'BBQ'],
+  [/\b(steakhouse|chophouse)\b/i, 'Steakhouse'],
+  [/\b(cantonese|dim\s?sum|wok|szechuan|sichuan|hunan)\b/i, 'Chinese'],
+  [/\b(kebab|kebob|shawarma|doner|d[öo]ner)\b/i, 'Kebab'],
+  [/\b(trattoria|paella|tapas)\b/i, 'Tapas'],
+  [/\b(pierogi|pierogies)\b/i, 'Polish'],
+  [/\b(oyster|oysters|lobster|clam\s?shack|fish\s?house|crab\s?house|seafood)\b/i, 'Seafood'],
+  [/\b(creamery|gelato|gelateria|ice\s?cream)\b/i, 'Ice Cream'],
+  [/\b(espresso|roasters|roasting|coffee|caff[èe]|coffeehouse)\b/i, 'Coffee Shop'],
+  [/\b(delicatessen|deli)\b/i, 'Deli'],
+  [/\b(diner|luncheonette)\b/i, 'Diner'],
+  [/\b(alehouse|brewhouse|brewpub|tavern|publick\s?house)\b/i, 'Pub'],
+  [/\b(noodle|noodles)\b/i, 'Noodle'],
+  [/\b(cafe|caf[ée])\b/i, 'Cafe'],
+  // Nationality words in a name are near-unambiguous, and are checked last
+  // so a more specific venue word above wins ("Thai Noodle" → Noodle).
+  [/\bmexican\b/i, 'Mexican'],
+  [/\bitalian\b/i, 'Italian'],
+  [/\bchinese\b/i, 'Chinese'],
+  [/\bjapanese\b/i, 'Japanese'],
+  [/\bkorean\b/i, 'Korean'],
+  [/\bthai\b/i, 'Thai'],
+  [/\bvietnamese\b/i, 'Vietnamese'],
+  [/\bindian\b/i, 'Indian'],
+  [/\bgreek\b/i, 'Greek'],
+  [/\bfrench\b/i, 'French'],
+  [/\bspanish\b/i, 'Spanish'],
+  [/\bturkish\b/i, 'Turkish'],
+  [/\blebanese\b/i, 'Lebanese'],
+  [/\bethiopian\b/i, 'Ethiopian'],
+  [/\bperuvian\b/i, 'Peruvian'],
+  [/\bcuban\b/i, 'Cuban'],
+  [/\bbrazilian\b/i, 'Brazilian'],
+  [/\bgerman\b/i, 'German'],
+  [/\birish\b/i, 'Irish'],
+  [/\bpolish\b/i, 'Polish'],
+  [/\bcaribbean\b/i, 'Caribbean'],
+  [/\bmediterranean\b/i, 'Mediterranean'],
+  [/\bbarbecue\b/i, 'BBQ'],
+];
+
+/**
+ * Guess a cuisine from the restaurant's name, or '' when the name says
+ * nothing. Always a guess — rank it below every human source, and don't
+ * write it into a user's own rating.
+ */
+export function cuisineFromName(name: string | undefined): string {
+  const n = (name || '').trim();
+  if (!n) return '';
+  for (const [pattern, label] of NAME_HINTS) {
+    if (pattern.test(n)) return label;
+  }
+  return '';
+}
+
 /** Convenience for the many call sites that only hold a `types` array. */
 export function cuisineFromTypes(types: string[] | undefined): string {
   return cuisineLabel({ types });

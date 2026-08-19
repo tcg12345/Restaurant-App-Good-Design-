@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveCuisine, cuisineLabel, canonicalCuisineLabel, cuisineFromTypes, labelForCuisineType,
+  cuisineFromName,
 } from './cuisine';
 
 /** What Google returns for a rural place: it knows the type, but `types`
@@ -91,5 +92,64 @@ describe('labelForCuisineType', () => {
     expect(labelForCuisineType('vietnamese_restaurant')).toBe('Vietnamese');
     expect(labelForCuisineType('restaurant')).toBe('');
     expect(labelForCuisineType(undefined)).toBe('');
+  });
+});
+
+describe('cuisineFromName', () => {
+  it('reads the cuisine-specific venue words rural names are full of', () => {
+    const cases: Array<[string, string]> = [
+      ['Taqueria El Sol', 'Mexican'],
+      ['Trattoria Bella', 'Italian'],
+      ["Tony's Pizzeria", 'Pizza'],
+      ['Sakura Sushi House', 'Sushi'],
+      ['Ippudo Ramen', 'Ramen'],
+      ['Pho 88', 'Vietnamese'],
+      ['Le Petit Bistro', 'French'],
+      ['Athens Taverna', 'Greek'],
+      ['Tandoori Nights', 'Indian'],
+      ['Bubba’s Smokehouse', 'BBQ'],
+      ['The Chophouse', 'Steakhouse'],
+      ['Golden Wok', 'Chinese'],
+      ['Ali Baba Kebab', 'Kebab'],
+      ['Harbor Oyster Bar', 'Seafood'],
+      ['Village Creamery', 'Ice Cream'],
+      ['Ridge Road Roasters', 'Coffee Shop'],
+      ['Katz Delicatessen', 'Deli'],
+      ['Route 9 Diner', 'Diner'],
+      ['The Old Tavern', 'Pub'],
+    ];
+    for (const [name, label] of cases) {
+      expect([name, cuisineFromName(name)]).toEqual([name, label]);
+    }
+  });
+
+  it('reads a nationality in the name', () => {
+    expect(cuisineFromName('Mario’s Italian Kitchen')).toBe('Italian');
+    expect(cuisineFromName('Thai Basil')).toBe('Thai');
+    expect(cuisineFromName('Addis Ethiopian Cuisine')).toBe('Ethiopian');
+  });
+
+  // The whole value of this source is that it stays accurate. A name that
+  // merely *contains* the letters of a cuisine word must not match, and
+  // words that every cuisine uses must never match at all.
+  it('does not match inside longer words', () => {
+    expect(cuisineFromName('Barbounia')).toBe('');       // not barbecue
+    expect(cuisineFromName('Phoenix Grill')).toBe('');   // not pho
+    expect(cuisineFromName('Woking Man Cafe')).not.toBe('Chinese');
+    expect(cuisineFromName('Thailor Made')).toBe('');    // not thai
+  });
+
+  it('ignores words every cuisine uses', () => {
+    for (const name of [
+      'The Grill', 'Hudson Kitchen', 'The Restaurant', 'Corner Bar',
+      'The Farmhouse', 'Main Street Eatery', 'Nowhere Grill',
+    ]) {
+      expect([name, cuisineFromName(name)]).toEqual([name, '']);
+    }
+  });
+
+  it('is empty for nothing', () => {
+    expect(cuisineFromName('')).toBe('');
+    expect(cuisineFromName(undefined)).toBe('');
   });
 });

@@ -11,6 +11,7 @@ import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../conte
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
+import { settleRestaurantCuisine } from '../lib/restaurant-cuisine';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
@@ -65,6 +66,10 @@ export function useRestaurantDetail() {
   const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(null);
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
+  /** Cuisine settled through the shared cache (migration 068) — the answer
+   *  when Google's payload has none, and the write that gives every other
+   *  screen this place's cuisine. '' until it resolves. */
+  const [settledCuisine, setSettledCuisine] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -254,12 +259,30 @@ export function useRestaurantDetail() {
   // display the street name as a fake city. Keyed off place.id so we
   // don't write on every re-render.
   useEffect(() => {
+    if (!place?.id) return;
+    let cancelled = false;
+    void settleRestaurantCuisine({
+      restaurantId: place.id,
+      name: place.name,
+      michelinCuisine: michelin?.cuisine,
+      place,
+    }).then((settled) => { if (!cancelled) setSettledCuisine(settled); });
+    return () => { cancelled = true; };
+  }, [place, michelin]);
+
+  // Michelin names the cuisine outright; otherwise Google's payload, and
+  // failing that whatever the shared cache settled on for this place.
+  const cuisine = michelin
+    ? michelin.cuisine
+    : (place ? getCuisineLabel(place) : '') || settledCuisine;
+
+  useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
     cacheRestaurantMeta({
       id: place.id,
       name: place.name,
       image: place.photoUrl || '',
-      cuisine: getCuisineLabel(place),
+      cuisine: cuisine || getCuisineLabel(place),
       price: priceLevelToString(place.priceLevel),
       address: place.fullAddress || place.address,
       lat: place.lat,
@@ -269,7 +292,9 @@ export function useRestaurantDetail() {
       // freshness stamp) so cards stop serving a stale cached schedule.
       ...(place.hours != null ? { hours: place.hours, hoursFetchedAt: Date.now() } : {}),
     });
-  }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cacheRestaurantMeta]);
+    // `cuisine` is a dep so the cached meta is rewritten once the shared
+    // cache settles a place Google had nothing for.
+  }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cuisine, cacheRestaurantMeta]);
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
   // place is updated. Used as an effect dep below.
@@ -353,11 +378,6 @@ export function useRestaurantDetail() {
     ? michelinPriceDisplay(michelin)
     : place
       ? (priceLevelToString(place.priceLevel) || communityPrice || '')
-      : '';
-  const cuisine = michelin
-    ? michelin.cuisine
-    : place
-      ? getCuisineLabel(place)
       : '';
 
   // Load community photos: the cover first (one tiny row → instant hero), then

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
+import { getRestaurantCuisineBatch, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
@@ -1788,6 +1789,55 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   }, [cloudLoaded, userId, retryPendingPhotoUploads]);
 
+  /**
+   * Fill in cuisines the app couldn't resolve when the rating was saved.
+   *
+   * A rating stores whatever cuisine was on the card at the time, and for
+   * places Google doesn't describe in `types` — overwhelmingly rural ones —
+   * that was nothing. The shared cache (migration 068) is fed by everyone
+   * who opens such a place's detail page and by every cuisine any user has
+   * already typed, so a blank saved months ago is very often answerable
+   * now. One batched read per session, only for the ratings that need it.
+   *
+   * Deliberately narrow: it only ever FILLS A BLANK, never overwrites a
+   * cuisine the user has, and it ignores cache rows below
+   * PERSIST_CONFIDENCE_FLOOR — a guess read off the restaurant's name is
+   * fine to show on a detail page but must not be written into someone's
+   * own data, where it would be indistinguishable from what they entered.
+   */
+  // Tracks WHICH account this ran for, not merely that it ran — a plain
+  // boolean would skip the pass for the second user on a shared device.
+  const cuisineBackfilledForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cloudLoaded || cuisineBackfilledForRef.current === (userId ?? '')) return;
+    const blanks = ratingsRef.current.filter(
+      (r) => r.restaurantId && !(r.cuisine || '').trim(),
+    );
+    cuisineBackfilledForRef.current = userId ?? '';
+    if (blanks.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const cached = await getRestaurantCuisineBatch(blanks.map((r) => r.restaurantId));
+      if (cancelled || Object.keys(cached).length === 0) return;
+      const now = Date.now();
+      let changed = 0;
+      const next = ratingsRef.current.map((r) => {
+        if ((r.cuisine || '').trim()) return r;
+        const hit = cached[r.restaurantId];
+        if (!hit || hit.confidence < PERSIST_CONFIDENCE_FLOOR) return r;
+        changed++;
+        return { ...r, cuisine: hit.cuisine, updatedAt: now };
+      });
+      if (changed === 0) return;
+      ratingsRef.current = next;
+      setRatings(next);
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+    })();
+    return () => { cancelled = true; };
+  }, [cloudLoaded, userId, syncRatingsToCloud]);
+
   // Pure-updater-safe meta commit: computes the next blob from the eager
   // restaurantMetaRef OUTSIDE setState (same-tick calls build on each other),
   // then persists exactly once. The old pattern ran saveToStorage +
@@ -2384,6 +2434,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Re-rating a previously-deleted restaurant clears its tombstone so it
     // isn't filtered straight back out on the next load.
     untombstone('restaurants', rating.restaurantId);
+    // A cuisine on a saved rating is a fact about the restaurant, not about
+    // this user — contribute it so the next person who sees this place gets
+    // it too. The row carries no user id or score, and it is NOT gated on
+    // the score-unlock threshold: a new user's answer is as true as anyone
+    // else's, and gating it would starve the cache of exactly the rural
+    // places that need it. The server ranks it below a correction and above
+    // a guess.
+    publishRestaurantCuisine(rating.restaurantId, rating.cuisine || '', 'community_single');
     // Derive the save from the freshest ratings we know about — ratingsRef,
     // not the render closure. Same-tick saves (bulk import, fast double-save)
     // each assign the ref before returning, so every call builds on the one
