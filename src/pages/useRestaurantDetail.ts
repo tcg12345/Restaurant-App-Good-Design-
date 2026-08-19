@@ -254,7 +254,7 @@ export function useRestaurantDetail() {
   // visit history whenever it changes (e.g. after saving a new visit,
   // the previous rating is pushed into the visit_history table and we
   // need to see it reflected on the page without a hard reload).
-  const { ratings, cacheRestaurantMeta, rateRestaurant } = useLists();
+  const { ratings, cacheRestaurantMeta } = useLists();
 
   // Cache the place's lat/lng on the meta so list cards can show distance.
   // Persist the FULL formatted address (rather than the truncated short
@@ -318,13 +318,12 @@ export function useRestaurantDetail() {
   /**
    * Propose a cuisine for this restaurant.
    *
-   * It does NOT change what anyone sees. A cuisine everyone reads is not
-   * something one person gets to write — it applies when an admin
-   * approves it, or when enough independent people propose the same
-   * thing (migration 069). What it does change immediately is this
-   * user's OWN rating, if they have one: that copy is theirs, and
-   * leaving it blank would keep the place missing from their own top
-   * lists while the proposal waits.
+   * Changes nothing — not what anyone else sees, and not the suggester's
+   * own rating either. A cuisine applies when an admin approves it, or
+   * when enough independent people propose the same thing (migration
+   * 069), and until then "suggested" means exactly that. Writing it into
+   * their own rating in the meantime made the button do two different
+   * things at once, one of them invisible to the review queue.
    */
   const suggestCuisine = useCallback(async (next: string): Promise<{ ok: boolean; error?: string }> => {
     const label = (next || '').trim();
@@ -342,13 +341,8 @@ export function useRestaurantDetail() {
     if (!res.ok) return res;
 
     setMySuggestion(await getMyCuisineSuggestion(user.id, place.id));
-    // skipSettle: only a text field changed, so there is no score to
-    // re-rank; and with isNewVisit unset this edit carries no activity
-    // stamp, so labelling a place can't hoist an old rating into feeds.
-    const mine = ratings.find((r) => r.restaurantId === place.id);
-    if (mine && mine.cuisine !== label) rateRestaurant({ ...mine, cuisine: label }, { skipSettle: true });
     return { ok: true };
-  }, [place, user, cuisine, ratings, rateRestaurant]);
+  }, [place, user, cuisine]);
 
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
