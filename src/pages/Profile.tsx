@@ -56,6 +56,13 @@ function cityFromAddress(address: string): string | null {
   return parts[parts.length - 1];
 }
 
+/** Human names for the profile columns saveProfile may have to skip, so a
+ *  partial save can tell the user exactly what didn't stick. */
+const PROFILE_FIELD_LABELS: Record<string, string> = {
+  home_city: 'home city', home_lat: 'home city', home_lng: 'home city',
+  bio: 'bio', is_public: 'account visibility',
+};
+
 /** Single neutral gradient behind cards with no photo. Kept identical
  *  across every card so the section reads as a calm row rather than a
  *  bag of colored tiles. */
@@ -1029,9 +1036,18 @@ export const Profile: React.FC = () => {
       homeBase,
     );
     if (result.success) {
-      setEditSuccess(true);
+      // saveProfile drops a column this database doesn't know rather than
+      // failing the whole write (see migration 065). The row saved, but
+      // those fields didn't — say so instead of flashing a success tick
+      // over an edit that only partly landed.
+      const lost = [...new Set((result.droppedColumns ?? []).map((c) => PROFILE_FIELD_LABELS[c] ?? c))];
       await refreshProfile();
-      setTimeout(() => setSettingsPage('main'), 800);
+      if (lost.length) {
+        setEditError(`Saved — but your ${lost.join(' and ')} couldn't be stored. Please try again later.`);
+      } else {
+        setEditSuccess(true);
+        setTimeout(() => setSettingsPage('main'), 800);
+      }
     } else {
       setEditError(result.error || 'Failed to save');
     }
