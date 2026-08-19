@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, Globe, Star, Send, Loader2, Navigation, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { displayCuisine } from '../../lib/cuisine';
 import { ScoreBadge } from '../ScoreBadge';
 import { useLists, type RestaurantRating } from '../../contexts/ListsContext';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -210,7 +211,7 @@ export const ShareRestaurantPicker: React.FC<{
                             <RestaurantRow
                               key={r.restaurantId}
                               name={r.name}
-                              meta={<>{r.cuisine || 'Restaurant'}{r.price ? <span className="text-on-surface/30"> · {r.price}</span> : null}{r.address ? <span className="text-on-surface/30"> · {r.address}</span> : null}</>}
+                              meta={<>{displayCuisine(r.cuisine)}{r.price ? <span className="text-on-surface/30"> · {r.price}</span> : null}{r.address ? <span className="text-on-surface/30"> · {r.address}</span> : null}</>}
                               right={<ScoreBadge rating={r.score} size="sm" />}
                               selected={sel}
                               onClick={() => setPicked(shared)}
@@ -242,7 +243,7 @@ export const ShareRestaurantPicker: React.FC<{
                             <RestaurantRow
                               key={p.id}
                               name={p.name}
-                              meta={<>{shared.cuisine || 'Restaurant'}{shared.price ? <span className="text-on-surface/30"> · {shared.price}</span> : null}{location ? <span className="text-on-surface/30"> · {location}</span> : null}</>}
+                              meta={<>{displayCuisine(shared.cuisine)}{shared.price ? <span className="text-on-surface/30"> · {shared.price}</span> : null}{location ? <span className="text-on-surface/30"> · {location}</span> : null}</>}
                               right={sel ? <span className="w-6 h-6 rounded-full bg-primary text-white grid place-items-center"><Check size={14} strokeWidth={3} /></span> : null}
                               selected={sel}
                               onClick={() => setPicked(shared)}

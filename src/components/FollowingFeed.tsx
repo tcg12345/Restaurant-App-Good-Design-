@@ -14,6 +14,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
+import { displayCuisine } from '../lib/cuisine';
 import { CardShell, CardMedia, MetaRow, SaveButton, AddButton, ScoreBadge } from './cards';
 import { VerifiedBadge } from './VerifiedBadge';
 import { LoadingSkeletonList } from './LoadingSkeleton';
@@ -67,9 +68,11 @@ const timeAgo = (date: string) => {
 // the old meta line read like "New York, NY · $$$$ · New York". Drop those
 // so the meta line stays clean; legit cuisines never start with the city.
 function cleanCuisine(cuisine: string | undefined | null, city: string): string {
-  const c = (cuisine || '').trim();
+  // The Places-type junk is lib/cuisine's list now, so every surface drops
+  // the same strings. The city check stays here — it is this feed's own
+  // problem, not a property of the cuisine.
+  const c = displayCuisine(cuisine);
   if (!c) return '';
-  if (/^(restaurant|food|establishment|point of interest)$/i.test(c)) return '';
   if (city && c.toLowerCase().startsWith(city.toLowerCase())) return '';
   return c;
 }

@@ -8,6 +8,7 @@ import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
 import { usePosts } from '../contexts/PostsContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { displayCuisine } from '../lib/cuisine';
 import { ScoreBadge } from './ScoreBadge';
 import { ScoreRing } from './cards';
 import { RatingStripCard, ratingStripGridClass } from './RatingStripCard';
@@ -298,7 +299,7 @@ const SuggestionsRail: React.FC<{
                   <div className="flex items-start justify-between gap-2.5">
                     <div className="min-w-0">
                       <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary truncate block">
-                        {r.cuisine || 'Restaurant'}
+                        {displayCuisine(r.cuisine)}
                       </span>
                       <h5 className="mt-0.5 font-serif font-semibold text-[16px] text-on-surface leading-[1.18] tracking-[-0.015em] line-clamp-1 group-hover:text-primary transition-colors">
                         {r.name}

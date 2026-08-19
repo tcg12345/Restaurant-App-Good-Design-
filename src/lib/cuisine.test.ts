@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveCuisine, cuisineLabel, canonicalCuisineLabel, cuisineFromTypes, labelForCuisineType,
-  cuisineFromName,
-} from './cuisine';
+  cuisineFromName, isUnknownCuisine, displayCuisine } from './cuisine';
 
 /** What Google returns for a rural place: it knows the type, but `types`
  *  carries only the generic tail. This is the case the whole module is for. */
@@ -256,5 +255,65 @@ describe('resolveCuisine · venues never yield a cuisine', () => {
       primaryTypeDisplayName: 'Fine dining restaurant',
       types: ['fine_dining_restaurant', 'restaurant', 'casino'],
     })?.label).toBe('Fine Dining');
+  });
+});
+
+
+/**
+ * The word "Restaurant" in someone's saved rating.
+ *
+ * For years the resolver ended in an unconditional `return 'Restaurant'`,
+ * so that word is sitting in real rows today — five of the six ratings in
+ * this app that have no usable cuisine say "Restaurant", not "".
+ *
+ * That is why this is a predicate rather than an emptiness check. The
+ * backfill in ListsContext only repairs rows it considers unanswered, so
+ * `if (r.cuisine)` silently excluded exactly the rows that needed fixing.
+ */
+describe('isUnknownCuisine', () => {
+  it('treats the resolver’s old non-answer as unanswered', () => {
+    expect(isUnknownCuisine('Restaurant')).toBe(true);
+    expect(isUnknownCuisine('restaurant')).toBe(true);
+    expect(isUnknownCuisine('  Restaurant  ')).toBe(true);
+  });
+
+  it('treats an empty cuisine as unanswered', () => {
+    expect(isUnknownCuisine('')).toBe(true);
+    expect(isUnknownCuisine('   ')).toBe(true);
+    expect(isUnknownCuisine(null)).toBe(true);
+    expect(isUnknownCuisine(undefined)).toBe(true);
+  });
+
+  it('treats the other Places-type leakage as unanswered', () => {
+    for (const junk of ['Food', 'Establishment', 'Point of interest', 'point_of_interest', 'Store']) {
+      expect(isUnknownCuisine(junk)).toBe(true);
+    }
+  });
+
+  it('leaves real cuisines alone — including the ones that look generic', () => {
+    // These are answers, not fallbacks: a bar is a bar.
+    for (const real of ['Bar', 'Cafe', 'Café', 'Bakery', 'Diner', 'Deli', 'Pub',
+                        'American', 'Fine Dining', 'Steakhouse', 'Wine Bar']) {
+      expect(isUnknownCuisine(real)).toBe(false);
+    }
+  });
+
+  it('does not swallow a cuisine that merely contains the word', () => {
+    expect(isUnknownCuisine('Restaurant Week Special')).toBe(false);
+    expect(isUnknownCuisine('Seafood Restaurant')).toBe(false);
+  });
+});
+
+describe('displayCuisine', () => {
+  it('blanks a non-answer so meta lines drop it instead of printing it', () => {
+    // Every meta line in the app is .filter(Boolean).join(' · ').
+    expect(displayCuisine('Restaurant')).toBe('');
+    expect(displayCuisine('Food')).toBe('');
+    expect(['', '$$$'].filter(Boolean).join(' · ')).toBe('$$$');
+  });
+
+  it('passes a real cuisine through, trimmed', () => {
+    expect(displayCuisine('  Peruvian ')).toBe('Peruvian');
+    expect(displayCuisine('Bar')).toBe('Bar');
   });
 });

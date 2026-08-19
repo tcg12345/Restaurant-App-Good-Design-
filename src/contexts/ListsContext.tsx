@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { supabaseConfigured } from '../lib/supabase';
 import { getRestaurantCuisineBatch, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
 import { lookupCuisines } from '../lib/cuisine-lookup';
+import { isUnknownCuisine } from '../lib/cuisine';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
@@ -1807,11 +1808,22 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    * already typed, so a blank saved months ago is very often answerable
    * now. One batched read per session, only for the ratings that need it.
    *
-   * Deliberately narrow: it only ever FILLS A BLANK, never overwrites a
+   * Deliberately narrow: it only ever replaces a NON-ANSWER, never a
    * cuisine the user has, and it ignores cache rows below
    * PERSIST_CONFIDENCE_FLOOR — a guess read off the restaurant's name is
    * fine to show on a detail page but must not be written into someone's
    * own data, where it would be indistinguishable from what they entered.
+   *
+   * "Non-answer" rather than "blank" is load-bearing. The old resolver
+   * wrote the word "Restaurant" whenever it didn't know, so most rows that
+   * need repairing are not empty — they are confidently wrong. Gating this
+   * on emptiness meant the pass walked straight past five of the six
+   * ratings it existed to fix.
+   *
+   * And when nothing better is found, the non-answer is CLEARED. '' is what
+   * the resolver returns for unknown now; leaving "Restaurant" behind would
+   * keep the app asserting something it does not know, and would re-block
+   * this same pass on the next run.
    */
   // Tracks WHICH account this ran for, not merely that it ran — a plain
   // boolean would skip the pass for the second user on a shared device.
@@ -1819,7 +1831,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => {
     if (!cloudLoaded || cuisineBackfilledForRef.current === (userId ?? '')) return;
     const blanks = ratingsRef.current.filter(
-      (r) => r.restaurantId && !(r.cuisine || '').trim(),
+      (r) => r.restaurantId && isUnknownCuisine(r.cuisine),
     );
     cuisineBackfilledForRef.current = userId ?? '';
     if (blanks.length === 0) return;
@@ -1851,13 +1863,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const now = Date.now();
       let changed = 0;
       const next = ratingsRef.current.map((r) => {
-        if ((r.cuisine || '').trim()) return r;
+        if (!isUnknownCuisine(r.cuisine)) return r;
         const hit = cached[r.restaurantId];
         // An OSM answer sits above PERSIST_CONFIDENCE_FLOOR by
         // construction (55 > 50), so it is safe to write into a user's own
         // rating — but only where the cache had nothing better.
-        const label = hit && hit.confidence >= PERSIST_CONFIDENCE_FLOOR ? hit.cuisine : found[r.restaurantId];
-        if (!label) return r;
+        const label = (hit && hit.confidence >= PERSIST_CONFIDENCE_FLOOR ? hit.cuisine : found[r.restaurantId]) || '';
+        // Covers both "found nothing and it was already blank" and "found
+        // exactly what is already there" — neither is a change worth a sync.
+        if (label === (r.cuisine || '').trim()) return r;
         changed++;
         return { ...r, cuisine: label, updatedAt: now };
       });

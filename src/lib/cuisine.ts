@@ -142,6 +142,40 @@ export function resolveCuisine(place: CuisineSource): ResolvedCuisine | null {
 }
 
 /**
+ * Is this stored cuisine actually an answer?
+ *
+ * For years the resolver ended in an unconditional `return 'Restaurant'`,
+ * so every place it couldn't describe got that word written into the
+ * user's own rating. It is indistinguishable from a place that genuinely
+ * is just a restaurant, which is why the resolver now returns '' instead —
+ * but the rows saved back then still carry the string, and anything that
+ * asks "does this rating have a cuisine?" will say yes about all of them.
+ *
+ * That is not a display concern. It is the gate on every repair path in
+ * the app: a backfill that only fills blanks will never look at a rating
+ * that says "Restaurant", so those are exactly the rows that can never be
+ * fixed. Ask this instead of checking for emptiness.
+ */
+export function isUnknownCuisine(cuisine: string | null | undefined): boolean {
+  const trimmed = (cuisine || '').trim().toLowerCase();
+  return trimmed === '' || NON_ANSWERS.has(trimmed);
+}
+
+/** The Places type strings the old resolvers leaked into saved data.
+ *  FollowingFeed had been stripping these on its own surface for a while;
+ *  this is that list, promoted to the one place everything can share. */
+const NON_ANSWERS: ReadonlySet<string> = new Set([
+  'restaurant', 'restaurants', 'food', 'establishment', 'point of interest',
+  'point_of_interest', 'store', 'meal takeaway', 'meal delivery',
+]);
+
+/** A cuisine fit to print, or '' — the display counterpart of
+ *  isUnknownCuisine, for the many meta lines built with .filter(Boolean). */
+export function displayCuisine(cuisine: string | null | undefined): string {
+  return isUnknownCuisine(cuisine) ? '' : (cuisine || '').trim();
+}
+
+/**
  * The label to display, or '' when unknown.
  *
  * '' rather than 'Restaurant' on purpose: every meta line in the app builds
