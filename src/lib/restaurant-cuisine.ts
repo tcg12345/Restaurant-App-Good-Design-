@@ -15,6 +15,7 @@
  */
 import { supabase, supabaseConfigured } from './supabase';
 import { resolveCuisine, cuisineFromName, type CuisineSource } from './cuisine';
+import { lookupCuisines, noteCuisineSource } from './cuisine-lookup';
 
 /**
  * Where a cached cuisine came from, strongest first. Mirrors
@@ -22,21 +23,28 @@ import { resolveCuisine, cuisineFromName, type CuisineSource } from './cuisine';
  * this ordering is here so callers can set a threshold without a round trip.
  */
 export const CUISINE_SOURCES = [
-  'approved', 'consensus', 'michelin', 'community', 'community_single', 'google', 'google_display', 'name',
+  'approved', 'consensus', 'michelin', 'community', 'community_single', 'google', 'osm', 'google_display', 'name',
 ] as const;
 export type CuisineSourceName = (typeof CUISINE_SOURCES)[number];
 
 const CONFIDENCE: Record<string, number> = {
   approved: 100, consensus: 95, michelin: 90, community: 80, community_single: 65,
-  google: 60, google_display: 50, name: 30,
+  google: 60, osm: 55, google_display: 50, name: 30,
 };
+
+/**
+ * What an OpenStreetMap answer is worth (migration 070). Anything already
+ * at or above this has nothing to gain from a lookup, which is what makes
+ * the lookup below cheap: it fires only where Google actually failed.
+ */
+export const OSM_CONFIDENCE = CONFIDENCE.osm;
 
 /**
  * Tiers only the server may write (migration 069's guard drops them from
  * a client). Listed here so this module can't be edited into publishing
  * one by accident — publishRestaurantCuisine refuses them.
  */
-const SERVER_ONLY: ReadonlySet<string> = new Set(['approved', 'consensus', 'community']);
+const SERVER_ONLY: ReadonlySet<string> = new Set(['approved', 'consensus', 'community', 'osm']);
 
 export function cuisineConfidence(source: string): number {
   return CONFIDENCE[source] ?? 0;
@@ -151,6 +159,21 @@ export async function settleRestaurantCuisine(opts: {
   michelinCuisine?: string | null;
   /** The Google place payload, when the caller has one. */
   place?: CuisineSource | null;
+  /**
+   * Fall back to OpenStreetMap when everything above still leaves this
+   * place below the `osm` tier — the rural inns and hotel dining rooms
+   * Google describes as nothing but "Restaurant".
+   *
+   * Opt-in because it can cost a network round trip, and only a screen
+   * that will still be there when it lands should pay for it. Off by
+   * default, so a caller that just wants what is already known is
+   * unaffected.
+   */
+  lookup?: boolean;
+  /** Helps the lookup find the place. Optional: the server prefers its own
+   *  geocode cache over anything a client claims. */
+  lat?: number | null;
+  lng?: number | null;
 }): Promise<string> {
   const { restaurantId, name, michelinCuisine, place } = opts;
   if (!restaurantId) return '';
@@ -174,10 +197,27 @@ export async function settleRestaurantCuisine(opts: {
   const localRank = local ? cuisineConfidence(local.source) : 0;
   const cachedRank = cached?.cuisine ? cached.confidence : 0;
 
+  // Whoever ran the lookup, if what we are about to show came from
+  // OpenStreetMap the screen owes it a credit. Cleared here too, so a
+  // place that has since been corrected stops claiming one.
+  if (cached?.cuisine && cachedRank >= localRank) noteCuisineSource(restaurantId, cached.source);
+  else noteCuisineSource(restaurantId, local?.source || '');
+
   // Contribute only when we actually know better than what's published.
+  // Contributing and answering are separate decisions: a guess read off
+  // the name is worth publishing at its own low tier, and is still not
+  // the answer if OpenStreetMap can do better.
   if (local && localRank > cachedRank) {
     publishRestaurantCuisine(restaurantId, local.label, local.source);
-    return local.label;
   }
-  return cached?.cuisine || local?.label || '';
+  const best = local && localRank > cachedRank ? local.label : (cached?.cuisine || local?.label || '');
+
+  // Everything above has had its say and this place is still described
+  // worse than an OSM tag would describe it — which, for a rural
+  // restaurant, usually means not described at all. Go and ask.
+  if (opts.lookup && Math.max(localRank, cachedRank) < OSM_CONFIDENCE) {
+    const found = await lookupCuisines([{ restaurantId, name: name || '', lat: opts.lat, lng: opts.lng }]);
+    if (found[restaurantId]) return found[restaurantId];
+  }
+  return best;
 }

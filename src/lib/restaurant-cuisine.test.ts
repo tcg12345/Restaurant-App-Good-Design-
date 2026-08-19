@@ -1,9 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { rows, upserts, upsert } = vi.hoisted(() => ({
+const { rows, upserts, upsert, osmHits, lookupCalls, credited } = vi.hoisted(() => ({
   rows: [] as Array<{ restaurant_id: string; cuisine: string; source: string; confidence: number }>,
   upserts: [] as Array<{ restaurant_id: string; cuisine: string; source: string }>,
   upsert: vi.fn(),
+  /** What the OSM lookup will claim to have found, keyed by place id. */
+  osmHits: {} as Record<string, string>,
+  lookupCalls: [] as Array<Array<{ restaurantId: string; name: string }>>,
+  /** Which places got credited to which source, for the ODbL notice. */
+  credited: {} as Record<string, string>,
+}));
+
+vi.mock('./cuisine-lookup', () => ({
+  noteCuisineSource: (id: string, source: string) => { credited[id] = source; },
+  lookupCuisines: async (places: Array<{ restaurantId: string; name: string }>) => {
+    lookupCalls.push(places);
+    const out: Record<string, string> = {};
+    for (const p of places) if (osmHits[p.restaurantId]) out[p.restaurantId] = osmHits[p.restaurantId];
+    return out;
+  },
 }));
 
 vi.mock('./supabase', () => ({
@@ -33,7 +48,12 @@ import {
 /** A rural place: Google knows it's a restaurant and nothing more. */
 const OPAQUE = { types: ['restaurant', 'point_of_interest', 'establishment'] };
 
-beforeEach(() => { rows.length = 0; upserts.length = 0; upsert.mockClear(); });
+beforeEach(() => {
+  rows.length = 0; upserts.length = 0; upsert.mockClear();
+  lookupCalls.length = 0;
+  for (const k of Object.keys(osmHits)) delete osmHits[k];
+  for (const k of Object.keys(credited)) delete credited[k];
+});
 
 describe('settleRestaurantCuisine', () => {
   it('takes Michelin over everything and contributes it', async () => {
@@ -186,5 +206,94 @@ describe('settleRestaurantCuisine · a correction outranks local data', () => {
       restaurantId: 'p12', place: { primaryType: 'barbecue_restaurant' },
     })).toBe('BBQ');
     expect(upserts).toEqual([]);
+  });
+});
+
+
+/**
+ * The OpenStreetMap fallback (migration 070). It is opt-in and last: it
+ * only runs where everything else has already failed to describe the
+ * place, which is what keeps it off the hot path for city restaurants.
+ */
+describe('settleRestaurantCuisine · the OSM fallback', () => {
+  it('does not fire unless the caller asks for it', async () => {
+    expect(await settleRestaurantCuisine({ restaurantId: 'r1', name: 'Falsled Kro', place: OPAQUE })).toBe('');
+    expect(lookupCalls).toHaveLength(0);
+  });
+
+  it('asks OSM when nothing else could name the place', async () => {
+    osmHits.r2 = 'Danish';
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'r2', name: 'Falsled Kro', place: OPAQUE, lookup: true, lat: 55.126, lng: 10.184,
+    })).toBe('Danish');
+    expect(lookupCalls).toHaveLength(1);
+    expect(lookupCalls[0][0]).toMatchObject({ restaurantId: 'r2', name: 'Falsled Kro', lat: 55.126, lng: 10.184 });
+  });
+
+  it('overrides a guess read off the restaurant’s name', async () => {
+    // 'name' scores 30; an OSM tag is a mapper who went there.
+    osmHits.r3 = 'Peruvian';
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'r3', name: 'Taqueria El Sol', place: OPAQUE, lookup: true,
+    })).toBe('Peruvian');
+  });
+
+  it('leaves Google’s own answer alone — it outranks OSM', async () => {
+    osmHits.r4 = 'Greek';
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'r4', name: 'Amis', place: { types: ['italian_restaurant'] }, lookup: true,
+    })).toBe('Italian');
+    expect(lookupCalls).toHaveLength(0);
+  });
+
+  it('leaves an approved correction alone', async () => {
+    rows.push({ restaurant_id: 'r5', cuisine: 'Basque', source: 'approved', confidence: 100 });
+    osmHits.r5 = 'Spanish';
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'r5', name: 'Txikito', place: OPAQUE, lookup: true,
+    })).toBe('Basque');
+    expect(lookupCalls).toHaveLength(0);
+  });
+
+  it('still asks when the cache holds only Google’s out-of-taxonomy label', async () => {
+    // google_display is 50, below OSM's 55 — a real tag beats "Fine dining
+    // restaurant", which names a price bracket rather than a cuisine.
+    rows.push({ restaurant_id: 'r6', cuisine: 'Fine Dining Restaurant', source: 'google_display', confidence: 50 });
+    osmHits.r6 = 'American';
+    expect(await settleRestaurantCuisine({
+      restaurantId: 'r6', name: 'The Dining Room at Edson Hill', lookup: true,
+    })).toBe('American');
+  });
+
+  it('falls back to what it already had when OSM comes up empty', async () => {
+    rows.push({ restaurant_id: 'r7', cuisine: 'Diner', source: 'name', confidence: 30 });
+    expect(await settleRestaurantCuisine({ restaurantId: 'r7', name: 'Nowhere Diner', lookup: true })).toBe('Diner');
+    expect(lookupCalls).toHaveLength(1);
+  });
+
+  it('never publishes an osm cuisine from the client — that tier is the server’s', async () => {
+    osmHits.r8 = 'Danish';
+    await settleRestaurantCuisine({ restaurantId: 'r8', name: 'Falsled Kro', place: OPAQUE, lookup: true });
+    expect(upserts.some((u) => u.source === 'osm')).toBe(false);
+  });
+});
+
+describe('settleRestaurantCuisine · crediting the source', () => {
+  it('flags a cached OSM answer so the screen can print the ODbL notice', async () => {
+    rows.push({ restaurant_id: 'c1', cuisine: 'Danish', source: 'osm', confidence: 55 });
+    expect(await settleRestaurantCuisine({ restaurantId: 'c1', name: 'Falsled Kro', place: OPAQUE })).toBe('Danish');
+    expect(credited.c1).toBe('osm');
+  });
+
+  it('clears the flag once something stronger describes the place', async () => {
+    rows.push({ restaurant_id: 'c2', cuisine: 'Danish', source: 'osm', confidence: 55 });
+    // Michelin outranks OSM, so the label on screen is no longer OSM's.
+    expect(await settleRestaurantCuisine({ restaurantId: 'c2', michelinCuisine: 'Nordic' })).toBe('Nordic');
+    expect(credited.c2).toBe('michelin');
+  });
+
+  it('credits nothing when Google answered', async () => {
+    await settleRestaurantCuisine({ restaurantId: 'c3', place: { types: ['thai_restaurant'] } });
+    expect(credited.c3).toBe('google');
   });
 });

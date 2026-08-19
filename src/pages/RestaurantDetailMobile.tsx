@@ -61,7 +61,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, suggestCuisine, mySuggestion, michelin,
+    priceStr, cuisine, cuisineCredit, suggestCuisine, mySuggestion, michelin,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
@@ -478,6 +478,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 priceStr={priceStr}
                 onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
+                credit={cuisineCredit}
                 className="group/cuisine uppercase mb-2 text-on-surface/50"
               />
               <div className="flex items-center justify-between gap-3">

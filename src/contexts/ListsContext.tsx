@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { getRestaurantCuisineBatch, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
+import { lookupCuisines } from '../lib/cuisine-lookup';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
@@ -24,6 +25,13 @@ export interface PhotoItem {
   caption: string;        // dish name / description
   isFavorite: boolean;    // marked as favorite dish
 }
+
+// How many still-nameless restaurants one sign-in may send to the OSM
+// cuisine lookup. Two of the Edge Function's 25-place batches: enough to
+// clear a normal person's blanks in a session or two, small enough that a
+// 500-rating account doesn't open with a burst of requests at a
+// volunteer-run API.
+const OSM_BACKFILL_LIMIT = 50;
 
 export interface RestaurantRating {
   restaurantId: string;
@@ -1819,15 +1827,39 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     let cancelled = false;
     void (async () => {
       const cached = await getRestaurantCuisineBatch(blanks.map((r) => r.restaurantId));
-      if (cancelled || Object.keys(cached).length === 0) return;
+      if (cancelled) return;
+
+      // Whatever the shared cache still can't name is where Google failed
+      // — overwhelmingly rural places — so it is worth one trip to
+      // OpenStreetMap. Capped, and newest ratings first: this runs on
+      // every sign-in, and someone with hundreds of blanks must not turn
+      // that into a burst of requests at a volunteer-run API. The rest
+      // fill in on the next session, or the moment their detail page is
+      // opened.
+      const unnamed = blanks
+        .filter((r) => (cached[r.restaurantId]?.confidence ?? 0) < PERSIST_CONFIDENCE_FLOOR)
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))
+        .slice(0, OSM_BACKFILL_LIMIT);
+      // No coordinates are sent: ratings don't carry any, and the server
+      // prefers its own geocode cache over a client's claim regardless.
+      const found = unnamed.length > 0
+        ? await lookupCuisines(unnamed.map((r) => ({ restaurantId: r.restaurantId, name: r.name })))
+        : {};
+      if (cancelled) return;
+      if (Object.keys(cached).length === 0 && Object.keys(found).length === 0) return;
+
       const now = Date.now();
       let changed = 0;
       const next = ratingsRef.current.map((r) => {
         if ((r.cuisine || '').trim()) return r;
         const hit = cached[r.restaurantId];
-        if (!hit || hit.confidence < PERSIST_CONFIDENCE_FLOOR) return r;
+        // An OSM answer sits above PERSIST_CONFIDENCE_FLOOR by
+        // construction (55 > 50), so it is safe to write into a user's own
+        // rating — but only where the cache had nothing better.
+        const label = hit && hit.confidence >= PERSIST_CONFIDENCE_FLOOR ? hit.cuisine : found[r.restaurantId];
+        if (!label) return r;
         changed++;
-        return { ...r, cuisine: hit.cuisine, updatedAt: now };
+        return { ...r, cuisine: label, updatedAt: now };
       });
       if (changed === 0) return;
       ratingsRef.current = next;

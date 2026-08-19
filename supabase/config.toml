@@ -27,6 +27,11 @@ verify_jwt = false
 [functions.delete-account]
 verify_jwt = false
 
+# cuisine-lookup is called from the browser too, and verifies the caller
+# itself (requireUser) before spending an Overpass request.
+[functions.cuisine-lookup]
+verify_jwt = false
+
 # mux-upload-init verifies the caller's JWT itself (requireUser) and must answer
 # the CORS preflight, so the gateway check stays off — same as the AI functions.
 [functions.mux-upload-init]

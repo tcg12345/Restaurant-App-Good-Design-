@@ -225,8 +225,15 @@ export const EditableCuisineLine: React.FC<{
   onPhoto?: boolean;
   /** This user already has a proposal in for this place. */
   pending?: boolean;
+  /**
+   * A credit for where this cuisine came from, when it came from
+   * somewhere that requires one. Only OpenStreetMap does (ODbL), and only
+   * for the minority of places it answered, so this line is absent from
+   * almost every restaurant.
+   */
+  credit?: string;
   className?: string;
-}> = ({ cuisine, priceStr, onEdit, onPhoto, pending, className }) => {
+}> = ({ cuisine, priceStr, onEdit, onPhoto, pending, credit, className }) => {
   const blue = onPhoto
     ? 'border-sky-300/60 text-sky-100 hover:border-sky-200 hover:bg-sky-400/15'
     : 'border-sky-500/40 text-sky-700 hover:border-sky-500/70 hover:bg-sky-500/[0.07]';
@@ -249,6 +256,16 @@ export const EditableCuisineLine: React.FC<{
         <Icon size={11} strokeWidth={2.6} />
         {label}
       </button>
+      {credit && (
+        // Its own line, and outside the header's uppercase tracking: a
+        // licence notice that has to be read is not a design element.
+        <span className={cn(
+          'mt-1 block text-[10px] font-normal normal-case tracking-normal',
+          onPhoto ? 'text-white/60' : 'text-on-surface/40',
+        )}>
+          {credit}
+        </span>
+      )}
     </div>
   );
 };

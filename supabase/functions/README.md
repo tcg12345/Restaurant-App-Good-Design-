@@ -76,5 +76,49 @@ warning in the logs) so uploads never break. Rollout order: apply migrations
 already-uploaded followers-only content with
 `node scripts/mux-backfill-signed-playback.mjs --apply`.
 
+## Cuisine lookup
+
+| Function | Purpose | Secrets used |
+|----------|---------|--------------|
+| `cuisine-lookup` | Read a restaurant's cuisine off OpenStreetMap when Google gave nothing | none |
+
+Google describes rural restaurants badly — measured on this app's own
+ratings, every place left without a usable cuisine was outside a metro area.
+OpenStreetMap's `cuisine=*` tag is entered by someone who went there, and
+that is exactly where its coverage is best. This function asks the Overpass
+API and publishes what it finds into `restaurant_cuisine` at the `osm` tier.
+
+It runs server-side for two reasons. Overpass is volunteer-funded and asks
+callers not to hammer it, so this is where the batching, the negative cache
+(`restaurant_cuisine_lookups`) and the per-user rate limit live. And `osm` is
+a source no browser is allowed to write (migration `070`) — if the app could
+produce one, anyone could POST one.
+
+No secrets. `OVERPASS_URL` optionally overrides the mirror list (comma
+separated) if you run your own instance.
+
+```bash
+# Apply the migration first (SQL Editor or `supabase db push`):
+#   supabase/migrations/070_cuisine_osm_lookup.sql
+
+supabase functions deploy cuisine-lookup
+```
+
+Before or after deploying, confirm the live Overpass query against the real
+API and see what it would recover for your own data:
+
+```bash
+node scripts/probe-overpass.mjs --demo     # no database needed
+node scripts/probe-overpass.mjs            # your restaurants with no cuisine
+```
+
+The parsing, matching and tag-mapping the probe uses is the same module the
+function uses (`_shared/osm-cuisine.ts`, covered by
+`src/lib/osm-cuisine.test.ts`), so a good probe run confirms the whole chain.
+
+Cuisine data from this function is © OpenStreetMap contributors, licensed
+ODbL. The app credits it on the restaurant whose cuisine it supplied — see
+`EditableCuisineLine`'s `credit` prop. Do not drop that.
+
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected automatically — no need to
 set them. Tail logs with `supabase functions logs <name>`.

@@ -127,7 +127,19 @@ $$;
 
 -- Drop anything a client managed to plant at a reviewed tier before this
 -- landed. It never went through review, so it has no standing.
-DELETE FROM public.restaurant_cuisine WHERE source IN ('approved', 'consensus');
+--
+-- FIRST RUN ONLY. After this file exists, 'approved' and 'consensus' rows
+-- are the output of the review flow below — the thing this migration is
+-- for — and an unconditional DELETE would erase every approved correction
+-- the moment anyone replayed the migration stack. cuisine_suggestions is
+-- the marker: it is created further down, so its absence means this file
+-- has never run here.
+DO $$
+BEGIN
+  IF to_regclass('public.cuisine_suggestions') IS NULL THEN
+    DELETE FROM public.restaurant_cuisine WHERE source IN ('approved', 'consensus');
+  END IF;
+END $$;
 
 -- ── 2. Notification kinds ────────────────────────────────────────────
 -- 065 constrained these to engagement. Widen them for review traffic.

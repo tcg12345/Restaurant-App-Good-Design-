@@ -70,7 +70,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, suggestCuisine, mySuggestion,
+    priceStr, cuisine, cuisineCredit, suggestCuisine, mySuggestion,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
@@ -322,6 +322,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   priceStr={priceStr}
                   onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
+                credit={cuisineCredit}
                   onPhoto
                   className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-white/82"
                 />
@@ -348,6 +349,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   priceStr={priceStr}
                   onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
+                credit={cuisineCredit}
                   className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-on-surface/55"
                 />
                 <h1 className="mt-3.5 font-serif font-bold text-on-surface text-[56px] leading-none tracking-[-0.03em]">

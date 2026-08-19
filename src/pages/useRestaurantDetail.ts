@@ -12,6 +12,7 @@ import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
 import { settleRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { isOsmCuisine, osmAttribution } from '../lib/cuisine-lookup';
 import { submitCuisineSuggestion, getMyCuisineSuggestion, type CuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
@@ -282,6 +283,12 @@ export function useRestaurantDetail() {
       name: place.name,
       michelinCuisine: michelin?.cuisine,
       place,
+      // The detail page is where a missing cuisine is most glaring, and
+      // it stays open long enough to pay for a lookup. If Google, Michelin
+      // and the shared cache have all come up short, ask OpenStreetMap.
+      lookup: true,
+      lat: place.lat,
+      lng: place.lng,
     }).then((settled) => { if (!cancelled) setSettledCuisine(settled); });
     return () => { cancelled = true; };
   }, [place, michelin]);
@@ -294,6 +301,16 @@ export function useRestaurantDetail() {
   // so the local read is what fills the first paint.
   const cuisine = settledCuisine
     || (michelin ? michelin.cuisine : place ? getCuisineLabel(place) : '');
+
+  // ODbL asks for the credit where the data is shown, so it is scoped to
+  // the one restaurant OSM actually answered rather than bolted onto every
+  // screen. Keyed off settledCuisine rather than `cuisine`: an OSM answer
+  // only ever arrives through settleRestaurantCuisine, so when the label on
+  // screen is the local Google or Michelin read there is nothing to credit.
+  const cuisineCredit = useMemo(
+    () => (place?.id && settledCuisine && isOsmCuisine(place.id) ? osmAttribution() : ''),
+    [place?.id, settledCuisine],
+  );
 
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
@@ -507,6 +524,7 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
+    cuisineCredit,
     suggestCuisine,
     mySuggestion,
 
