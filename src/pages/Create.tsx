@@ -27,11 +27,12 @@ import { motion } from 'motion/react';
 import {
   X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
   Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
-  Search, Star,
+  Search,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useLists } from '../contexts/ListsContext';
-import { searchPlacesByText, priceLevelToString } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, extractCityState } from '../lib/places';
+import { RestaurantCard } from '../components/cards';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useUnifiedComposer } from '../components/useUnifiedComposer';
 import { DraggableSheet, type SheetPos } from '../components/DraggableSheet';
@@ -590,6 +591,12 @@ const PostSurface: React.FC<{
    Your own rated places and wishlist come first (re-rating a favourite is
    the common case); typing searches everywhere else. */
 
+/** "Brooklyn, NY" from a full address — the row's location line. */
+const cityOf = (address?: string): string | undefined => {
+  const c = extractCityState(address || '', address || '');
+  return c || undefined;
+};
+
 interface RatePick {
   id: string;
   name: string;
@@ -602,7 +609,7 @@ interface RatePick {
 }
 
 const RateSurface: React.FC = () => {
-  const { ratings, wishlist, restaurantMeta, openAddRestaurantModal } = useLists();
+  const { ratings, wishlist, restaurantMeta, openAddRestaurantModal, scoresUnlocked } = useLists();
   const [query, setQuery] = useState('');
   const [remote, setRemote] = useState<RatePick[]>([]);
   const [searching, setSearching] = useState(false);
@@ -682,42 +689,43 @@ const RateSurface: React.FC = () => {
         {searching && <Loader2 size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-on-surface/35" />}
       </div>
 
-      <div className="mt-2">
+      <div className="mt-1">
         {results.length === 0 ? (
           <p className="py-10 text-center text-[13px] text-on-surface/40">
             {query.trim() ? 'No restaurants match that yet.' : 'Search for a place to rate.'}
           </p>
         ) : (
-          results.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => openAddRestaurantModal({
-                id: r.id, name: r.name, image: r.image || '',
-                cuisine: r.cuisine, price: r.price, address: r.address,
-              })}
-              className="flex w-full items-center gap-3.5 border-b border-on-surface/[0.07] py-3 text-left last:border-0 active:bg-on-surface/[0.03] transition-colors"
-            >
-              <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-                <MapPin size={16} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-serif text-[15.5px] font-semibold text-on-surface">{r.name}</span>
-                {(r.cuisine || r.price || r.address) && (
-                  <span className="block truncate text-[12px] text-on-surface/45">
-                    {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join('  ·  ')}
-                  </span>
-                )}
-              </span>
-              {typeof r.score === 'number' && r.score > 0 ? (
-                <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg bg-on-surface/[0.05] px-2 py-1 text-[12px] font-bold tabular-nums text-on-surface/60">
-                  <Star size={10} className="fill-current" />{r.score.toFixed(1)}
-                </span>
-              ) : (
-                <ChevronRight size={15} className="flex-shrink-0 text-on-surface/25" />
-              )}
-            </button>
-          ))
+          <ul className="divide-y divide-on-surface/[0.06]">
+            {results.map((r, i) => (
+              <motion.li
+                key={r.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: Math.min(i * 0.03, 0.24), ease: [0.32, 0.72, 0, 1] }}
+              >
+                {/* The app's one restaurant row — same typography, same score
+                    badge, same hairline rhythm as every other browsing list.
+                    Your own score only shows once scores are unlocked. */}
+                <RestaurantCard
+                  id={r.id}
+                  name={r.name}
+                  image={r.image}
+                  cuisine={r.cuisine}
+                  price={r.price}
+                  address={r.address}
+                  location={cityOf(r.address)}
+                  rating={scoresUnlocked ? r.score : undefined}
+                  variant="row"
+                  surface="flat-row"
+                  as="div"
+                  onClick={() => openAddRestaurantModal({
+                    id: r.id, name: r.name, image: r.image || '',
+                    cuisine: r.cuisine, price: r.price, address: r.address,
+                  })}
+                />
+              </motion.li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

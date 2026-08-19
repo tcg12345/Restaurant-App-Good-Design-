@@ -25,6 +25,7 @@ import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { openExternalUrl } from '../lib/external-links';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
+import { YourReviewComments } from '../components/YourReviewComments';
 import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { scoreHex } from '../lib/score';
@@ -647,6 +648,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
               </section>
             );
           })()}
+
+          {/* ── On your rating — the likes and comments friends left on it,
+              which until now only ever appeared in THEIR feeds. Renders
+              nothing when there's been no engagement. ── */}
+          {myRating && place && (
+            <YourReviewComments restaurantId={place.id} variant="desktop" />
+          )}
 
           {/* ── Visit history ── */}
           {myRating && visitHistory.length > 0 && place && (() => {

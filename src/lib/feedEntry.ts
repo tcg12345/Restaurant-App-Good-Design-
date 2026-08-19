@@ -148,7 +148,23 @@ export function fromRating(r: CommunityRating): FeedEntry {
     sortTime: parseTime(activityTimestamp(r)),
     score: Number(r.score) || 0,
     selfScored: r.rating_method === 'slider',
-    media: cover ? [{ kind: 'photo', url: cover }] : [],
+    // A rating NEVER carries media of its own.
+    //
+    // `photo_url` looks like it should go here, but it is the restaurant's
+    // stock cover art — publishRatingRow fills it from
+    // `RestaurantRating.image`, the Places photo, while the user's own
+    // pictures live in a separate `photos[]` and go to community_photos.
+    // Treating it as the rating's media meant every rating of a place with
+    // a Places image counted as "has photos": it rendered full-width, and
+    // when that URL had expired the card drew no image at all AND hid the
+    // score (which the card only shows when there's no photo to host it) —
+    // an empty full-width row.
+    //
+    // The rule stands on its own anyway: a rating whose author added
+    // photos publishes them as a linked post, and that post is what the
+    // feed shows. A bare rating row is, by construction, a rating with
+    // nothing to look at.
+    media: [],
     caption: r.notes || '',
     tags: r.tags || [],
     restaurant: {
@@ -215,4 +231,75 @@ export function mergeFeed({ posts = [], ratings = [], homeMeals = [] }: MergeFee
  *  Reels explore). A photoless share would be an empty tile. */
 export function hasMedia(e: FeedEntry): boolean {
   return e.media.length > 0;
+}
+
+/* ── Feed layout ── */
+
+export type FeedLayoutRow =
+  /** One entry, rendered at full width. */
+  | { kind: 'full'; entry: FeedEntry }
+  /** A horizontally scrolling batch of photoless ratings. */
+  | { kind: 'strip'; entries: FeedEntry[] };
+
+export interface LayoutFeedOptions {
+  /** Full cards between one strip and the next. */
+  stripEvery?: number;
+  /** Most photoless ratings in a single strip. */
+  stripSize?: number;
+  /** False renders every entry full-width — the Verified tab, where
+   *  nearly every rating is photoless and stripping them would leave a
+   *  wall of tiles with no full cards to break it up. */
+  enabled?: boolean;
+}
+
+/** Photoless ratings ride in strips; everything else is a full card. A
+ *  post or a rating with photos has something to look at, so it earns the
+ *  width. */
+function isCompact(e: FeedEntry): boolean {
+  return e.kind === 'rating' && !hasMedia(e);
+}
+
+/**
+ * Turn the time-sorted stream into rows.
+ *
+ * A friend rating three places on their commute used to mean three
+ * near-identical full-width cards — a name, a score, and nothing to look
+ * at — pushing the photos everyone actually came for off the screen.
+ * Those ratings still belong in the feed, just not at that size: they
+ * collect into a small horizontal strip that lands after every
+ * `stripEvery` full cards.
+ *
+ * Both sequences stay in time order and are consumed in parallel, so a
+ * strip holds the photoless ratings from roughly the stretch of timeline
+ * it sits in. When the full cards run out the remaining strips follow,
+ * rather than being dropped — a quiet week of photoless ratings is still
+ * the week's activity.
+ */
+export function layoutFeed(entries: FeedEntry[], options: LayoutFeedOptions = {}): FeedLayoutRow[] {
+  const { stripEvery = 4, stripSize = 4, enabled = true } = options;
+  if (!enabled || stripEvery < 1 || stripSize < 1) {
+    return entries.map((entry) => ({ kind: 'full', entry }));
+  }
+
+  const full = entries.filter((e) => !isCompact(e));
+  const compact = entries.filter(isCompact);
+  if (compact.length === 0) return full.map((entry) => ({ kind: 'full', entry }));
+
+  const rows: FeedLayoutRow[] = [];
+  let next = 0;
+  const flushStrip = () => {
+    if (next >= compact.length) return;
+    rows.push({ kind: 'strip', entries: compact.slice(next, next + stripSize) });
+    next += stripSize;
+  };
+
+  full.forEach((entry, i) => {
+    rows.push({ kind: 'full', entry });
+    // After the 4th, 8th, 12th … full card — never leading with a strip,
+    // so the feed opens on something worth looking at.
+    if ((i + 1) % stripEvery === 0) flushStrip();
+  });
+  while (next < compact.length) flushStrip();
+
+  return rows;
 }

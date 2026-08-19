@@ -58,6 +58,7 @@ import { LocationMap } from './pages/LocationMap';
 import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
+import { NotificationsProvider } from './contexts/NotificationsContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
@@ -638,23 +639,25 @@ export default function App() {
             <ListsProvider>
               <RecipesProvider>
                 <ChatProvider>
-                  <ReelsProvider>
-                    <PostsProvider>
-                      <PageAddActionProvider>
-                        <CirclePanelProvider>
-                          <GuideCreatorProvider>
-                            <HomeLocationProvider>
-                              <AssistantProvider>
-                                <AiChatHistoryProvider>
-                                  <AppContent />
-                                </AiChatHistoryProvider>
-                              </AssistantProvider>
-                            </HomeLocationProvider>
-                          </GuideCreatorProvider>
-                        </CirclePanelProvider>
-                      </PageAddActionProvider>
-                    </PostsProvider>
-                  </ReelsProvider>
+                  <NotificationsProvider>
+                    <ReelsProvider>
+                      <PostsProvider>
+                        <PageAddActionProvider>
+                          <CirclePanelProvider>
+                            <GuideCreatorProvider>
+                              <HomeLocationProvider>
+                                <AssistantProvider>
+                                  <AiChatHistoryProvider>
+                                    <AppContent />
+                                  </AiChatHistoryProvider>
+                                </AssistantProvider>
+                              </HomeLocationProvider>
+                            </GuideCreatorProvider>
+                          </CirclePanelProvider>
+                        </PageAddActionProvider>
+                      </PostsProvider>
+                    </ReelsProvider>
+                  </NotificationsProvider>
                 </ChatProvider>
               </RecipesProvider>
             </ListsProvider>

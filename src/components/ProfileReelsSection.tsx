@@ -97,9 +97,14 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
     if (!isOwn) return;
     setMenu({ id: p.id, isPublic: p.isPublic, rect: target.getBoundingClientRect() });
   });
-  if (posts.length === 0) return null;
+  // A share published from the rating flow with no photos is a real post
+  // row, but it has nothing to put in a tile — it would render as an empty
+  // square. Photo grids show only shares that actually carry media; the
+  // score-only ones live in the feed and on the Rated tab.
+  const withMedia = posts.filter((p) => p.items.length > 0);
+  if (withMedia.length === 0) return null;
   const VISIBLE_LIMIT = 6;
-  const visible = showAll ? posts : posts.slice(0, VISIBLE_LIMIT);
+  const visible = showAll ? withMedia : withMedia.slice(0, VISIBLE_LIMIT);
 
   const handleClick = (p: Post) => {
     if (onTileClick) { onTileClick(p); return; }
@@ -122,13 +127,13 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
     />
   );
 
-  const seeAll = posts.length > VISIBLE_LIMIT && (
+  const seeAll = withMedia.length > VISIBLE_LIMIT && (
     <div className="mt-3.5">
       {showAll ? (
         <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
       ) : (
         <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
-          See all {posts.length} posts <ChevronRight size={13} />
+          See all {withMedia.length} posts <ChevronRight size={13} />
         </button>
       )}
     </div>
@@ -139,7 +144,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
     return (
       <section>
         <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
-          {posts.length} {posts.length === 1 ? 'Post' : 'Posts'}
+          {withMedia.length} {withMedia.length === 1 ? 'Post' : 'Posts'}
         </div>
         <div className="grid grid-cols-3 gap-3.5">
           {visible.map((p) => {
@@ -194,7 +199,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
   return (
     <section>
       <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
-        {posts.length} {posts.length === 1 ? 'Post' : 'Posts'}
+        {withMedia.length} {withMedia.length === 1 ? 'Post' : 'Posts'}
       </div>
       <div className="grid grid-cols-3">
         {visible.map((p) => {
@@ -232,13 +237,13 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
         })}
       </div>
       {ownerMenu}
-      {posts.length > VISIBLE_LIMIT && (
+      {withMedia.length > VISIBLE_LIMIT && (
         <div className="px-6 mt-3.5">
           {showAll ? (
             <button type="button" onClick={() => setShowAll(false)} className="text-[12.5px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
           ) : (
             <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary/90 hover:text-primary">
-              See all {posts.length} posts <ChevronRight size={13} />
+              See all {withMedia.length} posts <ChevronRight size={13} />
             </button>
           )}
         </div>
