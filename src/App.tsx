@@ -11,6 +11,7 @@ import { VerificationApply } from './pages/VerificationApply';
 import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
 import { TopListPage } from './pages/TopListPage';
+import { AdminCuisineSuggestions } from './pages/AdminCuisineSuggestions';
 import { Pantry } from './pages/Pantry';
 import { RecommendedForYou } from './pages/RecommendedForYou';
 import { Circle } from './pages/Circle';
@@ -481,6 +482,7 @@ const AppContent: React.FC = () => {
           <Route path="/experts" element={<Experts />} />
           <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
+          <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/profile/top/:listKey" element={<RequireAuthRoute reason="Sign in to view your top lists"><TopListPage /></RequireAuthRoute>} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />

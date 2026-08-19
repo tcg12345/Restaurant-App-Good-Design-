@@ -133,6 +133,71 @@ export function labelForCuisineType(type: string | undefined): string {
   return (type && TYPE_TO_LABEL[type]) || '';
 }
 
+/* ── The list people can suggest from ──────────────────────────────────
+   CUISINE_TYPES exists to map Google's place types, so it stops where
+   Google's taxonomy stops — no Portuguese-speaking West Africa, no
+   Levant beyond "Middle Eastern", nothing between "Asian" and the six
+   Asian cuisines Google happens to model. That is fine for reading a
+   place's `types` and far too thin for a person telling us what a
+   restaurant actually is.
+
+   So suggestions draw from a wider list: every taxonomy label, plus the
+   cuisines and formats people actually name. A suggested label that has
+   no Google type still works everywhere the app groups by the cuisine
+   STRING (profile top lists, a rating's meta line); it simply isn't a
+   Google-type search facet, which no user-entered label could be. */
+const EXTRA_CUISINES: string[] = [
+  // Europe
+  'Albanian', 'Austrian', 'Basque', 'Belgian', 'British', 'Bulgarian', 'Catalan',
+  'Croatian', 'Czech', 'Danish', 'Dutch', 'English', 'Finnish', 'Georgian',
+  'Hungarian', 'Icelandic', 'Neapolitan', 'Nordic', 'Norwegian', 'Romanian',
+  'Scandinavian', 'Scottish', 'Sicilian', 'Swedish', 'Swiss', 'Tuscan', 'Ukrainian',
+  // Middle East, North Africa, Central Asia
+  'Afghan', 'Armenian', 'Egyptian', 'Iraqi', 'Israeli', 'Jordanian', 'Levantine',
+  'Palestinian', 'Persian', 'Syrian', 'Tunisian', 'Uzbek', 'Yemeni',
+  // Africa
+  'Eritrean', 'Ghanaian', 'Kenyan', 'Nigerian', 'Senegalese', 'Somali', 'South African',
+  // South & Southeast Asia
+  'Bangladeshi', 'Burmese', 'Cambodian', 'Cantonese', 'Goan', 'Hakka', 'Hunan',
+  'Kerala', 'Laotian', 'Nepalese', 'Pakistani', 'Punjabi', 'Singaporean',
+  'South Indian', 'Sri Lankan', 'Szechuan', 'Taiwanese', 'Tibetan', 'Uyghur',
+  // East Asia formats
+  'Bento', 'Donburi', 'Izakaya', 'Katsu', 'Korean BBQ', 'Okonomiyaki', 'Omakase',
+  'Poke', 'Shabu Shabu', 'Soba', 'Teppanyaki', 'Tonkatsu', 'Udon', 'Yakitori',
+  // The Americas
+  'Argentinian', 'Bolivian', 'Cajun', 'Californian', 'Chilean', 'Colombian',
+  'Creole', 'Dominican', 'Ecuadorian', 'Guatemalan', 'Haitian', 'Honduran',
+  'Jamaican', 'New American', 'Nuevo Latino', 'Oaxacan', 'Pacific Northwest',
+  'Puerto Rican', 'Salvadoran', 'Southwestern', 'Tex-Mex', 'Trinidadian',
+  'Venezuelan', 'Yucatecan',
+  // Formats, rooms and specialities
+  'Bistro', 'Brasserie', 'Brewery', 'Bubble Tea', 'Charcuterie', 'Chocolatier',
+  'Churrascaria', 'Cider House', 'Cocktail Bar', 'Crepes', 'Dumplings', 'Empanadas',
+  'Falafel', 'Farm to Table', 'Fish & Chips', 'Fondue', 'Food Hall', 'Food Truck',
+  'Gastropub', 'Gelato', 'Health Food', 'Izakaya Bar', 'Juice & Smoothies',
+  'Meze', 'Oyster Bar', 'Pierogi', 'Pintxos', 'Poutine', 'Pretzels', 'Raw Bar',
+  'Rotisserie', 'Shawarma', 'Small Plates', 'Smokehouse', 'Speakeasy',
+  'Steak Frites', 'Street Food', 'Supper Club', 'Tasting Menu', 'Tea Room',
+  'Waffles', 'Wine Bar',
+  // Dietary
+  'Gluten Free', 'Plant Based', 'Raw', 'Vegan', 'Vegetarian',
+];
+
+/**
+ * Every label a person may suggest — the Google-mapped taxonomy plus the
+ * wider world list above, deduplicated and alphabetical.
+ */
+export const SUGGESTABLE_CUISINES: string[] = (() => {
+  const seen = new Map<string, string>();
+  for (const c of CUISINE_TYPES) {
+    if (c.type && c.label !== 'All') seen.set(c.label.toLowerCase(), c.label);
+  }
+  for (const label of EXTRA_CUISINES) {
+    if (!seen.has(label.toLowerCase())) seen.set(label.toLowerCase(), label);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+})();
+
 /* ── Inference from the restaurant's name ──────────────────────────────
    The rural long tail is exactly where Google's structured data is
    thinnest and where names are most explicit: a "Taqueria", a "Trattoria",

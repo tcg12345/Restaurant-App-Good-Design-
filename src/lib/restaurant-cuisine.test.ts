@@ -76,7 +76,7 @@ describe('settleRestaurantCuisine', () => {
   });
 
   it('prefers a published answer over its own guess about the name', async () => {
-    rows.push({ restaurant_id: 'p6', cuisine: 'Seafood', source: 'user', confidence: 100 });
+    rows.push({ restaurant_id: 'p6', cuisine: 'Seafood', source: 'approved', confidence: 100 });
     expect(await settleRestaurantCuisine({ restaurantId: 'p6', name: 'Taqueria El Sol', place: OPAQUE }))
       .toBe('Seafood');
     expect(upserts).toEqual([]);
@@ -102,8 +102,18 @@ describe('publishRestaurantCuisine', () => {
   });
 
   it('trims what it does send', () => {
-    publishRestaurantCuisine('x', '  Thai  ', 'community');
-    expect(upserts).toEqual([{ restaurant_id: 'x', cuisine: 'Thai', source: 'community' }]);
+    publishRestaurantCuisine('x', '  Thai  ', 'google');
+    expect(upserts).toEqual([{ restaurant_id: 'x', cuisine: 'Thai', source: 'google' }]);
+  });
+
+  // The reviewed tiers come from the approve RPC and the consensus
+  // trigger. The server refuses them from a client; this stops the round
+  // trip ever leaving.
+  it('refuses to publish a tier only the server may write', () => {
+    for (const source of ['approved', 'consensus', 'community'] as const) {
+      publishRestaurantCuisine('x', 'Thai', source);
+    }
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -121,9 +131,12 @@ describe('getRestaurantCuisineBatch', () => {
   // The floor is what stops a name guess being written into a user's rating.
   it('a name guess sits below the persist floor and a human answer above it', async () => {
     expect(cuisineConfidence('name')).toBeLessThan(PERSIST_CONFIDENCE_FLOOR);
-    for (const source of ['user', 'michelin', 'community', 'community_single', 'google']) {
+    for (const source of ['approved', 'consensus', 'michelin', 'community', 'community_single', 'google']) {
       expect(cuisineConfidence(source)).toBeGreaterThanOrEqual(PERSIST_CONFIDENCE_FLOOR);
     }
+    // The retired direct-write tier scores nothing, so an old client build
+    // sending it can't land a row.
+    expect(cuisineConfidence('user')).toBe(0);
   });
 
   it('is empty for an empty ask', async () => {
@@ -134,17 +147,23 @@ describe('getRestaurantCuisineBatch', () => {
 // Phase 5's whole point: a correction has to reach other people's screens,
 // not just sit in the table.
 describe('settleRestaurantCuisine · a correction outranks local data', () => {
-  it("a user's correction beats what Google says about the place", async () => {
-    rows.push({ restaurant_id: 'p8', cuisine: 'Peruvian', source: 'user', confidence: 100 });
+  it('an approved correction beats what Google says about the place', async () => {
+    rows.push({ restaurant_id: 'p8', cuisine: 'Peruvian', source: 'approved', confidence: 100 });
     expect(await settleRestaurantCuisine({
       restaurantId: 'p8', place: { primaryType: 'mexican_restaurant' },
     })).toBe('Peruvian');
     expect(upserts).toEqual([]); // and we don't argue back
   });
 
-  it("a user's correction beats a Michelin match", async () => {
-    rows.push({ restaurant_id: 'p9', cuisine: 'Basque', source: 'user', confidence: 100 });
+  it('an approved correction beats a Michelin match', async () => {
+    rows.push({ restaurant_id: 'p9', cuisine: 'Basque', source: 'approved', confidence: 100 });
     expect(await settleRestaurantCuisine({ restaurantId: 'p9', michelinCuisine: 'Creative' })).toBe('Basque');
+    expect(upserts).toEqual([]);
+  });
+
+  it('a consensus of suggesters beats Michelin', async () => {
+    rows.push({ restaurant_id: 'p13', cuisine: 'Basque', source: 'consensus', confidence: 95 });
+    expect(await settleRestaurantCuisine({ restaurantId: 'p13', michelinCuisine: 'Creative' })).toBe('Basque');
     expect(upserts).toEqual([]);
   });
 

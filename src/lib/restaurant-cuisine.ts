@@ -22,14 +22,21 @@ import { resolveCuisine, cuisineFromName, type CuisineSource } from './cuisine';
  * this ordering is here so callers can set a threshold without a round trip.
  */
 export const CUISINE_SOURCES = [
-  'user', 'michelin', 'community', 'community_single', 'google', 'google_display', 'name',
+  'approved', 'consensus', 'michelin', 'community', 'community_single', 'google', 'google_display', 'name',
 ] as const;
 export type CuisineSourceName = (typeof CUISINE_SOURCES)[number];
 
 const CONFIDENCE: Record<string, number> = {
-  user: 100, michelin: 90, community: 80, community_single: 65,
+  approved: 100, consensus: 95, michelin: 90, community: 80, community_single: 65,
   google: 60, google_display: 50, name: 30,
 };
+
+/**
+ * Tiers only the server may write (migration 069's guard drops them from
+ * a client). Listed here so this module can't be edited into publishing
+ * one by accident — publishRestaurantCuisine refuses them.
+ */
+const SERVER_ONLY: ReadonlySet<string> = new Set(['approved', 'consensus', 'community']);
 
 export function cuisineConfidence(source: string): number {
   return CONFIDENCE[source] ?? 0;
@@ -104,6 +111,10 @@ export function publishRestaurantCuisine(restaurantId: string, cuisine: string, 
   // 'Restaurant' is the non-answer this whole effort removes — the server
   // rejects it too, but there's no point spending a round trip on it.
   if (trimmed.toLowerCase() === 'restaurant') return;
+  // Reviewed tiers come from the approve RPC and the consensus trigger,
+  // never from here. The server refuses them from a client anyway; this
+  // makes the rule visible at the call site.
+  if (SERVER_ONLY.has(source)) return;
   void supabase.from('restaurant_cuisine')
     .upsert({ restaurant_id: restaurantId, cuisine: trimmed, source }, { onConflict: 'restaurant_id' })
     .then(({ error }) => { if (error) console.warn('[Cuisine] cache write failed:', error.message); });
@@ -124,8 +135,8 @@ export function publishRestaurantCuisine(restaurantId: string, cuisine: string, 
  *   google_display (50) — Google's label, outside our taxonomy
  *   name     (30) — read off the restaurant's name; a guess
  *
- * against whatever is in the cache, where a human correction sits at 100
- * and other people's ratings at 65–80. A write only goes out when what we
+ * against whatever is in the cache, where a reviewed correction sits at
+ * 95–100 and other people's ratings at 65–80. A write only goes out when what we
  * derived here beats what is already published — so a screen that already
  * agrees with the cache costs one read and nothing else.
  *

@@ -1,10 +1,11 @@
 /**
- * Pick (or correct) a restaurant's cuisine.
+ * Suggest a restaurant's cuisine.
  *
- * The shared cuisine cache ranks a person's answer above every derived
- * source (migration 068), but until this existed nothing could write that
- * tier — a wrong label, including one the app guessed off the restaurant's
- * name, was permanent. This is the way in.
+ * A cuisine everyone reads is not something one person gets to write.
+ * Picking here files a proposal (migration 069): it applies when an admin
+ * approves it, or when AUTO_APPLY_VOTES independent people propose the
+ * same thing. The copy says so — a control that looks like it edited
+ * something, and didn't, is worse than no control.
  *
  * A bottom sheet on a phone and a centred dialog on a desktop, from the
  * same component: the list is long enough to need a search box either way,
@@ -13,30 +14,35 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Pencil, Plus, Search, X } from 'lucide-react';
+import { Check, Clock, Loader2, Plus, Search, SquarePen, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { CUISINE_TYPES } from '../lib/places';
+import { SUGGESTABLE_CUISINES } from '../lib/cuisine';
+import { AUTO_APPLY_VOTES } from '../lib/supabase-cuisine-suggestions';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
-/** Every label the taxonomy knows, minus the "All" sentinel. */
-const ALL_LABELS = CUISINE_TYPES.filter((c) => c.type).map((c) => c.label).sort((a, b) => a.localeCompare(b));
+const ALL_LABELS = SUGGESTABLE_CUISINES;
 
 export const CuisinePicker: React.FC<{
   open: boolean;
   onClose: () => void;
-  onSelect: (cuisine: string) => void;
+  /** Files the suggestion. Resolves false when it didn't go through, so
+   *  the sheet can stay open rather than pretending it worked. */
+  onSelect: (cuisine: string) => Promise<boolean> | boolean | void;
   /** The cuisine currently shown, ticked in the list. */
   current?: string;
   /** Named in the header so it's obvious what is being labelled. */
   restaurantName?: string;
-}> = ({ open, onClose, onSelect, current, restaurantName }) => {
+  /** A proposal this user already has in for this place. */
+  pending?: string;
+}> = ({ open, onClose, onSelect, current, restaurantName, pending }) => {
   const { phoneMode } = useSettings();
   const [query, setQuery] = useState('');
+  const [saving, setSaving] = useState('');
   const sheet = useBottomSheet(open && phoneMode, onClose);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => { if (open) setQuery(''); }, [open]);
+  useEffect(() => { if (open) { setQuery(''); setSaving(''); } }, [open]);
 
   // Escape closes on desktop, where there's no drag-to-dismiss.
   useEffect(() => {
@@ -56,7 +62,13 @@ export const CuisinePicker: React.FC<{
     return [...starts, ...contains];
   }, [query]);
 
-  const pick = (label: string) => { onSelect(label); onClose(); };
+  const pick = async (label: string) => {
+    if (saving) return;
+    setSaving(label);
+    const ok = await onSelect(label);
+    setSaving('');
+    if (ok !== false) onClose();
+  };
 
   return createPortal(
     <AnimatePresence>
@@ -98,12 +110,11 @@ export const CuisinePicker: React.FC<{
             <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
               <div className="min-w-0">
                 <h2 className="font-serif text-[19px] font-bold leading-tight text-on-surface">
-                  {current ? 'Change the cuisine' : 'Add a cuisine'}
+                  Suggest a cuisine
                 </h2>
-                <p className="mt-0.5 truncate text-[12.5px] text-on-surface/45">
-                  {restaurantName
-                    ? `for ${restaurantName} — everyone sees it`
-                    : 'Everyone sees this, so make it the one that fits.'}
+                <p className="mt-0.5 text-[12.5px] leading-snug text-on-surface/45">
+                  {restaurantName ? <>for <span className="font-semibold text-on-surface/65">{restaurantName}</span>. </> : null}
+                  Sent for review — it goes live once it's approved, or once {AUTO_APPLY_VOTES} people suggest the same thing.
                 </p>
               </div>
               <button
@@ -115,6 +126,13 @@ export const CuisinePicker: React.FC<{
                 <X size={17} />
               </button>
             </div>
+
+            {pending && (
+              <div className="mx-5 mb-3 flex items-center gap-2 rounded-xl bg-primary/[0.07] px-3 py-2.5 text-[12.5px] text-on-surface/70">
+                <Clock size={13} className="flex-shrink-0 text-primary" />
+                <span>You suggested <span className="font-bold text-on-surface">{pending}</span> — waiting on review. Picking again replaces it.</span>
+              </div>
+            )}
 
             <div className="px-5 pb-3">
               <div className="flex items-center gap-2 rounded-2xl bg-on-surface/[0.05] px-3.5 h-11">
@@ -167,7 +185,9 @@ export const CuisinePicker: React.FC<{
                           <span className={cn('text-[15px] text-on-surface', active ? 'font-bold' : 'font-medium')}>
                             {label}
                           </span>
-                          {active && <Check size={16} className="flex-shrink-0 text-primary" />}
+                          {saving === label
+                            ? <Loader2 size={15} className="flex-shrink-0 animate-spin text-primary" />
+                            : active && <Check size={16} className="flex-shrink-0 text-primary" />}
                         </button>
                       </li>
                     );
@@ -184,14 +204,18 @@ export const CuisinePicker: React.FC<{
 };
 
 /**
- * The cuisine · price eyebrow on a restaurant header, made editable.
+ * The cuisine · price eyebrow on a restaurant header, with a way to
+ * propose a change.
  *
  * Three headers show this line — phone, desktop-over-photo, desktop
  * editorial — and each has its own typography, so the caller supplies the
- * classes and this owns only the behaviour: tap to correct when there is a
- * cuisine, and an explicit "Add cuisine" when there isn't. The add state is
- * the one that matters; it appears exactly on the places this whole effort
- * is about, where nothing else could work the cuisine out.
+ * classes and this owns only the behaviour.
+ *
+ * The affordance is deliberately a distinct blue: everything else on these
+ * headers is the app's own voice, and this is the one control that hands
+ * something to a human to review. It reads "Suggest a cuisine" when there
+ * is none — the state this whole effort is about — and "Suggest edit"
+ * when there is one. Never "Edit": it doesn't edit anything.
  */
 export const EditableCuisineLine: React.FC<{
   cuisine: string;
@@ -199,40 +223,32 @@ export const EditableCuisineLine: React.FC<{
   onEdit: () => void;
   /** Sits over a photo, so the affordance has to read on a dark wash. */
   onPhoto?: boolean;
+  /** This user already has a proposal in for this place. */
+  pending?: boolean;
   className?: string;
-}> = ({ cuisine, priceStr, onEdit, onPhoto, className }) => {
-  if (!cuisine) {
-    return (
-      <div className={className}>
-        <button
-          type="button"
-          onClick={onEdit}
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-1 align-middle transition-colors',
-            onPhoto
-              ? 'border-white/45 text-white/85 hover:border-white/80 hover:text-white'
-              : 'border-on-surface/25 text-on-surface/50 hover:border-on-surface/45 hover:text-on-surface/80',
-          )}
-        >
-          <Plus size={11} strokeWidth={2.6} />
-          Add cuisine
-        </button>
-        {priceStr && <span className="ml-2 align-middle">{priceStr}</span>}
-      </div>
-    );
-  }
+}> = ({ cuisine, priceStr, onEdit, onPhoto, pending, className }) => {
+  const blue = onPhoto
+    ? 'border-sky-300/60 text-sky-100 hover:border-sky-200 hover:bg-sky-400/15'
+    : 'border-sky-500/40 text-sky-700 hover:border-sky-500/70 hover:bg-sky-500/[0.07]';
+  const label = pending ? 'Suggestion pending' : cuisine ? 'Suggest edit' : 'Suggest a cuisine';
+  const Icon = pending ? Clock : cuisine ? SquarePen : Plus;
   return (
     <div className={className}>
+      {cuisine && <span className="align-middle">{cuisine}</span>}
+      {cuisine && priceStr && <span className="align-middle">{`  ·  ${priceStr}`}</span>}
+      {!cuisine && priceStr && <span className="align-middle">{priceStr}</span>}
       <button
         type="button"
         onClick={onEdit}
-        title="Not right? Set the cuisine"
-        className="inline-flex items-center gap-1.5 rounded transition-opacity hover:opacity-70"
+        className={cn(
+          'ml-2 inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-1 align-middle text-[10.5px] tracking-normal transition-colors',
+          pending ? 'border-dotted opacity-80' : '',
+          blue,
+        )}
       >
-        {cuisine}
-        <Pencil size={10} strokeWidth={2.4} className="opacity-0 transition-opacity group-hover/cuisine:opacity-60" />
+        <Icon size={11} strokeWidth={2.6} />
+        {label}
       </button>
-      {priceStr && <span>{`  ·  ${priceStr}`}</span>}
     </div>
   );
 };

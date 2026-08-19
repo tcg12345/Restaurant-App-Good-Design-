@@ -4,7 +4,7 @@ import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
-  Shield, LifeBuoy, BadgeCheck, UploadCloud,
+  Shield, LifeBuoy, BadgeCheck, UploadCloud, Utensils,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1701,6 +1701,12 @@ export const Profile: React.FC = () => {
                             label="Verification requests"
                             hint="Review and approve applications"
                             onClick={() => { setSettingsOpen(false); navigate('/admin/verification'); }}
+                          />
+                          <SettingsRow
+                            icon={<Utensils size={17} />}
+                            label="Cuisine suggestions"
+                            hint="Approve proposed cuisine edits"
+                            onClick={() => { setSettingsOpen(false); navigate('/admin/cuisine'); }}
                             isLast
                           />
                         </SettingsSection>

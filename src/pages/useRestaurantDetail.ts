@@ -11,7 +11,8 @@ import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../conte
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
-import { settleRestaurantCuisine, publishRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { settleRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { submitCuisineSuggestion, getMyCuisineSuggestion, type CuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
@@ -70,9 +71,9 @@ export function useRestaurantDetail() {
    *  when Google's payload has none, and the write that gives every other
    *  screen this place's cuisine. '' until it resolves. */
   const [settledCuisine, setSettledCuisine] = useState('');
-  /** A cuisine this user just set by hand. Outranks every derived source,
-   *  on this screen and — once published — on everyone else's. */
-  const [userCuisine, setUserCuisine] = useState('');
+  /** This user's own proposal for this place, if they've made one. Shown
+   *  back to them so a pending suggestion doesn't look like it vanished. */
+  const [mySuggestion, setMySuggestion] = useState<CuisineSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -261,7 +262,17 @@ export function useRestaurantDetail() {
   // addresses often drop the country and state, which used to make cards
   // display the street name as a fake city. Keyed off place.id so we
   // don't write on every re-render.
-  useEffect(() => { setUserCuisine(''); }, [id]);
+  useEffect(() => { setMySuggestion(null); }, [id]);
+
+  // Their own pending/decided proposal, so the screen can say what
+  // happened to it rather than silently showing the old label.
+  useEffect(() => {
+    if (!place?.id || !user?.id) return;
+    let cancelled = false;
+    void getMyCuisineSuggestion(user.id, place.id)
+      .then((row) => { if (!cancelled) setMySuggestion(row); });
+    return () => { cancelled = true; };
+  }, [place?.id, user?.id]);
 
   useEffect(() => {
     if (!place?.id) return;
@@ -275,41 +286,14 @@ export function useRestaurantDetail() {
     return () => { cancelled = true; };
   }, [place, michelin]);
 
-  /**
-   * Record a cuisine the user picked by hand.
-   *
-   * Published at the `user` tier, which outranks Michelin, Google and every
-   * inference — so this is what the next person to open the place sees, and
-   * what the ratings backfill hands to everyone who saved it. Their own
-   * rating for this place is corrected too, since it carries its own copy
-   * of the cuisine and would otherwise keep the old one in their top lists.
-   */
-  const applyUserCuisine = useCallback((next: string) => {
-    const label = (next || '').trim();
-    if (!place?.id || !label) return;
-    setUserCuisine(label);
-    publishRestaurantCuisine(place.id, label, 'user');
-    cacheRestaurantMeta({
-      id: place.id,
-      name: place.name,
-      image: place.photoUrl || '',
-      cuisine: label,
-      price: priceLevelToString(place.priceLevel),
-      address: place.fullAddress || place.address,
-      lat: place.lat,
-      lng: place.lng,
-    });
-    const mine = ratings.find((r) => r.restaurantId === place.id);
-    // skipSettle: only a text field changed, so there is no score to
-    // re-rank; and with isNewVisit unset this edit carries no activity
-    // stamp, so fixing a label can't hoist an old rating into friends' feeds.
-    if (mine && mine.cuisine !== label) rateRestaurant({ ...mine, cuisine: label }, { skipSettle: true });
-  }, [place, ratings, rateRestaurant, cacheRestaurantMeta]);
-
-  // Michelin names the cuisine outright; otherwise Google's payload, and
-  // failing that whatever the shared cache settled on for this place.
-  const cuisine = userCuisine
-    || (michelin ? michelin.cuisine : (place ? getCuisineLabel(place) : '') || settledCuisine);
+  // settledCuisine is the ANSWER, not a fallback: settleRestaurantCuisine
+  // has already weighed the shared cache against Michelin and Google and
+  // returned the winner. Treating it as a last resort — only consulted
+  // when Google had nothing — is why an approved correction on a place
+  // Google does describe never showed up. It is '' until that resolves,
+  // so the local read is what fills the first paint.
+  const cuisine = settledCuisine
+    || (michelin ? michelin.cuisine : place ? getCuisineLabel(place) : '');
 
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
@@ -330,6 +314,42 @@ export function useRestaurantDetail() {
     // `cuisine` is a dep so the cached meta is rewritten once the shared
     // cache settles a place Google had nothing for.
   }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cuisine, cacheRestaurantMeta]);
+
+  /**
+   * Propose a cuisine for this restaurant.
+   *
+   * It does NOT change what anyone sees. A cuisine everyone reads is not
+   * something one person gets to write — it applies when an admin
+   * approves it, or when enough independent people propose the same
+   * thing (migration 069). What it does change immediately is this
+   * user's OWN rating, if they have one: that copy is theirs, and
+   * leaving it blank would keep the place missing from their own top
+   * lists while the proposal waits.
+   */
+  const suggestCuisine = useCallback(async (next: string): Promise<{ ok: boolean; error?: string }> => {
+    const label = (next || '').trim();
+    if (!place?.id || !label) return { ok: false, error: 'Pick a cuisine first' };
+    if (!user?.id) return { ok: false, error: 'Sign in to suggest an edit' };
+
+    const res = await submitCuisineSuggestion({
+      userId: user.id,
+      restaurantId: place.id,
+      cuisine: label,
+      restaurantName: place.name,
+      restaurantAddress: place.fullAddress || place.address,
+      currentCuisine: cuisine,
+    });
+    if (!res.ok) return res;
+
+    setMySuggestion(await getMyCuisineSuggestion(user.id, place.id));
+    // skipSettle: only a text field changed, so there is no score to
+    // re-rank; and with isNewVisit unset this edit carries no activity
+    // stamp, so labelling a place can't hoist an old rating into feeds.
+    const mine = ratings.find((r) => r.restaurantId === place.id);
+    if (mine && mine.cuisine !== label) rateRestaurant({ ...mine, cuisine: label }, { skipSettle: true });
+    return { ok: true };
+  }, [place, user, cuisine, ratings, rateRestaurant]);
+
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
   // place is updated. Used as an effect dep below.
@@ -493,7 +513,8 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
-    applyUserCuisine,
+    suggestCuisine,
+    mySuggestion,
 
     photos,
     directionsUrl,

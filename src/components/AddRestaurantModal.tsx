@@ -11,7 +11,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
 import { CuisinePicker, EditableCuisineLine } from './CuisinePicker';
-import { publishRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { submitCuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
@@ -1302,15 +1302,27 @@ export const AddRestaurantModal: React.FC = () => {
       )}
     </AnimatePresence>
 
-    {/* Labelling the place while rating it. Published on pick rather than
-        on save: it's true about the restaurant whether or not this rating
-        is finished. */}
+    {/* Labelling the place while rating it. Two different things,
+        deliberately: the label goes on THIS user's rating straight away —
+        that copy is theirs, and leaving it blank keeps the place missing
+        from their own top lists — while the cuisine everyone else reads
+        only changes after review. */}
     <CuisinePicker
       open={cuisinePickerOpen}
       onClose={() => setCuisinePickerOpen(false)}
-      onSelect={(c) => {
+      onSelect={async (c) => {
         setCuisineOverride(c);
-        if (restaurant?.id) publishRestaurantCuisine(restaurant.id, c, 'user');
+        if (restaurant?.id && user?.id) {
+          await submitCuisineSuggestion({
+            userId: user.id,
+            restaurantId: restaurant.id,
+            cuisine: c,
+            restaurantName: restaurant.name,
+            restaurantAddress: restaurant.address,
+            currentCuisine: restaurant.cuisine || '',
+          });
+        }
+        return true;
       }}
       current={resolvedCuisine}
       restaurantName={restaurant?.name}

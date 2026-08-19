@@ -15,8 +15,14 @@
 
 import { supabase, supabaseConfigured } from './supabase';
 
-export type NotificationKind = 'like' | 'comment';
-export type NotificationSubject = 'post' | 'reel' | 'rating';
+export type NotificationKind = 'like' | 'comment' | 'cuisine_suggested' | 'cuisine_auto';
+export type NotificationSubject = 'post' | 'reel' | 'rating' | 'cuisine';
+
+/** Admin-only review traffic (migration 069) rather than someone
+ *  engaging with your own content. */
+export function isReviewNotification(n: { kind: NotificationKind }): boolean {
+  return n.kind === 'cuisine_suggested' || n.kind === 'cuisine_auto';
+}
 
 export interface AppNotification {
   id: string;
@@ -72,8 +78,10 @@ export function rowToNotification(row: NotificationRow): AppNotification {
     id: row.id,
     userId: row.user_id,
     actorId: row.actor_id,
-    kind: row.kind === 'comment' ? 'comment' : 'like',
-    subjectType: (row.subject_type === 'post' || row.subject_type === 'reel') ? row.subject_type : 'rating',
+    // Unknown kinds from a newer server fall back to 'like' rather than
+    // being dropped: a row nobody can render is still better than a gap.
+    kind: (['comment', 'cuisine_suggested', 'cuisine_auto'] as const).find((k) => k === row.kind) ?? 'like',
+    subjectType: (['post', 'reel', 'cuisine'] as const).find((t) => t === row.subject_type) ?? 'rating',
     subjectId: row.subject_id,
     subjectLabel: row.subject_label || '',
     preview: row.preview || '',

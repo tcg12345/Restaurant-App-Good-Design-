@@ -17,6 +17,7 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { useToast } from '../contexts/ToastContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,13 +61,14 @@ export const RestaurantDetailMobile: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, applyUserCuisine, michelin,
+    priceStr, cuisine, suggestCuisine, mySuggestion, michelin,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
     visitHistory, visitCount,
   } = useRestaurantDetail();
   const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
+  const { showToast } = useToast();
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
@@ -475,6 +477,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 cuisine={cuisine}
                 priceStr={priceStr}
                 onEdit={() => setCuisinePickerOpen(true)}
+                pending={mySuggestion?.status === 'pending'}
                 className="group/cuisine uppercase mb-2 text-on-surface/50"
               />
               <div className="flex items-center justify-between gap-3">
@@ -1304,9 +1307,15 @@ export const RestaurantDetailMobile: React.FC = () => {
       <CuisinePicker
         open={cuisinePickerOpen}
         onClose={() => setCuisinePickerOpen(false)}
-        onSelect={applyUserCuisine}
+        onSelect={async (c) => {
+          const res = await suggestCuisine(c);
+          if (res.ok) showToast('Sent for review', { subtitle: `You suggested ${c} — an admin will take a look` });
+          else showToast(res.error || 'Could not send that suggestion');
+          return res.ok;
+        }}
         current={cuisine}
         restaurantName={place?.name}
+        pending={mySuggestion?.status === 'pending' ? mySuggestion.cuisine : undefined}
       />
 
     </div>
