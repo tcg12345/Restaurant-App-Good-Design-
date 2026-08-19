@@ -153,3 +153,36 @@ describe('cuisineFromName', () => {
     expect(cuisineFromName(undefined)).toBe('');
   });
 });
+
+// Cases taken verbatim from measuring the real gap — the two the wider
+// field mask "recovered" were the two worth checking.
+describe('resolveCuisine · what the field mask actually returned', () => {
+  it('does not pass off the property a restaurant sits in as its cuisine', () => {
+    // Falsled Kro, a Relais & Châteaux place: Google's only label was "Inn".
+    expect(resolveCuisine({ types: ['restaurant'], primaryTypeDisplayName: 'Inn' })).toBeNull();
+    for (const venue of ['Hotel', 'Resort', 'Casino', 'Lodge', 'Country club', 'Bed and breakfast']) {
+      expect([venue, resolveCuisine({ types: ['restaurant'], primaryTypeDisplayName: venue })])
+        .toEqual([venue, null]);
+    }
+  });
+
+  it('drops the suffix so the label reads like a cuisine', () => {
+    // Colombia Kaliente came back as "Colombian Restaurant".
+    expect(resolveCuisine({ types: ['restaurant'], primaryTypeDisplayName: 'Colombian Restaurant' }))
+      .toEqual({ label: 'Colombian', canonical: false, source: 'displayName' });
+    expect(cuisineLabel({ types: ['restaurant'], primaryTypeDisplayName: 'Sri Lankan Restaurant' }))
+      .toBe('Sri Lankan');
+  });
+
+  it('still prefers a taxonomy hit over the stripped word', () => {
+    // "Barbecue restaurant" must stay BBQ, not become "Barbecue".
+    expect(resolveCuisine({ types: ['restaurant'], primaryTypeDisplayName: 'Barbecue restaurant' }))
+      .toEqual({ label: 'BBQ', canonical: true, source: 'displayName' });
+    expect(cuisineLabel({ types: ['restaurant'], primaryTypeDisplayName: 'Fine dining restaurant' }))
+      .toBe('Fine Dining');
+  });
+
+  it('a venue type in the types array is not a cuisine either', () => {
+    expect(cuisineLabel({ types: ['lodging', 'hotel', 'restaurant'] })).toBe('');
+  });
+});

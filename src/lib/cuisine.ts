@@ -56,15 +56,40 @@ for (const c of CUISINE_TYPES) {
 }
 
 /**
- * Types that say "this is a place that serves food" and nothing more.
- * They must not resolve to a cuisine — answering 'Restaurant' for these is
- * the bug this module exists to fix. Note `bar`, `cafe`, `bakery`, `pub`,
- * `diner` and `deli` are deliberately NOT here: those are real answers.
+ * Types that are not a cuisine, in two flavours.
+ *
+ * The first group says "this is a place that serves food" and nothing
+ * more — answering 'Restaurant' for those is the bug this module exists
+ * to fix. Note `bar`, `cafe`, `bakery`, `pub`, `diner` and `deli` are
+ * deliberately absent: those are real answers.
+ *
+ * The second group is the property a restaurant sits INSIDE. Measuring the
+ * real gap turned up a Relais & Châteaux place whose only Google label was
+ * "Inn" — so the app would have shown Inn as its cuisine, and grouped a
+ * profile top list under it. Hotel, resort and casino restaurants are
+ * exactly the places Google describes worst, so this is the failure mode
+ * to expect, not an oddity.
  */
 const GENERIC = new Set([
+  // Serves food, unspecified.
   'restaurant', 'food', 'point_of_interest', 'establishment', 'store',
   'meal_takeaway', 'meal_delivery', 'food_store', 'grocery_store',
+  // The venue around the restaurant.
+  'inn', 'hotel', 'motel', 'resort', 'resort_hotel', 'lodge', 'lodging',
+  'bed_and_breakfast', 'guest_house', 'hostel', 'cottage', 'farmstay',
+  'casino', 'country_club', 'golf_course', 'spa', 'event_venue',
+  'banquet_hall', 'wedding_venue', 'convention_center', 'performing_arts_theater',
 ]);
+
+/**
+ * "Colombian Restaurant" is a cuisine wearing a suffix. Dropping it is
+ * what turns Google's label into the word that belongs on a card.
+ * Deliberately applied only AFTER the taxonomy lookups, so "Barbecue
+ * restaurant" still resolves to BBQ rather than the bare word "Barbecue".
+ */
+function stripVenueSuffix(name: string): string {
+  return name.replace(/\s+(restaurant|cuisine|food|place|shop)$/i, '').trim();
+}
 
 /**
  * Google's display names are the type in sentence case — "Barbecue
@@ -95,6 +120,16 @@ export function resolveCuisine(place: CuisineSource): ResolvedCuisine | null {
     if (GENERIC.has(asType)) return null;
     const canonicalLabel = TYPE_TO_LABEL[asType] ?? LABEL_TO_LABEL[display.toLowerCase()];
     if (canonicalLabel) return { label: canonicalLabel, canonical: true, source: 'displayName' };
+
+    // Nothing in the taxonomy matched the whole label. Try again without
+    // the suffix, which is where the cuisine usually is.
+    const stripped = stripVenueSuffix(display);
+    if (stripped && stripped.toLowerCase() !== display.toLowerCase()) {
+      if (GENERIC.has(typeFromDisplayName(stripped))) return null;
+      const viaStripped = TYPE_TO_LABEL[typeFromDisplayName(stripped)] ?? LABEL_TO_LABEL[stripped.toLowerCase()];
+      if (viaStripped) return { label: viaStripped, canonical: true, source: 'displayName' };
+      return { label: stripped, canonical: false, source: 'displayName' };
+    }
     // Not in our taxonomy, but still a real answer for a human to read.
     return { label: display, canonical: false, source: 'displayName' };
   }
