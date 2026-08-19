@@ -19,7 +19,7 @@
  * Resolution order, most to least trustworthy:
  *   primaryType → types[] → primaryTypeDisplayName → null
  */
-import { CUISINE_TYPES } from './places';
+import { CUISINE_TYPES, VENUE_TYPES } from './places';
 
 export interface CuisineSource {
   /** Google's unordered type array. */
@@ -69,6 +69,10 @@ for (const c of CUISINE_TYPES) {
  * profile top list under it. Hotel, resort and casino restaurants are
  * exactly the places Google describes worst, so this is the failure mode
  * to expect, not an oddity.
+ *
+ * VENUE_TYPES is folded in wholesale rather than restated, because the two
+ * lists answer the same question and a copy would drift. It is what stops
+ * a cinema's display name — "Movie theater" — being printed as a cuisine.
  */
 const GENERIC = new Set([
   // Serves food, unspecified.
@@ -77,8 +81,8 @@ const GENERIC = new Set([
   // The venue around the restaurant.
   'inn', 'hotel', 'motel', 'resort', 'resort_hotel', 'lodge', 'lodging',
   'bed_and_breakfast', 'guest_house', 'hostel', 'cottage', 'farmstay',
-  'casino', 'country_club', 'golf_course', 'spa', 'event_venue',
-  'banquet_hall', 'wedding_venue', 'convention_center', 'performing_arts_theater',
+  'country_club',
+  ...VENUE_TYPES,
 ]);
 
 /**

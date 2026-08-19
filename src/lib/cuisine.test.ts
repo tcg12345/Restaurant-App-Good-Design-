@@ -186,3 +186,75 @@ describe('resolveCuisine · what the field mask actually returned', () => {
     expect(cuisineLabel({ types: ['lodging', 'hotel', 'restaurant'] })).toBe('');
   });
 });
+
+/**
+ * A venue is not a cuisine.
+ *
+ * Cinemas, malls and stadiums carry `restaurant` or `food` in their types —
+ * they have a concession stand or a food court — so they reach the cuisine
+ * resolver looking like food places. Before this, the display-name fallback
+ * printed Google's label for them verbatim and a cinema's cuisine read
+ * "Movie theater".
+ *
+ * The places named here are the ones that actually turned up in the app's
+ * recommendations.
+ */
+describe('resolveCuisine · venues never yield a cuisine', () => {
+  it('refuses a cinema, however much popcorn it sells', () => {
+    // Cinemark North Haven and XD
+    expect(resolveCuisine({
+      primaryType: 'movie_theater',
+      primaryTypeDisplayName: 'Movie theater',
+      types: ['movie_theater', 'restaurant', 'point_of_interest', 'establishment'],
+    })).toBeNull();
+  });
+
+  it('refuses a shopping mall with a food court', () => {
+    // Meriden Mall
+    expect(resolveCuisine({
+      primaryType: 'shopping_mall',
+      primaryTypeDisplayName: 'Shopping mall',
+      types: ['shopping_mall', 'food', 'point_of_interest', 'establishment'],
+    })).toBeNull();
+  });
+
+  it('refuses the rest of the venue family', () => {
+    for (const [primaryType, display] of [
+      ['stadium', 'Stadium'],
+      ['supermarket', 'Supermarket'],
+      ['gas_station', 'Gas station'],
+      ['hospital', 'Hospital'],
+      ['bowling_alley', 'Bowling alley'],
+      ['airport', 'Airport'],
+      ['casino', 'Casino'],
+      ['golf_course', 'Golf course'],
+    ] as const) {
+      expect(resolveCuisine({ primaryType, primaryTypeDisplayName: display, types: ['restaurant'] }))
+        .toBeNull();
+    }
+  });
+
+  it('still answers for the rural restaurants this fallback exists for', () => {
+    // The Phase 1 win must survive: `types` says nothing, the display name
+    // carries the answer.
+    expect(resolveCuisine({
+      primaryType: 'barbecue_restaurant',
+      primaryTypeDisplayName: 'Barbecue restaurant',
+      types: ['restaurant', 'point_of_interest', 'establishment'],
+    })?.label).toBe('BBQ');
+    expect(resolveCuisine({
+      primaryTypeDisplayName: 'Colombian restaurant',
+      types: ['restaurant', 'point_of_interest', 'establishment'],
+    })?.label).toBe('Colombian');
+  });
+
+  it('still answers for a restaurant that happens to sit in a venue', () => {
+    // A real restaurant inside a casino resort: its own place id, its own
+    // primaryType. Only the property POI is excluded, never the restaurant.
+    expect(resolveCuisine({
+      primaryType: 'fine_dining_restaurant',
+      primaryTypeDisplayName: 'Fine dining restaurant',
+      types: ['fine_dining_restaurant', 'restaurant', 'casino'],
+    })?.label).toBe('Fine Dining');
+  });
+});

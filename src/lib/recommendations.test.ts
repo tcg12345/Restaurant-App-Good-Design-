@@ -755,3 +755,66 @@ describe('v3.2 community-quality handover', () => {
     expect(Math.abs(out[0].recScore - out[1].recScore)).toBeLessThan(0.001);
   });
 });
+
+/**
+ * The other way a non-restaurant gets in.
+ *
+ * Hotels were caught (above). Cinemas, malls and stadiums fail identically
+ * — they carry `restaurant` or `food` because of a concession stand or a
+ * food court — and turned up in real recommendations: Cinemark North Haven,
+ * Meriden Mall. Their restaurants, where they have any, are separate places.
+ */
+describe('rec pool eligibility (venues that merely contain food)', () => {
+  it('excludes the places actually seen in recommendations', () => {
+    expect(recPoolEligible({
+      primaryType: 'movie_theater',
+      types: ['movie_theater', 'restaurant', 'point_of_interest'],
+    })).toBe(false);
+    expect(recPoolEligible({
+      primaryType: 'shopping_mall',
+      types: ['shopping_mall', 'food', 'point_of_interest'],
+    })).toBe(false);
+  });
+
+  it('excludes the rest of the family', () => {
+    for (const primaryType of [
+      'stadium', 'supermarket', 'gas_station', 'airport', 'hospital',
+      'bowling_alley', 'casino', 'department_store', 'convention_center',
+    ]) {
+      expect(recPoolEligible({ primaryType, types: [primaryType, 'restaurant'] })).toBe(false);
+    }
+  });
+
+  it('keeps a real restaurant that sits inside one', () => {
+    // Its own place id and its own primaryType — only the property POI goes.
+    expect(recPoolEligible({
+      primaryType: 'fine_dining_restaurant',
+      types: ['fine_dining_restaurant', 'restaurant', 'casino'],
+    })).toBe(true);
+    expect(recPoolEligible({
+      primaryType: 'restaurant',
+      types: ['restaurant', 'shopping_mall'],
+    })).toBe(true);
+  });
+
+  it('keeps every kind of food business, including the ones that are not "restaurants"', () => {
+    // A denylist that swallowed pubs, diners or wine bars would be a far
+    // worse bug than the one it fixes.
+    for (const primaryType of [
+      'pub', 'diner', 'deli', 'wine_bar', 'bar', 'cafe', 'bakery',
+      'ice_cream_shop', 'steak_house', 'sushi_restaurant', 'food_court',
+    ]) {
+      expect(recPoolEligible({ primaryType, types: [primaryType, 'restaurant'] })).toBe(true);
+    }
+  });
+
+  it('falls back to types for places cached before primaryType was requested', () => {
+    // No primaryType at all: the venue only wins when nothing names the
+    // place as a specific kind of food business.
+    expect(recPoolEligible({ types: ['movie_theater', 'restaurant'] })).toBe(false);
+    expect(recPoolEligible({ types: ['shopping_mall', 'food'] })).toBe(false);
+    // …but a restaurant carrying its mall's type is still a restaurant.
+    expect(recPoolEligible({ types: ['italian_restaurant', 'shopping_mall'] })).toBe(true);
+    expect(recPoolEligible({ types: ['restaurant', 'french_restaurant'] })).toBe(true);
+  });
+});

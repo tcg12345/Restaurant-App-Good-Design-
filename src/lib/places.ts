@@ -436,7 +436,7 @@ export async function searchNearbyRestaurants(
     ]);
 
     const all = [...byDistance, ...byPopularity, ...byText];
-    const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+    const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
     return sortByDistance(lat, lng, deduped).slice(0, cap);
   }
 
@@ -454,7 +454,7 @@ export async function searchNearbyRestaurants(
   ]);
 
   const all = [...byPopularity, ...byDistance, ...textResults.flat()];
-  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
   return sortByQuality(deduped).slice(0, cap);
 }
 
@@ -505,7 +505,7 @@ async function searchWithFilters(
   ]);
 
   const all = [...textResults.flat(), ...byDistance];
-  let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
   // Distance-ranked nearby doesn't honour price/cuisine filters server-side,
   // so trim its contributions client-side. Price level on PlaceResult is
   // 0 when unknown — those aren't excluded because the filter can't tell
@@ -546,6 +546,70 @@ const LODGING_TYPES = new Set([
 ]);
 export function isLodgingPlace(types: string[]): boolean {
   return types.some((t) => LODGING_TYPES.has(t));
+}
+
+/**
+ * Venues that CONTAIN food rather than being a food business.
+ *
+ * Same failure as the hotels above, one step further out. A cinema, a mall
+ * and a stadium all carry `restaurant` or `food` in `types` — because they
+ * have a concession stand or a food court — so a food-type check alone
+ * lets them through, and a shopping mall turns up in a restaurant
+ * recommendation. Their actual restaurants are separate places with their
+ * own ids.
+ *
+ * Deliberately NOT here: `night_club`, `park`, `tourist_attraction`,
+ * `market`, `national_park`. Each has enough genuine restaurants and bars
+ * carrying it that excluding them would cost more than it saves.
+ */
+export const VENUE_TYPES = new Set([
+  // Retail that happens to sell food
+  'shopping_mall', 'department_store', 'supermarket', 'grocery_store',
+  'convenience_store', 'gas_station', 'liquor_store', 'discount_store',
+  'home_improvement_store', 'warehouse_store', 'wholesaler',
+  // Entertainment and attractions
+  'movie_theater', 'performing_arts_theater', 'concert_hall', 'casino',
+  'amusement_park', 'amusement_center', 'water_park', 'bowling_alley',
+  'zoo', 'aquarium', 'museum', 'art_gallery', 'planetarium',
+  'stadium', 'arena', 'sports_complex', 'sports_activity_location',
+  'golf_course', 'ski_resort', 'gym', 'fitness_center', 'spa',
+  // Transport
+  'airport', 'international_airport', 'train_station', 'subway_station',
+  'light_rail_station', 'bus_station', 'transit_station', 'ferry_terminal',
+  'rest_stop', 'parking',
+  // Institutions
+  'hospital', 'school', 'primary_school', 'secondary_school', 'university',
+  'library', 'church', 'mosque', 'synagogue', 'hindu_temple',
+  'city_hall', 'courthouse', 'police', 'post_office', 'bank',
+  // Rooms you hire rather than eat out in
+  'event_venue', 'banquet_hall', 'wedding_venue', 'convention_center',
+  'community_center',
+]);
+
+/** Every type in the app's own cuisine taxonomy — a place carrying one of
+ *  these is a specific kind of food business, not a venue with a kitchen. */
+const SPECIFIC_FOOD_TYPES = new Set(
+  CUISINE_TYPES.map((c) => c.type).filter((t): t is string => !!t),
+);
+
+/**
+ * Is this place a venue rather than somewhere to eat?
+ *
+ * `primaryType` is Google's own answer to "what IS this place", which is
+ * exactly the question, so when it is present it decides alone: a cinema
+ * that sells popcorn is a cinema.
+ *
+ * Places cached before we started requesting `primaryType` have to fall
+ * back to `types`, which is weaker — a restaurant inside a mall can carry
+ * the mall's type — so there the venue only wins when nothing else claims
+ * the place as a specific kind of food business.
+ */
+export function isVenuePlace(place: { primaryType?: string; types?: string[] }): boolean {
+  const primary = place.primaryType?.trim();
+  if (primary) return VENUE_TYPES.has(primary);
+  const types = place.types ?? [];
+  if (types.some((t) => SPECIFIC_FOOD_TYPES.has(t))) return false;
+  return types.some((t) => VENUE_TYPES.has(t));
 }
 
 // Exported for the recommendation engine's price-restricted query path — the
@@ -621,7 +685,7 @@ export async function searchPlacesByText(
   const exactPlaces = mapPlaces(exactRes.places || []);
 
   // Filter exact results to only food-related places
-  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types));
+  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
 
   // Merge: exact name matches first (higher relevance), then broad results
   const merged = [...foodExact, ...broadPlaces];
