@@ -271,7 +271,7 @@ function isCompact(e: FeedEntry): boolean {
  *
  * Both sequences stay in time order and are consumed in parallel, so a
  * strip holds the photoless ratings from roughly the stretch of timeline
- * it sits in. When the full cards run out the remaining strips follow,
+ * it sits in. When the full cards run out the rest follow as ONE strip,
  * rather than being dropped — a quiet week of photoless ratings is still
  * the week's activity.
  */
@@ -301,5 +301,18 @@ export function layoutFeed(entries: FeedEntry[], options: LayoutFeedOptions = {}
   });
   while (next < compact.length) flushStrip();
 
-  return rows;
+  // Two strips in a row are one strip. Once the full cards are spent the
+  // rest of the compact ratings used to flush as back-to-back chunks of
+  // four, and the feed rendered each as its own bordered section — so the
+  // reader saw the same heading-less block twice, split by a divider, when
+  // it is all just "also rated". Merging keeps it a single run that wraps.
+  return rows.reduce<FeedLayoutRow[]>((acc, row) => {
+    const last = acc[acc.length - 1];
+    if (row.kind === 'strip' && last?.kind === 'strip') {
+      acc[acc.length - 1] = { kind: 'strip', entries: [...last.entries, ...row.entries] };
+    } else {
+      acc.push(row);
+    }
+    return acc;
+  }, []);
 }
