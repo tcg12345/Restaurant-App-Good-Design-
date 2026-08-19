@@ -27,10 +27,15 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
-import { tierOfScore } from '../lib/settleScores';
-import { TIER_LABELS } from '../lib/headToHeadRating';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { TopListCard } from '../components/TopListCard';
+import {
+  MIN_LIST_SIZE, cityFromAddress, countCategories, autoTopListConfigs, visibleTopListConfigs,
+  buildTopList, loadCustomization, saveCustomization, topListKey,
+  topListPlainLabel,
+  type TopListConfig, type TopListCustomization,
+} from '../lib/topLists';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
 
 type SettingsPage = 'main' | 'edit' | 'account';
@@ -43,17 +48,6 @@ function formatScore(s: unknown): string {
 function numericScore(s: unknown): number {
   const n = typeof s === 'number' ? s : Number(s);
   return Number.isFinite(n) ? n : 0;
-}
-
-function cityFromAddress(address: string): string | null {
-  if (!address) return null;
-  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-  // Heuristic: in "<street>, <city>, <state-or-country>" the city is the
-  // middle part; in "<street>, <city>" it's the last. Pick accordingly so
-  // we don't render "CT" or "USA" as the place label.
-  if (parts.length >= 3) return parts[parts.length - 2];
-  return parts[parts.length - 1];
 }
 
 /** Human names for the profile columns saveProfile may have to skip, so a
@@ -78,46 +72,6 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
   }
   return '';
 }
-
-/* ── TopRatedCard ──
-   Text-only minimalist tile used in the Profile TOP tab. # + rank
-   on the left, score-colored decimal on the right, serif name and
-   meta sub-line below. Subtle border lifts on hover so the strip
-   doesn't feel like detached chrome. */
-const TopRatedCard: React.FC<{
-  rank: number;
-  rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
-  /** Bottom sub-line under the name. Defaults to cuisine · price · city. */
-  metaText?: string;
-}> = ({ rank, rating, metaText }) => {
-  const { scoresUnlocked: scoresUnlockedCard } = useLists();
-  const city = cityFromAddress(rating.address || '');
-  const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
-
-  return (
-    <Link
-      to={`/restaurant/${rating.restaurantId}`}
-      className="block w-52 flex-shrink-0 snap-start rounded-2xl bg-white border border-on-surface/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.03)] px-4 py-3.5 hover:border-on-surface/[0.16] hover:shadow-[0_4px_14px_-4px_rgba(0,0,0,0.08)] transition-all"
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className="text-[13px] font-medium text-on-surface/30 leading-none">#</span>
-          <span className="font-serif font-bold text-on-surface text-[26px] leading-none tabular-nums">
-            {rank}
-          </span>
-        </div>
-        <OwnScoreBadge rating={numericScore(rating.score)} unlocked={scoresUnlockedCard} size="lg" />
-      </div>
-
-      <p className="font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-1 mt-3">
-        {rating.name}
-      </p>
-      <p className="text-[12px] text-on-surface/45 truncate mt-1">
-        {resolvedMeta}
-      </p>
-    </Link>
-  );
-};
 
 /* ── GuideCard ──
    Recommended-guide tile used in the Profile TOP tab. Cover with a
@@ -190,163 +144,6 @@ const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
   </Link>
 );
 
-/* ── Top10Section ──
-   Section header (title + subtitle + See all) followed by a
-   horizontally scrolling strip of TopRatedCards. Kept inline so the
-   Profile page can repeat it for each slice (overall, per cuisine,
-   per city). */
-const Top10Section: React.FC<{
-  name: string;
-  total: number;
-  avg: number;
-  onSeeAll?: () => void;
-  children: React.ReactNode;
-}> = ({ name, total, avg, onSeeAll, children }) => {
-  const { scoresUnlocked: sectionScoresUnlocked } = useLists();
-  return (
-  <section>
-    <div className="px-5 flex items-baseline justify-between gap-3 mb-1.5">
-      <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight min-w-0 truncate">
-        {name}
-        <span className="text-on-surface/45 font-normal ml-1.5">
-          · {total} place{total === 1 ? '' : 's'}{sectionScoresUnlocked ? ` · ${avg.toFixed(1)} avg` : ''}
-        </span>
-      </h3>
-      {onSeeAll && (
-        <button
-          type="button"
-          onClick={onSeeAll}
-          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface flex-shrink-0"
-        >
-          See all <ChevronRight size={14} />
-        </button>
-      )}
-    </div>
-    <div className="flex gap-3 overflow-x-auto px-5 pb-1.5 scrollbar-hide snap-x snap-mandatory">
-      {children}
-    </div>
-  </section>
-  );
-};
-
-/* ── Desktop TOP-tab pieces ──────────────────────────────────────────
-   The desktop "Top lists" view (left category rail + featured hero +
-   horizontally-scrolling per-category rows). Mobile keeps the simpler
-   stacked strips above. ── */
-
-/* Featured hero card — the #1 of the currently-selected scope. */
-const FeaturedTopCard: React.FC<{
-  rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string };
-  scopeLabel: string;
-}> = ({ rating, scopeLabel }) => {
-  const { scoresUnlocked: scoresUnlockedCard } = useLists();
-  const score = numericScore(rating.score);
-  const meta = [rating.cuisine, rating.price, rating.address].filter(Boolean).join(' · ');
-  return (
-    <Link
-      to={`/restaurant/${rating.restaurantId}`}
-      className="block relative overflow-hidden rounded-3xl border border-on-surface/[0.06] bg-gradient-to-br from-primary/[0.06] via-on-surface/[0.015] to-transparent px-8 py-7 hover:border-on-surface/[0.12] transition-colors"
-    >
-      <div className="flex items-center justify-between gap-6">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-bold uppercase tracking-wider">
-              <Star size={12} className="fill-primary" /> Top rated
-            </span>
-            <span className="text-[13px] font-semibold text-on-surface/45">#1 in {scopeLabel}</span>
-          </div>
-          <h2 className="font-serif font-bold text-on-surface text-[40px] leading-none truncate">{rating.name}</h2>
-          {meta && <p className="text-[15px] text-on-surface/55 mt-3 truncate">{meta}</p>}
-        </div>
-        <div className="flex flex-col items-center flex-shrink-0">
-          <div className={cn(
-            'w-[128px] h-[128px] rounded-full border-[3px] flex items-center justify-center',
-            score >= 8 ? 'border-green-400/70 bg-green-50' : score >= 5 ? 'border-yellow-400/70 bg-yellow-50' : 'border-red-400/70 bg-red-50',
-          )}>
-            {scoresUnlockedCard ? (
-              <span className={cn('font-serif font-bold text-[42px] leading-none tabular-nums', scoreColor(score))}>
-                {score.toFixed(1)}
-              </span>
-            ) : (
-              <span className={cn('font-serif font-bold text-[22px] leading-none text-center px-3', scoreColor(score))}>{TIER_LABELS[tierOfScore(score)]}</span>
-            )}
-          </div>
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-2.5">
-            {scoresUnlockedCard ? 'Out of 10' : 'Your #1'}
-          </span>
-        </div>
-      </div>
-    </Link>
-  );
-};
-
-/* Horizontal rank card — # + rank, name + meta, score circle on the right. */
-const DesktopRankCard: React.FC<{
-  rank: number;
-  rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string };
-  metaText?: string;
-}> = ({ rank, rating, metaText }) => {
-  const { scoresUnlocked: scoresUnlockedCard } = useLists();
-  const city = cityFromAddress(rating.address || '');
-  const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
-  return (
-    <Link
-      to={`/restaurant/${rating.restaurantId}`}
-      className="flex-shrink-0 snap-start w-[340px] rounded-2xl bg-white border border-on-surface/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.03)] px-5 py-4 flex items-center gap-4 hover:border-on-surface/[0.16] hover:shadow-[0_6px_18px_-6px_rgba(0,0,0,0.12)] transition-all"
-    >
-      <div className="flex items-baseline gap-0.5 flex-shrink-0 w-8">
-        <span className="text-[12px] font-medium text-on-surface/30 leading-none">#</span>
-        <span className={cn('font-serif font-bold text-[24px] leading-none tabular-nums', rank === 1 ? 'text-primary' : 'text-on-surface')}>
-          {rank}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-serif font-bold text-on-surface text-[17px] leading-tight truncate">{rating.name}</p>
-        <p className="text-[12.5px] text-on-surface/45 truncate mt-1">{resolvedMeta}</p>
-      </div>
-      <OwnScoreBadge rating={numericScore(rating.score)} unlocked={scoresUnlockedCard} size="lg" />
-    </Link>
-  );
-};
-
-/* Section header + horizontally-scrolling row of rank cards (desktop). */
-const DesktopTopSection: React.FC<{
-  name: string;
-  total: number;
-  avg: number;
-  onSeeAll?: () => void;
-  children: React.ReactNode;
-}> = ({ name, total, avg, onSeeAll, children }) => {
-  const { scoresUnlocked: sectionScoresUnlocked } = useLists();
-  return (
-  <section>
-    <div className="flex items-center justify-between gap-3 mb-3.5">
-      <div className="flex items-center gap-3 min-w-0">
-        <h3 className="font-serif font-bold text-on-surface text-[26px] leading-none truncate">{name}</h3>
-        {sectionScoresUnlocked && (
-          <span className={cn('flex-shrink-0 px-2 py-0.5 rounded-md border text-[12.5px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
-            {avg.toFixed(1)} avg
-          </span>
-        )}
-        <span className="flex-shrink-0 text-[13.5px] text-on-surface/40">{total} place{total === 1 ? '' : 's'}</span>
-      </div>
-      {onSeeAll && (
-        <button
-          type="button"
-          onClick={onSeeAll}
-          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80 flex-shrink-0"
-        >
-          See all <ChevronRight size={14} />
-        </button>
-      )}
-    </div>
-    <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
-      {children}
-    </div>
-  </section>
-  );
-};
-
 /* ── Recommended guides ──
    Real published + public guides from the community, mapped into the
    GuideCard shape. Covers use the guide's own photo (or its first
@@ -397,101 +194,6 @@ const EmptyTabState: React.FC<{
     </button>
   </div>
 );
-
-/* ── Top-list customization ────────────────────────────────────────────
-   The TOP tab seeds itself with auto-generated strips (Top 10 overall +
-   one per cuisine and city with 4+ ratings). Users can hide any of those
-   and add their own slices (e.g. by price tier, tag, or "would return").
-   We persist two deltas in localStorage rather than the full set of
-   configs so the page keeps reacting to new ratings — a freshly-eligible
-   cuisine still shows up automatically. */
-
-type TopListConfig =
-  | { type: 'overall' }
-  | { type: 'cuisine'; value: string }
-  | { type: 'city'; value: string }
-  | { type: 'price'; value: string }
-  | { type: 'tag'; value: string };
-
-type TopListCustomization = {
-  hidden: string[];
-  custom: TopListConfig[];
-  /** User-preferred display order, list keys in the desired sequence.
-   *  Any visible keys not present fall to the end in their natural
-   *  (auto + custom) order — so freshly-eligible auto lists slot in
-   *  predictably without erasing the user's choices. */
-  order: string[];
-};
-
-const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-${userId || 'anon'}`;
-const MIN_LIST_SIZE = 4;
-
-const topListKey = (c: TopListConfig): string => {
-  if (c.type === 'overall') return c.type;
-  return `${c.type}:${c.value}`;
-};
-
-const topListLabel = (c: TopListConfig): string => {
-  if (c.type === 'overall') return 'Overall';
-  return c.value;
-};
-
-const topListPlainLabel = (c: TopListConfig): string => {
-  if (c.type === 'overall') return 'Top 10 overall';
-  if (c.type === 'city') return `Top 10 in ${c.value}`;
-  return `Top 10 · ${c.value}`;
-};
-
-const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[] }): boolean => {
-  switch (c.type) {
-    case 'overall': return true;
-    case 'cuisine': return r.cuisine === c.value;
-    case 'city': return cityFromAddress(r.address || '') === c.value;
-    case 'price': return r.price === c.value;
-    case 'tag': return Array.isArray(r.tags) && r.tags.includes(c.value);
-  }
-};
-
-const topListMetaText = (
-  c: TopListConfig,
-  r: { cuisine?: string; price?: string; address?: string },
-): string | undefined => {
-  const city = cityFromAddress(r.address || '');
-  switch (c.type) {
-    case 'overall':
-    case 'tag':
-      return undefined; // default cuisine · price · city
-    case 'cuisine':
-      return [city, r.price].filter(Boolean).join(' · ');
-    case 'city':
-      return [r.cuisine, r.price].filter(Boolean).join(' · ');
-    case 'price':
-      return [r.cuisine, city].filter(Boolean).join(' · ');
-  }
-};
-
-function loadCustomization(userId: string | null | undefined): TopListCustomization {
-  try {
-    const raw = localStorage.getItem(TOP_LIST_KEY(userId));
-    if (!raw) return { hidden: [], custom: [], order: [] };
-    const parsed = JSON.parse(raw);
-    return {
-      hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
-      custom: Array.isArray(parsed.custom) ? parsed.custom : [],
-      order: Array.isArray(parsed.order) ? parsed.order : [],
-    };
-  } catch {
-    return { hidden: [], custom: [], order: [] };
-  }
-}
-
-function saveCustomization(userId: string | null | undefined, c: TopListCustomization) {
-  try {
-    localStorage.setItem(TOP_LIST_KEY(userId), JSON.stringify(c));
-  } catch {
-    /* ignore quota errors */
-  }
-}
 
 /* ── EditTopListsSheet ──
    Two-section editor: current visible lists with delete buttons, then
@@ -867,11 +569,8 @@ export const Profile: React.FC = () => {
     }
   };
   const { phoneMode, darkMode, toggleDarkMode } = useSettings();
-  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'guides' | 'rated'>('top');
+  const [activeTab, setActiveTab] = useState<'rated' | 'posts' | 'reels' | 'guides'>('rated');
   const [editListsOpen, setEditListsOpen] = useState(false);
-  // Desktop "Top lists" category rail selection — 'all' shows every list,
-  // otherwise a topListKey to focus a single category.
-  const [topListFilter, setTopListFilter] = useState<string>('all');
   const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
   useEffect(() => { setCustomization(loadCustomization(user?.id)); }, [user?.id]);
@@ -1120,75 +819,26 @@ export const Profile: React.FC = () => {
   /** Counts per (cuisine / city / price / tag) — used both to seed
    *  auto-generated lists and to gate which slices the user can add
    *  from the editor (must have MIN_LIST_SIZE+ matches). */
-  const categoryCounts = useMemo(() => {
-    const cuisine = new Map<string, number>();
-    const city = new Map<string, number>();
-    const price = new Map<string, number>();
-    const tag = new Map<string, number>();
-    ratings.forEach((r) => {
-      if (r.cuisine) cuisine.set(r.cuisine, (cuisine.get(r.cuisine) || 0) + 1);
-      const c = cityFromAddress(r.address || '');
-      if (c) city.set(c, (city.get(c) || 0) + 1);
-      if (r.price) price.set(r.price, (price.get(r.price) || 0) + 1);
-      if (Array.isArray(r.tags)) r.tags.forEach((t) => { if (t) tag.set(t, (tag.get(t) || 0) + 1); });
-    });
-    return { cuisine, city, price, tag };
-  }, [ratings]);
+  const categoryCounts = useMemo(() => countCategories(ratings), [ratings]);
 
   /** Auto-seeded configs: overall + any cuisine / city above the
    *  threshold, sorted by count desc so the heaviest categories lead. */
-  const autoConfigs = useMemo<TopListConfig[]>(() => {
-    const out: TopListConfig[] = [{ type: 'overall' }];
-    Array.from(categoryCounts.cuisine.entries())
-      .filter(([, n]) => n >= MIN_LIST_SIZE)
-      .sort((a, b) => b[1] - a[1])
-      .forEach(([value]) => out.push({ type: 'cuisine', value }));
-    Array.from(categoryCounts.city.entries())
-      .filter(([, n]) => n >= MIN_LIST_SIZE)
-      .sort((a, b) => b[1] - a[1])
-      .forEach(([value]) => out.push({ type: 'city', value }));
-    return out;
-  }, [categoryCounts]);
+  const autoConfigs = useMemo<TopListConfig[]>(() => autoTopListConfigs(categoryCounts), [categoryCounts]);
 
-  /** Final ordered configs after applying user deltas: auto minus
-   *  hidden, then any custom additions that aren't already covered.
-   *  Sorted by the user's preferred order; anything missing from
-   *  `order` (e.g. a freshly eligible auto cuisine) falls to the end
-   *  in its natural position. */
-  const visibleConfigs = useMemo<TopListConfig[]>(() => {
-    const hidden = new Set(customization.hidden);
-    const auto = autoConfigs.filter((c) => !hidden.has(topListKey(c)));
-    const autoKeys = new Set(auto.map(topListKey));
-    const custom = customization.custom.filter((c) => !autoKeys.has(topListKey(c)));
-    const all = [...auto, ...custom];
+  /** Final ordered configs after applying the user's deltas. */
+  const visibleConfigs = useMemo<TopListConfig[]>(
+    () => visibleTopListConfigs(autoConfigs, customization),
+    [autoConfigs, customization],
+  );
 
-    if (customization.order.length === 0) return all;
-    const orderIdx = new Map<string, number>(customization.order.map((k, i) => [k, i]));
-    return [...all].sort((a, b) => {
-      const ai = orderIdx.get(topListKey(a));
-      const bi = orderIdx.get(topListKey(b));
-      if (ai != null && bi != null) return ai - bi;
-      if (ai != null) return -1;
-      if (bi != null) return 1;
-      return 0; // both unknown — preserve natural auto/custom order
-    });
-  }, [autoConfigs, customization]);
-
-  /** For each visible config: resolved title, subtitle, and the top-10
-   *  ratings that match its predicate. Filters out empty slices. */
-  const visibleLists = useMemo(() => {
-    return visibleConfigs
-      .map((config) => {
-        const matching = ratings.filter(topListPredicate(config));
-        const items = [...matching]
-          .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
-          .slice(0, 10);
-        const total = matching.length;
-        const avg = total > 0 ? matching.reduce((s, r) => s + (Number(r.score) || 0), 0) / total : 0;
-        return { config, items, total, avg };
-      })
-      .filter(({ items }) => items.length > 0);
-  }, [ratings, visibleConfigs]);
+  /** Each visible config resolved against the ratings — the preview
+   *  (`items`) feeds the cover cards, `all` feeds the full-list page. */
+  const visibleLists = useMemo(
+    () => visibleConfigs
+      .map((config) => buildTopList(config, ratings))
+      .filter((l): l is NonNullable<typeof l> => l !== null),
+    [ratings, visibleConfigs],
+  );
 
   /** Categories the user can still add to the strip set — every value
    *  with MIN_LIST_SIZE+ ratings that isn't already on screen. */
@@ -1248,6 +898,17 @@ export const Profile: React.FC = () => {
     const nextOrder = configs.map(topListKey);
     setCustomization((prev) => ({ ...prev, order: nextOrder }));
   };
+
+  /** Headline numbers for the RATED tab: the best-scoring place overall
+   *  and the average across everything. */
+  const topOverall = useMemo(
+    () => [...ratings].sort((a, b) => numericScore(b.score) - numericScore(a.score))[0] ?? null,
+    [ratings],
+  );
+  const overallAvg = useMemo(
+    () => (ratings.length === 0 ? 0 : ratings.reduce((sum, r) => sum + numericScore(r.score), 0) / ratings.length),
+    [ratings],
+  );
 
   const recentRatings = useMemo(() => {
     return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 6);
@@ -1516,13 +1177,15 @@ export const Profile: React.FC = () => {
 
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div className="border-t border-on-surface/[0.08]">
-        <div className="grid grid-cols-5">
+        {/* Four tabs, not five: TOP used to be its own tab of stacked
+            rails built from the very ratings RATED was already breaking
+            down. One tab now owns everything about what you've rated. */}
+        <div className="grid grid-cols-4">
           {([
-            ['top', Star, 'TOP'],
+            ['rated', Star, 'RATED'],
             ['posts', LayoutGrid, 'POSTS'],
             ['reels', Film, 'REELS'],
             ['guides', BookOpen, 'GUIDES'],
-            ['rated', ListIcon, 'RATED'],
           ] as const).map(([key, Icon, label]) => {
             const isActive = activeTab === key;
             return (
@@ -1535,7 +1198,7 @@ export const Profile: React.FC = () => {
                   isActive ? 'text-on-surface' : 'text-on-surface/30',
                 )}
               >
-                <Icon size={18} className={cn(isActive && key === 'top' && 'fill-on-surface')} />
+                <Icon size={18} className={cn(isActive && key === 'rated' && 'fill-on-surface')} />
                 <span className={cn(
                   'text-[10px] font-bold tracking-[0.18em]',
                   isActive ? 'text-on-surface' : 'text-on-surface/40',
@@ -1553,196 +1216,6 @@ export const Profile: React.FC = () => {
 
       {/* ── Tab content ───────────────────────────────────────────────── */}
       <main className="px-5 pt-3">
-        {activeTab === 'top' && (
-          ratings.length === 0 ? (
-            <EmptyTabState
-              icon={<Star size={32} className="text-on-surface/15" />}
-              title="No rated restaurants yet"
-              subtitle="Rate restaurants to see your top picks here."
-              ctaLabel="Open map"
-              onCta={() => navigate('/')}
-            />
-          ) : !isDesktop ? (
-            // Full-bleed strips: negative margin cancels the `main` pad
-            // so cards run edge-to-edge during horizontal scroll.
-            <div className="-mx-5 space-y-3">
-              {visibleLists.map(({ config, items, total, avg }) => (
-                <Top10Section
-                  key={topListKey(config)}
-                  name={topListLabel(config)}
-                  total={total}
-                  avg={avg}
-                  onSeeAll={goToMyRatings}
-                >
-                  {items.map((r, i) => (
-                    <TopRatedCard
-                      key={r.restaurantId}
-                      rank={i + 1}
-                      rating={r}
-                      metaText={topListMetaText(config, r)}
-                    />
-                  ))}
-                </Top10Section>
-              ))}
-
-              {/* Edit top lists — opens the customization sheet. */}
-              <div className="px-5">
-                <button
-                  type="button"
-                  onClick={() => setEditListsOpen(true)}
-                  className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] text-on-surface/70 text-[13px] font-semibold hover:bg-on-surface/[0.07] hover:border-on-surface/[0.15] transition-colors"
-                >
-                  <Pencil size={14} />
-                  Edit top lists
-                </button>
-              </div>
-
-              {/* Recommended guides — real public guides from the community. */}
-              {recommendedGuides.length > 0 && (
-                <section>
-                  <div className="px-5 flex items-start justify-between gap-3 mb-3">
-                    <div className="min-w-0">
-                      <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">Recommended guides</h3>
-                      <p className="text-[12.5px] text-on-surface/45 mt-0.5">Fresh from the community</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/discover')}
-                      className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
-                    >
-                      Explore <ChevronRight size={14} />
-                    </button>
-                  </div>
-                  <div className="flex gap-4 overflow-x-auto px-5 pb-2 scrollbar-hide snap-x snap-mandatory">
-                    {recommendedGuides.map((g) => (
-                      <GuideCard key={g.id} guide={g} />
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
-          ) : (() => {
-            // ── Desktop "Top lists" — category rail + featured hero + rows ──
-            const overallList = visibleLists.find((l) => l.config.type === 'overall') ?? visibleLists[0];
-            const activeFilter = topListFilter !== 'all' && visibleLists.some((l) => topListKey(l.config) === topListFilter)
-              ? topListFilter
-              : 'all';
-            const scopeList = activeFilter === 'all'
-              ? overallList
-              : (visibleLists.find((l) => topListKey(l.config) === activeFilter) ?? overallList);
-            const featured = scopeList?.items[0];
-            const sections = activeFilter === 'all'
-              ? visibleLists
-              : visibleLists.filter((l) => topListKey(l.config) === activeFilter);
-            return (
-              <div className="flex gap-7 items-start pb-12">
-                {/* Category rail */}
-                <aside className="w-[240px] flex-shrink-0 self-start sticky top-4">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 px-3 mb-3">Top lists</p>
-                  <button
-                    type="button"
-                    onClick={() => setTopListFilter('all')}
-                    className={cn(
-                      'w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-left transition-colors',
-                      activeFilter === 'all' ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]' : 'hover:bg-on-surface/[0.04]',
-                    )}
-                  >
-                    <span className="font-bold text-[14px] text-on-surface">All categories</span>
-                    <span className="ml-auto text-[12px] font-semibold text-on-surface/35 tabular-nums">{visibleLists.length}</span>
-                  </button>
-                  <div className="mt-1.5 space-y-0.5">
-                    {visibleLists.map(({ config, total, avg }) => {
-                      const key = topListKey(config);
-                      const active = activeFilter === key;
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setTopListFilter(key)}
-                          className={cn(
-                            'w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-left transition-colors',
-                            active ? 'bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]' : 'hover:bg-on-surface/[0.04]',
-                          )}
-                        >
-                          <span className={cn('text-[14px] truncate', active ? 'font-bold text-on-surface' : 'font-semibold text-on-surface/75')}>
-                            {topListLabel(config)}
-                          </span>
-                          <span className="ml-auto flex items-center gap-2 flex-shrink-0">
-                            <span className="text-[12px] font-semibold text-on-surface/30 tabular-nums">{total}</span>
-                            {scoresUnlocked && (
-                              <span className={cn('px-1.5 py-0.5 rounded-md border text-[12px] font-bold tabular-nums', scoreBadgeBg(avg), scoreColor(avg))}>
-                                {avg.toFixed(1)}
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setEditListsOpen(true)}
-                    className="mt-3 w-full inline-flex items-center justify-center gap-2 h-10 rounded-xl border border-dashed border-on-surface/15 text-on-surface/55 text-[13px] font-semibold hover:bg-on-surface/[0.04] hover:text-on-surface/75 transition-colors"
-                  >
-                    <Pencil size={14} />
-                    Edit top lists
-                  </button>
-                </aside>
-
-                {/* Main column */}
-                <div className="flex-1 min-w-0 space-y-8">
-                  {featured && scopeList && (
-                    <FeaturedTopCard rating={featured} scopeLabel={topListLabel(scopeList.config)} />
-                  )}
-
-                  {sections.map(({ config, items, total, avg }) => (
-                    <DesktopTopSection
-                      key={topListKey(config)}
-                      name={topListLabel(config)}
-                      total={total}
-                      avg={avg}
-                      onSeeAll={goToMyRatings}
-                    >
-                      {items.map((r, i) => (
-                        <DesktopRankCard
-                          key={r.restaurantId}
-                          rank={i + 1}
-                          rating={r}
-                          metaText={topListMetaText(config, r)}
-                        />
-                      ))}
-                    </DesktopTopSection>
-                  ))}
-
-                  {/* Recommended guides — real public guides from the community. */}
-                  {recommendedGuides.length > 0 && (
-                    <section>
-                      <div className="flex items-start justify-between gap-3 mb-4">
-                        <div className="min-w-0">
-                          <h3 className="font-serif font-bold text-on-surface text-[26px] leading-tight">Recommended guides</h3>
-                          <p className="text-[13px] text-on-surface/45 mt-0.5">Fresh from the community</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/discover')}
-                          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80 mt-1 flex-shrink-0"
-                        >
-                          Explore <ChevronRight size={14} />
-                        </button>
-                      </div>
-                      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
-                        {recommendedGuides.map((g) => (
-                          <GuideCard key={g.id} guide={g} />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </div>
-              </div>
-            );
-          })()
-        )}
-
         {activeTab === 'posts' && (
           myPosts.length === 0 ? (
             <EmptyTabState
@@ -1816,74 +1289,192 @@ export const Profile: React.FC = () => {
         {activeTab === 'rated' && (
           ratings.length === 0 ? (
             <EmptyTabState
-              icon={<ListIcon size={32} className="text-on-surface/15" />}
+              icon={<Star size={32} className="text-on-surface/15" />}
               title="No ratings yet"
-              subtitle="Rate restaurants to see your cuisine breakdown and history."
+              subtitle="Rate restaurants to build your top lists and see your cuisine breakdown."
               ctaLabel="Open map"
               onCta={() => navigate('/')}
             />
           ) : (
-            <div className="space-y-4">
-              {cuisineStats.length > 0 && (
+            <div className={cn('pb-10', isDesktop ? 'space-y-12' : 'space-y-9')}>
+              {/* ── At a glance ──
+                  One quiet line of numbers where a 128px score circle and a
+                  40px restaurant name used to shout. The #1 place is still
+                  the headline, just at a size the rest of the page can
+                  live beside. */}
+              <section>
+                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                  <span className={cn('font-serif font-bold tabular-nums leading-none text-on-surface', isDesktop ? 'text-[34px]' : 'text-[28px]')}>
+                    {ratings.length}
+                  </span>
+                  <span className="text-[13.5px] font-semibold text-on-surface/50">
+                    place{ratings.length === 1 ? '' : 's'} rated
+                  </span>
+                  {scoresUnlocked && overallAvg > 0 && (
+                    <>
+                      <span className="text-on-surface/20">·</span>
+                      <span className={cn('rounded-md border px-1.5 py-0.5 text-[12.5px] font-bold tabular-nums', scoreBadgeBg(overallAvg), scoreColor(overallAvg))}>
+                        {overallAvg.toFixed(1)} avg
+                      </span>
+                    </>
+                  )}
+                  {visibleLists.length > 0 && (
+                    <>
+                      <span className="text-on-surface/20">·</span>
+                      <span className="text-[13.5px] font-semibold text-on-surface/50 tabular-nums">
+                        {visibleLists.length} list{visibleLists.length === 1 ? '' : 's'}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {topOverall && (
+                  <Link
+                    to={`/restaurant/${topOverall.restaurantId}`}
+                    className="group mt-4 flex items-center gap-4 rounded-2xl border border-on-surface/[0.07] bg-on-surface/[0.02] p-3.5 transition-colors hover:border-on-surface/[0.14]"
+                  >
+                    <span className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-on-surface/[0.06]">
+                      {topOverall.image
+                        ? <img src={topOverall.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                        : <Star size={18} className="text-on-surface/25" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-primary">
+                        <Star size={11} className="fill-primary" /> Your #1
+                      </span>
+                      <span className="mt-1 block truncate font-serif text-[19px] font-bold leading-tight text-on-surface transition-colors group-hover:text-primary">
+                        {topOverall.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[12.5px] text-on-surface/45">
+                        {[topOverall.cuisine, topOverall.price, cityFromAddress(topOverall.address || '')].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <OwnScoreBadge rating={numericScore(topOverall.score)} unlocked={scoresUnlocked} size="xl" />
+                  </Link>
+                )}
+              </section>
+
+              {/* ── Top lists ──
+                  A shelf of covers, not eleven stacked rails. Each tile
+                  opens its full ranking at /profile/top/:listKey. */}
+              {visibleLists.length > 0 && (
                 <section>
-                  <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-4">Cuisine breakdown</h3>
-                  <div className="space-y-3.5">
-                    {cuisineStats.map(([name, count]) => (
-                      <div key={name} className="flex items-center gap-3">
-                        <span className="text-[13px] font-medium text-on-surface/75 w-24 truncate">{name}</span>
-                        <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-primary/70"
-                            style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-[12px] text-on-surface/40 tabular-nums w-6 text-right">{count}</span>
-                      </div>
+                  <div className="mb-4 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className={cn('font-serif font-bold leading-tight text-on-surface', isDesktop ? 'text-[26px]' : 'text-[21px]')}>
+                        Top lists
+                      </h3>
+                      <p className="mt-0.5 text-[12.5px] text-on-surface/45">
+                        Your ratings, sliced. Tap one for the full ranking.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditListsOpen(true)}
+                      className="inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-full border border-on-surface/[0.1] px-3.5 text-[12.5px] font-semibold text-on-surface/65 transition-colors hover:border-on-surface/25 hover:text-on-surface"
+                    >
+                      <Pencil size={13} />
+                      Edit
+                    </button>
+                  </div>
+                  {/* Size the cover, let the count follow: two up on a
+                      phone, four on a tablet, five or six across a desktop
+                      column — without the tile itself changing shape. */}
+                  <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(210px,1fr))]">
+                    {visibleLists.map((list) => (
+                      <TopListCard key={list.key} list={list} scoresUnlocked={scoresUnlocked} />
                     ))}
                   </div>
                 </section>
               )}
 
-              {recentRatings.length > 0 && (
-                <section>
-                  <div className="flex items-baseline justify-between mb-2">
-                    <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recent</h3>
+              {/* ── Cuisine breakdown + Recent ──
+                  Side by side on desktop, where a single column left half
+                  the width empty; stacked on a phone. */}
+              <div className={cn(isDesktop ? 'grid grid-cols-2 gap-10 items-start' : 'space-y-9')}>
+                {cuisineStats.length > 0 && (
+                  <section>
+                    <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Cuisine breakdown</h3>
+                    <div className="space-y-3.5">
+                      {cuisineStats.map(([name, count]) => (
+                        <div key={name} className="flex items-center gap-3">
+                          <span className="w-24 truncate text-[13px] font-medium text-on-surface/75">{name}</span>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-on-surface/[0.06]">
+                            <div
+                              className="h-full rounded-full bg-primary/70"
+                              style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="w-6 text-right text-[12px] tabular-nums text-on-surface/40">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {recentRatings.length > 0 && (
+                  <section>
+                    <div className="mb-2 flex items-baseline justify-between">
+                      <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recent</h3>
+                      <button
+                        type="button"
+                        onClick={goToMyRatings}
+                        className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+                      >
+                        See all <ChevronRight size={12} />
+                      </button>
+                    </div>
+                    <ul className="divide-y divide-on-surface/[0.06]">
+                      {recentRatings.map((r) => (
+                        <li key={r.restaurantId}>
+                          <Link to={`/restaurant/${r.restaurantId}`} className="group flex items-center gap-3.5 py-3">
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-on-surface/[0.05]">
+                              {r.image ? (
+                                <img src={r.image} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <MapPin size={15} className="text-on-surface/30" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-serif text-[14px] font-bold leading-tight">{r.name}</p>
+                              <p className="mt-0.5 text-[11.5px] text-on-surface/45">
+                                {r.visitDate
+                                  ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                  : ''}
+                                {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
+                              </p>
+                            </div>
+                            <OwnScoreBadge rating={numericScore(r.score)} unlocked={scoresUnlocked} size="sm" />
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+
+              {/* Recommended guides — real public guides from the community. */}
+              {recommendedGuides.length > 0 && (
+                <section className={!isDesktop ? '-mx-5' : undefined}>
+                  <div className={cn('mb-4 flex items-end justify-between gap-3', !isDesktop && 'px-5')}>
+                    <div className="min-w-0">
+                      <h3 className={cn('font-serif font-bold leading-tight text-on-surface', isDesktop ? 'text-[26px]' : 'text-[21px]')}>
+                        Recommended guides
+                      </h3>
+                      <p className="mt-0.5 text-[12.5px] text-on-surface/45">Fresh from the community</p>
+                    </div>
                     <button
                       type="button"
-                      onClick={goToMyRatings}
-                      className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+                      onClick={() => navigate('/discover')}
+                      className="inline-flex flex-shrink-0 items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80"
                     >
-                      See all <ChevronRight size={12} />
+                      Explore <ChevronRight size={14} />
                     </button>
                   </div>
-                  <ul className="divide-y divide-on-surface/[0.06]">
-                    {recentRatings.map((r) => (
-                      <li key={r.restaurantId}>
-                        <Link
-                          to={`/restaurant/${r.restaurantId}`}
-                          className="flex items-center gap-3.5 py-3 group"
-                        >
-                          <div className="w-11 h-11 rounded-xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                            {r.image ? (
-                              <img src={r.image} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <MapPin size={15} className="text-on-surface/30" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-serif font-bold truncate leading-tight">{r.name}</p>
-                            <p className="text-[11.5px] text-on-surface/45 mt-0.5">
-                              {r.visitDate
-                                ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                : ''}
-                              {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                            </p>
-                          </div>
-                          <OwnScoreBadge rating={numericScore(r.score)} unlocked={scoresUnlocked} size="sm" />
-                        </Link>
-                      </li>
+                  <div className={cn('flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x', !isDesktop && 'px-5')}>
+                    {recommendedGuides.map((g) => (
+                      <GuideCard key={g.id} guide={g} />
                     ))}
-                  </ul>
+                  </div>
                 </section>
               )}
             </div>
