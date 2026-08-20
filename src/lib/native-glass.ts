@@ -19,7 +19,13 @@ export interface GlassTabItem {
   path: string;
   /** SF Symbol name. Picked to match the Lucide icon the web nav uses. */
   symbol: string;
-  /** VoiceOver label. */
+  /** Filled counterpart drawn while the tab is selected — the thing that
+   *  makes a tab bar read as native rather than as five outlines. Omit
+   *  where the symbol has no `.fill` variant (magnifyingglass, list.bullet);
+   *  the weight and tint change carry those. A name that doesn't resolve
+   *  falls back to `symbol` rather than blanking the tab. */
+  selectedSymbol?: string;
+  /** Shown under the icon, and read by VoiceOver. */
   label: string;
 }
 
@@ -65,11 +71,11 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
 /** SF Symbols chosen to read as the same icons the web nav draws in Lucide.
  *  Order matters — it's the on-screen order. */
 export const GLASS_TAB_ITEMS: GlassTabItem[] = [
-  { path: '/', symbol: 'safari', label: 'Home' },
+  { path: '/', symbol: 'safari', selectedSymbol: 'safari.fill', label: 'Home' },
   { path: '/search', symbol: 'magnifyingglass', label: 'Search' },
-  { path: '/reels', symbol: 'film', label: 'Reels' },
+  { path: '/reels', symbol: 'film', selectedSymbol: 'film.fill', label: 'Reels' },
   { path: '/pantry', symbol: 'list.bullet', label: 'Lists' },
-  { path: '/profile', symbol: 'person', label: 'Profile' },
+  { path: '/profile', symbol: 'person', selectedSymbol: 'person.fill', label: 'Profile' },
 ];
 
 /** Which tab owns a route. Longest-prefix match so `/pantry?list=x` and

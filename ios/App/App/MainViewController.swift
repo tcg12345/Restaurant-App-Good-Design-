@@ -167,6 +167,11 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var tabBar: GlassTabBar?
     private var observingAccessibility = false
+    /// KVO on the WebView's scroll view. The page scrolls the document on
+    /// every tab root, so this is the whole scroll signal — no per-frame
+    /// chatter across the JS bridge just to shrink a bar.
+    private var scrollObservation: NSKeyValueObservation?
+    private var lastScrollY: CGFloat = 0
     /// Bumped by every install and every dismissal, so a dismissal that has
     /// been overtaken by a reinstall knows to do nothing when its animation
     /// finishes.
@@ -223,6 +228,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
             return GlassTabBar.Item(
                 path: path,
                 symbol: symbol,
+                selectedSymbol: entry["selectedSymbol"] as? String,
                 label: entry["label"] as? String ?? ""
             )
         }
@@ -264,6 +270,10 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             bar.install(in: host, variant: variant == "bar" ? .bar : .capsule)
             bar.setItems(items, activePath: activePath)
+            // A route change lands at the top of the new page, so whatever
+            // the previous page's scroll left behind doesn't apply.
+            bar.setCollapsed(false, animated: false)
+            self.startObservingScroll()
             call.resolve()
         }
     }
@@ -301,21 +311,59 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func teardown() {
+        scrollObservation = nil
         tabBar?.removeFromHost()
         tabBar = nil
     }
 
+    // MARK: - Shrink on scroll
+
+    private func startObservingScroll() {
+        guard scrollObservation == nil, let scrollView = bridge?.webView?.scrollView else { return }
+        lastScrollY = scrollView.contentOffset.y
+        scrollObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] view, _ in
+            self?.handleScroll(view.contentOffset.y)
+        }
+    }
+
+    /// Down shrinks, up restores, and the top always restores. `lastScrollY`
+    /// only advances once a move clears the threshold, so a slow drag still
+    /// accumulates into a decision instead of being filtered away forever.
+    private func handleScroll(_ y: CGFloat) {
+        guard let tabBar else { return }
+        if y <= 12 {
+            lastScrollY = y
+            tabBar.setCollapsed(false, animated: true)
+            return
+        }
+        let delta = y - lastScrollY
+        guard abs(delta) > 6 else { return }
+        lastScrollY = y
+        tabBar.setCollapsed(delta > 0, animated: true)
+    }
+
     deinit {
+        scrollObservation = nil
         NotificationCenter.default.removeObserver(self)
     }
 }
 
 /// The bar itself. Kept free of Capacitor types so it stays readable as plain
 /// UIKit — the plugin above is only a transport.
+///
+/// Shape notes, because the first pass read as "glass-ish" rather than
+/// native: an iOS 26 tab bar is icon *over label*, the selected item sits on
+/// a capsule that slides between positions rather than appearing in place,
+/// you can drag along the bar to move the selection, and the whole thing
+/// shrinks out of the way as you scroll down. All four are here.
 final class GlassTabBar {
     struct Item {
         let path: String
         let symbol: String
+        /// Filled counterpart drawn when the item is selected. Optional —
+        /// several symbols (magnifyingglass, list.bullet) have no fill
+        /// variant, and there the weight and tint change carry it.
+        let selectedSymbol: String?
         let label: String
     }
 
@@ -326,20 +374,26 @@ final class GlassTabBar {
         case bar
     }
 
-    /// #9f3012, the app's `--color-primary`. Duplicated here rather than read
-    /// from the page: the bar has to draw before the WebView has told us
-    /// anything, and this value is stable brand chrome.
-    private static let primary = UIColor(red: 0.624, green: 0.188, blue: 0.071, alpha: 1.0)
-
     var onSelect: ((String) -> Void)?
 
     private var effectView: UIVisualEffectView?
-    private var stack: UIStackView?
-    private var buttons: [UIButton] = []
-    private var items: [Item] = []
-    private var activePath: String?
+    private var content: GlassTabBarContent?
+    private var heightConstraint: NSLayoutConstraint?
+    private var leadingConstraint: NSLayoutConstraint?
+    private var trailingConstraint: NSLayoutConstraint?
     private var variant: Variant = .capsule
     private var visible = true
+    private var collapsed = false
+
+    /// Expanded vs. shrunk geometry. The shrunk bar drops its labels, loses
+    /// a third of its height and pulls in from both edges, so it reads as
+    /// having got out of the way rather than merely faded.
+    private enum Metrics {
+        static let expandedHeight: CGFloat = 64
+        static let collapsedHeight: CGFloat = 48
+        static let expandedInset: CGFloat = 16
+        static let collapsedInset: CGFloat = 44
+    }
 
     // MARK: Install
 
@@ -357,16 +411,12 @@ final class GlassTabBar {
         effectView.translatesAutoresizingMaskIntoConstraints = false
         effectView.clipsToBounds = true
         effectView.layer.cornerCurve = .continuous
-        // Half the 56pt height constraint below, so the capsule is a true
-        // pill. The flush bar stays square against the screen edge.
-        effectView.layer.cornerRadius = variant == .capsule ? 28 : 0
+        effectView.layer.cornerRadius = variant == .capsule ? Metrics.expandedHeight / 2 : 0
 
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.distribution = .fillEqually
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        effectView.contentView.addSubview(stack)
+        let content = GlassTabBarContent(frame: .zero)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.onSelect = { [weak self] path in self?.onSelect?(path) }
+        effectView.contentView.addSubview(content)
 
         host.addSubview(effectView)
         // Above the WebView, below anything the shell presents modally.
@@ -374,31 +424,38 @@ final class GlassTabBar {
 
         let guide = host.safeAreaLayoutGuide
         var constraints: [NSLayoutConstraint] = [
-            stack.topAnchor.constraint(equalTo: effectView.contentView.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor),
-            stack.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor),
+            content.topAnchor.constraint(equalTo: effectView.contentView.topAnchor),
+            content.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor),
         ]
         switch variant {
         case .capsule:
+            let leading = effectView.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: Metrics.expandedInset)
+            let trailing = effectView.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -Metrics.expandedInset)
+            let height = effectView.heightAnchor.constraint(equalToConstant: Metrics.expandedHeight)
+            leadingConstraint = leading
+            trailingConstraint = trailing
+            heightConstraint = height
             constraints += [
-                effectView.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
-                effectView.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+                leading,
+                trailing,
                 effectView.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -8),
-                effectView.heightAnchor.constraint(equalToConstant: 56),
+                height,
             ]
         case .bar:
             constraints += [
                 effectView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 effectView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
                 effectView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                effectView.topAnchor.constraint(equalTo: guide.bottomAnchor, constant: -50),
+                effectView.topAnchor.constraint(equalTo: guide.bottomAnchor, constant: -Metrics.expandedHeight),
             ]
         }
         NSLayoutConstraint.activate(constraints)
 
         self.effectView = effectView
-        self.stack = stack
+        self.content = content
+        collapsed = false
         resetPresentation()
     }
 
@@ -415,64 +472,55 @@ final class GlassTabBar {
     func removeFromHost() {
         effectView?.removeFromSuperview()
         effectView = nil
-        stack = nil
-        buttons = []
+        content = nil
+        heightConstraint = nil
+        leadingConstraint = nil
+        trailingConstraint = nil
     }
 
     // MARK: Items
 
     func setItems(_ items: [Item], activePath: String?) {
-        guard let stack else { return }
-        self.items = items
-        self.activePath = activePath ?? items.first?.path
-
-        buttons.forEach { $0.removeFromSuperview() }
-        stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        buttons = items.enumerated().map { index, item in
-            let button = UIButton(type: .system)
-            button.accessibilityLabel = item.label
-            // Image and tint come from applyActiveStyling() below — it runs
-            // in the same turn, so nothing renders imageless.
-            button.addAction(
-                UIAction { [weak self] _ in self?.select(index) },
-                for: .touchUpInside
-            )
-            stack.addArrangedSubview(button)
-            return button
-        }
-        applyActiveStyling()
+        content?.setItems(items, activePath: activePath)
     }
 
     func setActive(path: String) {
-        guard path != activePath else { return }
-        activePath = path
-        applyActiveStyling()
+        content?.setActive(path: path, animated: true)
     }
 
-    private func applyActiveStyling() {
-        for (index, item) in items.enumerated() {
-            guard index < buttons.count else { break }
-            let isActive = item.path == activePath
-            let button = buttons[index]
-            button.tintColor = isActive ? Self.primary : UIColor.label.withAlphaComponent(0.5)
-            button.setImage(
-                UIImage(
-                    systemName: item.symbol,
-                    withConfiguration: UIImage.SymbolConfiguration(
-                        pointSize: 22,
-                        weight: isActive ? .semibold : .regular
-                    )
-                ),
-                for: .normal
-            )
-            button.accessibilityTraits = isActive ? [.button, .selected] : [.button]
+    // MARK: Collapse on scroll
+
+    /// Shrink (scrolling down) or restore (scrolling up / back at the top).
+    /// A no-op for the flush `bar` variant, which has no room to shrink into.
+    func setCollapsed(_ next: Bool, animated: Bool) {
+        guard variant == .capsule, next != collapsed else { return }
+        guard let effectView, let height = heightConstraint,
+              let leading = leadingConstraint, let trailing = trailingConstraint else {
+            collapsed = next
+            return
         }
-    }
+        collapsed = next
+        height.constant = next ? Metrics.collapsedHeight : Metrics.expandedHeight
+        leading.constant = next ? Metrics.collapsedInset : Metrics.expandedInset
+        trailing.constant = next ? -Metrics.collapsedInset : -Metrics.expandedInset
+        content?.setLabelsHidden(next, animated: animated)
 
-    private func select(_ index: Int) {
-        guard index < items.count else { return }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        onSelect?(items[index].path)
+        let apply = {
+            effectView.layer.cornerRadius = (next ? Metrics.collapsedHeight : Metrics.expandedHeight) / 2
+            effectView.superview?.layoutIfNeeded()
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.42,
+                delay: 0,
+                usingSpringWithDamping: 0.86,
+                initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction],
+                animations: apply
+            )
+        } else {
+            apply()
+        }
     }
 
     // MARK: Visibility
@@ -532,5 +580,298 @@ final class GlassTabBar {
             return effect
         }
         return UIBlurEffect(style: .systemChromeMaterial)
+    }
+}
+
+/// Everything inside the glass: the items, the sliding selection capsule, and
+/// the gestures. A UIView subclass so it can re-anchor the selection on a
+/// real layout pass (rotation, collapse, safe-area change) without the
+/// coordinator having to notice.
+final class GlassTabBarContent: UIView {
+    /// #9f3012, the app's `--color-primary`. Duplicated here rather than read
+    /// from the page: the bar has to draw before the WebView has told us
+    /// anything, and this value is stable brand chrome.
+    private static let primary = UIColor(red: 0.624, green: 0.188, blue: 0.071, alpha: 1.0)
+
+    /// Inset of the item row inside the glass. Every cell frame has to be
+    /// converted out of the stack's space before it can position the
+    /// selection or resolve a touch — they differ by exactly this.
+    private static let rowInset: CGFloat = 6
+
+    var onSelect: ((String) -> Void)?
+
+    private let selection = UIView()
+    private let stack = UIStackView()
+    private var itemViews: [GlassTabItemView] = []
+    private var items: [GlassTabBar.Item] = []
+    private var activeIndex: Int?
+    /// Index under the finger mid-drag. The selection follows it live; the
+    /// route only changes on release, so a swipe across the bar doesn't fire
+    /// four navigations on its way past.
+    private var draggingIndex: Int?
+    private var labelsHidden = false
+    /// Last size the selection was anchored against. Guards `layoutSubviews`
+    /// from re-snapping the capsule mid-spring — `moveSelection` calls
+    /// `layoutIfNeeded()`, and without this the snap would land the capsule
+    /// on its target before the animation block ever ran, so nothing moved.
+    private var lastBounds: CGRect = .zero
+    private let dragFeedback = UISelectionFeedbackGenerator()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        selection.backgroundColor = Self.primary.withAlphaComponent(0.13)
+        selection.layer.cornerCurve = .continuous
+        selection.isUserInteractionEnabled = false
+        selection.alpha = 0
+        addSubview(selection)
+
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.alignment = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.rowInset),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.rowInset),
+        ])
+
+        // One tap and one pan over the whole bar, rather than five buttons.
+        // Buttons would have to fight the pan for the touch, and the pan is
+        // the whole point of "drag along the bar to switch".
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap(_:))))
+        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:))))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // MARK: Items
+
+    func setItems(_ items: [GlassTabBar.Item], activePath: String?) {
+        self.items = items
+        itemViews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        itemViews = items.map { item in
+            let view = GlassTabItemView(frame: .zero)
+            view.configure(item: item, selected: false, tint: Self.primary)
+            view.setLabelHidden(labelsHidden, animated: false)
+            stack.addArrangedSubview(view)
+            return view
+        }
+        // Force a re-anchor on the next layout pass: the cells are new.
+        lastBounds = .zero
+        let index = items.firstIndex { $0.path == activePath } ?? 0
+        applySelection(index: index, animated: false)
+    }
+
+    func setActive(path: String, animated: Bool) {
+        guard let index = items.firstIndex(where: { $0.path == path }), index != activeIndex else { return }
+        applySelection(index: index, animated: animated)
+    }
+
+    func setLabelsHidden(_ hidden: Bool, animated: Bool) {
+        guard hidden != labelsHidden else { return }
+        labelsHidden = hidden
+        itemViews.forEach { $0.setLabelHidden(hidden, animated: animated) }
+    }
+
+    private func applySelection(index: Int, animated: Bool) {
+        guard index >= 0, index < itemViews.count else { return }
+        activeIndex = index
+        for (i, view) in itemViews.enumerated() {
+            view.setSelected(i == index, animated: animated)
+        }
+        moveSelection(to: index, animated: animated)
+    }
+
+    /// Slide the capsule to sit behind `index`. Springy and interruptible, so
+    /// a drag that reverses mid-flight tracks the finger instead of finishing
+    /// the old animation first.
+    private func moveSelection(to index: Int, animated: Bool) {
+        guard index >= 0, index < itemViews.count else { return }
+        layoutIfNeeded()
+        guard let target = selectionFrame(for: index) else { return }
+        selection.layer.cornerRadius = min(target.height, target.width) / 2
+        let apply = {
+            self.selection.frame = target
+            self.selection.alpha = 1
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.38,
+                delay: 0,
+                usingSpringWithDamping: 0.82,
+                initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction],
+                animations: apply
+            )
+        } else {
+            apply()
+        }
+    }
+
+    /// The cell rect, converted out of the stack's coordinate space, inset so
+    /// the capsule hugs the item rather than filling its cell. Nil before the
+    /// first real layout, when every frame is still zero.
+    private func selectionFrame(for index: Int) -> CGRect? {
+        guard index >= 0, index < itemViews.count else { return nil }
+        let view = itemViews[index]
+        let cell = view.convert(view.bounds, to: self)
+        guard cell.width > 1, cell.height > 1 else { return nil }
+        return cell.insetBy(dx: min(6, cell.width * 0.08), dy: 6)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Only on a genuine size change. Called on every `layoutIfNeeded()`
+        // otherwise, which would pre-empt the selection spring.
+        guard bounds != lastBounds else { return }
+        lastBounds = bounds
+        guard let index = draggingIndex ?? activeIndex,
+              let target = selectionFrame(for: index) else { return }
+        selection.layer.cornerRadius = min(target.height, target.width) / 2
+        selection.frame = target
+        selection.alpha = 1
+    }
+
+    // MARK: Gestures
+
+    /// Which tab a touch at `x` (in this view's space) belongs to. Clamps
+    /// past either end, so a drag that overshoots the bar lands on the
+    /// outermost tab instead of losing the selection.
+    private func index(atX x: CGFloat) -> Int? {
+        guard !itemViews.isEmpty else { return nil }
+        for (i, view) in itemViews.enumerated() {
+            let cell = view.convert(view.bounds, to: self)
+            if cell.minX <= x && x < cell.maxX { return i }
+        }
+        let firstMinX = itemViews[0].convert(itemViews[0].bounds, to: self).minX
+        return x < firstMinX ? 0 : itemViews.count - 1
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard let index = index(atX: gesture.location(in: self).x) else { return }
+        commit(index: index)
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let x = gesture.location(in: self).x
+        switch gesture.state {
+        case .began, .changed:
+            if gesture.state == .began { dragFeedback.prepare() }
+            guard let index = index(atX: x), index != draggingIndex else { return }
+            // Tick as the selection crosses into a new tab — the feedback is
+            // most of what makes the drag feel physical rather than like a
+            // rectangle following a finger.
+            dragFeedback.selectionChanged()
+            dragFeedback.prepare()
+            draggingIndex = index
+            for (i, view) in itemViews.enumerated() {
+                view.setSelected(i == index, animated: true)
+            }
+            moveSelection(to: index, animated: true)
+        case .ended:
+            let index = draggingIndex
+            draggingIndex = nil
+            if let index { commit(index: index) }
+        case .cancelled, .failed:
+            draggingIndex = nil
+            // Put the selection back where the route actually is.
+            if let active = activeIndex { applySelection(index: active, animated: true) }
+        default:
+            break
+        }
+    }
+
+    private func commit(index: Int) {
+        guard index >= 0, index < items.count else { return }
+        let alreadyActive = index == activeIndex
+        applySelection(index: index, animated: true)
+        // Re-tapping the current tab is a no-op for the router, but the
+        // selection animation above still plays, which is the right feedback.
+        guard !alreadyActive else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        onSelect?(items[index].path)
+    }
+}
+
+/// One tab: symbol over label, both animating between selected states.
+final class GlassTabItemView: UIView {
+    private let icon = UIImageView()
+    private let title = UILabel()
+    private var item: GlassTabBar.Item?
+    private var tint: UIColor = .label
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // Touches belong to the bar's own tap/pan recognizers.
+        isUserInteractionEnabled = false
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+
+        icon.contentMode = .center
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(icon)
+
+        title.font = .systemFont(ofSize: 10, weight: .semibold)
+        title.textAlignment = .center
+        title.adjustsFontSizeToFitWidth = true
+        title.minimumScaleFactor = 0.8
+        title.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(title)
+
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
+            // Nudged up so icon + label read as one centred block. When the
+            // label fades out on collapse the icon is close enough to centre
+            // that nothing appears to jump.
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -7),
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 2),
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(item: GlassTabBar.Item, selected: Bool, tint: UIColor) {
+        self.item = item
+        self.tint = tint
+        title.text = item.label
+        accessibilityLabel = item.label
+        setSelected(selected, animated: false)
+    }
+
+    func setSelected(_ next: Bool, animated: Bool) {
+        guard let item else { return }
+        accessibilityTraits = next ? [.button, .selected] : [.button]
+        let name = next ? (item.selectedSymbol ?? item.symbol) : item.symbol
+        let config = UIImage.SymbolConfiguration(pointSize: 21, weight: next ? .semibold : .regular)
+        // A symbol name that doesn't resolve yields nil, which would leave a
+        // blank tab. Fall back through the unfilled name to a shape that
+        // always exists, so a typo costs an icon and not the whole bar.
+        let image = UIImage(systemName: name, withConfiguration: config)
+            ?? UIImage(systemName: item.symbol, withConfiguration: config)
+            ?? UIImage(systemName: "circle", withConfiguration: config)
+        let color: UIColor = next ? tint : .secondaryLabel
+        icon.tintColor = color
+        title.textColor = color
+        title.font = .systemFont(ofSize: 10, weight: next ? .bold : .semibold)
+        if animated {
+            UIView.transition(with: icon, duration: 0.18, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+                self.icon.image = image
+            }
+        } else {
+            icon.image = image
+        }
+    }
+
+    func setLabelHidden(_ hidden: Bool, animated: Bool) {
+        let apply = { self.title.alpha = hidden ? 0 : 1 }
+        if animated {
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: apply)
+        } else {
+            apply()
+        }
     }
 }
