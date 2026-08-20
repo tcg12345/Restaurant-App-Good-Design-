@@ -56,7 +56,7 @@ import { onCuisineChange, resetCuisineListeners } from './cuisine-events';
 import {
   settleRestaurantCuisine, publishRestaurantCuisine, getRestaurantCuisineBatch,
   cuisineConfidence, PERSIST_CONFIDENCE_FLOOR, CUISINE_MAX_COUNT,
-  getRestaurantCuisineTags,
+  getRestaurantCuisineTags, isCuisineRemovable,
 } from './restaurant-cuisine';
 
 /** A rural place: Google knows it's a restaurant and nothing more. */
@@ -159,7 +159,11 @@ describe('getRestaurantCuisineBatch', () => {
     );
     const out = await getRestaurantCuisineBatch(['a', 'b', 'missing']);
     expect(Object.keys(out).sort()).toEqual(['a', 'b']);
-    expect(out.a).toEqual({ cuisine: 'Thai', source: 'community', confidence: 80, cuisines: ['Thai'] });
+    expect(out.a).toEqual({
+      cuisine: 'Thai', source: 'community', confidence: 80,
+      cuisines: ['Thai'],
+      entries: [{ cuisine: 'Thai', source: 'community' }],
+    });
   });
 
   // The floor is what stops a name guess being written into a user's rating.
@@ -322,7 +326,7 @@ describe('settleRestaurantCuisine · crediting the source', () => {
  * filters, facets, top lists and saved ratings mean by "the cuisine".
  */
 const tag = (restaurantId: string, cuisine: string, votes = 1, created = '2026-01-01') =>
-  ({ restaurant_id: restaurantId, cuisine, votes, created_at: created });
+  ({ restaurant_id: restaurantId, cuisine, source: 'approved', votes, created_at: created });
 
 describe('getRestaurantCuisineBatch · additional cuisines', () => {
   it('returns the primary first, then the extras', async () => {
@@ -404,5 +408,53 @@ describe('publishRestaurantCuisine · announcing', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(seen).toEqual([]);
+  });
+});
+
+
+/**
+ * What an admin may take away.
+ *
+ * A provider's answer is not the app's to delete, and — separately — a
+ * derived one does not stay deleted: settleRestaurantCuisine re-publishes
+ * whatever it works out locally as soon as it beats the cache, so removing
+ * a `google` row with nothing to promote lasts until the next person opens
+ * that restaurant. The control was a button that lied.
+ *
+ * Mirrors cuisine_source_is_removable() in migration 073. The database
+ * refuses either way; this exists so the UI can leave the control out.
+ */
+describe('isCuisineRemovable', () => {
+  it('lets a person undo what people put there', () => {
+    for (const source of ['approved', 'consensus', 'community', 'community_single']) {
+      expect(isCuisineRemovable(source), source).toBe(true);
+    }
+  });
+
+  it('refuses what a provider said, and what the app re-derives', () => {
+    for (const source of ['google', 'google_display', 'michelin', 'osm', 'name']) {
+      expect(isCuisineRemovable(source), source).toBe(false);
+    }
+  });
+
+  it('refuses an unknown or absent source rather than assuming', () => {
+    expect(isCuisineRemovable(undefined)).toBe(false);
+    expect(isCuisineRemovable('')).toBe(false);
+    expect(isCuisineRemovable('something_new')).toBe(false);
+  });
+});
+
+describe('getRestaurantCuisineBatch · sources travel with the cuisines', () => {
+  it('reports where each cuisine came from, in the same order', async () => {
+    rows.push({ restaurant_id: 'k', cuisine: 'Italian', source: 'google', confidence: 60 });
+    tagRows.push(tag('k', 'Pizza'));
+    const out = await getRestaurantCuisineBatch(['k']);
+    expect(out.k.cuisines).toEqual(['Italian', 'Pizza']);
+    expect(out.k.entries).toEqual([
+      { cuisine: 'Italian', source: 'google' },
+      { cuisine: 'Pizza', source: 'approved' },
+    ]);
+    // Which is what lets the queue lock the first and not the second.
+    expect(out.k.entries.map((e) => isCuisineRemovable(e.source))).toEqual([false, true]);
   });
 });

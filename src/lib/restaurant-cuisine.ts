@@ -63,6 +63,26 @@ export interface CachedCuisine {
    *  approved them, or enough people agreed (migration 071). No automatic
    *  source can put one here. */
   cuisines: string[];
+  /** The same list with where each came from, same order. Only review UI
+   *  needs this; everything that merely displays a cuisine wants
+   *  `cuisines`. */
+  entries: Array<{ cuisine: string; source: string }>;
+}
+
+/**
+ * May a person take this cuisine away? Mirrors
+ * cuisine_source_is_removable() in migration 073 — the DB is
+ * authoritative and refuses either way; this is so the UI can leave the
+ * control out rather than offer one that errors.
+ *
+ * Only what a person put there. A provider's answer is not ours to
+ * delete, and a derived one comes straight back: settleRestaurantCuisine
+ * re-publishes what it works out locally the moment it beats the cache,
+ * so deleting a `google` row with nothing to promote in its place lasts
+ * until the next person opens that restaurant.
+ */
+export function isCuisineRemovable(source: string | undefined): boolean {
+  return ['approved', 'consensus', 'community', 'community_single'].includes(source || '');
 }
 
 /** Mirrors cuisine_max_count() in migration 071 — the DB is authoritative;
@@ -108,6 +128,7 @@ export async function getRestaurantCuisineBatch(ids: string[]): Promise<Record<s
             source: row.source,
             confidence: row.confidence ?? cuisineConfidence(row.source),
             cuisines: [row.cuisine],
+            entries: [{ cuisine: row.cuisine, source: row.source }],
           };
         }
       }
@@ -136,7 +157,7 @@ async function attachCuisineTags(out: Record<string, CachedCuisine>, ids: string
   for (let i = 0; i < known.length; i += CHUNK) {
     try {
       const { data, error } = await supabase.from('restaurant_cuisine_tags')
-        .select('restaurant_id, cuisine, votes, created_at')
+        .select('restaurant_id, cuisine, source, votes, created_at')
         .in('restaurant_id', known.slice(i, i + CHUNK))
         // Best-agreed first, then oldest — the same order migration 071
         // promotes them in, so the app and the database never disagree
@@ -144,12 +165,13 @@ async function attachCuisineTags(out: Record<string, CachedCuisine>, ids: string
         .order('votes', { ascending: false })
         .order('created_at', { ascending: true });
       if (error) return;
-      for (const row of (data || []) as Array<{ restaurant_id: string; cuisine: string }>) {
+      for (const row of (data || []) as Array<{ restaurant_id: string; cuisine: string; source: string }>) {
         const entry = out[row.restaurant_id];
         if (!entry || !row.cuisine) continue;
         if (entry.cuisines.some((c) => c.toLowerCase() === row.cuisine.toLowerCase())) continue;
         if (entry.cuisines.length >= CUISINE_MAX_COUNT) continue;
         entry.cuisines.push(row.cuisine);
+        entry.entries.push({ cuisine: row.cuisine, source: row.source });
       }
     } catch {
       return;
