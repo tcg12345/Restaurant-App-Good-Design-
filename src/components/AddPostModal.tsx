@@ -22,7 +22,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, Trash2, AlertCircle, Loader2, Globe, Users as UsersIcon, Plus, Image as ImageIcon, Video as VideoIcon, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Link2 } from 'lucide-react';
+import { X, ChefHat, MapPin, Check, Music2, Trash2, AlertCircle, Loader2, Globe, Users as UsersIcon, Plus, Image as ImageIcon, Video as VideoIcon, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Link2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   usePosts,
@@ -54,6 +54,15 @@ import {
   type EditorTab,
 } from './MediaEditor';
 import { DraggableSheet } from './DraggableSheet';
+import { useBottomSheet } from '../lib/useBottomSheet';
+import {
+  FeaturedPickerOverlay,
+  FeaturedSummary,
+  restaurantMetaLine,
+  recipeMetaLine,
+  type FeaturedRestaurant,
+  type FeaturedRecipe,
+} from './composer/FeaturedPicker';
 
 
 const DEFAULT_LAT = 40.735;
@@ -158,6 +167,12 @@ export const AddPostModal: React.FC = () => {
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+
+  // Body-scroll lock + swipe-back stand-down while the composer owns the
+  // screen. Without the registry entry a right-swipe on the canvas pops
+  // the route out from under a half-built post. Drag-to-dismiss stays
+  // off: both layouts are full surfaces with their own close affordance.
+  useBottomSheet(addPostModalOpen, closeAddPostModal);
 
   // Step machine. Create flow walks 1 → 2 → 3; edit flow enters at 2
   // (media is locked) and goes 2 → 3.
@@ -657,7 +672,7 @@ export const AddPostModal: React.FC = () => {
   /* ── Restaurant + recipe picker data ── */
 
   const restaurantPickList = useMemo(() => {
-    type Item = { id: string; name: string; cuisine: string; price: string; address: string; image?: string; score?: number };
+    type Item = FeaturedRestaurant;
     if (pickerOpen !== 'restaurant') return [] as Item[];
     const q = restaurantSearch.trim().toLowerCase();
     const seen = new Set<string>();
@@ -672,6 +687,7 @@ export const AddPostModal: React.FC = () => {
       out.push({
         id: r.restaurantId, name: r.name, cuisine: r.cuisine, price: r.price,
         address: r.address, image: safePickerImage(r.image), score: r.score,
+        fromUser: true,
       });
     }
     for (const w of wishlist) {
@@ -683,6 +699,7 @@ export const AddPostModal: React.FC = () => {
         id: w.restaurantId, name: w.name, cuisine: w.cuisine, price: w.price,
         address: w.address, image: safePickerImage(w.image),
         score: ratingScoreById.get(w.restaurantId),
+        fromUser: true,
       });
     }
     for (const [id, m] of Object.entries(restaurantMeta || {})) {
@@ -696,6 +713,7 @@ export const AddPostModal: React.FC = () => {
         id, name: meta.name, cuisine: meta.cuisine || '', price: meta.price || '',
         address: meta.address || '', image: safePickerImage(meta.image),
         score: ratingScoreById.get(id),
+        fromUser: true,
       });
     }
     if (q) {
@@ -709,6 +727,7 @@ export const AddPostModal: React.FC = () => {
           address: p.address || p.fullAddress || '',
           image: undefined,
           score: ratingScoreById.get(p.id),
+          fromUser: false,
         });
       }
     }
@@ -716,7 +735,7 @@ export const AddPostModal: React.FC = () => {
   }, [pickerOpen, ratings, wishlist, restaurantMeta, restaurantSearch, placeResults]);
 
   const recipePickList = useMemo(() => {
-    type Item = { id: string; title: string; prepTime: number; cookTime: number; servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string };
+    type Item = FeaturedRecipe;
     if (pickerOpen !== 'recipe') return [] as Item[];
     const out: Item[] = homeMeals.map((m) => ({
       id: m.id, title: m.name,
@@ -999,9 +1018,12 @@ export const AddPostModal: React.FC = () => {
     : step === 3 ? Math.min(Math.max(winH * 0.48, 350), 500)
     : Math.min(Math.max(winH * 0.58, 430), 600),
   );
-  // Full detent reaches the header's bottom edge, so a fully-raised
-  // gallery completely covers the canvas (and the selection preview).
-  const phoneSheetMax = winH - 108;
+  // The camera-roll step earns a near-full detent — a raised gallery is
+  // meant to cover the canvas. Every later step shares the screen with
+  // the live preview, so the sheet is capped and scrolls internally
+  // instead of growing until the media is a thumbnail (the Text and
+  // Filters tabs used to do exactly that).
+  const phoneSheetMax = step === 1 ? winH - 108 : Math.round(winH * 0.62);
 
   // Same as desktopPrimary except the media step, which may need to
   // materialize staged native camera-roll picks before advancing.
@@ -1394,21 +1416,15 @@ export const AddPostModal: React.FC = () => {
                         <ImageIcon size={26} />
                         <VideoIcon size={26} />
                       </div>
+                      {/* One call to action, and it lives in the sheet below —
+                          a button here as well left two identical CTAs on
+                          the same screen. */}
                       <p className="text-[14px] font-semibold text-white/75 mt-3">
-                        {useNativeGrid ? 'Pick from your camera roll below' : 'Add photos or a video'}
+                        {useNativeGrid ? 'Pick from your camera roll below' : 'Choose photos or a video below'}
                       </p>
                       <p className="text-[12px] text-white/40 mt-1 leading-relaxed">
                         Up to {POST_MAX_ITEMS} items · videos up to {POST_VIDEO_MAX_DURATION_SECONDS}s
                       </p>
-                      {!useNativeGrid && (
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="mt-4 h-10 px-5 rounded-full bg-surface text-on-surface text-[13px] font-bold active:scale-95 transition-transform"
-                        >
-                          Open camera roll
-                        </button>
-                      )}
                     </>
                   )}
                 </div>
@@ -1428,7 +1444,10 @@ export const AddPostModal: React.FC = () => {
               minHeight={92}
               maxHeight={phoneSheetMax}
               draggable={!sharedPost}
-              fit={step !== 1}
+              // Step 1 only needs the tall detent when the native camera
+              // roll fills it; on web it's a strip plus a button, so hug
+              // it rather than leaving a blank half-screen of sheet.
+              fit={step !== 1 || !useNativeGrid}
               resetKey={step}
               onReserveChange={setSheetReserve}
               className="z-20 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
@@ -1449,7 +1468,9 @@ export const AddPostModal: React.FC = () => {
                   {step === 1 && (
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
+                          {useNativeGrid ? 'Recents' : 'Media'}
+                        </span>
                         <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">
                           {items.length + nativePicks.length} / {POST_MAX_ITEMS}
                         </span>
@@ -1500,19 +1521,17 @@ export const AddPostModal: React.FC = () => {
                         </div>
                       ) : (
                         /* Web fallback — the OS picker is the camera roll;
-                           picked media shows as a grid here. */
-                        <div className="grid grid-cols-3 gap-1.5 mt-3">
-                          {!isEditing && items.length < POST_MAX_ITEMS && (
-                            <button
-                              type="button"
-                              onClick={() => fileInputRef.current?.click()}
-                              className="aspect-square rounded-[10px] border-[1.5px] border-dashed border-on-surface/20 flex flex-col items-center justify-center gap-1 text-on-surface/45 active:bg-on-surface/[0.04] transition-colors"
-                            >
-                              <Plus size={17} strokeWidth={2.4} />
-                              <span className="text-[10.5px] font-bold uppercase tracking-wider">Add</span>
-                            </button>
-                          )}
-                        </div>
+                           picked media shows in the strip above. */
+                        !isEditing && items.length < POST_MAX_ITEMS && (
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="mt-3 w-full flex items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-on-surface/20 py-4 text-[13px] font-bold text-primary active:bg-primary/[0.05] transition-colors"
+                          >
+                            <Plus size={15} strokeWidth={2.4} />
+                            {items.length > 0 ? 'Add more' : 'Choose photos & videos'}
+                          </button>
+                        )
                       )}
 
                       {validationMsg && (
@@ -1552,6 +1571,7 @@ export const AddPostModal: React.FC = () => {
                         selectedTextId={selectedTextId}
                         onSelectTextId={setSelectedTextId}
                         natural={stageNatural}
+                        variant="sheet"
                       />
                     </div>
                   )}
@@ -1676,53 +1696,52 @@ export const AddPostModal: React.FC = () => {
                           />
 
                           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40 mt-4">Feature on this item</p>
-                          <div className="flex items-center gap-2 mt-2.5">
-                            <button
-                              type="button"
-                              onClick={() => { setPickerOpen('restaurant'); setRestaurantSearch(''); }}
-                              disabled={submitting}
-                              className={cn(
-                                'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-[12.5px] font-bold border-[1.5px] transition-colors disabled:opacity-40',
-                                activeItem.attachedKind === 'restaurant'
-                                  ? 'bg-primary/[0.08] border-primary text-primary'
-                                  : 'bg-on-surface/[0.03] border-on-surface/[0.09] text-on-surface/60',
-                              )}
-                            >
-                              <MapPin size={12} className="flex-shrink-0" />
-                              <span className="truncate">
-                                {activeItem.attachedKind === 'restaurant' ? activeItem.restaurant?.name || 'Restaurant' : 'Restaurant'}
-                              </span>
-                              {activeItem.attachedKind === 'restaurant' && <Check size={12} className="flex-shrink-0" />}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setPickerOpen('recipe'); setRecipeSearch(''); }}
-                              disabled={submitting}
-                              className={cn(
-                                'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-[12.5px] font-bold border-[1.5px] transition-colors disabled:opacity-40',
-                                activeItem.attachedKind === 'recipe'
-                                  ? 'bg-primary/[0.08] border-primary text-primary'
-                                  : 'bg-on-surface/[0.03] border-on-surface/[0.09] text-on-surface/60',
-                              )}
-                            >
-                              <ChefHat size={12} className="flex-shrink-0" />
-                              <span className="truncate">
-                                {activeItem.attachedKind === 'recipe' ? activeItem.recipe?.title || 'Recipe' : 'Recipe'}
-                              </span>
-                              {activeItem.attachedKind === 'recipe' && <Check size={12} className="flex-shrink-0" />}
-                            </button>
-                            {activeItem.attachedKind && (
+                          {activeItem.attachedKind === 'restaurant' && activeItem.restaurant ? (
+                            <div className="mt-2.5">
+                              <FeaturedSummary
+                                title={activeItem.restaurant.name}
+                                meta={restaurantMetaLine(activeItem.restaurant)}
+                                image={activeItem.restaurant.image}
+                                kind="restaurant"
+                                disabled={submitting}
+                                onChange={() => { setPickerOpen('restaurant'); setRestaurantSearch(''); }}
+                                onClear={() => clearAttachment(activeItem.key)}
+                              />
+                            </div>
+                          ) : activeItem.attachedKind === 'recipe' && activeItem.recipe ? (
+                            <div className="mt-2.5">
+                              <FeaturedSummary
+                                title={activeItem.recipe.title}
+                                meta={recipeMetaLine(activeItem.recipe)}
+                                image={activeItem.recipe.image}
+                                kind="recipe"
+                                disabled={submitting}
+                                onChange={() => { setPickerOpen('recipe'); setRecipeSearch(''); }}
+                                onClear={() => clearAttachment(activeItem.key)}
+                              />
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 mt-2.5">
                               <button
                                 type="button"
-                                onClick={() => clearAttachment(activeItem.key)}
+                                onClick={() => { setPickerOpen('restaurant'); setRestaurantSearch(''); }}
                                 disabled={submitting}
-                                className="w-9 h-9 rounded-full bg-on-surface/[0.05] active:bg-on-surface/10 flex items-center justify-center text-on-surface/55 flex-shrink-0"
-                                aria-label="Clear featured"
+                                className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-11 rounded-2xl text-[12.5px] font-bold border-[1.5px] border-dashed border-on-surface/[0.14] text-on-surface/65 active:bg-on-surface/[0.04] transition-colors disabled:opacity-40"
                               >
-                                <X size={13} />
+                                <MapPin size={13} className="flex-shrink-0" />
+                                <span className="truncate">Restaurant</span>
                               </button>
-                            )}
-                          </div>
+                              <button
+                                type="button"
+                                onClick={() => { setPickerOpen('recipe'); setRecipeSearch(''); }}
+                                disabled={submitting}
+                                className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-11 rounded-2xl text-[12.5px] font-bold border-[1.5px] border-dashed border-on-surface/[0.14] text-on-surface/65 active:bg-on-surface/[0.04] transition-colors disabled:opacity-40"
+                              >
+                                <ChefHat size={13} className="flex-shrink-0" />
+                                <span className="truncate">Recipe</span>
+                              </button>
+                            </div>
+                          )}
 
                           {/* Shortcuts */}
                           {!activeItem.attachedKind && activeIdx > 0 && items[activeIdx - 1].attachedKind && (
@@ -2313,7 +2332,6 @@ export const AddPostModal: React.FC = () => {
                               const inMulti = !!multiApply;
                               const isSource = inMulti && it.key === multiApply.sourceKey;
                               const isTarget = inMulti && multiApply.targets.has(it.key);
-                              const featuredName = it.attachedKind === 'restaurant' ? it.restaurant?.name : it.recipe?.title;
                               const prev = idx > 0 ? items[idx - 1] : null;
                               return (
                                 <div
@@ -2365,53 +2383,52 @@ export const AddPostModal: React.FC = () => {
                                         disabled={submitting}
                                         className="w-full mt-2.5 rounded-xl bg-on-surface/[0.03] border-[1.5px] border-on-surface/[0.07] px-3 py-2 text-[13px] placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 disabled:opacity-50 transition-colors"
                                       />
-                                      <div className="flex items-center gap-1.5 mt-2">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => { e.stopPropagation(); setActiveKey(it.key); setPickerOpen('restaurant'); setRestaurantSearch(''); }}
-                                          disabled={submitting}
-                                          className={cn(
-                                            'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-8 rounded-full text-[11.5px] font-bold border-[1.5px] transition-colors disabled:opacity-40',
-                                            it.attachedKind === 'restaurant'
-                                              ? 'bg-primary/[0.08] border-primary text-primary'
-                                              : 'bg-on-surface/[0.03] border-on-surface/[0.08] text-on-surface/60 hover:border-on-surface/25',
-                                          )}
-                                        >
-                                          <MapPin size={11} className="flex-shrink-0" />
-                                          <span className="truncate">
-                                            {it.attachedKind === 'restaurant' ? featuredName || 'Restaurant' : 'Restaurant'}
-                                          </span>
-                                          {it.attachedKind === 'restaurant' && <Check size={11} className="flex-shrink-0" />}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => { e.stopPropagation(); setActiveKey(it.key); setPickerOpen('recipe'); setRecipeSearch(''); }}
-                                          disabled={submitting}
-                                          className={cn(
-                                            'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-8 rounded-full text-[11.5px] font-bold border-[1.5px] transition-colors disabled:opacity-40',
-                                            it.attachedKind === 'recipe'
-                                              ? 'bg-primary/[0.08] border-primary text-primary'
-                                              : 'bg-on-surface/[0.03] border-on-surface/[0.08] text-on-surface/60 hover:border-on-surface/25',
-                                          )}
-                                        >
-                                          <ChefHat size={11} className="flex-shrink-0" />
-                                          <span className="truncate">
-                                            {it.attachedKind === 'recipe' ? featuredName || 'Recipe' : 'Recipe'}
-                                          </span>
-                                          {it.attachedKind === 'recipe' && <Check size={11} className="flex-shrink-0" />}
-                                        </button>
-                                        {it.attachedKind && (
+                                      {it.attachedKind === 'restaurant' && it.restaurant ? (
+                                        <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+                                          <FeaturedSummary
+                                            title={it.restaurant.name}
+                                            meta={restaurantMetaLine(it.restaurant)}
+                                            image={it.restaurant.image}
+                                            kind="restaurant"
+                                            disabled={submitting}
+                                            onChange={() => { setActiveKey(it.key); setPickerOpen('restaurant'); setRestaurantSearch(''); }}
+                                            onClear={() => clearAttachment(it.key)}
+                                          />
+                                        </div>
+                                      ) : it.attachedKind === 'recipe' && it.recipe ? (
+                                        <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+                                          <FeaturedSummary
+                                            title={it.recipe.title}
+                                            meta={recipeMetaLine(it.recipe)}
+                                            image={it.recipe.image}
+                                            kind="recipe"
+                                            disabled={submitting}
+                                            onChange={() => { setActiveKey(it.key); setPickerOpen('recipe'); setRecipeSearch(''); }}
+                                            onClear={() => clearAttachment(it.key)}
+                                          />
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-1.5 mt-2.5">
                                           <button
                                             type="button"
-                                            onClick={(e) => { e.stopPropagation(); clearAttachment(it.key); }}
+                                            onClick={(e) => { e.stopPropagation(); setActiveKey(it.key); setPickerOpen('restaurant'); setRestaurantSearch(''); }}
                                             disabled={submitting}
-                                            className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/55 flex-shrink-0"
-                                            aria-label="Clear featured"
+                                            className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-9 rounded-xl text-[11.5px] font-bold border-[1.5px] border-dashed border-on-surface/[0.14] text-on-surface/60 hover:border-primary/50 hover:text-primary transition-colors disabled:opacity-40"
                                           >
-                                            <X size={12} />
+                                            <MapPin size={12} className="flex-shrink-0" />
+                                            <span className="truncate">Restaurant</span>
                                           </button>
-                                        )}
-                                      </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setActiveKey(it.key); setPickerOpen('recipe'); setRecipeSearch(''); }}
+                                            disabled={submitting}
+                                            className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-9 rounded-xl text-[11.5px] font-bold border-[1.5px] border-dashed border-on-surface/[0.14] text-on-surface/60 hover:border-primary/50 hover:text-primary transition-colors disabled:opacity-40"
+                                          >
+                                            <ChefHat size={12} className="flex-shrink-0" />
+                                            <span className="truncate">Recipe</span>
+                                          </button>
+                                        </div>
+                                      )}
 
                                       {/* Shortcuts: same-as-previous / apply-to-all / specific */}
                                       {!it.attachedKind && prev?.attachedKind && (
@@ -2569,146 +2586,49 @@ export const AddPostModal: React.FC = () => {
           </motion.div>
           )}
 
-          {/* ── Picker overlay (restaurant or recipe) ── */}
-          <AnimatePresence>
-            {pickerOpen && activeItem && (
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="absolute inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center"
-                onClick={() => setPickerOpen(null)}
-              >
-                <motion.div
-                  initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                  transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-full sm:max-w-md sm:max-h-[80vh] sm:rounded-3xl rounded-t-3xl bg-surface flex flex-col overflow-hidden"
-                  style={{ height: '80vh' }}
-                >
-                  <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
-                    <h3 className="font-serif font-bold text-base">
-                      Featured {pickerOpen}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setPickerOpen(null)}
-                      className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/65"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  {/* Search */}
-                  <div className="px-5 pt-3 flex-shrink-0">
-                    <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 h-11">
-                      <Search size={14} className="text-on-surface/45 flex-shrink-0" />
-                      <input
-                        value={pickerOpen === 'restaurant' ? restaurantSearch : recipeSearch}
-                        onChange={(e) => pickerOpen === 'restaurant' ? setRestaurantSearch(e.target.value) : setRecipeSearch(e.target.value)}
-                        placeholder={pickerOpen === 'restaurant' ? 'Search any restaurant…' : 'Search your home cooking…'}
-                        className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none"
-                      />
-                      {pickerOpen === 'restaurant' && searchingPlaces && <Loader2 size={14} className="animate-spin text-on-surface/40" />}
-                    </div>
-                  </div>
-
-                  {/* List */}
-                  <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
-                    {pickerOpen === 'restaurant' ? (
-                      restaurantPickList.length === 0 ? (
-                        <div className="text-center py-8 text-[12px] text-on-surface/45">
-                          {searchingPlaces ? 'Searching…' : restaurantSearch.trim().length === 0 ? 'Type to search any restaurant.' : 'No matches.'}
-                        </div>
-                      ) : (
-                        <ul className="space-y-1">
-                          {restaurantPickList.map((r) => (
-                            <li key={r.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  applyAttachmentToItem(activeItem.key, 'restaurant', {
-                                    restaurant: {
-                                      id: r.id, name: r.name, cuisine: r.cuisine,
-                                      price: r.price, address: r.address, image: r.image,
-                                      score: r.score,
-                                    },
-                                  });
-                                  setPickerOpen(null);
-                                }}
-                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] rounded-xl text-left"
-                              >
-                                <div className="w-10 h-10 rounded-xl bg-on-surface/[0.06] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                  {r.image ? (
-                                    <img src={r.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    <MapPin size={14} className="text-on-surface/35" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold truncate">{r.name}</p>
-                                  <p className="text-[11px] text-on-surface/45 truncate">
-                                    {[r.cuisine, r.price, r.address].filter(Boolean).join(' · ')}
-                                  </p>
-                                </div>
-                                {r.score != null && (
-                                  <span className="text-xs font-bold tabular-nums text-on-surface/55 flex-shrink-0">
-                                    {Number(r.score).toFixed(1)}
-                                  </span>
-                                )}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )
-                    ) : (
-                      recipePickList.length === 0 ? (
-                        <div className="text-center py-8 text-[12px] text-on-surface/45">
-                          {recipeSearch.trim().length === 0
-                            ? 'No home cooking entries yet. Add one in the Pantry first.'
-                            : 'No matches.'}
-                        </div>
-                      ) : (
-                        <ul className="space-y-1">
-                          {recipePickList.map((r) => (
-                            <li key={r.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  applyAttachmentToItem(activeItem.key, 'recipe', {
-                                    recipe: {
-                                      id: r.id, title: r.title,
-                                      prepTime: r.prepTime, cookTime: r.cookTime,
-                                      servings: r.servings, difficulty: r.difficulty,
-                                      image: r.image,
-                                    },
-                                  });
-                                  setPickerOpen(null);
-                                }}
-                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] rounded-xl text-left"
-                              >
-                                <div className="w-10 h-10 rounded-xl bg-blue-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                                  {r.image ? (
-                                    <img src={r.image} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <ChefHat size={16} className="text-blue-600" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold truncate">{r.title}</p>
-                                  <p className="text-[11px] text-on-surface/45 truncate">
-                                    {(r.prepTime + r.cookTime) || 0} min · {r.servings || 0} servings · {r.difficulty}
-                                  </p>
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )
-                    )}
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* ── Featured picker (restaurant or recipe) ──
+              One shared surface for both layouts: a draggable bottom
+              sheet on phones, a centred dialog on desktop. */}
+          <FeaturedPickerOverlay
+            open={!!pickerOpen && !!activeItem}
+            kind={pickerOpen ?? 'restaurant'}
+            phoneMode={phoneMode}
+            onClose={() => setPickerOpen(null)}
+            search={pickerOpen === 'recipe' ? recipeSearch : restaurantSearch}
+            onSearchChange={(v) => pickerOpen === 'recipe' ? setRecipeSearch(v) : setRestaurantSearch(v)}
+            searching={pickerOpen === 'restaurant' && searchingPlaces}
+            restaurants={restaurantPickList}
+            recipes={recipePickList}
+            selectedId={
+              !activeItem ? null
+              : pickerOpen === 'recipe'
+                ? (activeItem.attachedKind === 'recipe' ? activeItem.recipe?.id ?? null : null)
+                : (activeItem.attachedKind === 'restaurant' ? activeItem.restaurant?.id ?? null : null)
+            }
+            onPickRestaurant={(r) => {
+              if (!activeItem) return;
+              applyAttachmentToItem(activeItem.key, 'restaurant', {
+                restaurant: {
+                  id: r.id, name: r.name, cuisine: r.cuisine,
+                  price: r.price, address: r.address, image: r.image,
+                  score: r.score,
+                },
+              });
+              setPickerOpen(null);
+            }}
+            onPickRecipe={(r) => {
+              if (!activeItem) return;
+              applyAttachmentToItem(activeItem.key, 'recipe', {
+                recipe: {
+                  id: r.id, title: r.title,
+                  prepTime: r.prepTime, cookTime: r.cookTime,
+                  servings: r.servings, difficulty: r.difficulty,
+                  image: r.image,
+                },
+              });
+              setPickerOpen(null);
+            }}
+          />
         </motion.div>
       )}
     </AnimatePresence>

@@ -15,11 +15,12 @@
  * (one per photo/video) and receive back the same items with their
  * `edits` state mutated and (after `applyAllEdits()`) an `editedFile`.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2, Play,
+  Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Play,
   Type, Bold, Italic, AlignLeft, AlignCenter, AlignRight, Plus, Trash2, Thermometer, Aperture,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { captureSourceAudio, mergeCanvasAndAudio, sourceHadAudio, pickVideoMime } from '../lib/media-audio';
@@ -607,372 +608,10 @@ type Tab = 'crop' | 'adjust' | 'filter' | 'text' | 'trim';
  *  state themselves and compose EditorStage + EditorControls. */
 export type EditorTab = Tab;
 
-interface MediaEditorProps {
-  items: EditableItem[];
-  /** Currently focused item key. */
-  activeKey: string;
-  onActiveChange: (key: string) => void;
-  /** Push edits for the active item back up. */
-  onEditsChange: (key: string, edits: EditState) => void;
-}
-
-export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onActiveChange, onEditsChange }) => {
-  const active = items.find((it) => it.key === activeKey) ?? items[0];
-  const activeIdx = active ? items.findIndex((it) => it.key === active.key) : -1;
-
-  // Per-item natural source size — needed to convert pan deltas into
-  // normalised crop offsets. Stored by key.
-  const [naturalSizes, setNaturalSizes] = useState<Record<string, { w: number; h: number }>>({});
-
-  // Peek-carousel refs — mirror the layout used by the post Tag step
-  // so the Edit step feels like one continuous flow. The scroll
-  // handler tracks which slide is centered and sync-snaps when the
-  // active key changes from outside.
-  const carouselRef = useRef<HTMLDivElement | null>(null);
-  const slideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
-  // Set on the same tick as the user-driven activeKey change so the
-  // smooth-scroll effect below doesn't fight the native snap. Reset
-  // the moment that effect skips its scrollTo.
-  const userScrollChangeRef = useRef(false);
-  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!active) return;
-    // Skip the programmatic snap when the active item changed because
-    // the user swiped — the browser's native snap is already in
-    // motion, and a competing smooth-scroll causes the visible
-    // jitter.
-    if (userScrollChangeRef.current) {
-      userScrollChangeRef.current = false;
-      return;
-    }
-    const slide = slideRefs.current.get(active.key);
-    const carousel = carouselRef.current;
-    if (!slide || !carousel) return;
-    const desired = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
-    // Larger threshold tolerates the fractional offset the browser
-    // leaves at the end of a snap; only trigger a real correction when
-    // we're far enough away to matter.
-    if (Math.abs(carousel.scrollLeft - desired) > 24) {
-      carousel.scrollTo({ left: desired, behavior: 'smooth' });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.key, items.length]);
-
-  useEffect(() => () => {
-    if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    videoRefs.current.forEach((v, key) => {
-      if (key === active.key) return;
-      try { v.pause(); } catch { /* ignore */ }
-    });
-  }, [active?.key]);
-
-  // Keep the active video's playback in sync with its trim window —
-  // seek to start when the trim moves the playhead out of range, and
-  // loop back to start when playback hits trim.end so the preview
-  // always shows just the trimmed range. Re-runs whenever the active
-  // item or its trim values change.
-  useEffect(() => {
-    if (!active || active.mediaType !== 'video') return;
-    const video = videoRefs.current.get(active.key);
-    if (!video) return;
-    const trim = active.edits.trim;
-    if (!trim) return;
-    // Snap the playhead inside the new window. Small tolerance so we
-    // don't fight the user mid-frame when they barely nudge a handle.
-    if (video.currentTime < trim.start - 0.05 || video.currentTime > trim.end + 0.05) {
-      try { video.currentTime = trim.start; } catch { /* ignore */ }
-    }
-    const onTimeUpdate = () => {
-      if (video.currentTime >= trim.end) {
-        try { video.currentTime = trim.start; } catch { /* ignore */ }
-      }
-    };
-    video.addEventListener('timeupdate', onTimeUpdate);
-    return () => video.removeEventListener('timeupdate', onTimeUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.key, active?.mediaType, active?.edits.trim?.start, active?.edits.trim?.end]);
-
-  // Default the tab to the most useful one for the media type.
-  const [tab, setTab] = useState<Tab>(active?.mediaType === 'video' ? 'trim' : 'crop');
-
-  // Filter-swatch preview: the source for photos, the first extracted
-  // frame for videos (videos used to show a generic gradient).
-  const swatchPreview = useSwatchPreview(active);
-
-  // Which text overlay is selected for editing (Text tab). Reset when
-  // the active item changes so we never edit a stale overlay.
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  useEffect(() => { setSelectedTextId(null); }, [active?.key]);
-
-  // When the active media type changes, snap off tabs the new type
-  // doesn't have (photos have no trim; crop applies to both).
-  useEffect(() => {
-    if (!active) return;
-    if (active.mediaType === 'photo' && tab === 'trim') setTab('crop');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.key, active?.mediaType]);
-
-  const onNatural = (key: string, w: number, h: number) => {
-    setNaturalSizes((prev) => prev[key]?.w === w && prev[key]?.h === h ? prev : { ...prev, [key]: { w, h } });
-  };
-
-  if (!active) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-center text-on-surface/45">
-        <Sparkles size={26} className="mb-2 text-on-surface/30" />
-        <p className="text-[13px]">Nothing to edit — go back and pick some media first.</p>
-      </div>
-    );
-  }
-
-  const edits = active.edits;
-  const setEdits = (next: Partial<EditState>) => onEditsChange(active.key, { ...edits, ...next });
-  const natural = naturalSizes[active.key];
-
-  return (
-    <div className="space-y-4">
-      {/* Items header — count + active position, mirrors the Tag step
-          so the two steps feel visually continuous. */}
-      {items.length > 1 && (
-        <div className="flex items-baseline justify-between">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
-            Items <span className="text-on-surface/30 font-medium ml-1.5">{activeIdx + 1} / {items.length}</span>
-          </p>
-          {isEdited(active.edits, active.durationSeconds) && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
-              <Check size={10} /> Edited
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Peek carousel — 82% width slides with snap-center. The active
-          slide renders the live edit preview (CSS filter chain + crop
-          overlay); peeks dim and scale down so the active item reads
-          as the focus. Videos auto-play (muted, looping) on the active
-          slide only. */}
-      <div className="-mx-5">
-        <div
-          ref={carouselRef}
-          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 pb-1"
-          onScroll={() => {
-            // Debounce until the scroll has actually settled. Without
-            // this, mid-snap onScroll events flip activeKey back and
-            // forth as the dominant slide changes, and the slide
-            // scale/opacity transitions look jittery.
-            if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
-            scrollEndTimerRef.current = setTimeout(() => {
-              const el = carouselRef.current;
-              if (!el) return;
-              const center = el.scrollLeft + el.clientWidth / 2;
-              let bestKey: string | null = null;
-              let bestDist = Infinity;
-              slideRefs.current.forEach((slide, key) => {
-                const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
-                const dist = Math.abs(slideCenter - center);
-                if (dist < bestDist) { bestDist = dist; bestKey = key; }
-              });
-              if (bestKey && bestKey !== active.key) {
-                userScrollChangeRef.current = true;
-                onActiveChange(bestKey);
-              }
-            }, 90);
-          }}
-        >
-          {/* Leading spacer — eats the 9% peek area as real layout so
-              `w-[82%]` resolves against the full container width and a
-              single slide can snap-center exactly. */}
-          <div className="flex-shrink-0 w-[9%]" aria-hidden />
-          {items.map((it, idx) => {
-            const isActive = it.key === active.key;
-            const filter = cssFilterFor(it.edits);
-            const touched = isEdited(it.edits, it.durationSeconds);
-            return (
-              <div
-                key={it.key}
-                ref={(el) => {
-                  if (el) slideRefs.current.set(it.key, el);
-                  else slideRefs.current.delete(it.key);
-                }}
-                className={cn(
-                  // sm:max-h caps the slide on desktop so the trim
-                  // strip / filter chips / Next button stay visible
-                  // without scrolling.
-                  'relative flex-shrink-0 w-[82%] aspect-[3/4] sm:max-h-[48vh] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
-                  isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
-                )}
-              >
-                {it.mediaType === 'photo' ? (
-                  <img
-                    src={it.previewUrl}
-                    alt=""
-                    loading="lazy"
-                    className="absolute inset-0 w-full h-full object-contain"
-                    style={{ filter }}
-                    onLoad={(e) => {
-                      const t = e.currentTarget;
-                      onNatural(it.key, t.naturalWidth, t.naturalHeight);
-                    }}
-                  />
-                ) : (
-                  <VideoPreview
-                    itemKey={it.key}
-                    src={it.previewUrl}
-                    filter={filter}
-                    isActive={isActive}
-                    onRefChange={(el) => {
-                      if (el) videoRefs.current.set(it.key, el);
-                      else videoRefs.current.delete(it.key);
-                    }}
-                    onNatural={onNatural}
-                  />
-                )}
-                {/* Crop overlay.
-                    - The active slide on the Crop tab gets the
-                      interactive overlay so the user can drag the
-                      corners / sides / interior.
-                    - Other slides (peeks) and the active slide on
-                      other tabs fall back to the static read-only
-                      overlay so the user still sees what their crop
-                      looks like, but without grab handles getting
-                      in the way of the photo. */}
-                {isActive && tab === 'crop' ? (
-                  <InteractiveCropOverlay
-                    crop={it.edits.crop}
-                    natural={naturalSizes[it.key]}
-                    onChange={(nextCrop) => onEditsChange(it.key, { ...it.edits, crop: nextCrop, aspectRatio: 'free' })}
-                  />
-                ) : (
-                  hasCustomCrop(it.edits) && <CropOverlay edits={it.edits} natural={naturalSizes[it.key]} />
-                )}
-                {/* Vignette + text overlays. Read-only everywhere so the
-                    preview always mirrors the final output; interactive
-                    (drag to reposition, tap to select) on the active
-                    slide while the Text tab is open. */}
-                <MediaOverlays
-                  edits={it.edits}
-                  natural={naturalSizes[it.key]}
-                  interactive={isActive && tab === 'text'}
-                  selectedId={isActive ? selectedTextId : null}
-                  onSelect={(id) => setSelectedTextId(id)}
-                  onTextsChange={(texts) => onEditsChange(it.key, { ...it.edits, texts })}
-                />
-                {/* Index pill + edit indicator on the corner. */}
-                <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
-                  <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
-                </div>
-                {touched && (
-                  <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-wider shadow-sm">
-                    <Check size={10} strokeWidth={3} /> Edited
-                  </span>
-                )}
-                {/* Tap-anywhere overlay for peeks — selects the slide
-                    without triggering the underlying media. */}
-                {!isActive && (
-                  <button
-                    type="button"
-                    onClick={() => onActiveChange(it.key)}
-                    className="absolute inset-0 z-10"
-                    aria-label={`Edit item ${idx + 1}`}
-                  />
-                )}
-              </div>
-            );
-          })}
-          {/* Trailing spacer — mirrors the leading one so the last
-              slide can snap-center without overshoot. */}
-          <div className="flex-shrink-0 w-[9%]" aria-hidden />
-        </div>
-      </div>
-
-      {/* Pagination dots — only render when there's more than one
-          item; same primary-pip style as the Tag step. */}
-      {items.length > 1 && (
-        <div className="flex items-center justify-center gap-1.5">
-          {items.map((it) => (
-            <motion.span
-              key={it.key}
-              className={cn(
-                'h-1.5 rounded-full',
-                it.key === active.key ? 'bg-primary' : 'bg-on-surface/15',
-              )}
-              animate={{ width: it.key === active.key ? 18 : 5 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex items-center justify-center gap-1 rounded-full bg-on-surface/[0.05] p-1">
-        {([
-          { id: 'crop',   icon: Crop,    label: 'Crop',    show: true },
-          { id: 'trim',   icon: Scissors,label: 'Trim',    show: active.mediaType === 'video' },
-          { id: 'adjust', icon: Sun,     label: 'Adjust',  show: true },
-          { id: 'filter', icon: Sparkles,label: 'Filters', show: true },
-          { id: 'text',   icon: Type,    label: 'Text',    show: true },
-        ] as const).filter((t) => t.show).map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={cn(
-                'flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[12.5px] font-bold transition-colors',
-                tab === t.id ? 'bg-white shadow text-on-surface' : 'text-on-surface/55 hover:text-on-surface',
-              )}
-            >
-              <Icon size={13} /> {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tab body */}
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={tab + active.key}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-        >
-          {tab === 'crop' && (
-            <CropTab edits={edits} setEdits={setEdits} natural={natural} />
-          )}
-          {tab === 'adjust' && (
-            <AdjustTab edits={edits} setEdits={setEdits} />
-          )}
-          {tab === 'filter' && (
-            <FilterTab
-              edits={edits}
-              setEdits={setEdits}
-              previewUrl={swatchPreview}
-            />
-          )}
-          {tab === 'text' && (
-            <TextTab
-              edits={edits}
-              setEdits={setEdits}
-              selectedId={selectedTextId}
-              onSelect={setSelectedTextId}
-            />
-          )}
-          {tab === 'trim' && active.mediaType === 'video' && (
-            <TrimTab item={active} edits={edits} setEdits={setEdits} />
-          )}
-        </motion.div>
-      </AnimatePresence>
-    </div>
-  );
-};
+/* The stacked MediaEditor component that used to live here (media on
+ * top, tab bar and controls beneath) is gone: both composers now use
+ * the split EditorStage + EditorControls pair below, on phones and on
+ * desktop alike. */
 
 /* ── Static crop overlay — read-only ──────────────────────────────────
  *
@@ -1485,48 +1124,169 @@ const CropTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) =>
   );
 };
 
+/* ── Adjust tab ──────────────────────────────────────────────────────
+   Each control is a centre-anchored slider: the coloured fill grows out
+   from the neutral point rather than from the left edge, so an untouched
+   slider reads as "nothing applied" instead of "half applied". The value
+   chip doubles as a per-control reset — tap it to snap that one setting
+   back to neutral without losing the others.
+
+   Rows are single-line on purpose. On a phone this panel shares the
+   screen with the live preview, and a taller control stack pushes the
+   preview down to a thumbnail — which defeats the point of adjusting
+   anything. */
+
+interface Adjustment {
+  key: 'brightness' | 'contrast' | 'saturation' | 'warmth' | 'vignette';
+  icon: React.ComponentType<{ size?: number | string; className?: string }>;
+  label: string;
+  min: number;
+  max: number;
+  neutral: number;
+  /** Value shown in the chip. Defaults to a signed offset from neutral. */
+  format?: (v: number) => string;
+}
+
+const ADJUSTMENTS: Adjustment[] = [
+  { key: 'brightness', icon: Sun,         label: 'Brightness', min: 50, max: 150, neutral: 100 },
+  { key: 'contrast',   icon: Contrast,    label: 'Contrast',   min: 50, max: 150, neutral: 100 },
+  // 0 reaches true black-and-white and 200 a strong pop — the old
+  // 50..150 window could do neither.
+  { key: 'saturation', icon: Droplet,     label: 'Saturation', min: 0,  max: 200, neutral: 100 },
+  { key: 'warmth',     icon: Thermometer, label: 'Warmth',     min: 50, max: 150, neutral: 100 },
+  { key: 'vignette',   icon: Aperture,    label: 'Vignette',   min: 0,  max: 100, neutral: 0,
+    format: (v) => String(Math.round(v)) },
+];
+
+/** Current value of one adjustment, defaulted for edits saved before
+ *  warmth and vignette existed. */
+function adjustValue(edits: EditState, a: Adjustment): number {
+  const raw = edits[a.key];
+  return typeof raw === 'number' ? raw : a.neutral;
+}
+
 const AdjustTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) => void }> = ({ edits, setEdits }) => {
+  const touchedCount = ADJUSTMENTS.filter((a) => adjustValue(edits, a) !== a.neutral).length;
+  const resetAll = () => setEdits({ brightness: 100, contrast: 100, saturation: 100, warmth: 100, vignette: 0 });
+
   return (
-    <div className="space-y-3.5">
-      <Slider
-        icon={<Sun size={14} />}
-        label="Brightness"
-        value={edits.brightness}
-        onChange={(v) => setEdits({ brightness: v })}
-      />
-      <Slider
-        icon={<Contrast size={14} />}
-        label="Contrast"
-        value={edits.contrast}
-        onChange={(v) => setEdits({ contrast: v })}
-      />
-      <Slider
-        icon={<Droplet size={14} />}
-        label="Saturation"
-        value={edits.saturation}
-        onChange={(v) => setEdits({ saturation: v })}
-      />
-      <Slider
-        icon={<Thermometer size={14} />}
-        label="Warmth"
-        value={edits.warmth ?? 100}
-        onChange={(v) => setEdits({ warmth: v })}
-      />
-      <Slider
-        icon={<Aperture size={14} />}
-        label="Vignette"
-        value={edits.vignette ?? 0}
-        min={0}
-        max={100}
-        format={(v) => String(v)}
-        onChange={(v) => setEdits({ vignette: v })}
-      />
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Adjust</p>
+        <button
+          type="button"
+          onClick={resetAll}
+          disabled={touchedCount === 0}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11.5px] font-bold transition-colors',
+            touchedCount > 0
+              ? 'text-on-surface/65 bg-on-surface/[0.05] hover:bg-on-surface/10 active:bg-on-surface/[0.13]'
+              : 'text-on-surface/25',
+          )}
+        >
+          <RotateCcw size={11} strokeWidth={2.6} />
+          Reset all
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-on-surface/[0.07] bg-white divide-y divide-on-surface/[0.06] overflow-hidden">
+        {ADJUSTMENTS.map((a) => (
+          <AdjustSlider
+            key={a.key}
+            adjustment={a}
+            value={adjustValue(edits, a)}
+            onChange={(v) => setEdits({ [a.key]: v } as Partial<EditState>)}
+          />
+        ))}
+      </div>
+
+      <p className="text-[11.5px] text-on-surface/40 mt-2 leading-relaxed">
+        {touchedCount > 0
+          ? 'Tap a value to reset just that one.'
+          : 'Drag to fine-tune. Ready-made looks live on the Filters tab.'}
+      </p>
+    </div>
+  );
+};
+
+/** Half the painted thumb's width — the track is inset by this so the
+ *  painted thumb lands exactly where the native range thumb does. */
+const THUMB_HALF = 9;
+
+const AdjustSlider: React.FC<{
+  adjustment: Adjustment;
+  value: number;
+  onChange: (v: number) => void;
+}> = ({ adjustment, value, onChange }) => {
+  const { icon: Icon, label, min, max, neutral, format } = adjustment;
+  const off = value !== neutral;
+  const pct = (v: number) => ((v - min) / (max - min)) * 100;
+  const cur = pct(value);
+  const zero = pct(neutral);
+  const from = Math.min(cur, zero);
+  const span = Math.abs(cur - zero);
+  const display = format ? format(value) : `${value - neutral >= 0 ? '+' : ''}${Math.round(value - neutral)}`;
+
+  return (
+    <div className="flex items-center gap-2 pl-3 pr-2 h-11">
+      <span className={cn(
+        'inline-flex items-center gap-1.5 w-[86px] flex-shrink-0 text-[12px] font-bold transition-colors',
+        off ? 'text-on-surface' : 'text-on-surface/70',
+      )}>
+        <Icon size={13} className={cn('flex-shrink-0', off ? 'text-primary' : 'text-on-surface/45')} />
+        <span className="truncate">{label}</span>
+      </span>
+
+      {/* Full-height hit area — the track is 5px but the finger target
+          is the whole 44px row. */}
+      <div className="relative flex-1 min-w-0 h-11">
+        <div className="absolute inset-y-0 flex items-center" style={{ left: THUMB_HALF, right: THUMB_HALF }}>
+          <div className="absolute inset-x-0 h-[5px] rounded-full bg-on-surface/[0.1]" />
+          {/* Neutral tick — skipped when neutral is already a track end. */}
+          {zero > 2 && zero < 98 && (
+            <div
+              className="absolute w-[2px] h-[9px] rounded-full bg-on-surface/[0.18]"
+              style={{ left: `${zero}%`, marginLeft: -1 }}
+            />
+          )}
+          <div
+            className="absolute h-[5px] rounded-full bg-primary"
+            style={{ left: `${from}%`, width: `${span}%` }}
+          />
+          <div
+            className={cn(
+              'absolute w-[18px] h-[18px] rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.25)] transition-colors',
+              off ? 'border-2 border-primary' : 'border-[1.5px] border-on-surface/20',
+            )}
+            style={{ left: `${cur}%`, marginLeft: -THUMB_HALF }}
+          />
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={label}
+          className="editor-range absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </div>
+
       <button
         type="button"
-        onClick={() => setEdits({ brightness: 100, contrast: 100, saturation: 100, warmth: 100, vignette: 0 })}
-        className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+        onClick={() => { if (off) onChange(neutral); }}
+        disabled={!off}
+        title={off ? `Reset ${label.toLowerCase()}` : undefined}
+        aria-label={off ? `Reset ${label.toLowerCase()}` : undefined}
+        className={cn(
+          'w-[44px] h-[26px] flex-shrink-0 rounded-full text-[11px] font-bold tabular-nums transition-colors',
+          off
+            ? 'bg-primary/[0.11] text-primary hover:bg-primary/[0.2] active:bg-primary/[0.24]'
+            : 'text-on-surface/35',
+        )}
       >
-        <Wand2 size={12} /> Reset adjustments
+        {display}
       </button>
     </div>
   );
@@ -2333,7 +2093,13 @@ export const EditorControls: React.FC<{
   onSelectTextId: (id: string | null) => void;
   /** Media natural size, as reported by EditorStage.onNatural. */
   natural?: { w: number; h: number };
-}> = ({ item, tab, onTabChange, onEditsChange, selectedTextId, onSelectTextId, natural }) => {
+  /** Where these controls are mounted. `panel` is the desktop side
+   *  column, which scrolls on its own and can afford tall content.
+   *  `sheet` is the phone bottom sheet, which shares the screen with
+   *  the live preview — tall content there shrinks the preview to a
+   *  thumbnail, so those tabs use their compact layouts. */
+  variant?: 'panel' | 'sheet';
+}> = ({ item, tab, onTabChange, onEditsChange, selectedTextId, onSelectTextId, natural, variant = 'panel' }) => {
   const edits = item.edits;
   const setEdits = (next: Partial<EditState>) => onEditsChange({ ...edits, ...next });
   const swatchPreview = useSwatchPreview(item);
@@ -2384,7 +2150,7 @@ export const EditorControls: React.FC<{
               edits={edits}
               setEdits={setEdits}
               previewUrl={swatchPreview}
-              grid
+              grid={variant === 'panel'}
             />
           )}
           {tab === 'text' && (

@@ -12,13 +12,13 @@
  * and step 2's drop zone cross-fades into the preview once a file is
  * accepted.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  X, Film, ChefHat, MapPin, Search, Check, Upload, AlertCircle,
-  Loader2, Globe, Users as UsersIcon, Star, ChevronLeft, ChevronRight,
-  Image as ImageIcon, Trash2, Music2, Video as VideoIcon,
+  X, Film, ChefHat, MapPin, Check, AlertCircle,
+  Loader2, Globe, Users as UsersIcon, ChevronLeft, ChevronRight,
+  Image as ImageIcon, Trash2, Music2, Video as VideoIcon, Plus,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -29,7 +29,6 @@ import {
   type ReelKind,
 } from '../contexts/ReelsContext';
 import {
-  MediaEditor,
   EditorStage,
   EditorControls,
   applyAllEdits,
@@ -48,7 +47,15 @@ import { cuisineLabel } from '../lib/cuisine';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { PhotoLibraryGrid } from './PhotoLibraryGrid';
-import { ModalFloatingNav } from './ModalFloatingNav';
+import {
+  FeaturedPickerOverlay,
+  FeaturedSummary,
+  restaurantMetaLine,
+  recipeMetaLine,
+  type FeaturedKind,
+  type FeaturedRestaurant,
+  type FeaturedRecipe,
+} from './composer/FeaturedPicker';
 
 // Build a Google Places type → human label lookup once.
 
@@ -72,6 +79,18 @@ function pickFromPool<T>(pool: T[], seed: string): T {
 
 type Step = 1 | 2 | 3 | 4;
 
+/** "0:12" from seconds — matches the post composer's duration pill. */
+function fmtDuration(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '';
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+const VISIBILITY_OPTIONS = [
+  { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas can see this', subShort: 'Anyone on Gourmet Canvas', Icon: Globe },
+  { value: false, label: 'Followers only', sub: 'Only people who follow you', subShort: 'Only people who follow you', Icon: UsersIcon },
+] as const;
+
 /* ── Modal ──────────────────────────────────────────────────────────── */
 
 export const AddReelModal: React.FC = () => {
@@ -79,21 +98,19 @@ export const AddReelModal: React.FC = () => {
   const editingReel = editingReelId ? reels.find((r) => r.id === editingReelId) ?? null : null;
   const isEditing = !!editingReel;
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
-  const { dragProps } = useBottomSheet(addReelModalOpen && !phoneMode, closeAddReelModal);
+  // Body-scroll lock + swipe-back stand-down while the composer owns the
+  // screen. Drag-to-dismiss is off: both layouts are full surfaces with
+  // their own close affordance.
+  useBottomSheet(addReelModalOpen, closeAddReelModal);
 
   // ── Step machine ──
   const [step, setStep] = useState<Step>(1);
-  // Direction = +1 (forward) or -1 (back) — drives slide direction.
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const goToStep = (next: Step) => {
-    setDirection(next > step ? 1 : -1);
-    setStep(next);
-  };
+  const goToStep = (next: Step) => setStep(next);
 
   // ── Form state ──
   const [kind, setKind] = useState<ReelKind>(addReelInitialKind ?? 'restaurant');
@@ -128,10 +145,18 @@ export const AddReelModal: React.FC = () => {
   const [sheetReserve, setSheetReserve] = useState(360);
   // Set after a successful share — drives the success overlay.
   const [sharedReel, setSharedReel] = useState<{ id: string } | null>(null);
-  const [pickedRestaurantId, setPickedRestaurantId] = useState<string | null>(null);
-  const [pickedRecipeId, setPickedRecipeId] = useState<string | null>(null);
+  // The featured item is held as a full snapshot, not an id. Google
+  // Places results only exist inside the current search response, so an
+  // id-plus-lookup lost the selection the moment the query changed —
+  // e.g. tapping "Change" (which clears the search box) silently
+  // un-featured the place and disabled the Next button.
+  const [pickedRestaurant, setPickedRestaurant] = useState<FeaturedRestaurant | null>(null);
+  const [pickedRecipe, setPickedRecipe] = useState<FeaturedRecipe | null>(null);
   const [restaurantSearch, setRestaurantSearch] = useState('');
   const [recipeSearch, setRecipeSearch] = useState('');
+  // Which featured picker is open, if any — the same overlay serves the
+  // phone sheet and the desktop dialog.
+  const [pickerOpen, setPickerOpen] = useState<FeaturedKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // In-flight Mux upload — lets the close button double as Cancel while a
   // create upload runs (abort → createReel rolls the row back).
@@ -151,6 +176,7 @@ export const AddReelModal: React.FC = () => {
 
   // ── Location search (free-text reel location) ──
   const [locationSuggestions, setLocationSuggestions] = useState<HomeLocation[]>([]);
+  const [locationSearching, setLocationSearching] = useState(false);
   const [locationFocused, setLocationFocused] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocationQueryRef = useRef<string>('');
@@ -169,10 +195,11 @@ export const AddReelModal: React.FC = () => {
       setLocationLabel(editingReel.locationLabel || '');
       setPickedLocation(editingReel.locationLabel ? { label: editingReel.locationLabel, lat: 0, lng: 0 } : null);
       setIsPublic(editingReel.isPublic);
-      setPickedRestaurantId(editingReel.restaurant?.id ?? null);
-      setPickedRecipeId(editingReel.recipe?.id ?? null);
-      // Skip the video + edit steps in edit mode — media is immutable.
-      setStep(4);
+      setPickedRestaurant(editingReel.restaurant ? { ...editingReel.restaurant } : null);
+      setPickedRecipe(editingReel.recipe ? { ...editingReel.recipe } : null);
+      // Skip the video + edit steps in edit mode — media is immutable —
+      // but keep Featured editable: updateReel patches the attachment.
+      setStep(3);
     } else {
       setKind(addReelInitialKind ?? 'restaurant');
       setVideoFile(null);
@@ -185,8 +212,8 @@ export const AddReelModal: React.FC = () => {
       setLocationLabel('');
       setPickedLocation(null);
       setIsPublic(true);
-      setPickedRestaurantId(null);
-      setPickedRecipeId(null);
+      setPickedRestaurant(null);
+      setPickedRecipe(null);
       setStep(1);
     }
     setAudio('');
@@ -195,9 +222,10 @@ export const AddReelModal: React.FC = () => {
     setSelectedTextId(null);
     setStageNatural(undefined);
     setFinalizingEdits(false);
-    setDirection(1);
     setRestaurantSearch('');
     setRecipeSearch('');
+    setPickerOpen(null);
+    setLocationSearching(false);
     setPlaceResults([]);
     setSearchingPlaces(false);
     setLocationSuggestions([]);
@@ -235,7 +263,11 @@ export const AddReelModal: React.FC = () => {
     const file = consumePendingReelVideo();
     if (file) {
       autoOpenedRef.current = true;
-      void onPickFile(file);
+      // The video was already chosen on the Create page's camera roll —
+      // landing on step 1 would show that exact screen a second time, so
+      // jump straight to Edit once intake (probe + validation) accepts it.
+      // A rejected file stays on step 1 with its validation message.
+      void onPickFile(file).then((accepted) => { if (accepted) setStep(2); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addReelModalOpen]);
@@ -274,7 +306,7 @@ export const AddReelModal: React.FC = () => {
   // Debounced Places search for restaurants — only when the user is on
   // step 1 and the restaurant tab.
   useEffect(() => {
-    if (!addReelModalOpen || step !== 3 || kind !== 'restaurant') return;
+    if (!addReelModalOpen || pickerOpen !== 'restaurant') return;
     if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
     const q = restaurantSearch.trim();
     if (q.length < 2) {
@@ -299,7 +331,7 @@ export const AddReelModal: React.FC = () => {
     return () => {
       if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
     };
-  }, [addReelModalOpen, step, kind, restaurantSearch, userLat, userLng]);
+  }, [addReelModalOpen, pickerOpen, restaurantSearch, userLat, userLng]);
 
   // Debounced location search — runs while the user is typing on step 4.
   useEffect(() => {
@@ -308,12 +340,15 @@ export const AddReelModal: React.FC = () => {
     const q = locationLabel.trim();
     if (!q || (pickedLocation && pickedLocation.label === locationLabel)) {
       setLocationSuggestions([]);
+      setLocationSearching(false);
       return;
     }
     if (q.length < 2) {
       setLocationSuggestions([]);
+      setLocationSearching(false);
       return;
     }
+    setLocationSearching(true);
     locationDebounceRef.current = setTimeout(async () => {
       lastLocationQueryRef.current = q;
       try {
@@ -323,6 +358,8 @@ export const AddReelModal: React.FC = () => {
       } catch (err) {
         console.warn('[AddReel] location search failed', err);
         if (lastLocationQueryRef.current === q) setLocationSuggestions([]);
+      } finally {
+        if (lastLocationQueryRef.current === q) setLocationSearching(false);
       }
     }, 250);
     return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
@@ -419,24 +456,6 @@ export const AddReelModal: React.FC = () => {
     if (!q) return items.slice(0, PICKER_LIMIT);
     return items.filter((it) => it.title.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
   }, [addReelModalOpen, homeMeals, recipeSearch]);
-
-  const pickedRestaurant = useMemo(() => {
-    if (editingReel?.restaurant && editingReel.restaurant.id === pickedRestaurantId) {
-      return {
-        id: editingReel.restaurant.id, name: editingReel.restaurant.name,
-        cuisine: editingReel.restaurant.cuisine, price: editingReel.restaurant.price,
-        address: editingReel.restaurant.address, image: editingReel.restaurant.image,
-        score: editingReel.restaurant.score, fromUser: false,
-      };
-    }
-    return restaurantPickList.find((r) => r.id === pickedRestaurantId) ?? null;
-  }, [editingReel, restaurantPickList, pickedRestaurantId]);
-  const pickedRecipe = useMemo(() => {
-    if (editingReel?.recipe && editingReel.recipe.id === pickedRecipeId) {
-      return { ...editingReel.recipe };
-    }
-    return recipePickList.find((r) => r.id === pickedRecipeId) ?? null;
-  }, [editingReel, recipePickList, pickedRecipeId]);
 
   // ── Video selection ──
   /** Validate + stage a picked file. Returns true only when the file was
@@ -632,13 +651,10 @@ export const AddReelModal: React.FC = () => {
         signal: controller.signal,
       });
       if (!reel) throw new Error("Couldn't create the reel — try again.");
-      if (phoneMode) {
-        // The composer's animated success overlay takes it from here.
-        setSharedReel({ id: reel.id });
-      } else {
-        showToast('Reel posted', { subtitle: "It's live in the feed" });
-        closeAddReelModal();
-      }
+      // Both layouts hold the composer open on the animated success
+      // screen with "Create another" / "View reel".
+      setProgress(1);
+      setSharedReel({ id: reel.id });
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') {
         // User tapped Cancel — createReel already rolled the row back.
@@ -657,31 +673,21 @@ export const AddReelModal: React.FC = () => {
 
   // Abort the in-flight Mux upload (Share step's Cancel affordance).
   const cancelUpload = () => uploadAbortRef.current?.abort();
+  /* ── Shared derivations ─────────────────────────────────────────────
+     Both layouts drive off the same step machine, titles, dots and
+     primary action — the phone sheet and the desktop panel differ only
+     in how they lay the pieces out. */
 
-  // ── Step variants for the slide animation ──
-  const stepVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
-  };
-
-  // ── Phone composer derivations — mirrors AddPostModal's layout. ──
-  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const phoneSheetH = Math.round(
-    step === 1 ? Math.min(Math.max(winH * 0.46, 320), 480)
-    : step === 2 ? Math.min(Math.max(winH * 0.52, 380), 540)
-    : step === 3 ? Math.min(Math.max(winH * 0.55, 400), 560)
-    : Math.min(Math.max(winH * 0.58, 430), 600),
-  );
-  const phoneSheetMax = winH - 108;
-
-  const phoneTitle = isEditing
-    ? 'Edit reel'
+  // Edit mode locks the media, so its flow starts at Featured.
+  const firstStep: Step = isEditing ? 3 : 1;
+  const composerTitle = isEditing
+    ? (step === 3 ? 'Edit reel' : 'Details')
     : step === 1 ? 'New reel' : step === 2 ? 'Edit' : step === 3 ? 'Featured' : 'Details';
-  const phoneDotSteps: Step[] = isEditing ? [4] : [1, 2, 3, 4];
-  const canJumpTo = (s: Step) => (isEditing ? s === 4 : s === 1 || !!videoUrl);
+  const dotSteps: Step[] = isEditing ? [3, 4] : [1, 2, 3, 4];
+  const canJumpTo = (s: Step) => (isEditing ? s >= 3 : s === 1 || !!videoUrl);
+  const canGoBack = step > firstStep && !sharedReel;
 
-  const phonePrimary =
+  const primary: { label: React.ReactNode; onClick: () => void; disabled: boolean } =
     step === 1 ? {
       label: nativeMaterializing ? (
         <><Loader2 size={14} className="animate-spin" /> Loading…</>
@@ -698,7 +704,7 @@ export const AddReelModal: React.FC = () => {
     : step === 2 ? {
       label: <>Next <ChevronRight size={13} strokeWidth={2.8} /></>,
       onClick: () => goToStep(3),
-      disabled: false,
+      disabled: !canAdvanceFromStep2,
     }
     : step === 3 ? {
       label: <>Next <ChevronRight size={13} strokeWidth={2.8} /></>,
@@ -707,13 +713,40 @@ export const AddReelModal: React.FC = () => {
     }
     : {
       label: submitting ? (
-        <><Loader2 size={14} className="animate-spin" /> {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing…' : `Uploading ${Math.round(progress * 100)}%`}</>
+        <><Loader2 size={14} className="animate-spin" /> {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading ${Math.round(progress * 100)}%`}</>
       ) : (
         <>{isEditing ? 'Save changes' : 'Share'} <ChevronRight size={14} strokeWidth={2.6} /></>
       ),
       onClick: onSubmit,
       disabled: !canSubmit,
     };
+
+  /** Phone header's leading button: cancel an upload, walk a step back,
+   *  or close — in that order, so it never skips a step the user can
+   *  still see. */
+  const onBackTap = () => {
+    if (submitting) { if (!isEditing) cancelUpload(); return; }
+    if (canGoBack) goToStep((step - 1) as Step);
+    else closeAddReelModal();
+  };
+
+  // ── Phone sheet geometry ──
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const phoneSheetH = Math.round(
+    step === 1 ? Math.min(Math.max(winH * 0.46, 320), 480)
+    : step === 2 ? Math.min(Math.max(winH * 0.52, 380), 540)
+    : step === 3 ? Math.min(Math.max(winH * 0.48, 350), 500)
+    : Math.min(Math.max(winH * 0.58, 430), 600),
+  );
+  // The camera-roll step earns a near-full detent — a raised gallery is
+  // meant to cover the canvas. Every later step shares the screen with
+  // the live preview, so the sheet is capped and scrolls internally
+  // instead of growing until the media is a thumbnail (the Text and
+  // Filters tabs used to do exactly that).
+  const phoneSheetMax = step === 1 ? winH - 108 : Math.round(winH * 0.62);
+
+  const authorName = profile?.display_name || profile?.username || 'You';
+  const authorInitials = (authorName.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('') || 'Y').toUpperCase();
 
   // The canvas item — the picked video with its live edits.
   const stageItem = videoFile && videoUrl ? {
@@ -725,6 +758,231 @@ export const AddReelModal: React.FC = () => {
     edits: videoEdits,
   } : null;
 
+  /** Subtitle for the desktop media row — "0:12 · MP4". */
+  const videoRowSub = (() => {
+    const ext = videoFile ? (videoFile.name.split('.').pop() || '').toUpperCase().slice(0, 5) : '';
+    return [fmtDuration(videoDuration), ext].filter(Boolean).join(' · ') || 'Video';
+  })();
+
+  // ── Drag-and-drop onto the desktop canvas ──
+  const [dragDepth, setDragDepth] = useState(0);
+  const dragActive = dragDepth > 0;
+  const onDragEnter: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+  const onDragOver: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDragLeave: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => Math.max(0, d - 1));
+  };
+  const onDrop: React.DragEventHandler = (e) => {
+    e.preventDefault();
+    setDragDepth(0);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) void onPickFile(file);
+  };
+
+  /* ── Step 3 panel — reel type + the featured item ──
+     One instance shared by both layouts (only one renders at a time).
+     The type is locked while editing: `kind` is a column on the reel
+     row and updateReel can't move it, so switching it here would leave
+     a restaurant reel filed under recipes. */
+  const switchKind = (k: ReelKind) => {
+    if (k === kind) return;
+    setKind(k);
+    setPickedRestaurant(null);
+    setPickedRecipe(null);
+    setRestaurantSearch('');
+    setRecipeSearch('');
+  };
+
+  const featuredPanel = (
+    <div className="space-y-5">
+      <section>
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40 mb-2.5">
+          Reel type
+        </p>
+        <div className="grid grid-cols-2 gap-2.5">
+          {([
+            { k: 'restaurant' as const, Icon: MapPin, label: 'Restaurant', sub: 'Showcase a place you visited' },
+            { k: 'recipe' as const, Icon: ChefHat, label: 'Recipe', sub: 'Walk through a dish you cooked' },
+          ]).map(({ k, Icon, label, sub }) => {
+            const active = kind === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => switchKind(k)}
+                disabled={submitting || isEditing}
+                className={cn(
+                  'rounded-2xl border-[1.5px] p-3 text-left transition-all disabled:cursor-not-allowed',
+                  active
+                    ? 'border-primary bg-white shadow-[0_0_0_3px_rgba(159,48,18,0.08)]'
+                    : 'border-on-surface/[0.09] hover:border-on-surface/20',
+                  isEditing && !active && 'opacity-40',
+                )}
+              >
+                <Icon size={16} className={cn('mb-1.5', active ? 'text-primary' : 'text-on-surface/40')} />
+                <span className={cn('block text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>
+                  {label}
+                </span>
+                <span className="block text-[11.5px] text-on-surface/45 leading-snug mt-0.5">{sub}</span>
+              </button>
+            );
+          })}
+        </div>
+        {isEditing && (
+          <p className="text-[11.5px] text-on-surface/40 mt-2 leading-relaxed">
+            A reel's type is fixed once it's posted — you can still swap the featured {kind}.
+          </p>
+        )}
+      </section>
+
+      <section>
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40 mb-2.5">
+          {kind === 'restaurant' ? 'Featured restaurant' : 'Featured recipe'}
+        </p>
+        {kind === 'restaurant' && pickedRestaurant ? (
+          <FeaturedSummary
+            title={pickedRestaurant.name}
+            meta={restaurantMetaLine(pickedRestaurant)}
+            image={pickedRestaurant.image}
+            kind="restaurant"
+            disabled={submitting}
+            onChange={() => { setRestaurantSearch(''); setPickerOpen('restaurant'); }}
+            onClear={() => setPickedRestaurant(null)}
+          />
+        ) : kind === 'recipe' && pickedRecipe ? (
+          <FeaturedSummary
+            title={pickedRecipe.title}
+            meta={recipeMetaLine(pickedRecipe)}
+            image={pickedRecipe.image}
+            kind="recipe"
+            disabled={submitting}
+            onChange={() => { setRecipeSearch(''); setPickerOpen('recipe'); }}
+            onClear={() => setPickedRecipe(null)}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (kind === 'restaurant') { setRestaurantSearch(''); setPickerOpen('restaurant'); }
+              else { setRecipeSearch(''); setPickerOpen('recipe'); }
+            }}
+            disabled={submitting}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-on-surface/20 py-3.5 text-[13px] font-bold text-primary hover:border-primary hover:bg-primary/[0.03] active:bg-primary/[0.05] transition-colors disabled:opacity-40"
+          >
+            <Plus size={15} strokeWidth={2.4} />
+            {kind === 'restaurant' ? 'Choose a restaurant' : 'Choose a recipe'}
+          </button>
+        )}
+        <p className="text-[12px] leading-relaxed text-on-surface/40 mt-3">
+          {kind === 'restaurant'
+            ? 'Every reel features one place — viewers tap it to open the restaurant.'
+            : 'Every reel features one dish — viewers tap it to open the recipe.'}
+        </p>
+      </section>
+    </div>
+  );
+
+  /* ── Location field — one instance of the state-heavy JSX, shared by
+     the phone step-4 body and the desktop details panel. */
+  const locationField = (
+    <section ref={locationWrapRef} className="relative">
+      <div className="flex items-baseline justify-between mb-2">
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Location</label>
+        {pickedLocation && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+            <Check size={10} /> Selected
+          </span>
+        )}
+      </div>
+      <div className={cn(
+        'flex items-center gap-2 rounded-full bg-on-surface/[0.04] border px-4 h-11 transition-colors',
+        pickedLocation ? 'border-emerald-200 bg-emerald-50/40' : 'border-on-surface/[0.06]',
+      )}>
+        <MapPin size={15} className={cn('flex-shrink-0', pickedLocation ? 'text-emerald-600' : 'text-on-surface/45')} />
+        <input
+          value={locationLabel}
+          onChange={(e) => {
+            setLocationLabel(e.target.value);
+            // Editing invalidates a previous selection — the user has to
+            // pick from the suggestions again.
+            if (pickedLocation) setPickedLocation(null);
+          }}
+          onFocus={() => setLocationFocused(true)}
+          placeholder="Search a city, neighborhood, or country…"
+          disabled={submitting}
+          maxLength={100}
+          className="flex-1 min-w-0 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
+        />
+        {locationSearching && <Loader2 size={14} className="animate-spin text-on-surface/40 flex-shrink-0" />}
+        {locationLabel && !submitting && (
+          <button
+            type="button"
+            onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
+            className="hit-44 w-6 h-6 rounded-full bg-on-surface/[0.08] hover:bg-on-surface/[0.15] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
+            aria-label="Clear location"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {locationFocused && !pickedLocation && (locationSuggestions.length > 0 || (locationSearching && locationLabel.trim().length >= 2)) && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+          >
+            {locationSuggestions.length === 0 ? (
+              <div className="px-4 py-3 text-[12px] text-on-surface/45 inline-flex items-center gap-2">
+                <Loader2 size={12} className="animate-spin" /> Searching…
+              </div>
+            ) : (
+              <ul className="max-h-[260px] overflow-y-auto">
+                {locationSuggestions.map((s, idx) => (
+                  <li key={`${s.label}-${idx}`}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPickedLocation(s);
+                        setLocationLabel(s.label);
+                        setLocationSuggestions([]);
+                        setLocationFocused(false);
+                      }}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] active:bg-on-surface/[0.05] text-left"
+                    >
+                      <MapPin size={14} className="text-on-surface/40 flex-shrink-0 mt-0.5" />
+                      <span className="min-w-0 flex-1 text-sm text-on-surface truncate">{s.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {!pickedLocation && locationLabel.trim().length > 0 && !locationSearching && locationSuggestions.length === 0 && (
+        <p className="text-[11px] text-on-surface/45 mt-1.5">
+          Pick a result from the list to attach it. Free-text won't be saved.
+        </p>
+      )}
+    </section>
+  );
+
   // "Create another" from the success overlay — back to a clean slate.
   const resetForCreate = () => {
     clearVideo();
@@ -733,17 +991,89 @@ export const AddReelModal: React.FC = () => {
     setAudio('');
     setLocationLabel('');
     setPickedLocation(null);
+    setLocationSuggestions([]);
     setIsPublic(true);
-    setPickedRestaurantId(null);
-    setPickedRecipeId(null);
+    setPickedRestaurant(null);
+    setPickedRecipe(null);
+    setPickerOpen(null);
+    setRestaurantSearch('');
+    setRecipeSearch('');
     setEditTab('trim');
     setSelectedTextId(null);
     setStageNatural(undefined);
     setErrorMsg(null);
+    setValidationMsg(null);
+    setProgress(0);
     setSharedReel(null);
-    setDirection(-1);
     setStep(1);
   };
+
+  // Animated share-success overlay — used by both layouts.
+  const successOverlay = (
+    <AnimatePresence>
+      {sharedReel && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.25 }}
+          className="absolute inset-0 z-40 bg-surface text-on-surface flex flex-col items-center justify-center"
+        >
+          <motion.div
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', damping: 13, stiffness: 240, delay: 0.05 }}
+            className="w-[76px] h-[76px] rounded-full bg-primary flex items-center justify-center"
+          >
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+              <motion.path
+                d="M5 13l5 5L20 7"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ delay: 0.28, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              />
+            </svg>
+          </motion.div>
+          <motion.h3
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, duration: 0.3 }}
+            className="font-serif font-bold text-[26px] mt-6"
+          >
+            Your reel is live
+          </motion.h3>
+          <motion.p
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.28, duration: 0.3 }}
+            className="text-[13.5px] text-on-surface/50 mt-2"
+          >
+            {isPublic ? "Shared publicly — it's in the feed now" : 'Shared with your followers'}
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.36, duration: 0.3 }}
+            className="flex items-center gap-2.5 mt-7"
+          >
+            <button
+              type="button"
+              onClick={resetForCreate}
+              className="h-[42px] px-5 rounded-full border-[1.5px] border-on-surface/15 text-[13.5px] font-bold text-on-surface/70 hover:bg-on-surface/[0.05] active:bg-on-surface/[0.05] transition-colors"
+            >
+              Create another
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const id = sharedReel.id;
+                closeAddReelModal();
+                navigate(`/r/reel-${id}`);
+              }}
+              className="h-[42px] px-6 rounded-full bg-on-surface text-surface text-[13.5px] font-bold hover:opacity-90 active:opacity-90 transition-opacity"
+            >
+              View reel
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 
   return (
     <AnimatePresence>
@@ -752,7 +1082,7 @@ export const AddReelModal: React.FC = () => {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className={cn(
             'fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center',
-            phoneMode ? 'items-end' : 'items-end sm:items-center',
+            phoneMode ? 'items-end' : 'items-center p-5',
           )}
           onClick={() => { if (!submitting) closeAddReelModal(); }}
         >
@@ -783,27 +1113,21 @@ export const AddReelModal: React.FC = () => {
             <div className="pt-safe-4 px-4 pb-2.5 flex items-center relative flex-shrink-0 z-10">
               <button
                 type="button"
-                onClick={() => {
-                  // While a create upload runs, this doubles as Cancel —
-                  // aborts the Mux PUT; createReel rolls the row back.
-                  if (submitting) { if (!isEditing) cancelUpload(); return; }
-                  if (step > 1 && !isEditing && !sharedReel) goToStep((step - 1) as Step);
-                  else closeAddReelModal();
-                }}
+                onClick={onBackTap}
                 disabled={submitting && isEditing}
                 className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={submitting && !isEditing ? 'Cancel upload' : step > 1 && !isEditing && !sharedReel ? 'Back' : 'Close'}
+                aria-label={submitting && !isEditing ? 'Cancel upload' : canGoBack ? 'Back' : 'Close'}
               >
-                {step > 1 && !isEditing && !sharedReel && !submitting ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
+                {canGoBack && !submitting ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </button>
 
               {/* Centered title + step dots */}
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 mt-[calc(env(safe-area-inset-top,0px)/2)] flex flex-col items-center gap-[5px]">
                 <h2 className="font-serif font-bold text-[17px] leading-none whitespace-nowrap">
-                  {sharedReel ? 'Reel shared' : phoneTitle}
+                  {sharedReel ? 'Reel shared' : composerTitle}
                 </h2>
                 <div className="flex gap-1">
-                  {phoneDotSteps.map((s) => (
+                  {dotSteps.map((s) => (
                     <button
                       key={s}
                       type="button"
@@ -821,11 +1145,11 @@ export const AddReelModal: React.FC = () => {
               {!sharedReel && (
                 <button
                   type="button"
-                  onClick={phonePrimary.onClick}
-                  disabled={phonePrimary.disabled}
+                  onClick={primary.onClick}
+                  disabled={primary.disabled}
                   className="ml-auto h-9 pl-4 pr-3.5 rounded-full bg-surface text-on-surface inline-flex items-center gap-1 text-[13px] font-bold active:scale-95 transition-transform disabled:opacity-35"
                 >
-                  {phonePrimary.label}
+                  {primary.label}
                 </button>
               )}
             </div>
@@ -866,16 +1190,26 @@ export const AddReelModal: React.FC = () => {
                 </>
               ) : isEditing && editingReel?.videoUrl ? (
                 /* Edit mode — media is locked; preview the existing reel. */
-                <div className="absolute inset-x-3 top-0.5 bottom-2">
-                  <video
-                    src={editingReel.videoUrl}
-                    muted
-                    autoPlay
-                    loop
-                    playsInline
-                    className="w-full h-full object-contain"
-                  />
-                </div>
+                <>
+                  <div className="absolute inset-x-3 top-0.5 bottom-2">
+                    <video
+                      src={editingReel.videoUrl}
+                      muted
+                      autoPlay
+                      loop
+                      playsInline
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  {step === 3 && hasFeatured && (
+                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
+                      {kind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                      <span className="max-w-[180px] truncate">
+                        {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
+                      </span>
+                    </div>
+                  )}
+                </>
               ) : nativePick?.thumbnailDataUrl ? (
                 /* Staged camera-roll pick — instant low-res preview. */
                 <motion.div
@@ -893,21 +1227,17 @@ export const AddReelModal: React.FC = () => {
                     <Film size={26} />
                     <VideoIcon size={26} />
                   </div>
+                  {/* One call to action, and it lives in the sheet below —
+                      a button here as well left two identical CTAs on the
+                      same screen. */}
                   <p className="text-[14px] font-semibold text-white/75 mt-3">
-                    {canUseNativePhotoLibrary() ? 'Pick a video from your camera roll below' : 'Add a video'}
+                    {canUseNativePhotoLibrary()
+                      ? 'Pick a video from your camera roll below'
+                      : 'Choose a video below'}
                   </p>
                   <p className="text-[12px] text-white/40 mt-1 leading-relaxed">
                     Vertical works best · up to {REEL_MAX_DURATION_SECONDS}s
                   </p>
-                  {!canUseNativePhotoLibrary() && (
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="mt-4 h-10 px-5 rounded-full bg-surface text-on-surface text-[13px] font-bold active:scale-95 transition-transform"
-                    >
-                      Open camera roll
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -925,7 +1255,10 @@ export const AddReelModal: React.FC = () => {
               minHeight={92}
               maxHeight={phoneSheetMax}
               draggable={!sharedReel}
-              fit={step !== 1}
+              // Step 1 only needs the tall detent when the native camera
+              // roll fills it; on web it's a single button, so hug it
+              // rather than leaving a blank half-screen of sheet.
+              fit={step !== 1 || !canUseNativePhotoLibrary()}
               resetKey={step}
               onReserveChange={setSheetReserve}
               className="z-20 bg-surface text-on-surface shadow-[0_-10px_40px_rgba(0,0,0,0.35)]"
@@ -946,9 +1279,11 @@ export const AddReelModal: React.FC = () => {
                   {step === 1 && !isEditing && (
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Recents</span>
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
+                          {canUseNativePhotoLibrary() ? 'Recents' : 'Video'}
+                        </span>
                         <span className="text-[12px] font-semibold text-on-surface/45">
-                          Videos · up to {REEL_MAX_DURATION_SECONDS}s
+                          Up to {REEL_MAX_DURATION_SECONDS}s
                         </span>
                       </div>
 
@@ -988,16 +1323,14 @@ export const AddReelModal: React.FC = () => {
                         </div>
                       ) : (
                         /* Web fallback — the OS picker is the camera roll. */
-                        <div className="grid grid-cols-3 gap-1.5 mt-3">
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="aspect-square rounded-[10px] border-[1.5px] border-dashed border-on-surface/20 flex flex-col items-center justify-center gap-1 text-on-surface/45 active:bg-on-surface/[0.04] transition-colors"
-                          >
-                            <Film size={17} strokeWidth={2.2} />
-                            <span className="text-[10.5px] font-bold uppercase tracking-wider">Add</span>
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="mt-3 w-full flex items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-on-surface/20 py-4 text-[13px] font-bold text-primary active:bg-primary/[0.05] transition-colors"
+                        >
+                          <Film size={15} strokeWidth={2.4} />
+                          Choose a video
+                        </button>
                       )}
 
                       {validationMsg && (
@@ -1030,38 +1363,13 @@ export const AddReelModal: React.FC = () => {
                         selectedTextId={selectedTextId}
                         onSelectTextId={setSelectedTextId}
                         natural={stageNatural}
+                        variant="sheet"
                       />
                     </div>
                   )}
 
-                  {/* ── STEP 3 · Type + featured ── */}
-                  {step === 3 && !isEditing && (
-                    <StepFeatured
-                      kind={kind}
-                      setKind={(k) => {
-                        setKind(k);
-                        setPickedRestaurantId(null);
-                        setPickedRecipeId(null);
-                        setRestaurantSearch('');
-                        setRecipeSearch('');
-                      }}
-                      pickedRestaurant={pickedRestaurant}
-                      pickedRecipe={pickedRecipe}
-                      onClearPick={() => {
-                        setPickedRestaurantId(null);
-                        setPickedRecipeId(null);
-                      }}
-                      restaurantSearch={restaurantSearch}
-                      setRestaurantSearch={setRestaurantSearch}
-                      recipeSearch={recipeSearch}
-                      setRecipeSearch={setRecipeSearch}
-                      restaurantPickList={restaurantPickList}
-                      recipePickList={recipePickList}
-                      searchingPlaces={searchingPlaces}
-                      onPickRestaurant={(id) => setPickedRestaurantId(id)}
-                      onPickRecipe={(id) => setPickedRecipeId(id)}
-                    />
-                  )}
+                  {/* ── STEP 3 · Featured ── */}
+                  {step === 3 && featuredPanel}
 
                   {/* ── STEP 4 · Details ── */}
                   {step === 4 && (
@@ -1078,77 +1386,7 @@ export const AddReelModal: React.FC = () => {
                         <div className="text-right text-[11px] font-semibold text-on-surface/35 mt-1 tabular-nums">{caption.length} / 280</div>
                       </section>
 
-                      {/* Location — pick a suggestion to attach it. */}
-                      <section ref={locationWrapRef} className="relative">
-                        <div className="flex items-baseline justify-between mb-2">
-                          <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Location</label>
-                          {pickedLocation && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
-                              <Check size={10} /> Selected
-                            </span>
-                          )}
-                        </div>
-                        <div className={cn(
-                          'flex items-center gap-2 rounded-full bg-on-surface/[0.04] border px-4 h-11 transition-colors',
-                          pickedLocation ? 'border-emerald-200 bg-emerald-50/40' : 'border-on-surface/[0.06]',
-                        )}>
-                          <MapPin size={15} className={cn('flex-shrink-0', pickedLocation ? 'text-emerald-600' : 'text-on-surface/45')} />
-                          <input
-                            value={locationLabel}
-                            onChange={(e) => {
-                              setLocationLabel(e.target.value);
-                              if (pickedLocation) setPickedLocation(null);
-                            }}
-                            onFocus={() => setLocationFocused(true)}
-                            placeholder="Search a city, neighborhood, or country…"
-                            disabled={submitting}
-                            maxLength={100}
-                            className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
-                          />
-                          {locationLabel && !submitting && (
-                            <button
-                              type="button"
-                              onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
-                              className="hit-44 w-6 h-6 rounded-full bg-on-surface/[0.08] active:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
-                              aria-label="Clear location"
-                            >
-                              <X size={12} />
-                            </button>
-                          )}
-                        </div>
-                        <AnimatePresence>
-                          {locationFocused && !pickedLocation && locationSuggestions.length > 0 && (
-                            <motion.div
-                              initial={{ opacity: 0, y: -4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -4 }}
-                              transition={{ duration: 0.12 }}
-                              className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
-                            >
-                              <ul className="max-h-[260px] overflow-y-auto">
-                                {locationSuggestions.map((s, idx) => (
-                                  <li key={`${s.label}-${idx}`}>
-                                    <button
-                                      type="button"
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setPickedLocation(s);
-                                        setLocationLabel(s.label);
-                                        setLocationSuggestions([]);
-                                        setLocationFocused(false);
-                                      }}
-                                      className="w-full flex items-start gap-3 px-3 py-2.5 active:bg-on-surface/[0.05] text-left"
-                                    >
-                                      <MapPin size={14} className="text-on-surface/40 flex-shrink-0 mt-0.5" />
-                                      <span className="min-w-0 flex-1 text-sm text-on-surface truncate">{s.label}</span>
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </section>
+                      {locationField}
 
                       <section>
                         <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Audio</label>
@@ -1168,10 +1406,7 @@ export const AddReelModal: React.FC = () => {
                       <section>
                         <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
                         <div className="flex gap-2">
-                          {([
-                            { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas' },
-                            { value: false, label: 'Followers only', sub: 'Only people who follow you' },
-                          ] as const).map((opt) => {
+                          {VISIBILITY_OPTIONS.map((opt) => {
                             const active = isPublic === opt.value;
                             return (
                               <button
@@ -1187,7 +1422,7 @@ export const AddReelModal: React.FC = () => {
                                 )}
                               >
                                 <span className={cn('text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
-                                <span className="text-[11.5px] text-on-surface/45 leading-snug">{opt.sub}</span>
+                                <span className="text-[11.5px] text-on-surface/45 leading-snug">{opt.subShort}</span>
                               </button>
                             );
                           })}
@@ -1218,972 +1453,430 @@ export const AddReelModal: React.FC = () => {
             </DraggableSheet>
 
             {/* ── Success overlay ── */}
-            <AnimatePresence>
-              {sharedReel && (
-                <motion.div
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="absolute inset-0 z-40 bg-surface text-on-surface flex flex-col items-center justify-center"
-                >
-                  <motion.div
-                    initial={{ scale: 0.4, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', damping: 13, stiffness: 240, delay: 0.05 }}
-                    className="w-[76px] h-[76px] rounded-full bg-primary flex items-center justify-center"
-                  >
-                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                      <motion.path
-                        d="M5 13l5 5L20 7"
-                        initial={{ pathLength: 0 }}
-                        animate={{ pathLength: 1 }}
-                        transition={{ delay: 0.28, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-                      />
-                    </svg>
-                  </motion.div>
-                  <motion.h3
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2, duration: 0.3 }}
-                    className="font-serif font-bold text-[26px] mt-6"
-                  >
-                    Your reel is live
-                  </motion.h3>
-                  <motion.p
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.28, duration: 0.3 }}
-                    className="text-[13.5px] text-on-surface/50 mt-2"
-                  >
-                    {isPublic ? "Shared publicly — it's in the feed now" : 'Shared with your followers'}
-                  </motion.p>
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.36, duration: 0.3 }}
-                    className="flex items-center gap-2.5 mt-7"
-                  >
-                    <button
-                      type="button"
-                      onClick={resetForCreate}
-                      className="h-[42px] px-5 rounded-full border-[1.5px] border-on-surface/15 text-[13.5px] font-bold text-on-surface/70 active:bg-on-surface/[0.05] transition-colors"
-                    >
-                      Create another
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const id = sharedReel.id;
-                        closeAddReelModal();
-                        navigate(`/r/reel-${id}`);
-                      }}
-                      className="h-[42px] px-6 rounded-full bg-on-surface text-surface text-[13.5px] font-bold active:opacity-90 transition-opacity"
-                    >
-                      View reel
-                    </button>
-                  </motion.div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {successOverlay}
           </motion.div>
           ) : (
 
-          /* ═════════ Desktop card ═════════ */
+          /* ═════════ Desktop split composer ═════════
+             Instagram-style, identical in shape to the post composer:
+             dark media canvas left, 380px control panel right, centered
+             serif title + clickable step dots up top. */
           <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            {...dragProps}
+            initial={{ opacity: 0, scale: 0.96, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 10 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative bg-surface w-full overflow-hidden flex flex-col h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
+            className="relative bg-surface w-[min(1180px,96vw)] h-[min(700px,92vh)] rounded-[24px] overflow-hidden flex flex-col shadow-[0_30px_90px_rgba(0,0,0,0.45)]"
           >
-            {/* Header */}
-            <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
-              {/* Close — back lives in the floating action bar now. While a
-                  create upload is in flight it doubles as Cancel: aborts the
-                  Mux PUT and createReel rolls the just-inserted row back. */}
+            {/* ── Header ── */}
+            <div className="h-[60px] flex-shrink-0 border-b border-on-surface/[0.07] flex items-center px-3.5 relative">
               <button
                 type="button"
                 onClick={() => {
+                  // Doubles as Cancel while a create upload is in flight.
                   if (submitting) { if (!isEditing) cancelUpload(); return; }
                   closeAddReelModal();
                 }}
                 disabled={submitting && isEditing}
-                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40 flex-shrink-0"
+                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0 transition-colors"
                 aria-label={submitting && !isEditing ? 'Cancel upload' : 'Close'}
               >
-                <X size={18} />
+                <X size={17} />
               </button>
-              <div className="flex-1 min-w-0">
-                <h2 className="font-serif font-bold text-lg leading-tight truncate">
-                  {isEditing ? 'Edit reel' : (
-                    step === 1 ? 'Upload your video' :
-                    step === 2 ? 'Edit your video' :
-                    step === 3 ? "What's your reel?" :
-                    'Final touches'
-                  )}
+
+              {/* Centered title + step dots */}
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-[7px]">
+                <h2 className="font-serif font-bold text-[17px] leading-none">
+                  {sharedReel ? 'Reel shared' : composerTitle}
                 </h2>
-                {!isEditing && (
-                  <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
-                    {step === 1 && `Up to ${REEL_MAX_DURATION_SECONDS}s.`}
-                    {step === 2 && 'Crop, trim, adjust, or pick a filter.'}
-                    {step === 3 && 'Pick a type and the featured item.'}
-                    {step === 4 && 'Add a caption and details.'}
-                  </p>
+                <div className="flex gap-1.5">
+                  {dotSteps.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => { if (!submitting && !sharedReel && canJumpTo(s)) goToStep(s); }}
+                      className={cn(
+                        'w-[22px] h-[3px] rounded-full transition-colors',
+                        s === step ? 'bg-primary' : s < step ? 'bg-primary/40' : 'bg-on-surface/15',
+                        canJumpTo(s) && !sharedReel ? 'hover:bg-primary/60' : 'cursor-default',
+                      )}
+                      aria-label={`Go to step ${s}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Back + primary */}
+              {!sharedReel && (
+                <div className="ml-auto flex items-center gap-2">
+                  {canGoBack && (
+                    <button
+                      type="button"
+                      onClick={() => { if (!submitting) goToStep((step - 1) as Step); }}
+                      disabled={submitting}
+                      className="h-9 px-4 rounded-full text-[13px] font-bold text-on-surface/60 hover:bg-on-surface/[0.05] transition-colors disabled:opacity-40"
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={primary.onClick}
+                    disabled={primary.disabled}
+                    className="h-9 pl-5 pr-4 rounded-full bg-on-surface text-surface inline-flex items-center gap-1.5 text-[13px] font-bold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-30 disabled:active:scale-100"
+                  >
+                    {primary.label}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* ── Body: canvas + panel ── */}
+            <div
+              className="flex-1 flex min-h-0"
+              onDragEnter={onDragEnter}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void onPickFile(f);
+                  e.target.value = '';
+                }}
+              />
+
+              {/* Media canvas (left) */}
+              <div className="flex-1 min-w-0 relative bg-media-canvas flex items-center justify-center overflow-hidden">
+                {stageItem ? (
+                  <>
+                    <motion.div
+                      key={stageItem.key}
+                      initial={{ opacity: 0.35, scale: 0.995 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                      className="absolute inset-6"
+                    >
+                      <EditorStage
+                        item={stageItem}
+                        tab={step === 2 ? editTab : null}
+                        selectedTextId={selectedTextId}
+                        onSelectText={(id) => setSelectedTextId(id)}
+                        onEditsChange={step === 2 ? (edits) => setVideoEdits(edits) : undefined}
+                        onNatural={(size) => setStageNatural(size)}
+                      />
+                    </motion.div>
+
+                    {videoDuration != null && (
+                      <div className="absolute left-4 top-4 rounded-full bg-black/55 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white pointer-events-none">
+                        {fmtDuration(videoDuration)}
+                      </div>
+                    )}
+
+                    {step === 3 && hasFeatured && (
+                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
+                        {kind === 'restaurant' ? <MapPin size={11} /> : <ChefHat size={11} />}
+                        <span className="max-w-[220px] truncate">
+                          {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
+                        </span>
+                      </div>
+                    )}
+
+                    {dragActive && step === 1 && (
+                      <div className="absolute inset-4 rounded-2xl border-2 border-dashed border-primary bg-primary/15 flex items-center justify-center pointer-events-none">
+                        <span className="text-[15px] font-bold text-white drop-shadow">Drop to replace</span>
+                      </div>
+                    )}
+                  </>
+                ) : isEditing && editingReel?.videoUrl ? (
+                  <>
+                    <div className="absolute inset-6">
+                      <video
+                        src={editingReel.videoUrl}
+                        muted
+                        autoPlay
+                        loop
+                        playsInline
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    {step === 3 && hasFeatured && (
+                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
+                        {kind === 'restaurant' ? <MapPin size={11} /> : <ChefHat size={11} />}
+                        <span className="max-w-[220px] truncate">
+                          {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Empty canvas — browse / drop CTA */
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      'flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-16 py-20 transition-colors',
+                      dragActive
+                        ? 'border-primary bg-primary/15 text-white'
+                        : 'border-white/20 text-white/60 hover:border-white/45 hover:text-white/85',
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Film size={30} />
+                      <VideoIcon size={30} />
+                    </div>
+                    <span className="text-[15px] font-semibold">
+                      {dragActive ? 'Drop your video' : 'Drag your video here'}
+                    </span>
+                    <span className="text-[12px] opacity-75">
+                      or click to browse · vertical works best · up to {REEL_MAX_DURATION_SECONDS}s
+                    </span>
+                  </button>
+                )}
+              </div>
+
+              {/* Control panel (right) */}
+              <div className="w-[380px] flex-shrink-0 border-l border-on-surface/[0.07] flex flex-col min-h-0 bg-surface">
+                <div className="flex-1 overflow-y-auto">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={step}
+                      initial={{ opacity: 0, x: 14 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -8 }}
+                      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                      className="px-6 py-5"
+                    >
+                      {/* ── STEP 1 · Media ── */}
+                      {step === 1 && !isEditing && (
+                        <div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">Video</span>
+                            <span className="text-[12px] font-semibold text-on-surface/45 tabular-nums">
+                              {videoUrl ? '1 / 1' : `0 / 1`}
+                            </span>
+                          </div>
+
+                          {videoUrl ? (
+                            <div className="group flex items-center gap-3 rounded-2xl border-[1.5px] border-primary bg-white p-2 pr-3 mt-3 shadow-[0_0_0_3px_rgba(159,48,18,0.08)]">
+                              <div className="w-[46px] h-[46px] rounded-[10px] overflow-hidden flex-shrink-0 bg-on-surface/[0.06] relative">
+                                <video src={videoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                                <VideoIcon size={11} className="absolute bottom-1 right-1 text-white drop-shadow" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-bold leading-tight">Your video</p>
+                                <p className="text-[11.5px] text-on-surface/45 mt-0.5 truncate">{videoRowSub}</p>
+                              </div>
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => fileInputRef.current?.click()}
+                                  disabled={submitting}
+                                  className="w-8 h-8 rounded-full hover:bg-on-surface/[0.06] flex items-center justify-center text-on-surface/55 disabled:opacity-25"
+                                  aria-label="Replace video"
+                                >
+                                  <ImageIcon size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={clearVideo}
+                                  disabled={submitting}
+                                  className="w-8 h-8 rounded-full hover:bg-rose-50 flex items-center justify-center text-rose-500 disabled:opacity-25"
+                                  aria-label="Remove video"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="mt-3 w-full flex items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-on-surface/20 py-3.5 text-[13px] font-bold text-primary hover:border-primary hover:bg-primary/[0.03] transition-colors"
+                            >
+                              <Plus size={15} strokeWidth={2.4} />
+                              Add a video
+                            </button>
+                          )}
+
+                          {validationMsg && (
+                            <div className="mt-3 flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                              <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                              <span>{validationMsg}</span>
+                            </div>
+                          )}
+
+                          <p className="text-[12px] leading-relaxed text-on-surface/40 mt-4">
+                            Reels play full-bleed, so a vertical 9:16 clip fills the frame best. You can crop and trim on the next step.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* ── STEP 2 · Edit ── */}
+                      {step === 2 && !isEditing && stageItem && (
+                        <div>
+                          <div className="flex items-baseline justify-between mb-4">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
+                              Your video
+                            </span>
+                            {isEdited(videoEdits, videoDuration) && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+                                <Check size={10} /> Edited
+                              </span>
+                            )}
+                          </div>
+                          <EditorControls
+                            item={stageItem}
+                            tab={editTab}
+                            onTabChange={setEditTab}
+                            onEditsChange={setVideoEdits}
+                            selectedTextId={selectedTextId}
+                            onSelectTextId={setSelectedTextId}
+                            natural={stageNatural}
+                          />
+                        </div>
+                      )}
+
+                      {/* ── STEP 3 · Featured ── */}
+                      {step === 3 && featuredPanel}
+
+                      {/* ── STEP 4 · Details ── */}
+                      {step === 4 && (
+                        <div className="space-y-5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-full bg-on-surface/[0.08] flex items-center justify-center text-[12px] font-bold text-on-surface/60 flex-shrink-0">
+                              {authorInitials}
+                            </div>
+                            <span className="text-[13.5px] font-bold truncate">{authorName}</span>
+                          </div>
+
+                          <section>
+                            <textarea
+                              value={caption}
+                              onChange={(e) => setCaption(e.target.value.slice(0, 280))}
+                              placeholder="Write a caption…"
+                              rows={5}
+                              disabled={submitting}
+                              className="w-full rounded-2xl bg-white border-[1.5px] border-on-surface/[0.08] px-3.5 py-3 text-sm leading-relaxed placeholder:text-on-surface/35 focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_rgba(159,48,18,0.07)] resize-none disabled:opacity-50 transition-all"
+                            />
+                            <div className="text-right text-[11px] font-semibold text-on-surface/35 mt-1 tabular-nums">{caption.length} / 280</div>
+                          </section>
+
+                          {locationField}
+
+                          <section>
+                            <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Audio</label>
+                            <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 h-11">
+                              <Music2 size={15} className="text-on-surface/45 flex-shrink-0" />
+                              <input
+                                value={audio}
+                                onChange={(e) => setAudio(e.target.value)}
+                                placeholder="Original audio"
+                                disabled={submitting}
+                                maxLength={60}
+                                className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
+                              />
+                            </div>
+                          </section>
+
+                          <section>
+                            <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
+                            <div className="flex flex-col gap-2">
+                              {VISIBILITY_OPTIONS.map((opt) => {
+                                const active = isPublic === opt.value;
+                                return (
+                                  <button
+                                    key={opt.label}
+                                    type="button"
+                                    onClick={() => setIsPublic(opt.value)}
+                                    disabled={submitting}
+                                    className={cn(
+                                      'flex items-center gap-3 rounded-2xl border-[1.5px] px-3.5 py-3 text-left transition-all disabled:opacity-40',
+                                      active
+                                        ? 'border-primary bg-white shadow-[0_0_0_3px_rgba(159,48,18,0.08)]'
+                                        : 'border-on-surface/[0.09] hover:border-on-surface/20',
+                                    )}
+                                  >
+                                    <span className={cn(
+                                      'w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                                      active ? 'border-primary' : 'border-on-surface/25',
+                                    )}>
+                                      <span className={cn('w-2 h-2 rounded-full transition-colors', active ? 'bg-primary' : 'bg-transparent')} />
+                                    </span>
+                                    <span className="flex-1 min-w-0">
+                                      <span className="block text-[13px] font-bold leading-tight">{opt.label}</span>
+                                      <span className="block text-[11.5px] text-on-surface/45 leading-tight mt-0.5">{opt.sub}</span>
+                                    </span>
+                                    <opt.Icon size={15} className={cn('flex-shrink-0', active ? 'text-primary' : 'text-on-surface/30')} />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        </div>
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+
+                {/* Notices pinned to the panel bottom */}
+                {(!user?.id || errorMsg) && !sharedReel && (
+                  <div className="px-6 pb-4 pt-2 space-y-2 flex-shrink-0">
+                    {!user?.id && (
+                      <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                        <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                        <span>Sign in to post reels.</span>
+                      </div>
+                    )}
+                    {errorMsg && (
+                      <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                        <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                        <span>{errorMsg}</span>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Desktop stepper — full-width progress bar with labelled
-                checkpoints, like YouTube's upload flow. Hidden in edit
-                mode (single step). */}
-            {!isEditing && (
-              <DesktopStepper currentStep={step} />
-            )}
-
-            {/* Body — animated step content */}
-            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
-              <AnimatePresence mode="wait" initial={false} custom={direction}>
-                <motion.div
-                  key={step}
-                  custom={direction}
-                  variants={stepVariants}
-                  initial="enter"
-                  animate="center"
-                  exit="exit"
-                  transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  className="px-5 pt-5 pb-28"
-                >
-                  {/* ───────── STEP 1: VIDEO ───────── */}
-                  {step === 1 && !isEditing && (
-                    <StepVideo
-                      videoUrl={videoUrl}
-                      videoDuration={videoDuration}
-                      validationMsg={validationMsg}
-                      onPickFile={onPickFile}
-                      onClearVideo={clearVideo}
-                      fileInputRef={fileInputRef}
-                      nativePick={nativePick}
-                      onNativePickChange={setNativePick}
-                      onCameraTap={onCameraTap}
-                    />
-                  )}
-
-                  {/* ───────── STEP 2: EDIT (crop / trim / filters) ─── */}
-                  {step === 2 && !isEditing && videoFile && videoUrl && (
-                    <MediaEditor
-                      items={[{
-                        key: 'reel-video',
-                        mediaType: 'video',
-                        file: videoFile,
-                        previewUrl: videoUrl,
-                        durationSeconds: videoDuration,
-                        edits: videoEdits,
-                      }]}
-                      activeKey="reel-video"
-                      onActiveChange={() => { /* single item */ }}
-                      onEditsChange={(_key, next) => setVideoEdits(next)}
-                    />
-                  )}
-
-                  {/* ───────── STEP 3: TYPE + FEATURED ───────── */}
-                  {step === 3 && !isEditing && (
-                    <StepFeatured
-                      kind={kind}
-                      setKind={(k) => {
-                        setKind(k);
-                        setPickedRestaurantId(null);
-                        setPickedRecipeId(null);
-                        setRestaurantSearch('');
-                        setRecipeSearch('');
-                      }}
-                      pickedRestaurant={pickedRestaurant}
-                      pickedRecipe={pickedRecipe}
-                      onClearPick={() => {
-                        setPickedRestaurantId(null);
-                        setPickedRecipeId(null);
-                      }}
-                      restaurantSearch={restaurantSearch}
-                      setRestaurantSearch={setRestaurantSearch}
-                      recipeSearch={recipeSearch}
-                      setRecipeSearch={setRecipeSearch}
-                      restaurantPickList={restaurantPickList}
-                      recipePickList={recipePickList}
-                      searchingPlaces={searchingPlaces}
-                      onPickRestaurant={(id) => setPickedRestaurantId(id)}
-                      onPickRecipe={(id) => setPickedRecipeId(id)}
-                    />
-                  )}
-
-                  {/* ───────── STEP 4: FINAL DETAILS ───────── */}
-                  {step === 4 && (
-                    <Step3Details
-                      videoUrl={videoUrl}
-                      existingVideoUrl={editingReel?.videoUrl}
-                      caption={caption}
-                      setCaption={setCaption}
-                      locationLabel={locationLabel}
-                      setLocationLabel={(v) => {
-                        setLocationLabel(v);
-                        if (pickedLocation && v !== pickedLocation.label) setPickedLocation(null);
-                      }}
-                      pickedLocation={pickedLocation}
-                      onPickLocation={(loc) => {
-                        setPickedLocation(loc);
-                        setLocationLabel(loc.label);
-                        setLocationFocused(false);
-                      }}
-                      onClearLocation={() => {
-                        setPickedLocation(null);
-                        setLocationLabel('');
-                      }}
-                      locationFocused={locationFocused}
-                      setLocationFocused={setLocationFocused}
-                      locationSuggestions={locationSuggestions}
-                      locationWrapRef={locationWrapRef}
-                      audio={audio}
-                      setAudio={setAudio}
-                      isPublic={isPublic}
-                      setIsPublic={setIsPublic}
-                    />
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            </div>
-
-            {/* Floating action bar — compact, dynamic primary + back button,
-                floating over the step content instead of a pinned bottom bar. */}
-            {(() => {
-              let onPrimary: () => void = () => {};
-              let primaryDisabled = false;
-              let label: React.ReactNode;
-              if (step === 4) {
-                onPrimary = onSubmit;
-                primaryDisabled = !canSubmit;
-                label = submitting ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" />
-                    {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
-                  </>
-                ) : (
-                  <>
-                    <Upload size={15} />
-                    {isEditing ? 'Save changes' : 'Post reel'}
-                  </>
-                );
-              } else if (step === 3) {
-                onPrimary = () => goToStep(4);
-                primaryDisabled = !canAdvanceFromStep3;
-                label = <>Next <ChevronRight size={15} /></>;
-              } else if (step === 2) {
-                onPrimary = () => goToStep(3);
-                label = <>Next <ChevronRight size={15} /></>;
-              } else {
-                onPrimary = () => {
-                  if (videoFile && videoUrl) { goToStep(2); return; }
-                  if (nativePick && !nativeMaterializing) {
-                    void materializeNativePick().then((ok) => { if (ok) goToStep(2); });
-                  }
-                };
-                primaryDisabled = !canAdvanceFromStep1 || nativeMaterializing;
-                label = nativeMaterializing
-                  ? <><Loader2 size={15} className="animate-spin" /> Loading…</>
-                  : <>Next <ChevronRight size={15} /></>;
-              }
-              const showBack = step > 1 && !isEditing;
-              return (
-                <ModalFloatingNav
-                  onBack={showBack ? () => { if (!submitting) goToStep((step - 1) as Step); } : undefined}
-                  backDisabled={submitting}
-                  onPrimary={onPrimary}
-                  primaryDisabled={primaryDisabled}
-                  progress={submitting && !finalizingEdits ? progress : undefined}
-                  notice={(errorMsg || !user?.id) ? (
-                    <>
-                      {!user?.id && (
-                        <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                          <span>Sign in to post reels.</span>
-                        </div>
-                      )}
-                      {errorMsg && (
-                        <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-                          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                          <span>{errorMsg}</span>
-                        </div>
-                      )}
-                    </>
-                  ) : undefined}
-                >
-                  {label}
-                </ModalFloatingNav>
-              );
-            })()}
+            {/* ── Success overlay ── */}
+            {successOverlay}
           </motion.div>
           )}
+
+          {/* ── Featured picker (restaurant or recipe) ──
+              One shared surface for both layouts: a draggable bottom
+              sheet on phones, a centred dialog on desktop. */}
+          <FeaturedPickerOverlay
+            open={!!pickerOpen}
+            kind={pickerOpen ?? kind}
+            phoneMode={phoneMode}
+            onClose={() => setPickerOpen(null)}
+            search={pickerOpen === 'recipe' ? recipeSearch : restaurantSearch}
+            onSearchChange={(v) => pickerOpen === 'recipe' ? setRecipeSearch(v) : setRestaurantSearch(v)}
+            searching={pickerOpen === 'restaurant' && searchingPlaces}
+            restaurants={restaurantPickList}
+            recipes={recipePickList}
+            selectedId={pickerOpen === 'recipe' ? pickedRecipe?.id ?? null : pickedRestaurant?.id ?? null}
+            onPickRestaurant={(r) => {
+              setPickedRestaurant(r);
+              setPickedRecipe(null);
+              setPickerOpen(null);
+            }}
+            onPickRecipe={(r) => {
+              setPickedRecipe(r);
+              setPickedRestaurant(null);
+              setPickerOpen(null);
+            }}
+          />
         </motion.div>
       )}
     </AnimatePresence>
   );
 };
-
-/* ── Step 2: Type + Featured item ─────────────────────────────────────── */
-
-interface RestaurantPickItem {
-  id: string; name: string; cuisine: string; price: string;
-  address: string; image?: string; score?: number; fromUser: boolean;
-}
-interface RecipePickItem {
-  id: string; title: string; prepTime: number; cookTime: number;
-  servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string;
-}
-
-const StepFeatured: React.FC<{
-  kind: ReelKind;
-  setKind: (k: ReelKind) => void;
-  pickedRestaurant: RestaurantPickItem | null;
-  pickedRecipe: RecipePickItem | null;
-  onClearPick: () => void;
-  restaurantSearch: string;
-  setRestaurantSearch: (v: string) => void;
-  recipeSearch: string;
-  setRecipeSearch: (v: string) => void;
-  restaurantPickList: RestaurantPickItem[];
-  recipePickList: RecipePickItem[];
-  searchingPlaces: boolean;
-  onPickRestaurant: (id: string) => void;
-  onPickRecipe: (id: string) => void;
-}> = ({
-  kind, setKind, pickedRestaurant, pickedRecipe, onClearPick,
-  restaurantSearch, setRestaurantSearch, recipeSearch, setRecipeSearch,
-  restaurantPickList, recipePickList, searchingPlaces,
-  onPickRestaurant, onPickRecipe,
-}) => {
-  const picked = kind === 'restaurant' ? pickedRestaurant : pickedRecipe;
-
-  return (
-    <div className="space-y-6">
-      {/* Type chooser — two big cards */}
-      <section>
-        <p className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">Type</p>
-        <div className="grid grid-cols-2 gap-3">
-          {(['restaurant', 'recipe'] as const).map((k) => {
-            const Icon = k === 'restaurant' ? MapPin : ChefHat;
-            const active = kind === k;
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                className={cn(
-                  'rounded-2xl border px-4 py-4 text-left transition-all',
-                  active
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
-                    : 'border-on-surface/[0.08] bg-white hover:border-on-surface/15',
-                )}
-              >
-                <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center mb-2 transition-colors',
-                  active ? 'bg-primary text-white' : 'bg-on-surface/[0.06] text-on-surface/55',
-                )}>
-                  <Icon size={18} />
-                </div>
-                <p className="font-serif font-bold text-[15px] leading-tight">
-                  {k === 'restaurant' ? 'Restaurant Reel' : 'Recipe Reel'}
-                </p>
-                <p className="text-[11.5px] text-on-surface/50 mt-1 leading-snug">
-                  {k === 'restaurant' ? 'Showcase a place you visited' : 'Walk through a recipe'}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Picker for the chosen type — slides open smoothly */}
-      <motion.section
-        key={kind}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: 'easeOut' }}
-      >
-        <p className="font-sans text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2.5">
-          {kind === 'restaurant' ? 'Featured restaurant' : 'Featured recipe'}
-        </p>
-
-        {picked ? (
-          <PickedPill
-            name={kind === 'restaurant' ? (pickedRestaurant?.name ?? '') : (pickedRecipe?.title ?? '')}
-            meta={kind === 'restaurant'
-              ? [pickedRestaurant?.cuisine, pickedRestaurant?.price, pickedRestaurant?.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')
-              : [
-                ((pickedRecipe?.prepTime ?? 0) + (pickedRecipe?.cookTime ?? 0)) > 0 ? `${(pickedRecipe?.prepTime ?? 0) + (pickedRecipe?.cookTime ?? 0)} min` : '',
-                pickedRecipe?.servings ? `${pickedRecipe.servings} serv` : '',
-                pickedRecipe?.difficulty ?? '',
-              ].filter(Boolean).join(' · ')
-            }
-            image={kind === 'restaurant' ? pickedRestaurant?.image : pickedRecipe?.image}
-            onClear={onClearPick}
-          />
-        ) : (
-          <>
-            {kind === 'restaurant' ? (
-              <>
-                <div className="relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/45" />
-                  <input
-                    type="text"
-                    value={restaurantSearch}
-                    onChange={(e) => setRestaurantSearch(e.target.value)}
-                    placeholder="Search restaurants…"
-                    className="w-full h-11 pl-9 pr-3 rounded-full bg-on-surface/[0.05] focus:bg-on-surface/[0.08] outline-none text-sm"
-                  />
-                  {searchingPlaces && (
-                    <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/45 animate-spin" />
-                  )}
-                </div>
-                <ul className="mt-3 divide-y divide-on-surface/[0.06] rounded-2xl border border-on-surface/[0.06] bg-white max-h-[40vh] overflow-y-auto">
-                  {restaurantPickList.length === 0 ? (
-                    <li className="px-3 py-6 text-center text-[12.5px] text-on-surface/45">
-                      {restaurantSearch.trim().length >= 2
-                        ? 'No matches. Try a different name.'
-                        : 'Start typing to find a restaurant.'}
-                    </li>
-                  ) : (
-                    restaurantPickList.map((r) => (
-                      <li key={r.id}>
-                        <button
-                          type="button"
-                          onClick={() => onPickRestaurant(r.id)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors"
-                        >
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-on-surface/[0.06] flex-shrink-0 flex items-center justify-center">
-                            {r.image ? (
-                              <img src={r.image} alt="" loading="lazy" decoding="async"
-                                className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              <MapPin size={14} className="text-on-surface/30" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold truncate">{r.name}</p>
-                            <p className="text-[11.5px] text-on-surface/55 truncate">
-                              {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ') || 'Restaurant'}
-                            </p>
-                          </div>
-                          {typeof r.score === 'number' && r.score > 0 && (
-                            <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 flex-shrink-0">
-                              <Star size={11} className="fill-amber-500 text-amber-500" /> {r.score.toFixed(1)}
-                            </div>
-                          )}
-                        </button>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </>
-            ) : (
-              <>
-                <div className="relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/45" />
-                  <input
-                    type="text"
-                    value={recipeSearch}
-                    onChange={(e) => setRecipeSearch(e.target.value)}
-                    placeholder="Search your recipes…"
-                    className="w-full h-11 pl-9 pr-3 rounded-full bg-on-surface/[0.05] focus:bg-on-surface/[0.08] outline-none text-sm"
-                  />
-                </div>
-                <ul className="mt-3 divide-y divide-on-surface/[0.06] rounded-2xl border border-on-surface/[0.06] bg-white max-h-[40vh] overflow-y-auto">
-                  {recipePickList.length === 0 ? (
-                    <li className="px-3 py-6 text-center text-[12.5px] text-on-surface/45">
-                      You don't have any recipes yet.
-                    </li>
-                  ) : (
-                    recipePickList.map((r) => (
-                      <li key={r.id}>
-                        <button
-                          type="button"
-                          onClick={() => onPickRecipe(r.id)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors"
-                        >
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-on-surface/[0.06] flex-shrink-0 flex items-center justify-center">
-                            {r.image ? (
-                              <img src={r.image} alt="" loading="lazy" decoding="async"
-                                className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              <ChefHat size={14} className="text-on-surface/30" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold truncate">{r.title}</p>
-                            <p className="text-[11.5px] text-on-surface/55 truncate">
-                              {[
-                                ((r.prepTime ?? 0) + (r.cookTime ?? 0)) > 0 ? `${(r.prepTime ?? 0) + (r.cookTime ?? 0)} min` : '',
-                                r.servings ? `${r.servings} serv` : '',
-                                r.difficulty,
-                              ].filter(Boolean).join(' · ')}
-                            </p>
-                          </div>
-                        </button>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </>
-            )}
-          </>
-        )}
-      </motion.section>
-    </div>
-  );
-};
-
-/* ── Step 1: Video upload ────────────────────────────────────────────── */
-
-const StepVideo: React.FC<{
-  videoUrl: string | null;
-  videoDuration: number | null;
-  validationMsg: string | null;
-  onPickFile: (file: File | null) => void;
-  onClearVideo: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
-  nativePick: MediaItem | null;
-  onNativePickChange: (item: MediaItem | null) => void;
-  onCameraTap: () => void;
-}> = ({ videoUrl, videoDuration, validationMsg, onPickFile, onClearVideo, fileInputRef, nativePick, onNativePickChange, onCameraTap }) => {
-  // Drag-drop on this step's surface.
-  const [dragDepth, setDragDepth] = useState(0);
-  const dragActive = dragDepth > 0;
-  // On native iOS we render the PhotoLibraryGrid inline. Tapping a thumb
-  // just stages it — the heavy getMedia + file copy run when the user
-  // presses Next, owned by the parent modal.
-  const useNativeGrid = canUseNativePhotoLibrary();
-  const onNativeSelect = useCallback((item: MediaItem) => {
-    // Single-select with toggle: tapping the same thumb clears it.
-    onNativePickChange(nativePick?.id === item.id ? null : item);
-  }, [nativePick, onNativePickChange]);
-  const selectedIds = nativePick ? [nativePick.id] : [];
-  const onDragEnter: React.DragEventHandler = (e) => {
-    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
-    e.preventDefault();
-    setDragDepth((d) => d + 1);
-  };
-  const onDragOver: React.DragEventHandler = (e) => {
-    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-  const onDragLeave: React.DragEventHandler = (e) => {
-    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
-    e.preventDefault();
-    setDragDepth((d) => Math.max(0, d - 1));
-  };
-  const onDrop: React.DragEventHandler = (e) => {
-    e.preventDefault();
-    setDragDepth(0);
-    const file = e.dataTransfer?.files?.[0];
-    if (file) onPickFile(file);
-  };
-
-  return (
-    <div
-      className="space-y-3"
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {/* Flex-center wrapper — the inner tile is sized by aspect-ratio
-          + max-h, which often resolves to less than the parent's full
-          width, so we center it horizontally here. */}
-      <div className={cn(!videoUrl && useNativeGrid ? '-mx-5' : 'flex items-start justify-center')}>
-      <AnimatePresence mode="wait">
-        {!videoUrl ? (
-          useNativeGrid ? (
-            <motion.div
-              key="empty-native"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="w-full"
-            >
-              <p className="text-[12.5px] text-on-surface/55 px-5 pb-3 max-w-[280px] leading-relaxed">
-                Pick a vertical video from your camera roll. Up to {REEL_MAX_DURATION_SECONDS}s.
-              </p>
-              <PhotoLibraryGrid
-                mediaType="video"
-                onSelect={onNativeSelect}
-                selectedIds={selectedIds}
-                selectionMode="single"
-                onCameraTap={onCameraTap}
-                columns={3}
-              />
-            </motion.div>
-          ) : (
-          <motion.label
-            key="empty"
-            htmlFor="reel-video-input"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className={cn(
-              'rounded-3xl border-2 border-dashed cursor-pointer transition-all relative overflow-hidden',
-              'flex flex-col items-center justify-center text-center',
-              'aspect-[9/16] max-h-[60vh] h-[60vh] w-auto max-w-full',
-              dragActive
-                ? 'border-primary bg-primary/[0.06]'
-                : 'border-on-surface/15 bg-on-surface/[0.025] hover:border-on-surface/30 active:bg-on-surface/[0.04]',
-            )}
-          >
-            <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
-              <Film size={26} />
-            </div>
-            <p className="font-serif font-bold text-[18px] leading-tight px-6">Tap to pick a video</p>
-            <p className="text-[12.5px] text-on-surface/55 mt-1.5 px-6 max-w-[260px] leading-relaxed">
-              Choose from your camera roll. Vertical works best. Up to {REEL_MAX_DURATION_SECONDS}s.
-            </p>
-            {/* The actual file input — visually hidden but the parent label
-                forwards taps. Mobile browsers show the photo library
-                directly inside the OS picker sheet that opens on tap. */}
-            <input
-              id="reel-video-input"
-              ref={fileInputRef}
-              type="file"
-              accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
-              className="sr-only"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onPickFile(f);
-                e.target.value = '';
-              }}
-            />
-            {dragActive && (
-              <div className="absolute inset-0 bg-primary/[0.08] backdrop-blur-[1px] flex items-center justify-center text-[13px] font-bold text-primary pointer-events-none">
-                Drop to upload
-              </div>
-            )}
-          </motion.label>
-          )
-        ) : (
-          <motion.div
-            key="preview"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="relative rounded-3xl overflow-hidden bg-black aspect-[9/16] max-h-[60vh] h-[60vh] w-auto max-w-full"
-          >
-            <video
-              src={videoUrl}
-              controls
-              playsInline
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <button
-              type="button"
-              onClick={onClearVideo}
-              className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-black/55 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-sm"
-              aria-label="Remove video"
-            >
-              <Trash2 size={14} />
-            </button>
-            {videoDuration != null && (
-              <div className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-full bg-black/55 backdrop-blur-sm text-white text-[11px] font-bold">
-                {videoDuration.toFixed(1)}s
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </div>
-
-      {/* Secondary action when a video is already picked: replace */}
-      {videoUrl && (
-        <div className="flex justify-center">
-          <label htmlFor="reel-video-input-replace" className="inline-flex items-center gap-2 px-4 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 text-sm font-semibold text-on-surface/80 cursor-pointer transition-colors">
-            <ImageIcon size={14} /> Replace
-            <input
-              id="reel-video-input-replace"
-              type="file"
-              accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
-              className="sr-only"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onPickFile(f);
-                e.target.value = '';
-              }}
-            />
-          </label>
-        </div>
-      )}
-
-      {validationMsg && (
-        <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-          <span>{validationMsg}</span>
-        </div>
-      )}
-    </div>
-  );
-};
-
-/* ── Step 3: Final touches (caption + location + visibility) ── */
-
-const Step3Details: React.FC<{
-  videoUrl: string | null;
-  existingVideoUrl: string | undefined;
-  caption: string;
-  setCaption: (v: string) => void;
-  locationLabel: string;
-  setLocationLabel: (v: string) => void;
-  pickedLocation: HomeLocation | null;
-  onPickLocation: (loc: HomeLocation) => void;
-  onClearLocation: () => void;
-  locationFocused: boolean;
-  setLocationFocused: (v: boolean) => void;
-  locationSuggestions: HomeLocation[];
-  locationWrapRef: React.RefObject<HTMLDivElement | null>;
-  audio: string;
-  setAudio: (v: string) => void;
-  isPublic: boolean;
-  setIsPublic: (v: boolean) => void;
-}> = ({
-  videoUrl, existingVideoUrl, caption, setCaption,
-  locationLabel, setLocationLabel, pickedLocation, onPickLocation, onClearLocation,
-  locationFocused, setLocationFocused, locationSuggestions, locationWrapRef,
-  audio, setAudio, isPublic, setIsPublic,
-}) => {
-  const previewSrc = videoUrl ?? existingVideoUrl ?? null;
-
-  return (
-    <div className="space-y-5">
-      {/* Video preview pinned to the top, centered. */}
-      <div className="flex justify-center">
-        <div className="relative rounded-2xl overflow-hidden bg-on-surface/[0.06] aspect-[9/16] w-40 sm:w-44 flex-shrink-0">
-          {previewSrc ? (
-            <video
-              src={previewSrc}
-              muted
-              autoPlay
-              loop
-              playsInline
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-on-surface/30">
-              <Film size={26} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Caption */}
-      <section>
-        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Caption</label>
-        <textarea
-          value={caption}
-          onChange={(e) => setCaption(e.target.value.slice(0, 280))}
-          placeholder="Write something…"
-          rows={3}
-          className="w-full p-3 rounded-2xl bg-on-surface/[0.04] focus:bg-on-surface/[0.06] outline-none text-sm resize-none"
-        />
-        <div className="text-right text-[11px] text-on-surface/40 mt-1">{caption.length}/280</div>
-      </section>
-
-      {/* Location */}
-      <section>
-        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Location</label>
-        <div ref={locationWrapRef} className="relative">
-          <div className="flex items-center gap-2 h-11 rounded-full bg-on-surface/[0.05] focus-within:bg-on-surface/[0.08] px-3 transition-colors">
-            <MapPin size={15} className="text-on-surface/45 flex-shrink-0" />
-            <input
-              type="text"
-              value={locationLabel}
-              onChange={(e) => setLocationLabel(e.target.value)}
-              onFocus={() => setLocationFocused(true)}
-              placeholder="Add a location"
-              className="flex-1 bg-transparent outline-none text-sm min-w-0"
-            />
-            {locationLabel && (
-              <button
-                type="button"
-                onClick={onClearLocation}
-                className="text-on-surface/40 hover:text-on-surface/70 flex-shrink-0"
-                aria-label="Clear location"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <AnimatePresence>
-            {locationFocused && locationSuggestions.length > 0 && (
-              <motion.ul
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.15 }}
-                className="absolute top-full left-0 right-0 mt-1.5 rounded-2xl bg-white border border-on-surface/[0.08] shadow-[0_12px_28px_-10px_rgba(0,0,0,0.18)] overflow-hidden z-10 max-h-64 overflow-y-auto"
-              >
-                {locationSuggestions.map((loc) => (
-                  <li key={`${loc.label}-${loc.lat}-${loc.lng}`}>
-                    <button
-                      type="button"
-                      onClick={() => onPickLocation(loc)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors"
-                    >
-                      <MapPin size={13} className="text-on-surface/35 flex-shrink-0" />
-                      <span className="text-[13px] truncate">{loc.label}</span>
-                    </button>
-                  </li>
-                ))}
-              </motion.ul>
-            )}
-          </AnimatePresence>
-        </div>
-      </section>
-
-      {/* Audio — the phone layout has always had this; without it desktop
-          reels could only ever post "Original audio". */}
-      <section>
-        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Audio</label>
-        <div className="flex items-center gap-2 h-11 rounded-full bg-on-surface/[0.05] focus-within:bg-on-surface/[0.08] px-3 transition-colors">
-          <Music2 size={15} className="text-on-surface/45 flex-shrink-0" />
-          <input
-            type="text"
-            value={audio}
-            onChange={(e) => setAudio(e.target.value)}
-            placeholder="Original audio"
-            maxLength={60}
-            className="flex-1 bg-transparent outline-none text-sm min-w-0"
-          />
-        </div>
-      </section>
-
-      {/* Visibility */}
-      <section>
-        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Who can see this?</label>
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            { value: true, icon: Globe, label: 'Public', sub: 'Anyone can see this' },
-            { value: false, icon: UsersIcon, label: 'Followers', sub: 'Only people who follow you' },
-          ] as const).map((opt) => {
-            const active = isPublic === opt.value;
-            const Icon = opt.icon;
-            return (
-              <button
-                key={String(opt.value)}
-                type="button"
-                onClick={() => setIsPublic(opt.value)}
-                className={cn(
-                  'rounded-2xl border px-3 py-3 text-left transition-all',
-                  active
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
-                    : 'border-on-surface/[0.08] bg-white hover:border-on-surface/15',
-                )}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon size={14} className={active ? 'text-primary' : 'text-on-surface/55'} />
-                  <span className="text-[13px] font-bold">{opt.label}</span>
-                </div>
-                <p className="text-[11px] text-on-surface/55 leading-snug">{opt.sub}</p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-    </div>
-  );
-};
-
-/* ── Desktop stepper ──────────────────────────────────────────────────
-   Horizontal progress bar with labelled checkpoints. Steps before the
-   current one render a primary-filled circle with a check mark and a
-   filled connector to the right; the current step is a primary ring
-   with a filled dot; upcoming steps are outline-only with a muted
-   connector. Mimics YouTube's upload-flow stepper, tuned for our
-   three-step reel program. */
-
-const STEPPER_LABELS: { label: string }[] = [
-  { label: 'Video' },
-  { label: 'Edit' },
-  { label: 'Featured' },
-  { label: 'Details' },
-];
-
-const DesktopStepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
-  const total = STEPPER_LABELS.length;
-  return (
-    <div className="border-b border-on-surface/[0.06] px-8 py-2.5 flex-shrink-0 bg-surface">
-      <div className="relative flex items-center justify-between gap-2">
-        {STEPPER_LABELS.map((entry, i) => {
-          const stepNum = (i + 1) as Step;
-          const status: 'done' | 'current' | 'upcoming' =
-            stepNum < currentStep ? 'done' : stepNum === currentStep ? 'current' : 'upcoming';
-          const isLast = i === total - 1;
-          const nextDone = stepNum < currentStep;
-          return (
-            <React.Fragment key={entry.label}>
-              <div className="flex items-center gap-2 flex-shrink-0 relative z-10">
-                <motion.div
-                  className={cn(
-                    'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
-                    status === 'done' && 'bg-primary text-white',
-                    status === 'current' && 'bg-primary text-white ring-[3px] ring-primary/15',
-                    status === 'upcoming' && 'bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface/35',
-                  )}
-                  initial={false}
-                  animate={status === 'current' ? { scale: 1.04 } : { scale: 1 }}
-                  transition={{ type: 'spring', damping: 22, stiffness: 320 }}
-                >
-                  {status === 'done' ? (
-                    <Check size={12} strokeWidth={3} />
-                  ) : (
-                    <span className="text-[10.5px] font-bold tabular-nums">{stepNum}</span>
-                  )}
-                </motion.div>
-                <span className={cn(
-                  'text-[12px] font-bold leading-tight transition-colors whitespace-nowrap',
-                  status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
-                )}>
-                  {entry.label}
-                </span>
-              </div>
-              {!isLast && (
-                <div className="flex-1 relative h-[2px]">
-                  <div className="absolute inset-0 rounded-full bg-on-surface/10" />
-                  <motion.div
-                    className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                    initial={false}
-                    animate={{ width: nextDone ? '100%' : '0%' }}
-                    transition={{ duration: 0.35, ease: 'easeOut' }}
-                  />
-                </div>
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-/* ── Picked-pill chip used by step 1 for the featured item ──────────── */
-
-const PickedPill: React.FC<{ name: string; meta: string; image?: string; onClear: () => void; disabled?: boolean }> = ({ name, meta, image, onClear, disabled }) => (
-  <div className="flex items-center gap-3 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3 py-2.5">
-    <div className="w-10 h-10 rounded-xl overflow-hidden bg-on-surface/[0.06] flex-shrink-0 flex items-center justify-center">
-      {image && !image.startsWith('data:') ? (
-        <img src={image} alt="" loading="lazy" decoding="async"
-          className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-      ) : (
-        <Check size={14} className="text-primary" />
-      )}
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-bold truncate">{name}</p>
-      <p className="text-[11px] text-on-surface/55 truncate">{meta}</p>
-    </div>
-    <button
-      type="button"
-      onClick={onClear}
-      disabled={disabled}
-      className="text-[11px] font-semibold text-on-surface/55 hover:text-on-surface px-2 h-8 rounded-full hover:bg-on-surface/[0.05] disabled:opacity-40"
-    >
-      Change
-    </button>
-  </div>
-);

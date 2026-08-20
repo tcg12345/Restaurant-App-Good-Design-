@@ -619,3 +619,32 @@ input[type="range"].accent-primary::-moz-range-thumb {
   cursor: pointer;
   border: 3px solid white;
 }
+
+/* ── Media-editor range inputs ──
+   The Adjust tab paints its own track, fill and thumb underneath an
+   invisible native <input type="range">, which keeps keyboard and
+   assistive-tech support while letting the visuals be centre-anchored.
+   The native thumb has to match the painted one's width or the two
+   drift apart across the track. */
+.editor-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  touch-action: pan-y;
+}
+.editor-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 0;
+  background: transparent;
+}
+.editor-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 0;
+  background: transparent;
+}
