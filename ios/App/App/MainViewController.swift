@@ -154,18 +154,17 @@ public class AppThemePlugin: CAPPlugin, CAPBridgedPlugin {
 //      so they are no longer the open question they were when this was
 //      written blind. What a build cannot tell you is whether the specular
 //      rim, the shadow and the lens read right at a glance. Every iOS 26
-//      symbol is still reached through one of three small factories
-//      (`makeBarEffect`, `makeLensEffect`, `makeContainerEffect`) plus
-//      `applyShape`, so a signature change stays a one-function fix, and
-//      every older OS already takes the UIBlurEffect path.
-//   2. `glassMerge`. Nesting the bar and the lens in a UIGlassContainerEffect
-//      is what makes two pieces of glass merge and morph into one another as
-//      the lens slides, and that merge is most of what separates a stretching
-//      capsule from a liquid one. It ships on `.full`. The worry that made an
-//      earlier pass ship it off — that two fully-overlapping glass elements
-//      would collapse into one and the lens would vanish — is real but
-//      untested, so `.lensOnly` is there as a one-line escape hatch, and
-//      `.none` restores the plain stacked-glass version.
+//      symbol is still reached through `makeBarEffect` plus `applyShape`, so
+//      a signature change stays a two-function fix, and every older OS already
+//      takes the UIBlurEffect path.
+//   2. The scroll edge effect. `UIScrollEdgeElementContainerInteraction` is
+//      wired to the WebView's scroll view in `install`. An Apple engineer
+//      (Forums 791643) confirms this is what the "blur behind the bar" in
+//      system chrome actually is — an effect owned by the scroll view, which
+//      UITabBarController wires up for you and a hand-built bar gets none of.
+//      It only moves on the tabs that scroll the document, so check that
+//      content dissolves into the bar on Search / Lists / Profile, and accept
+//      that it won't on Home or Reels, which scroll inner containers.
 //   3. Tap targets: the bar is added to the bridge view controller's view, so
 //      it sits above the WebView and swallows taps in its own bounds only.
 //
@@ -306,7 +305,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.tabBar = created
                 bar = created
             }
-            bar.install(in: host, variant: variant == "bar" ? .bar : .capsule)
+            bar.install(in: host, variant: variant == "bar" ? .bar : .capsule, scrollView: self.bridge?.webView?.scrollView)
             bar.setItems(items, activePath: activePath)
             // A route change lands at the top of the new page, so whatever
             // the previous page's scroll left behind doesn't apply. The JS
@@ -429,6 +428,42 @@ final class GlassShadowView: UIView {
     }
 }
 
+/// The selection pill. A plain view with a flat fill — **not** a second piece
+/// of glass, and that is the whole point.
+///
+/// Measured off Instagram frame by frame: inside its pill the backdrop's local
+/// texture variance is 0.16 while the slab beside it reads 0.59 — the pill is
+/// 3.7× *flatter* than the material around it, i.e. it hides what's behind it.
+/// An earlier pass here made the pill a second `UIGlassEffect`, which measured
+/// at 7.15 against its slab's 6.39: it *added* refraction instead of removing
+/// it, so every selection sat under two lensing layers and the bar read wet and
+/// busy rather than like system chrome.
+///
+/// Apple says the same thing in words. WWDC25/284: "Prevent glass elements from
+/// overlapping other glass elements, and keep the illusion of a single floating
+/// layer of glass intact." And *Adopting Liquid Glass*: "avoid overcrowding or
+/// layering Liquid Glass elements on top of each other."
+///
+/// Solving `pill = slab·(1−α) + white·α` against the measured colours gives
+/// α = 0.191 / 0.194 / 0.198 across R/G/B — hence 0.19 below.
+final class GlassLensView: UIView {
+    /// Dark is measured. Light is its counterpart — Instagram's capture is
+    /// entirely dark mode, so this one is derived, and it is the first dial to
+    /// turn if the pill reads too faint or too heavy on a light page.
+    static let fill = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.19)
+            : UIColor.black.withAlphaComponent(0.07)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // A plain view, so rounding it by radius is correct and costs nothing —
+        // unlike glass, where clipping amputates the specular rim.
+        layer.cornerRadius = min(bounds.height, bounds.width) / 2
+    }
+}
+
 /// A glass surface that keeps its own corner radius in step with its height
 /// on systems older than iOS 26.
 ///
@@ -461,19 +496,17 @@ final class GlassSurfaceView: UIVisualEffectView {
 /// View hierarchy:
 ///
 ///     host
-///     └─ shadowWrapper: GlassShadowView      ← geometry, alpha, shadow
-///        └─ [container: UIGlassContainerEffect]   ← optional, see `glassMerge`
-///           ├─ barGlass: GlassSurfaceView    ← the material slab
-///           ├─ lens:     GlassSurfaceView    ← the sliding selection glass
-///           └─ content:  GlassTabBarContent  ← cells + gestures, transparent
+///     └─ shadowWrapper: GlassShadowView   ← geometry, transform, shadow
+///        ├─ barGlass: GlassSurfaceView     ← THE glass. There is only one.
+///        │  └─ contentView
+///        │     └─ lens: GlassLensView      ← flat fill, NOT a second glass
+///        └─ content: GlassTabBarContent    ← cells + gestures, transparent
 ///
-/// `content` sits *above* the lens rather than inside the bar's contentView,
-/// which is the one place this departs from the obvious arrangement: the icons
-/// have to draw on top of the lens, or the material washes them out.
-///
-/// Every write to the lens converts out of `content`'s space first
-/// (`setLens`), so none of the three `glassMerge` layouts can put the lens off
-/// by an inset even though only two of them leave the two views as siblings.
+/// Exactly one piece of glass, on purpose — `GlassLensView` carries the
+/// measurements and the Apple guidance behind that. `content` sits *above* the
+/// glass rather than inside its contentView so the icons draw over the pill
+/// instead of being washed out by it; `setLens` converts between the two
+/// spaces, so how either is pinned is free to change.
 final class GlassTabBar {
     struct Item {
         let path: String
@@ -503,30 +536,9 @@ final class GlassTabBar {
     /// on its own initiative. The plugin forwards it to JS.
     var onCollapsedChange: ((Bool) -> Void)?
 
-    /// How much of the bar goes inside a UIGlassContainerEffect. A container
-    /// renders its glass children as one combined shape, so they merge and
-    /// morph into each other rather than one sitting on the other — which is
-    /// what turns a stretching capsule into a liquid one.
-    ///
-    /// Ships on `.full`. If two fully-overlapping glass elements turn out to
-    /// collapse into a single shape and the lens disappears into the slab,
-    /// `.lensOnly` is the fix; `.none` is the plain stacked-glass version this
-    /// replaces. Being a constant it cannot change between installs, which is
-    /// why `install`'s early-return identity check below doesn't consider it.
-    private enum GlassMerge {
-        /// Slab and lens both inside one container: they blend into each other.
-        case full
-        /// Only the lens is contained; the slab is plain glass beneath it.
-        case lensOnly
-        /// No container at all.
-        case none
-    }
-    private static let glassMerge: GlassMerge = .full
-
     private var shadowWrapper: GlassShadowView?
-    private var container: UIVisualEffectView?
     private var barGlass: GlassSurfaceView?
-    private var lens: GlassSurfaceView?
+    private var lens: GlassLensView?
     private var content: GlassTabBarContent?
     private var heightConstraint: NSLayoutConstraint?
     private var leadingConstraint: NSLayoutConstraint?
@@ -560,7 +572,7 @@ final class GlassTabBar {
 
     // MARK: Install
 
-    func install(in host: UIView, variant: Variant) {
+    func install(in host: UIView, variant: Variant, scrollView: UIScrollView?) {
         if let existing = shadowWrapper, existing.superview === host, self.variant == variant {
             host.bringSubviewToFront(existing)
             // A cancelled dismissal leaves it faded out and non-interactive.
@@ -576,8 +588,13 @@ final class GlassTabBar {
         wrapper.isCapsule = isCapsule
         wrapper.layer.shadowColor = UIColor.black.cgColor
         // The flush bar sits on the screen edge, where a drop shadow has
-        // nowhere to fall — only the floating pill gets one.
-        wrapper.layer.shadowOpacity = isCapsule ? 0.12 : 0
+        // nowhere to fall — only the floating pill gets one. And on iOS 26 the
+        // glass draws its own adaptive ambient shadow, so a hand-drawn one on
+        // top doubles up and reads as a pasted-on card; there, we draw none and
+        // let the material do it. Raise this if the bar looks unanchored.
+        var shadow: Float = isCapsule ? 0.12 : 0
+        if #available(iOS 26.0, *) { shadow = 0 }
+        wrapper.layer.shadowOpacity = shadow
         wrapper.layer.shadowRadius = 20
         wrapper.layer.shadowOffset = CGSize(width: 0, height: 6)
 
@@ -585,23 +602,18 @@ final class GlassTabBar {
         barGlass.translatesAutoresizingMaskIntoConstraints = false
         Self.applyShape(to: barGlass, capsule: isCapsule)
 
-        let lens = GlassSurfaceView(effect: Self.makeLensEffect())
+        let lens = GlassLensView(frame: .zero)
         // Frame-driven, on purpose: the drag writes its centre every frame,
         // and any constraint on it would be re-applied by the next layout
         // pass and wipe those writes.
         lens.translatesAutoresizingMaskIntoConstraints = true
         lens.alpha = 0
+        lens.backgroundColor = GlassLensView.fill
+        lens.layer.cornerCurve = .continuous
         lens.isUserInteractionEnabled = false
         // Not a thing VoiceOver should stop on — it's decoration behind the
         // cells, which are the real elements.
         lens.isAccessibilityElement = false
-        Self.applyShape(to: lens, capsule: true)
-        if #unavailable(iOS 26.0) {
-            // A blur over a blur is invisible, so below 26 the lens needs a
-            // fill of its own to read as a selection at all. Neutral, matching
-            // the untinted glass on 26 — see `makeLensEffect`.
-            lens.contentView.backgroundColor = UIColor.label.withAlphaComponent(0.08)
-        }
 
         let content = GlassTabBarContent(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -614,52 +626,37 @@ final class GlassTabBar {
         host.bringSubviewToFront(wrapper)
 
         var constraints: [NSLayoutConstraint] = []
-        // Where the glass actually lives. Whichever branch runs, the paint
-        // order is the same — slab, then lens, then cells — so the lens draws
-        // over the material and the icons draw over the lens.
-        let containerEffect: UIVisualEffect? = Self.glassMerge == .none ? nil : Self.makeContainerEffect()
-        switch (Self.glassMerge, containerEffect) {
-        case (.full, .some(let effect)):
-            // Apple: "the glass container will render all glass elements in
-            // one combined view, behind the visual effect view's contentView."
-            // Both pieces of glass go in, so the lens and the slab blend into
-            // each other as the lens slides; `content` is a plain view, so it
-            // stays in front of the combined render where the icons belong.
-            let containerView = UIVisualEffectView(effect: effect)
-            containerView.translatesAutoresizingMaskIntoConstraints = false
-            wrapper.addSubview(containerView)
-            constraints += Self.pin(containerView, to: wrapper)
-            self.container = containerView
-            let inner = containerView.contentView
-            inner.addSubview(barGlass)
-            inner.addSubview(lens)
-            inner.addSubview(content)
-            constraints += Self.pin(barGlass, to: inner)
-            constraints += Self.pin(content, to: inner)
-        case (.lensOnly, .some(let effect)):
-            // The escape hatch if `.full` dissolves the lens into the slab:
-            // the container gets the lens and nothing else, so there is no
-            // second glass element for it to merge with.
-            let containerView = UIVisualEffectView(effect: effect)
-            containerView.translatesAutoresizingMaskIntoConstraints = false
-            // A bare container sitting between the slab and the cells would
-            // otherwise eat every touch on its way past.
-            containerView.isUserInteractionEnabled = false
-            wrapper.addSubview(barGlass)
-            wrapper.addSubview(containerView)
-            wrapper.addSubview(content)
-            constraints += Self.pin(barGlass, to: wrapper)
-            constraints += Self.pin(containerView, to: wrapper)
-            constraints += Self.pin(content, to: wrapper)
-            self.container = containerView
-            containerView.contentView.addSubview(lens)
-        default:
-            // `.none`, and every system too old to have a container effect.
-            wrapper.addSubview(barGlass)
-            wrapper.addSubview(lens)
-            wrapper.addSubview(content)
-            constraints += Self.pin(barGlass, to: wrapper)
-            constraints += Self.pin(content, to: wrapper)
+        // One piece of glass, and the pill lives *inside* its contentView.
+        // Apple: "After you add the visual effect view to the view hierarchy,
+        // add any subviews to the `contentView` property" — and a plain fill in
+        // there is what the system's own selection indicator is.
+        //
+        // `content` stays a sibling *above* the glass rather than going in its
+        // contentView, so the icons draw over the pill instead of being washed
+        // out by it. `setLens` converts between the two spaces, so this holds
+        // regardless of how either is pinned.
+        wrapper.addSubview(barGlass)
+        wrapper.addSubview(content)
+        barGlass.contentView.addSubview(lens)
+        constraints += Self.pin(barGlass, to: wrapper)
+        constraints += Self.pin(content, to: wrapper)
+
+        // The dissolve where scrolling content meets the bar. An Apple engineer
+        // (Forums 791643) confirms this is what the "blur behind the bar" in
+        // system chrome actually is: an effect owned by the *scroll view*, which
+        // UITabBarController wires up for you and a hand-built bar gets nothing
+        // of. Without it, content slides under a hard edge — a large part of why
+        // a custom bar reads as a sticker on top of the page.
+        //
+        // It tracks the WKWebView's own scroll view, so it works on the tabs
+        // that scroll the document (Search, Lists, Profile) and does nothing on
+        // Home and Reels, which scroll inner containers. That is the same split
+        // that forced `setMinimized` to be driven from JS.
+        if #available(iOS 26.0, *), let scrollView {
+            let interaction = UIScrollEdgeElementContainerInteraction()
+            interaction.edge = .bottom
+            interaction.scrollView = scrollView
+            wrapper.addInteraction(interaction)
         }
 
         let guide = host.safeAreaLayoutGuide
@@ -730,9 +727,13 @@ final class GlassTabBar {
     }
 
     /// Back to fully shown, whatever a half-finished animation left behind.
-    /// Operates on the wrapper, not on the glass: the lens is a sibling of the
-    /// bar now, so fading only the bar would leave a tinted capsule stranded
-    /// on screen after a dismissal.
+    ///
+    /// `wrapper.alpha` is pinned at 1 and never animated. Apple's
+    /// `UIVisualEffectView` docs: "Avoid alpha values that are less than 1. …
+    /// Setting the alpha to less than 1 on the visual effect view **or any of
+    /// its superviews** causes many effects to look incorrect or not show up at
+    /// all." The wrapper is the glass's superview, so hiding used to break the
+    /// material on every keyboard open and every modal. See `setVisible`.
     private func resetPresentation() {
         visible = true
         guard let wrapper = shadowWrapper else { return }
@@ -740,6 +741,9 @@ final class GlassTabBar {
         wrapper.alpha = 1
         wrapper.transform = .identity
         wrapper.isUserInteractionEnabled = true
+        barGlass?.effect = Self.makeBarEffect()
+        content?.alpha = 1
+        lens?.alpha = content?.hasSelection == true ? 1 : 0
     }
 
     func removeFromHost() {
@@ -748,7 +752,6 @@ final class GlassTabBar {
         // taking drag updates that go nowhere.
         shadowWrapper?.removeFromSuperview()
         shadowWrapper = nil
-        container = nil
         barGlass = nil
         lens = nil
         content = nil
@@ -816,8 +819,15 @@ final class GlassTabBar {
 
     // MARK: Visibility
 
-    /// Mirrors the web nav's hide animation (fade + 20px drop) so the two
+    /// Mirrors the web nav's hide animation (a 20px drop) so the two
     /// implementations are indistinguishable when one replaces the other.
+    ///
+    /// The fade is a *materialize*, not an alpha ramp: animating
+    /// `effect = nil` is what Apple documents ("Always prefer setting the
+    /// `effect` property over `alpha`" — WWDC25/284), and fading the wrapper
+    /// instead was actively breaking the material mid-transition per the rule
+    /// quoted in `resetPresentation`. The cells and the pill are plain views,
+    /// so they still fade the ordinary way.
     func setVisible(_ next: Bool, animated: Bool) {
         // A bar that left collapsed must not come back collapsed. Whatever
         // hid it — the keyboard, a modal — also swallowed the scrolling that
@@ -828,8 +838,11 @@ final class GlassTabBar {
             return
         }
         visible = next
+        let selected = content?.hasSelection == true
         let apply = {
-            wrapper.alpha = next ? 1 : 0
+            self.barGlass?.effect = next ? Self.makeBarEffect() : nil
+            self.content?.alpha = next ? 1 : 0
+            self.lens?.alpha = next && selected ? 1 : 0
             wrapper.transform = next ? .identity : CGAffineTransform(translationX: 0, y: 20)
         }
         wrapper.isUserInteractionEnabled = next
@@ -841,19 +854,22 @@ final class GlassTabBar {
     }
 
     /// Animate out, then hand back for removal. Matches the web nav's
-    /// 200ms fade + 20px drop.
+    /// 200ms dissolve + 20px drop.
     func dismiss(completion: @escaping () -> Void) {
         guard let wrapper = shadowWrapper else {
             completion()
             return
         }
         wrapper.isUserInteractionEnabled = false
+        // Dematerialize rather than fade — same reasoning as `setVisible`.
         UIView.animate(
             withDuration: 0.2,
             delay: 0,
             options: [.beginFromCurrentState, .curveEaseOut],
             animations: {
-                wrapper.alpha = 0
+                self.barGlass?.effect = nil
+                self.content?.alpha = 0
+                self.lens?.alpha = 0
                 wrapper.transform = CGAffineTransform(translationX: 0, y: 20)
             },
             completion: { _ in completion() }
@@ -862,10 +878,13 @@ final class GlassTabBar {
 
     // MARK: Material
 
-    /// The three places the iOS 26 material API is touched, plus `applyShape`
-    /// below. Everything older — and any future signature change — lands on
-    /// the blur fallback, which is the same material system chrome used
-    /// before Liquid Glass.
+    /// The two places the iOS 26 material API is touched — here and
+    /// `applyShape` below. It used to be four: a second glass effect for the
+    /// selection pill and a `UIGlassContainerEffect` to merge the two. Both
+    /// are gone, because layering glass on glass is what made this read wrong
+    /// (see `GlassLensView`). Everything older — and any future signature
+    /// change — lands on the blur fallback, which is the same material system
+    /// chrome used before Liquid Glass.
 
     /// The bar's own slab. Not interactive: `isInteractive` is meant for a
     /// single glass *control*, and on a full-width bar it means a touch
@@ -887,43 +906,6 @@ final class GlassTabBar {
             return effect
         }
         return UIBlurEffect(style: .systemChromeMaterial)
-    }
-
-    /// The sliding selection. This is the individual control, so this is where
-    /// interactive glass belongs — though note the cells sit above it, so the
-    /// lens is not the hit-test view and the flag may well be inert. The press
-    /// feel is hand-animated in `GlassTabBarContent` for exactly that reason;
-    /// if `isInteractive` does fire on device the two simply agree.
-    ///
-    /// Untinted, deliberately. An earlier pass put the brand rust on the
-    /// material at 55% alpha, which read as an opaque painted blob — the least
-    /// iOS-26 thing in the bar. Apple's selection indicator is neutral glass
-    /// that picks up its colour from whatever is behind it; the brand colour
-    /// belongs on the selected *glyph*, which is where it now lives (see
-    /// `GlassTabItemView.setSelected`). If neutral reads as too plain on
-    /// device, `primary.withAlphaComponent(0.15)` is the ceiling — past that
-    /// it stops looking like glass again.
-    private static func makeLensEffect() -> UIVisualEffect {
-        if #available(iOS 26.0, *) {
-            let effect = UIGlassEffect()
-            effect.isInteractive = true
-            return effect
-        }
-        // Pre-26 there is no glass at all, so the lens stays what it always
-        // was: a soft blurred capsule. `install` paints a neutral fill behind
-        // it in that case, since a blur alone over a blur is invisible.
-        return UIBlurEffect(style: .systemThinMaterial)
-    }
-
-    /// Nil below iOS 26, and never consulted at all under `glassMerge == .none`.
-    /// `spacing` is the distance at which nested glass starts to blend.
-    private static func makeContainerEffect() -> UIVisualEffect? {
-        if #available(iOS 26.0, *) {
-            let effect = UIGlassContainerEffect()
-            effect.spacing = 12
-            return effect
-        }
-        return nil
     }
 
     /// Corner shaping, in the one place the choice is made.
@@ -1052,13 +1034,17 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     /// The sliding selection glass. Lives in this view's superview rather than
     /// inside it, so the cells draw on top of it; positioned by frame, so
     /// every write here converts out of this view's space first.
-    private weak var lens: GlassSurfaceView?
+    private weak var lens: GlassLensView?
     private let stack = UIStackView()
     private var itemViews: [GlassTabItemView] = []
     private var items: [GlassTabBar.Item] = []
     /// Nil when no tab owns the current route (/experts, /admin/*) — the bar
     /// still shows, with nothing lit, rather than lying about being on Home.
     private var activeIndex: Int?
+    /// Whether the pill should be on screen at all. The coordinator needs this
+    /// to restore the right alpha after a hide, without clobbering the
+    /// no-tab-owns-this-route state.
+    var hasSelection: Bool { activeIndex != nil }
     /// Index under the finger mid-drag. The lens follows it live; the route
     /// only changes on release, so a swipe across the bar doesn't fire four
     /// navigations on its way past.
@@ -1166,7 +1152,7 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
 
     // MARK: Lens
 
-    func attachLens(_ view: GlassSurfaceView) {
+    func attachLens(_ view: GlassLensView) {
         lens = view
         // The lens's coordinate space just changed under us; force a
         // re-anchor on the next layout pass rather than trusting a stale size.
@@ -1409,9 +1395,9 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         flightResidualY = lens.transform.d - 1
         flightVelocity = 0
         // Seeded in the lens's *own* space, the same space `onFlightTick`
-        // samples in — not the caller's content space, which is only the same
-        // view in two of the three `glassMerge` layouts. The animator hasn't
-        // started yet, so `center` is still the position it is leaving.
+        // samples in — not the caller's content space, which is a different
+        // view. The animator hasn't started yet, so `center` is still the
+        // position it is leaving.
         lastFlightX = lens.center.x
         lastFlightTime = flightStart
         flightLink?.invalidate()
@@ -1527,8 +1513,9 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
 
     /// Both the touch and the cell centres it clamps against are read in this
     /// view's space, and the single conversion happens in `setLens`. Mixing
-    /// the two spaces works only while the bar fills its parent exactly —
-    /// which a glass container with `spacing` actively invites you to change.
+    /// the two spaces works only while the bar fills its parent exactly, which
+    /// is true today and is exactly the sort of thing that quietly stops being
+    /// true when the hierarchy is rearranged.
     private func clampedCenterX(_ x: CGFloat) -> CGFloat {
         guard let first = itemViews.first, let last = itemViews.last else { return x }
         let low = first.convert(first.bounds, to: self).midX
