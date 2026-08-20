@@ -8,3 +8,16 @@ coverage/
 !.env.example
 # Apple "Sign in with Apple" private key — never commit this.
 *.p8
+
+# `npx cap sync ios` output. Regenerated from dist/ on every build, and
+# dist/ is ignored above — ios/App/App/public is a byte-for-byte copy of it.
+# Only the hand-written Swift and the privacy manifest under ios/ are tracked.
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/capacitor-cordova-ios-plugins/
+ios/App/Pods/
+ios/App/build/
+ios/App/output/
+ios/DerivedData/
+xcuserdata/
