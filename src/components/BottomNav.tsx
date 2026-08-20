@@ -1,9 +1,11 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Compass, Search, User, ListPlus, Film } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { activeTabPath, useNativeGlassNav } from '../lib/native-glass';
 
 const navItems = [
   { icon: Compass, label: 'Home', path: '/' },
@@ -22,15 +24,50 @@ const navItems = [
  * excluded by showBottomNav. The old desktop floating-pill, hover-collapse,
  * and search↔map split variants were therefore unreachable and have been
  * removed.
+ *
+ * On iOS 26 this hands the job over entirely: `useNativeGlassNav` installs a
+ * real UIKit Liquid Glass bar above the WebView (see
+ * ios/App/App/MainViewController.swift) and this component renders nothing.
+ * The material genuinely refracts the page beneath it, which no amount of
+ * `backdrop-filter` can do. Older iOS, Android and the browser keep the
+ * markup below, unchanged.
  */
 export const BottomNav: React.FC = () => {
   const { hideBottomNav, keyboardOpen } = useSettings();
+  const location = useLocation();
+  const navigate = useNavigate();
   // Hide whenever any consumer asked us to OR the on-screen keyboard is up.
   // The native shell keeps the WebView full-height under the keyboard
   // (Keyboard resize:"none" — the app pads itself with --kb-height), so
   // without this the bar would sit uselessly behind the keyboard while
   // still intercepting taps.
   const navHidden = hideBottomNav || keyboardOpen;
+
+  // App.tsx only mounts this component on routes that should show a tab bar,
+  // so being mounted at all is the "enabled" signal for the native one.
+  const { profile } = useAuth();
+  const avatarInitial =
+    (profile?.display_name || profile?.username || '').trim().charAt(0).toUpperCase() || undefined;
+
+  const glass = useNativeGlassNav({
+    enabled: true,
+    hidden: navHidden,
+    activePath: activeTabPath(location.pathname),
+    // The full route as well as the owning tab: the native bar un-shrinks on
+    // every navigation, including ones that stay within a tab.
+    pathname: location.pathname,
+    // Reels is black regardless of theme, so the bar wears its dark chrome
+    // there — near-black glass, white icons — the way Instagram's does.
+    darkPage: location.pathname.startsWith('/reels'),
+    // The Profile tab draws the signed-in user as the app's initial-circle
+    // avatar (there are no avatar photos in the data model to show).
+    avatarInitial,
+    onSelect: (path) => navigate(path),
+  });
+
+  // The native bar draws itself over the WebView; rendering the web one too
+  // would stack two tab bars.
+  if (glass.active) return null;
 
   return (
     <motion.nav

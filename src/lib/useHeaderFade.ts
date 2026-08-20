@@ -18,7 +18,20 @@ import { useMotionValue, useTransform, type MotionValue } from 'motion/react';
    Pages that scroll the window instead pass `windowScroll: true` and skip
    scrollRef/onScroll. The fade distance defaults to the header's own height
    (re-measured on resize), so by the time the header's bottom edge would
-   have scrolled past, it has fully dissolved — pass `fadeDist` to override. */
+   have scrolled past, it has fully dissolved — pass `fadeDist` to override.
+
+   `condensedStyle` is the mirror image, for pages that want the header to
+   hand off to a compact pinned replacement rather than just disappear:
+
+     <motion.div style={fade.headerStyle}>…the full header…</motion.div>
+     <div className="sticky top-0 z-30 h-0">
+       <motion.div style={fade.condensedStyle} className="absolute inset-x-0 top-0">
+         …the glassy condensed bar…
+       </motion.div>
+     </div>
+
+   The two are staggered rather than cross-faded 1:1, so they never both
+   sit at half opacity looking like a double exposure. */
 
 export interface HeaderFade {
   /** Attach to the header element (any element; motion.* for style). */
@@ -29,6 +42,13 @@ export interface HeaderFade {
   onScroll: (e: React.UIEvent<HTMLElement>) => void;
   /** Spread into the header's motion style. */
   headerStyle: {
+    opacity: MotionValue<number>;
+    y: MotionValue<number>;
+    pointerEvents: MotionValue<string>;
+  };
+  /** Spread into a condensed replacement header's motion style. Arrives
+   *  as `headerStyle` leaves, and leaves as it returns. */
+  condensedStyle: {
     opacity: MotionValue<number>;
     y: MotionValue<number>;
     pointerEvents: MotionValue<string>;
@@ -63,6 +83,17 @@ export function useHeaderFade({
   const opacity = useMotionValue(1);
   const y = useMotionValue(0);
   const pointerEvents = useTransform(opacity, (o) => (o > 0.35 ? 'auto' : 'none'));
+
+  // Condensed replacement: nothing until the full header is 65% gone,
+  // fully in exactly as it hits zero. The late, decisive hand-off is the
+  // point — the two occupy the same strip of screen, so an even
+  // cross-fade renders them ghosted over each other for most of the
+  // scroll (worst on sticky headers, which never move out of the way).
+  // Sharing the one `opacity` value keeps them exactly in step with each
+  // other and with `enabled` (off → opacity 1 → condensed 0).
+  const condensedOpacity = useTransform(opacity, (o) => Math.min(1, Math.max(0, (0.35 - o) / 0.35)));
+  const condensedY = useTransform(condensedOpacity, (v) => -(1 - v) * 8);
+  const condensedPointerEvents = useTransform(condensedOpacity, (v) => (v > 0.6 ? 'auto' : 'none'));
 
   const applyScroll = useCallback(
     (top: number) => {
@@ -126,5 +157,12 @@ export function useHeaderFade({
     }
   }, [enabled, windowScroll, applyScroll, opacity, y]);
 
-  return { headerRef, scrollRef, onScroll, headerStyle: { opacity, y, pointerEvents }, headerH };
+  return {
+    headerRef,
+    scrollRef,
+    onScroll,
+    headerStyle: { opacity, y, pointerEvents },
+    condensedStyle: { opacity: condensedOpacity, y: condensedY, pointerEvents: condensedPointerEvents },
+    headerH,
+  };
 }

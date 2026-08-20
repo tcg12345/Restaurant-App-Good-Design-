@@ -51,3 +51,27 @@ export function maxPageScroll(root?: ParentNode): number {
   if (sc) return sc.scrollHeight - sc.clientHeight;
   return document.documentElement.scrollHeight - window.innerHeight;
 }
+
+/**
+ * True for a scroll event target that belongs to an off-screen layer rather
+ * than the page you are actually looking at.
+ *
+ * Two things produce those. The keep-alive tab layers are absolutely
+ * positioned and hidden with `visibility` (App.tsx), so they keep live layout
+ * — and live scroll offsets — while invisible. And `SwipeBackContainer`
+ * replays the destination's scroll onto its inert clone after every
+ * navigation, which fires a real scroll event carrying a real offset a few
+ * hundred milliseconds after you arrive anywhere.
+ *
+ * Scroll-driven chrome has to ignore both, or it reacts to a page nobody is
+ * on. `visibility` is inherited, so the one computed read covers a scroller at
+ * any depth inside a hidden layer; the reveal needs its own check because it
+ * flips to `visible` for the duration of a back-swipe while its contents are
+ * still not the current page. Non-elements (`document`, `window`) are the real
+ * page scroll and never off-screen.
+ */
+export function isOffscreenScrollTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('[data-swipe-reveal]')) return true;
+  return getComputedStyle(target).visibility === 'hidden';
+}

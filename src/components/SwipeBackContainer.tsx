@@ -80,6 +80,12 @@ const KEEP = 3;
 function cloneBottomNav(): HTMLElement | null {
   const nav = document.querySelector<HTMLElement>('[data-bottom-nav]');
   if (!nav) return null;
+  // The marker stays mounted (it owns the entrance animation) even when the
+  // native Liquid Glass bar has taken the tab bar over and BottomNav renders
+  // nothing. Cloning an empty wrapper into the preview is pure waste — and
+  // the native bar doesn't parallax with the page anyway, which is the
+  // correct iOS behaviour for a push inside a tab.
+  if (nav.childElementCount === 0) return null;
   const clone = nav.cloneNode(true) as HTMLElement;
   // The wrapper (and the nav inside) can be mid-animation when captured —
   // snapshot them at rest.
