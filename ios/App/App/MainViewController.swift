@@ -132,6 +132,7 @@ public class AppThemePlugin: CAPPlugin, CAPBridgedPlugin {
 //   - configureTabBar({ items, variant })    → install / replace the bar
 //   - setActiveTab({ path })                 → move the selection
 //   - setMinimized({ minimized, animated })  → shrink / restore on scroll
+//   - setBarStyle({ dark })                  → dark chrome over dark pages
 //   - setVisible({ visible, animated })      → hide for keyboard / overlays
 //   - removeTabBar()                         → tear down, hand back to web
 // Events:
@@ -147,18 +148,16 @@ public class AppThemePlugin: CAPPlugin, CAPBridgedPlugin {
 //
 // VERIFY ON DEVICE (the material does not render meaningfully in the
 // simulator, so none of this can be checked from a build alone):
-//   1. How the material actually looks. Most of the iOS 26 *names* are
-//      settled — a build resolved `UIGlassEffect`, `UIGlassContainerEffect`
-//      and `UIVisualEffectView.cornerConfiguration = .capsule()` against the
-//      SDK, so they are no longer the open question they were when this was
-//      written blind. `UIGlassEffect(style:)` is the exception and has never
-//      been compiled; see `makeBarEffect`. What a build cannot tell you either
-//      way is whether the specular rim, the shadow and the lens read right at
-//      a glance. Every iOS 26 symbol is still
-//      reached through one of three small factories (`makeBarEffect`,
-//      `makeLensEffect`, `makeContainerEffect`) plus `applyShape`, so a
-//      signature change stays a one-function fix, and every older OS already
-//      takes the UIBlurEffect path.
+//   1. How the material actually looks. The iOS 26 *names* are settled — a
+//      build resolved `UIGlassEffect`, `UIGlassContainerEffect` and
+//      `UIVisualEffectView.cornerConfiguration = .capsule()` against the SDK,
+//      so they are no longer the open question they were when this was
+//      written blind. What a build cannot tell you is whether the specular
+//      rim, the shadow and the lens read right at a glance. Every iOS 26
+//      symbol is still reached through one of three small factories
+//      (`makeBarEffect`, `makeLensEffect`, `makeContainerEffect`) plus
+//      `applyShape`, so a signature change stays a one-function fix, and
+//      every older OS already takes the UIBlurEffect path.
 //   2. `glassMerge`. Nesting the bar and the lens in a UIGlassContainerEffect
 //      is what makes two pieces of glass merge and morph into one another as
 //      the lens slides, and that merge is most of what separates a stretching
@@ -193,6 +192,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "configureTabBar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setActiveTab", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMinimized", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setBarStyle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "removeTabBar", returnType: CAPPluginReturnPromise),
     ]
@@ -256,7 +256,9 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                 path: path,
                 symbol: symbol,
                 selectedSymbol: entry["selectedSymbol"] as? String,
-                label: entry["label"] as? String ?? ""
+                label: entry["label"] as? String ?? "",
+                avatarInitial: entry["avatarInitial"] as? String,
+                avatarUrl: entry["avatarUrl"] as? String
             )
         }
         guard !items.isEmpty else {
@@ -336,6 +338,20 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
         let animated = call.getBool("animated") ?? true
         DispatchQueue.main.async {
             self.tabBar?.setCollapsed(minimized, animated: animated)
+            call.resolve()
+        }
+    }
+
+    /// The bar's chrome resolves by *trait*, not by what's behind it — so over
+    /// the always-black Reels page a light-themed app gets a light warm fog
+    /// with charcoal icons that vanish against dark video. Instagram flips to
+    /// near-black chrome with white icons there. JS knows which routes are
+    /// dark; this lets it say so. `dark: false` returns to following the
+    /// window, which already follows the app theme via AppTheme.
+    @objc func setBarStyle(_ call: CAPPluginCall) {
+        let dark = call.getBool("dark") ?? false
+        DispatchQueue.main.async {
+            self.tabBar?.setStyle(dark: dark)
             call.resolve()
         }
     }
@@ -464,9 +480,15 @@ final class GlassTabBar {
         let symbol: String
         /// Filled counterpart drawn when the item is selected. Optional —
         /// several symbols (magnifyingglass, list.bullet) have no fill
-        /// variant, and there the tint change carries it.
+        /// variant, and there the sliding pill carries it alone.
         let selectedSymbol: String?
         let label: String
+        /// Instagram draws the profile tab as the user, not as a person
+        /// glyph. This app has no avatar photos, so its version of "the
+        /// user" is the initial-letter circle the profile page draws;
+        /// `avatarUrl` is honoured first if the data model ever grows one.
+        let avatarInitial: String?
+        let avatarUrl: String?
     }
 
     enum Variant {
@@ -512,24 +534,28 @@ final class GlassTabBar {
     private var variant: Variant = .capsule
     private var visible = true
     private var collapsed = false
+    /// Dark chrome forced by JS for dark pages (Reels). Kept here, not just on
+    /// the view, so a teardown/reinstall cycle can't lose it.
+    private var darkStyle = false
 
-    /// Expanded vs. shrunk geometry. The shrunk bar loses a fifth of its
+    /// Expanded vs. shrunk geometry. The shrunk bar loses a quarter of its
     /// height, so it reads as having got out of the way.
     ///
-    /// 50/40 rather than 64/48 because the cells no longer carry labels (see
-    /// `GlassTabItemView.showsLabels`). A 64pt bar left the lens nearly square
-    /// — 62×52, which `isCapsule` then rounded to a radius-26 circle — where a
-    /// tab bar's selection is a horizontal capsule, clearly wider than tall.
+    /// 63/15/+13 are not taste — they're measured off a frame-by-frame capture
+    /// of Instagram's bar on the same screen (1206×2622 @3x): slab 187px tall
+    /// = 62.3pt, side insets 44px = 14.7pt, bottom edge 63px = 21pt above the
+    /// screen bottom. A 50pt bar 43pt off the bottom read as small and
+    /// floating too high next to it.
     private enum Metrics {
-        static let expandedHeight: CGFloat = 50
-        static let collapsedHeight: CGFloat = 40
-        static let expandedInset: CGFloat = 16
+        static let expandedHeight: CGFloat = 63
+        static let collapsedHeight: CGFloat = 48
+        static let expandedInset: CGFloat = 15
         /// Deliberately equal to `expandedInset`. Pulling the edges in to 44
         /// as well squeezed five tabs into a narrow pill, which read as
         /// cramped rather than tidy — and it changed every cell's width
         /// mid-animation, which is a whole class of lens-resize bugs bought
         /// for no visual gain. The collapse is a height-and-labels change now.
-        static let collapsedInset: CGFloat = 16
+        static let collapsedInset: CGFloat = 15
     }
 
     // MARK: Install
@@ -648,7 +674,11 @@ final class GlassTabBar {
             constraints += [
                 leading,
                 trailing,
-                wrapper.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -8),
+                // *Below* the safe-area line, deliberately: Instagram's bar
+                // bottom sits 21pt off the screen edge, 13pt into the
+                // home-indicator zone, and that low seat is a lot of why it
+                // reads anchored rather than floating. (Measured; see Metrics.)
+                wrapper.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: 13),
                 height,
             ]
         case .bar:
@@ -671,7 +701,23 @@ final class GlassTabBar {
         self.content = content
         content.attachLens(lens)
         collapsed = false
+        applyStyle()
         resetPresentation()
+    }
+
+    /// Dark chrome on dark pages. One trait override on the wrapper reaches
+    /// everything — both pieces of glass render their dark variant and every
+    /// `.label` (the icons) re-resolves to white — which is exactly the flip
+    /// Instagram's bar makes over dark content. `.unspecified` hands control
+    /// back to the window, which already follows the app theme.
+    func setStyle(dark: Bool) {
+        guard dark != darkStyle else { return }
+        darkStyle = dark
+        applyStyle()
+    }
+
+    private func applyStyle() {
+        shadowWrapper?.overrideUserInterfaceStyle = darkStyle ? .dark : .unspecified
     }
 
     private static func pin(_ view: UIView, to parent: UIView) -> [NSLayoutConstraint] {
@@ -826,16 +872,17 @@ final class GlassTabBar {
     /// anywhere makes the whole thing do the press highlight, which reads as
     /// a bug rather than as feedback.
     ///
-    /// `.clear` rather than the default `.regular`: in light mode `.regular`
-    /// sits close to opaque white and the page underneath barely shows
-    /// through, which defeats the point of putting real glass here at all.
-    /// Swap to `UIGlassEffect()` if the bar reads as too faint over busy
-    /// content — and note that `UIGlassEffect(style:)` is the one name in this
-    /// file never checked against a header, so if it fails to resolve, dropping
-    /// the argument is both the fix and the fallback.
+    /// The default `.regular` glass, and that choice is measured rather than
+    /// guessed: Instagram's slab over black content lifts the blacks by only
+    /// ~+11 luminance while passing white text through at ~94% — a gentle fog
+    /// with high transmission, which is what regular glass is. A `.clear`
+    /// build of this bar was tried and read as muddy and washed over the
+    /// Reels page. The bigger lever on color is the appearance override in
+    /// `setStyle` — the material resolves by *trait*, so over a dark page it
+    /// must be told to render its dark variant or it stays a light warm fog.
     private static func makeBarEffect() -> UIVisualEffect {
         if #available(iOS 26.0, *) {
-            let effect = UIGlassEffect(style: .clear)
+            let effect = UIGlassEffect()
             effect.isInteractive = false
             return effect
         }
@@ -952,34 +999,45 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     /// for a tap playing two animations against each other.
     private static let dragThreshold: CGFloat = 6
 
-    // Lens geometry. Explicit rather than derived from the cell, because
-    // deriving it produced a 62×52 rounded rect that `isCapsule` then rounded
-    // to a radius-26 circle. A tab bar's selection is a horizontal capsule.
-    private static let lensHeight: CGFloat = 40
-    private static let lensHeightCompact: CGFloat = 32
-    private static let lensWidthRatio: CGFloat = 0.86
+    // Lens geometry, measured off Instagram's pill on the same screen: 223px
+    // wide inside a 223.6px cell (full cell width) and 137px tall inside a
+    // 187px bar — a horizontal capsule filling the row with ~8pt of breathing
+    // room. Explicit rather than derived from the cell, because deriving it
+    // once produced a near-square that rounded into a circle blob.
+    private static let lensHeight: CGFloat = 46
+    private static let lensHeightCompact: CGFloat = 34
+    private static let lensWidthRatio: CGFloat = 0.98
 
-    // Move timing. The spring's frequency comes from `moveDuration(for:)`, so
-    // distance genuinely changes how long a move takes.
-    private static let baseMoveDuration: TimeInterval = 0.26
-    private static let perCellDuration: TimeInterval = 0.045
-    private static let maxMoveDuration: TimeInterval = 0.50
-    /// 0 is critically damped; 0.18 gives the small overshoot Apple's own
-    /// selection indicators have without reading as springy.
-    private static let moveBounce: CGFloat = 0.18
+    // Move timing, matched to a frame-by-frame capture of Instagram's bar:
+    // one-cell tap ≈ 0.25s, longer moves get a visibly longer glide, and the
+    // pill lands with zero overshoot. Distance feeds the spring's frequency,
+    // so it genuinely changes how long a move takes.
+    private static let baseMoveDuration: TimeInterval = 0.25
+    private static let perCellDuration: TimeInterval = 0.03
+    private static let maxMoveDuration: TimeInterval = 0.45
+    /// 0 is critically damped. Instagram's pill shows no overshoot at all —
+    /// its centroid moves monotonically and settles with a smooth decel tail —
+    /// so bounce stays at zero; even 0.18 read as springy next to it.
+    private static let moveBounce: CGFloat = 0
 
     /// How much wider the lens gets at the midpoint of a move, per cell of
-    /// distance travelled, and the ceiling on that. At 0.5 a one-cell move
-    /// swells the lens by half its width, which is enough to reach both icon
-    /// centres as it passes between them — the "spans both cells" look — and
-    /// the cap stops a four-cell move becoming a bar-wide smear. These two
-    /// numbers are the stretch's whole character; tune them first.
-    private static let stretchPerCell: CGFloat = 0.5
-    private static let maxFlightStretch: CGFloat = 0.85
-    /// Drag speed (points/second) that produces the full drag stretch, and how
-    /// much stretch that is.
+    /// distance travelled, and the ceiling on that. Deliberately a whisper:
+    /// Instagram's pill was measured mid-flight at constant width ±5% — the
+    /// "spans both cells at the midpoint" elongation this bar used to do
+    /// turned out not to exist, and at 0.5/cell it read as un-IG. These
+    /// amplitudes stay inside the measured envelope while keeping the
+    /// material feeling faintly alive.
+    private static let stretchPerCell: CGFloat = 0.06
+    private static let maxFlightStretch: CGFloat = 0.12
+    /// The pill's touch-down inflation — Instagram's pill grows ~12% on press
+    /// and holds it through the drag, deflating only as the release settles.
+    private static let pressInflateX: CGFloat = 1.10
+    private static let pressInflateY: CGFloat = 1.06
+    /// Drag speed (points/second) that produces the full extra drag stretch on
+    /// top of the inflation, and how much that is. A whisper, same reasoning
+    /// as `stretchPerCell`.
     private static let stretchVelocity: CGFloat = 2400
-    private static let maxDragStretch: CGFloat = 0.35
+    private static let maxDragStretch: CGFloat = 0.06
     /// Squeeze on Y as the lens widens, so its area stays roughly constant.
     /// Without this it reads as a box getting wider rather than as a volume
     /// of liquid being pulled.
@@ -1018,10 +1076,6 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     /// animation ever started, so nothing moved.
     private var lastBounds: CGRect = .zero
     private let dragFeedback = UISelectionFeedbackGenerator()
-    /// Fills the incoming glyph partway through the move rather than on
-    /// touch-up. Cancelled by anything that re-targets the lens, so a fast
-    /// double switch can't land the wrong glyph filled.
-    private var pendingFill: DispatchWorkItem?
 
     // Live drag state.
     private var isDragging = false
@@ -1053,9 +1107,11 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     private var flightDuration: CFTimeInterval = 0
     private var flightAmplitude: CGFloat = 0
     /// Stretch the lens already had when the flight began — a drag's release
-    /// hands one over. Decays linearly across the flight so the first frame
-    /// doesn't snap a stretched lens back to 1.0.
+    /// hands its press inflation over. Decays linearly across the flight so
+    /// the first frame doesn't snap an inflated lens back to 1.0. X and Y
+    /// kept separately; see `startFlight`.
     private var flightResidual: CGFloat = 0
+    private var flightResidualY: CGFloat = 0
     private var flightVelocity: CGFloat = 0
     private var lastFlightX: CGFloat = 0
     private var lastFlightTime: CFTimeInterval = 0
@@ -1098,7 +1154,6 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
 
     deinit {
         flightLink?.invalidate()
-        pendingFill?.cancel()
     }
 
     /// Interactive glass does its own touch handling; don't starve it.
@@ -1173,10 +1228,13 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         applySelection(index: items.firstIndex(where: { $0.path == activePath }), animated: false)
     }
 
+    /// No same-index early return, deliberately: JS re-asserts the selection
+    /// on every route change as a self-heal for desyncs (a capture showed
+    /// Search lit while resting on Home), and the re-assert has to actually
+    /// re-apply. It's cheap — `setSelected` early-returns per cell and
+    /// `moveLens` no-ops under half a point of travel.
     func setActive(path: String, animated: Bool) {
-        let index = items.firstIndex(where: { $0.path == path })
-        guard index != activeIndex else { return }
-        applySelection(index: index, animated: animated)
+        applySelection(index: items.firstIndex(where: { $0.path == path }), animated: animated)
     }
 
     /// Collapsed geometry. Named for what it does rather than for the labels,
@@ -1191,7 +1249,7 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     /// tab owning them. Passing nil deselects everything and fades the lens
     /// out, which is honest; the previous behaviour was to leave whichever tab
     /// was last lit still lit, on a page it had nothing to do with.
-    private func applySelection(index: Int?, animated: Bool, velocity: CGFloat = 0, bounce: Bool = false) {
+    private func applySelection(index: Int?, animated: Bool, velocity: CGFloat = 0) {
         activeIndex = index
         guard let index else {
             stopFlight()
@@ -1207,46 +1265,26 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
             }
             return
         }
-        let flight = moveLens(to: index, animated: animated, velocity: velocity)
-        // The outgoing glyph un-fills as the lens leaves and the incoming one
-        // fills as it arrives, rather than both swapping on touch-up. That
-        // ordering is what the Instagram capture shows, and it's what stops the
-        // destination reading as already-selected before the lens gets there.
-        highlight(index: index, animated: animated, fillDelay: flight * 0.5, bounce: bounce)
+        moveLens(to: index, animated: animated, velocity: velocity)
+        highlight(index: index, animated: animated)
     }
 
-    /// Un-fills everything but `index` immediately; fills `index` after
-    /// `fillDelay`. Only the cells whose state actually changes animate —
-    /// `setSelected` early-returns otherwise, which is what stopped a drag
-    /// stacking `.replace.offUp` transitions on the same image view until a
-    /// glyph disappeared entirely between two of them.
-    private func highlight(index: Int?, animated: Bool, fillDelay: TimeInterval = 0, bounce: Bool = false) {
-        pendingFill?.cancel()
-        pendingFill = nil
-        for (i, view) in itemViews.enumerated() where i != index {
-            view.setSelected(false, animated: animated)
+    /// Immediate, both directions. An earlier pass delayed the incoming fill
+    /// until the lens was halfway there, which measured on video as ~9 frames
+    /// of *no* tab selected on every tap — a blink Instagram never shows,
+    /// because with no accent colour the outline→fill swap under the pill is
+    /// quiet enough to just happen. Only the cells whose state actually
+    /// changes animate — `setSelected` early-returns otherwise, which is what
+    /// stopped a drag stacking `.replace.offUp` transitions on one image view
+    /// until a glyph disappeared entirely between two of them.
+    private func highlight(index: Int?, animated: Bool) {
+        for (i, view) in itemViews.enumerated() {
+            view.setSelected(i == index, animated: animated)
         }
-        guard let index, index >= 0, index < itemViews.count else { return }
-        guard animated, fillDelay > 0.01, !glassReduceMotion else {
-            itemViews[index].setSelected(true, animated: animated)
-            if bounce { itemViews[index].playSelectionBounce() }
-            return
-        }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, index < self.itemViews.count else { return }
-            self.pendingFill = nil
-            self.itemViews[index].setSelected(true, animated: true)
-            // Bounces with the fill, not at touch-up: firing it on commit
-            // played the whole effect on the *outline* glyph, which then
-            // swapped to the filled one halfway through.
-            if bounce { self.itemViews[index].playSelectionBounce() }
-        }
-        pendingFill = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + fillDelay, execute: work)
     }
 
     /// Fly the lens to `index`. Returns the nominal duration of the move, or 0
-    /// if it didn't animate — `applySelection` uses it to time the glyph fill.
+    /// if it didn't animate.
     ///
     /// Interruptible: an in-flight move is stopped where it is *drawn* rather
     /// than where it was headed, and the speed it had is carried into the
@@ -1365,6 +1403,10 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         flightDuration = duration
         flightAmplitude = min(Self.maxFlightStretch, cells * Self.stretchPerCell)
         flightResidual = lens.transform.a - 1
+        // Y tracked separately: the press inflation *grows* Y (1.06) while the
+        // arc's area compensation *shrinks* it, so deriving Y from X would pop
+        // the pill from 1.06 to ~0.96 on the release frame.
+        flightResidualY = lens.transform.d - 1
         flightVelocity = 0
         // Seeded in the lens's *own* space, the same space `onFlightTick`
         // samples in — not the caller's content space, which is only the same
@@ -1401,8 +1443,10 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         // Elongate toward the target and contract as it lands, plus whatever
         // stretch a drag handed over, decaying linearly.
         let arc = flightAmplitude * CGFloat(sin(Double.pi * t))
-        let scale = 1 + flightResidual * CGFloat(1 - t) + arc
-        lens.transform = CGAffineTransform(scaleX: scale, y: 1 - (scale - 1) * Self.areaCompensation)
+        let fade = CGFloat(1 - t)
+        let scaleX = 1 + flightResidual * fade + arc
+        let scaleY = 1 + flightResidualY * fade - arc * Self.areaCompensation
+        lens.transform = CGAffineTransform(scaleX: scaleX, y: scaleY)
         guard t >= 1 else { return }
         lens.transform = .identity
         stopFlightLink()
@@ -1541,9 +1585,16 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         draggingIndex = nil
         dragCenterX = nil
         touchDownIndex = index(atX: x)
-        // The one thing that does happen on touch-down: the cell dips under
-        // the finger. It's the cell's own transform, so the lens stays put.
-        if let index = touchDownIndex { itemViews[index].setPressed(true, animated: true) }
+        // The one thing that does happen on touch-down: the pill inflates a
+        // little under the finger — measured off Instagram, whose pill grows
+        // ~12% on touch and stays inflated until the release settles. It's a
+        // transform, not a position, so the one-animation-per-tap rule holds.
+        // (An earlier pass scaled the tapped *icon* instead; Instagram's
+        // icons never move.)
+        guard let lens, !glassReduceMotion, lens.alpha > 0.5 else { return }
+        UIView.animate(withDuration: 0.18, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {
+            lens.transform = CGAffineTransform(scaleX: Self.pressInflateX, y: Self.pressInflateY)
+        }
     }
 
     private func updateDrag(to x: CGFloat) {
@@ -1582,7 +1633,6 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
             // touch has moved, so a tap can never reach this.
             dragFeedback.selectionChanged()
             dragFeedback.prepare()
-            itemViews.indices.forEach { itemViews[$0].setPressed($0 == hovered, animated: true) }
             draggingIndex = hovered
             // No fill delay mid-drag: the glyph should light as the lens
             // passes over it, not half a move later.
@@ -1596,14 +1646,18 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         applyDragStretch()
     }
 
-    /// Stretch toward the direction of travel while the finger is down. The
-    /// settle flight picks the stretch up from here on release, so the two
-    /// never fight over the transform.
+    /// The pill's transform while the finger is down and moving: the press
+    /// inflation as the base, plus a whisper of speed-proportional stretch.
+    /// Written directly every frame — for the first ~0.18s this overlaps the
+    /// touch-down inflate animation, which UIKit resolves by finishing that
+    /// animation over these writes; both target the same base scale, so the
+    /// seam is invisible. The settle flight picks the transform up from here
+    /// on release (`flightResidual`), so the two never fight over it.
     private func applyDragStretch() {
         guard let lens, !glassReduceMotion else { return }
         let speed = min(abs(dragVelocity), Self.stretchVelocity)
-        let scale = 1 + (speed / Self.stretchVelocity) * Self.maxDragStretch
-        lens.transform = CGAffineTransform(scaleX: scale, y: 1 - (scale - 1) * Self.areaCompensation)
+        let extra = (speed / Self.stretchVelocity) * Self.maxDragStretch
+        lens.transform = CGAffineTransform(scaleX: Self.pressInflateX + extra, y: Self.pressInflateY - extra * Self.areaCompensation)
     }
 
     /// Let the stretch settle back to a plain capsule. Only for the releases
@@ -1641,7 +1695,6 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         draggingIndex = nil
         touchDownIndex = nil
         dragVelocity = 0
-        itemViews.forEach { $0.setPressed(false, animated: true) }
         guard !cancelled, !strayed, let index else {
             // Put the selection back where the route actually is, carrying the
             // speed the finger had. A negative seed is correct here and the
@@ -1660,7 +1713,10 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     private func commit(index: Int, velocity: CGFloat = 0) {
         guard index >= 0, index < items.count else { return }
         let alreadyActive = index == activeIndex
-        applySelection(index: index, animated: true, velocity: velocity, bounce: true)
+        applySelection(index: index, animated: true, velocity: velocity)
+        // After applySelection, so the bounce plays on the already-filled
+        // glyph rather than on the outline it's about to replace.
+        itemViews[index].playSelectionBounce()
         // Re-tapping the current tab is a no-op for the router, but the
         // selection animation above still plays, which is the right feedback.
         guard !alreadyActive else { return }
@@ -1668,16 +1724,21 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
     }
 }
 
-/// One tab: a symbol, optionally over a label.
+/// One tab: a symbol (or an avatar circle), optionally over a label.
 ///
-/// Metrics follow a real tab bar rather than being tuned by eye: a constant
-/// 25pt `.regular` symbol, with selection carried by fill and tint alone. An
-/// earlier pass flipped the symbol to `.semibold` and the label to `.bold` when
-/// selected, which made the selected glyph read as chunkier and slightly
-/// blurrier than its neighbours — most of why the icons looked off.
+/// Metrics are measured off Instagram's bar, not tuned by eye: a constant
+/// 22pt `.medium` symbol (IG's glyphs are 22pt with a ~2.2pt stroke), the
+/// same colour selected and unselected, both states full-strength `.label`.
+/// Selection is carried by the outline→fill swap and the sliding pill —
+/// there is no accent colour anywhere in Instagram's bar, and the rust
+/// accent this used to paint was one of the louder tells.
 final class GlassTabItemView: UIView {
-    private static let iconPointSize: CGFloat = 25
+    private static let iconPointSize: CGFloat = 22
     private static let stackSpacing: CGFloat = 2
+    /// The avatar circle (profile tab). 24pt, a hair bigger than the glyphs,
+    /// exactly as Instagram draws its profile photo relative to its icons.
+    private static let avatarSize: CGFloat = 24
+    private static let ringWidth: CGFloat = 2
     /// Instagram's tab bar has no labels, and that is what lets it be 50pt tall
     /// with a wide capsule lens instead of a nearly-square one. Apple's own
     /// apps do label theirs, so this is a style choice rather than a
@@ -1689,6 +1750,17 @@ final class GlassTabItemView: UIView {
     private let icon = UIImageView()
     private let title = UILabel()
     private let stack = UIStackView()
+    /// Instagram's fifth tab is *the user*, not a person glyph. This app's
+    /// mark for the user is an initial in a tinted circle (see the profile
+    /// page), so that's what an avatar item draws — or a fetched photo, if
+    /// the data model ever grows one. Selected state is a `.label` ring, the
+    /// same tell IG uses on its avatar tab.
+    private let avatar = UIView()
+    private let avatarLabel = UILabel()
+    private let avatarImage = UIImageView()
+    /// One shared cache so a bar reinstall (route bounce, theme flip) never
+    /// refetches the photo.
+    private static let avatarCache = NSCache<NSString, UIImage>()
     private var stackCenterY: NSLayoutConstraint?
     private var item: GlassTabBar.Item?
     private var tint: UIColor = .label
@@ -1709,6 +1781,21 @@ final class GlassTabItemView: UIView {
         icon.contentMode = .center
         icon.setContentHuggingPriority(.required, for: .vertical)
 
+        avatar.isHidden = true
+        avatar.layer.cornerRadius = Self.avatarSize / 2
+        avatar.clipsToBounds = false
+        avatarLabel.font = .systemFont(ofSize: 13, weight: .bold)
+        avatarLabel.textAlignment = .center
+        avatarImage.contentMode = .scaleAspectFill
+        avatarImage.layer.cornerRadius = Self.avatarSize / 2
+        avatarImage.clipsToBounds = true
+        avatarImage.isHidden = true
+        avatar.addSubview(avatarLabel)
+        avatar.addSubview(avatarImage)
+        avatarLabel.translatesAutoresizingMaskIntoConstraints = false
+        avatarImage.translatesAutoresizingMaskIntoConstraints = false
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+
         title.font = .systemFont(ofSize: 10, weight: .medium)
         title.textAlignment = .center
         title.adjustsFontSizeToFitWidth = true
@@ -1723,12 +1810,23 @@ final class GlassTabItemView: UIView {
         stack.spacing = Self.stackSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(icon)
+        stack.addArrangedSubview(avatar)
         if Self.showsLabels { stack.addArrangedSubview(title) }
         addSubview(stack)
 
         let centerY = stack.centerYAnchor.constraint(equalTo: centerYAnchor)
         stackCenterY = centerY
-        var constraints = [stack.centerXAnchor.constraint(equalTo: centerXAnchor), centerY]
+        var constraints = [
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor), centerY,
+            avatar.widthAnchor.constraint(equalToConstant: Self.avatarSize),
+            avatar.heightAnchor.constraint(equalToConstant: Self.avatarSize),
+            avatarLabel.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
+            avatarLabel.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+            avatarImage.topAnchor.constraint(equalTo: avatar.topAnchor),
+            avatarImage.bottomAnchor.constraint(equalTo: avatar.bottomAnchor),
+            avatarImage.leadingAnchor.constraint(equalTo: avatar.leadingAnchor),
+            avatarImage.trailingAnchor.constraint(equalTo: avatar.trailingAnchor),
+        ]
         // Only when the label is actually in the hierarchy: with `showsLabels`
         // off it has no superview, and a constraint between it and `self` has
         // no common ancestor to resolve against — which traps on activation
@@ -1746,17 +1844,50 @@ final class GlassTabItemView: UIView {
         self.tint = tint
         title.text = item.label
         accessibilityLabel = item.label
+        let isAvatar = item.avatarInitial != nil || item.avatarUrl != nil
+        avatar.isHidden = !isAvatar
+        icon.isHidden = isAvatar
+        if isAvatar {
+            avatar.backgroundColor = tint.withAlphaComponent(0.25)
+            avatarLabel.text = item.avatarInitial.map { String($0.prefix(1)).uppercased() }
+            avatarLabel.textColor = .label
+            loadAvatarIfNeeded(url: item.avatarUrl)
+        }
         // The symbol and the tint both just changed, so the state cache has to
         // go or `setSelected` would early-return on a stale match.
         self.selected = nil
         setSelected(selected, animated: false)
     }
 
+    /// Photo over initial, when the data model has one. Fetched once per URL
+    /// per process; the initial-circle stays until it lands and on any failure.
+    private func loadAvatarIfNeeded(url: String?) {
+        avatarImage.isHidden = true
+        avatarImage.image = nil
+        guard let url, let parsed = URL(string: url) else { return }
+        let key = url as NSString
+        if let cached = Self.avatarCache.object(forKey: key) {
+            avatarImage.image = cached
+            avatarImage.isHidden = false
+            return
+        }
+        URLSession.shared.dataTask(with: parsed) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            Self.avatarCache.setObject(image, forKey: key)
+            DispatchQueue.main.async {
+                guard let self, self.item?.avatarUrl == url else { return }
+                self.avatarImage.image = image
+                self.avatarImage.isHidden = false
+            }
+        }.resume()
+    }
+
     /// Where the glyph actually sits, which is the cell's centre only when the
     /// labels are off. The lens centres on this so it stays a horizontal
     /// capsule around the icon either way.
     func iconCenter(in view: UIView) -> CGPoint {
-        let rect = icon.convert(icon.bounds, to: view)
+        let mark: UIView = avatar.isHidden ? icon : avatar
+        let rect = mark.convert(mark.bounds, to: view)
         guard rect.width > 0, rect.height > 0 else {
             let cell = convert(bounds, to: view)
             return CGPoint(x: cell.midX, y: cell.midY)
@@ -1782,22 +1913,40 @@ final class GlassTabItemView: UIView {
         guard let item, selected != next else { return }
         selected = next
         accessibilityTraits = next ? [.button, .selected] : [.button]
+        // Both states are full-strength `.label` — white over dark chrome,
+        // black over light — exactly as Instagram draws every glyph. The
+        // earlier `.secondaryLabel` / 75%-alpha dimming washed the unselected
+        // row out, and the rust tint on the selected one was the loudest
+        // not-Instagram thing in the bar. Selection reads from the pill and
+        // the fill alone.
+        icon.tintColor = .label
+        title.textColor = .label
+        if !avatar.isHidden {
+            updateAvatarRing()
+            return
+        }
         let name = next ? (item.selectedSymbol ?? item.symbol) : item.symbol
-        let config = UIImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .regular)
+        let config = UIImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         // A symbol name that doesn't resolve yields nil, which would leave a
         // blank tab. Fall back through the unfilled name to a shape that
         // always exists, so a typo costs an icon and not the whole bar.
         let image = UIImage(systemName: name, withConfiguration: config)
             ?? UIImage(systemName: item.symbol, withConfiguration: config)
             ?? UIImage(systemName: "circle", withConfiguration: config)
-        // Unselected used to be `.secondaryLabel`, which over a near-white
-        // glass bar washed out to a pale grey. Full-strength label at 75%
-        // keeps the unselected tabs legible while still sitting clearly behind
-        // the selected one, which carries the brand colour.
-        let color: UIColor = next ? tint : UIColor.label.withAlphaComponent(0.75)
-        icon.tintColor = color
-        title.textColor = color
         setIcon(image, animated: animated)
+    }
+
+    /// The selected-avatar ring. `borderColor` is a CGColor, which does not
+    /// re-resolve when the trait flips (dark pages force dark chrome), so
+    /// `traitCollectionDidChange` below re-applies it.
+    private func updateAvatarRing() {
+        avatar.layer.borderWidth = selected == true ? Self.ringWidth : 0
+        avatar.layer.borderColor = UIColor.label.resolvedColor(with: traitCollection).cgColor
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if !avatar.isHidden { updateAvatarRing() }
     }
 
     private func setIcon(_ image: UIImage?, animated: Bool) {
@@ -1825,22 +1974,22 @@ final class GlassTabItemView: UIView {
     /// off for each tab a drag passes over.
     func playSelectionBounce() {
         guard !glassReduceMotion else { return }
-        if #available(iOS 17.0, *) {
-            icon.addSymbolEffect(.bounce.down, options: .nonRepeating)
+        if avatar.isHidden {
+            if #available(iOS 17.0, *) {
+                icon.addSymbolEffect(.bounce.down, options: .nonRepeating)
+            }
+            return
         }
+        // The avatar circle is not a symbol, so it gets the same dip by hand.
+        UIView.animate(withDuration: 0.12, delay: 0, options: [.beginFromCurrentState, .curveEaseOut], animations: {
+            self.avatar.transform = CGAffineTransform(translationX: 0, y: 2)
+        }, completion: { _ in
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+                self.avatar.transform = .identity
+            }
+        })
     }
 
-    /// Under the finger during a drag. Hand-animated because the cells sit
-    /// above the lens, so they — not the glass — are what the touch lands on.
-    func setPressed(_ pressed: Bool, animated: Bool) {
-        let scale: CGFloat = pressed && !glassReduceMotion ? 1.06 : 1
-        let apply = { self.stack.transform = CGAffineTransform(scaleX: scale, y: scale) }
-        if animated {
-            UIView.animate(withDuration: 0.16, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
-        } else {
-            apply()
-        }
-    }
 
     func setLabelHidden(_ hidden: Bool, animated: Bool) {
         guard Self.showsLabels else { return }

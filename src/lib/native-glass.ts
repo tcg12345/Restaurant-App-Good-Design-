@@ -23,11 +23,18 @@ export interface GlassTabItem {
   /** Filled counterpart drawn while the tab is selected — the thing that
    *  makes a tab bar read as native rather than as five outlines. Omit
    *  where the symbol has no `.fill` variant (magnifyingglass, list.bullet);
-   *  the weight and tint change carry those. A name that doesn't resolve
+   *  the sliding pill carries those alone. A name that doesn't resolve
    *  falls back to `symbol` rather than blanking the tab. */
   selectedSymbol?: string;
   /** Shown under the icon, and read by VoiceOver. */
   label: string;
+  /** Instagram draws the profile tab as *the user*, not a person glyph. This
+   *  app's mark for the user is an initial in a tinted circle (the profile
+   *  page draws the same), so the native cell renders that when set. */
+  avatarInitial?: string;
+  /** Honoured over the initial when the data model ever grows real avatar
+   *  photos. Nothing populates it today. */
+  avatarUrl?: string;
 }
 
 export type GlassUnsupportedReason = '' | 'requiresIOS26' | 'reduceTransparency' | 'notNative';
@@ -44,6 +51,13 @@ interface LiquidGlassPlugin {
    *  from `useGlassScrollMinimize` below — see the comment there for why the
    *  scroll signal cannot come from the native side. */
   setMinimized(options: { minimized: boolean; animated?: boolean }): Promise<void>;
+  /** Force the bar's dark chrome. The material and icons resolve by *trait*
+   *  (the app theme), not by what's behind them — so over the always-black
+   *  Reels page a light-themed app got a light warm fog with charcoal icons
+   *  that vanished against dark video. Instagram flips to near-black chrome
+   *  with white icons there; this is that flip. `dark: false` follows the
+   *  app theme again. */
+  setBarStyle(options: { dark: boolean }): Promise<void>;
   setVisible(options: { visible: boolean; animated?: boolean }): Promise<void>;
   removeTabBar(): Promise<void>;
   addListener(
@@ -72,6 +86,7 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
     async configureTabBar() { /* no native bar off-device */ },
     async setActiveTab() { /* no-op */ },
     async setMinimized() { /* no-op */ },
+    async setBarStyle() { /* no-op */ },
     async setVisible() { /* no-op */ },
     async removeTabBar() { /* no-op */ },
     addListener: noopListener,
@@ -284,9 +299,16 @@ export function useNativeGlassNav(options: {
    *  because nothing else in `src/lib/` depends on react-router, and the
    *  caller already holds the location. */
   pathname: string;
+  /** The page behind the bar is dark regardless of theme (Reels), so the bar
+   *  should wear its dark chrome — near-black glass, white icons — the way
+   *  Instagram's does over dark content. */
+  darkPage?: boolean;
+  /** First letter of the signed-in user's name; the Profile tab draws it as
+   *  the app's initial-circle avatar, Instagram-style. */
+  avatarInitial?: string;
   onSelect: (path: string) => void;
 }): { active: boolean } {
-  const { enabled, hidden, activePath, pathname, onSelect } = options;
+  const { enabled, hidden, activePath, pathname, darkPage = false, avatarInitial, onSelect } = options;
   const [supported, setSupported] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
   // Latest handler without re-subscribing the native listener on every
@@ -316,16 +338,15 @@ export function useNativeGlassNav(options: {
   const active = supported && enabled;
   const suspended = hidden || overlayOpen;
 
-  // Install / tear down.
+  // Lifecycle: the listener and the teardown. Deliberately does NOT also
+  // configure — that lives in the effect below, which re-runs when the
+  // avatar initial arrives (the profile loads after boot), and folding the
+  // two together would make that re-run tear the whole bar down
+  // (`removeTabBar` is this effect's cleanup) just to change one cell.
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
     let handle: PluginListenerHandle | null = null;
-    void LiquidGlass.configureTabBar({
-      items: GLASS_TAB_ITEMS,
-      variant: 'capsule',
-      activePath,
-    }).catch(() => { /* install failed — the web nav is still mounted below */ });
     void LiquidGlass.addListener('tabSelected', ({ path }) => {
       onSelectRef.current(path);
     }).then((h) => {
@@ -337,15 +358,41 @@ export function useNativeGlassNav(options: {
       void handle?.remove();
       void LiquidGlass.removeTabBar().catch(() => {});
     };
+  }, [active]);
+
+  // Install, and reconfigure in place when the avatar initial changes —
+  // `configureTabBar` on an installed bar rebuilds the cells without a
+  // teardown, so the Profile tab upgrades from the person glyph to the
+  // initial-circle without a blink.
+  useEffect(() => {
+    if (!active) return;
+    const items = avatarInitial
+      ? GLASS_TAB_ITEMS.map((item) => (item.path === '/profile' ? { ...item, avatarInitial } : item))
+      : GLASS_TAB_ITEMS;
+    void LiquidGlass.configureTabBar({
+      items,
+      variant: 'capsule',
+      activePath,
+    }).catch(() => { /* install failed — the web nav is still mounted below */ });
     // `activePath` is the *initial* selection only; the effect below moves it
     // afterwards without reinstalling the bar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, avatarInitial]);
 
+  // `pathname` is deliberately a dep even though only `activePath` is sent:
+  // a screen recording caught the bar resting with Search lit on the Home
+  // page — a desync whose origin isn't provable after the fact. Re-asserting
+  // on *every* navigation (the native side applies same-path re-asserts too)
+  // turns any such desync from permanent into gone-at-the-next-route-change.
   useEffect(() => {
     if (!active) return;
     void LiquidGlass.setActiveTab({ path: activePath }).catch(() => {});
-  }, [active, activePath]);
+  }, [active, activePath, pathname]);
+
+  useEffect(() => {
+    if (!active) return;
+    void LiquidGlass.setBarStyle({ dark: darkPage }).catch(() => {});
+  }, [active, darkPage]);
 
   useEffect(() => {
     if (!active) return;

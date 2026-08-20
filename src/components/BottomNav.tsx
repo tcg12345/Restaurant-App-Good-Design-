@@ -4,6 +4,7 @@ import { Compass, Search, User, ListPlus, Film } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { activeTabPath, useNativeGlassNav } from '../lib/native-glass';
 
 const navItems = [
@@ -44,6 +45,10 @@ export const BottomNav: React.FC = () => {
 
   // App.tsx only mounts this component on routes that should show a tab bar,
   // so being mounted at all is the "enabled" signal for the native one.
+  const { profile } = useAuth();
+  const avatarInitial =
+    (profile?.display_name || profile?.username || '').trim().charAt(0).toUpperCase() || undefined;
+
   const glass = useNativeGlassNav({
     enabled: true,
     hidden: navHidden,
@@ -51,6 +56,12 @@ export const BottomNav: React.FC = () => {
     // The full route as well as the owning tab: the native bar un-shrinks on
     // every navigation, including ones that stay within a tab.
     pathname: location.pathname,
+    // Reels is black regardless of theme, so the bar wears its dark chrome
+    // there — near-black glass, white icons — the way Instagram's does.
+    darkPage: location.pathname.startsWith('/reels'),
+    // The Profile tab draws the signed-in user as the app's initial-circle
+    // avatar (there are no avatar photos in the data model to show).
+    avatarInitial,
     onSelect: (path) => navigate(path),
   });
 
