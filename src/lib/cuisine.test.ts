@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveCuisine, cuisineLabel, canonicalCuisineLabel, cuisineFromTypes, labelForCuisineType,
-  cuisineFromName, isUnknownCuisine, displayCuisine } from './cuisine';
+  cuisineFromName, isUnknownCuisine, displayCuisine, formatCuisines } from './cuisine';
 
 /** What Google returns for a rural place: it knows the type, but `types`
  *  carries only the generic tail. This is the case the whole module is for. */
@@ -315,5 +315,44 @@ describe('displayCuisine', () => {
   it('passes a real cuisine through, trimmed', () => {
     expect(displayCuisine('  Peruvian ')).toBe('Peruvian');
     expect(displayCuisine('Bar')).toBe('Bar');
+  });
+});
+
+
+/**
+ * Several cuisines on one line (migration 071).
+ *
+ * The separator is the whole point. Every meta line in the app is
+ * `[cuisine, price, city].filter(Boolean).join(' · ')`, so cuisines cannot
+ * also be joined with ' · ' — "Italian · Pizza · $$" reads as three fields
+ * and no reader can tell where the cuisines end.
+ */
+describe('formatCuisines', () => {
+  it('joins with a comma so the meta line stays parseable', () => {
+    expect(formatCuisines(['Italian', 'Pizza'])).toBe('Italian, Pizza');
+    expect(['Italian, Pizza', '$$'].filter(Boolean).join(' · ')).toBe('Italian, Pizza · $$');
+  });
+
+  it('handles the ordinary single-cuisine case', () => {
+    expect(formatCuisines(['Thai'])).toBe('Thai');
+  });
+
+  it('is empty when there is nothing to say', () => {
+    expect(formatCuisines([])).toBe('');
+    expect(formatCuisines([''])).toBe('');
+    expect(formatCuisines([null, undefined])).toBe('');
+  });
+
+  it('drops the non-answers rather than printing them alongside real ones', () => {
+    expect(formatCuisines(['Restaurant', 'Peruvian'])).toBe('Peruvian');
+    expect(formatCuisines(['Italian', 'Food'])).toBe('Italian');
+  });
+
+  it('collapses duplicates, however they are cased', () => {
+    expect(formatCuisines(['Italian', 'italian', 'Pizza'])).toBe('Italian, Pizza');
+  });
+
+  it('preserves the order it is given — the primary comes first', () => {
+    expect(formatCuisines(['Pizza', 'Italian'])).toBe('Pizza, Italian');
   });
 });

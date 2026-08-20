@@ -10,8 +10,8 @@ import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../conte
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
-import { cuisineLabel, type CuisineSource } from '../lib/cuisine';
-import { settleRestaurantCuisine } from '../lib/restaurant-cuisine';
+import { cuisineLabel, formatCuisines, type CuisineSource } from '../lib/cuisine';
+import { settleRestaurantCuisine, getRestaurantCuisineTags } from '../lib/restaurant-cuisine';
 import { isOsmCuisine, osmAttribution } from '../lib/cuisine-lookup';
 import { submitCuisineSuggestion, getMyCuisineSuggestion, type CuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
@@ -265,6 +265,8 @@ export function useRestaurantDetail() {
   // don't write on every re-render.
   useEffect(() => { setMySuggestion(null); }, [id]);
 
+  const [extraCuisines, setExtraCuisines] = useState<string[]>([]);
+
   // Their own pending/decided proposal, so the screen can say what
   // happened to it rather than silently showing the old label.
   useEffect(() => {
@@ -311,6 +313,26 @@ export function useRestaurantDetail() {
     () => (place?.id && settledCuisine && isOsmCuisine(place.id) ? osmAttribution() : ''),
     [place?.id, settledCuisine],
   );
+
+  // The additional cuisines (migration 071). Crowd-sourced only, so they
+  // are nothing to do with settleRestaurantCuisine's source ranking and are
+  // read on their own. `cuisine` above stays the single primary — it is
+  // what gets saved onto a rating and what every filter and top list means
+  // by "the cuisine"; only the display gets the whole set.
+  useEffect(() => {
+    if (!place?.id) { setExtraCuisines([]); return; }
+    let cancelled = false;
+    void getRestaurantCuisineTags(place.id)
+      .then((tags) => { if (!cancelled) setExtraCuisines(tags); });
+    return () => { cancelled = true; };
+  }, [place?.id, mySuggestion?.status]);
+
+  const cuisines = useMemo(
+    () => [cuisine, ...extraCuisines].filter(Boolean),
+    [cuisine, extraCuisines],
+  );
+  /** "Italian, Pizza" — what the header prints. */
+  const cuisineLine = useMemo(() => formatCuisines(cuisines), [cuisines]);
 
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
@@ -524,6 +546,8 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
+    cuisines,
+    cuisineLine,
     cuisineCredit,
     suggestCuisine,
     mySuggestion,

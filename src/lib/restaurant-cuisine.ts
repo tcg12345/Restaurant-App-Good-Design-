@@ -51,10 +51,22 @@ export function cuisineConfidence(source: string): number {
 }
 
 export interface CachedCuisine {
+  /** The primary cuisine — the winner of the source ranking below. This is
+   *  the one canonical value: what filters, facets, top lists and saved
+   *  ratings mean by "the cuisine". */
   cuisine: string;
   source: string;
   confidence: number;
+  /** Every cuisine the restaurant has, primary first, at most
+   *  CUISINE_MAX_COUNT. The extras are crowd-sourced only — an admin
+   *  approved them, or enough people agreed (migration 071). No automatic
+   *  source can put one here. */
+  cuisines: string[];
 }
+
+/** Mirrors cuisine_max_count() in migration 071 — the DB is authoritative;
+ *  this is here so the UI can say what the number is. */
+export const CUISINE_MAX_COUNT = 3;
 
 /**
  * The floor for writing a cached cuisine into somebody's saved rating.
@@ -92,6 +104,7 @@ export async function getRestaurantCuisineBatch(ids: string[]): Promise<Record<s
             cuisine: row.cuisine,
             source: row.source,
             confidence: row.confidence ?? cuisineConfidence(row.source),
+            cuisines: [row.cuisine],
           };
         }
       }
@@ -99,7 +112,61 @@ export async function getRestaurantCuisineBatch(ids: string[]): Promise<Record<s
       return out;
     }
   }
+  await attachCuisineTags(out, unique);
   return out;
+}
+
+/**
+ * Fold each restaurant's additional cuisines onto the primaries already
+ * read. One extra query per chunk, and a failure is silent: the extras are
+ * an enrichment, and a screen showing one cuisine instead of three is
+ * still a working screen.
+ *
+ * Restaurants with no primary are skipped rather than given a tag-only
+ * list — a tag exists only alongside a primary (071 refuses otherwise), so
+ * a tag without one means the primary was just removed, and the honest
+ * answer while that settles is nothing.
+ */
+async function attachCuisineTags(out: Record<string, CachedCuisine>, ids: string[]): Promise<void> {
+  const known = ids.filter((id) => out[id]);
+  if (known.length === 0) return;
+  for (let i = 0; i < known.length; i += CHUNK) {
+    try {
+      const { data, error } = await supabase.from('restaurant_cuisine_tags')
+        .select('restaurant_id, cuisine, votes, created_at')
+        .in('restaurant_id', known.slice(i, i + CHUNK))
+        // Best-agreed first, then oldest — the same order migration 071
+        // promotes them in, so the app and the database never disagree
+        // about which cuisine is the second one.
+        .order('votes', { ascending: false })
+        .order('created_at', { ascending: true });
+      if (error) return;
+      for (const row of (data || []) as Array<{ restaurant_id: string; cuisine: string }>) {
+        const entry = out[row.restaurant_id];
+        if (!entry || !row.cuisine) continue;
+        if (entry.cuisines.some((c) => c.toLowerCase() === row.cuisine.toLowerCase())) continue;
+        if (entry.cuisines.length >= CUISINE_MAX_COUNT) continue;
+        entry.cuisines.push(row.cuisine);
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
+/** Just the additional cuisines for one restaurant, primary excluded. */
+export async function getRestaurantCuisineTags(restaurantId: string): Promise<string[]> {
+  if (!supabaseConfigured || !restaurantId) return [];
+  try {
+    const { data, error } = await supabase.from('restaurant_cuisine_tags')
+      .select('cuisine, votes, created_at')
+      .eq('restaurant_id', restaurantId)
+      .order('votes', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(CUISINE_MAX_COUNT);
+    if (error) return [];
+    return (data || []).map((r: { cuisine: string }) => r.cuisine).filter(Boolean);
+  } catch { return []; }
 }
 
 /** One id — convenience over the batch reader. */

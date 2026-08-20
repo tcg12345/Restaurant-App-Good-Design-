@@ -176,6 +176,29 @@ export function displayCuisine(cuisine: string | null | undefined): string {
 }
 
 /**
+ * Several cuisines on one line.
+ *
+ * Comma-separated, NOT the ' · ' every meta line uses to separate its
+ * fields — otherwise "Italian · Pizza · $$" reads as three fields and a
+ * reader cannot tell where the cuisines stop and the price starts.
+ * "Italian, Pizza · $$" is unambiguous.
+ *
+ * Non-answers are dropped and duplicates collapsed, so a caller can hand
+ * over whatever it has without pre-cleaning.
+ */
+export function formatCuisines(cuisines: Array<string | null | undefined>): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of cuisines) {
+    const c = displayCuisine(raw);
+    if (!c || seen.has(c.toLowerCase())) continue;
+    seen.add(c.toLowerCase());
+    out.push(c);
+  }
+  return out.join(', ');
+}
+
+/**
  * The label to display, or '' when unknown.
  *
  * '' rather than 'Restaurant' on purpose: every meta line in the app builds

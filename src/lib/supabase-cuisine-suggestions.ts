@@ -133,9 +133,47 @@ export async function adminListCuisineSuggestions(status: SuggestionStatus, limi
   } catch { return []; }
 }
 
-export async function approveCuisineSuggestion(id: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * How a reviewer means an approval.
+ *
+ * A suggestion is genuinely ambiguous and only a person can resolve it:
+ * "this place is also Korean" and "this place is not Italian, it's Korean"
+ * arrive as the same row. So the reviewer says which.
+ *
+ *   add      keep what is there and add this alongside it (migration 071
+ *            allows up to CUISINE_MAX_COUNT). What consensus uses too:
+ *            when strangers agree, adding is the safe reading.
+ *   primary  what is there is wrong. Replaces it outright — this is what
+ *            makes a correction actually stick.
+ */
+export type ApprovalMode = 'add' | 'primary';
+
+export async function approveCuisineSuggestion(
+  id: string,
+  mode: ApprovalMode = 'add',
+): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseConfigured) return { ok: false, error: 'Not configured' };
-  const { error } = await supabase.rpc('approve_cuisine_suggestion', { p_id: id });
+  const { error } = await supabase.rpc('approve_cuisine_suggestion', { p_id: id, p_mode: mode });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/**
+ * Drop one of a restaurant's cuisines. Admin-only, enforced server-side.
+ *
+ * Needed for more than tidiness: a restaurant at the cap cannot accept
+ * another suggestion, so without this the queue for it is permanently
+ * un-actionable. Removing the primary promotes the best-agreed additional
+ * cuisine rather than leaving the restaurant blank.
+ */
+export async function removeRestaurantCuisine(
+  restaurantId: string,
+  cuisine: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseConfigured) return { ok: false, error: 'Not configured' };
+  const { error } = await supabase.rpc('remove_restaurant_cuisine', {
+    p_restaurant_id: restaurantId,
+    p_cuisine: cuisine,
+  });
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 

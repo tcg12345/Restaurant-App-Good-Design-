@@ -18,6 +18,7 @@ import { Check, Clock, Loader2, Plus, Search, SquarePen, X } from 'lucide-react'
 import { cn } from '../lib/utils';
 import { SUGGESTABLE_CUISINES } from '../lib/cuisine';
 import { AUTO_APPLY_VOTES } from '../lib/supabase-cuisine-suggestions';
+import { CUISINE_MAX_COUNT } from '../lib/restaurant-cuisine';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 
@@ -29,13 +30,21 @@ export const CuisinePicker: React.FC<{
   /** Files the suggestion. Resolves false when it didn't go through, so
    *  the sheet can stay open rather than pretending it worked. */
   onSelect: (cuisine: string) => Promise<boolean> | boolean | void;
-  /** The cuisine currently shown, ticked in the list. */
-  current?: string;
+  /** Every cuisine the restaurant already has, ticked in the list. A place
+   *  can hold up to CUISINE_MAX_COUNT of them (migration 071). */
+  current?: string | string[];
   /** Named in the header so it's obvious what is being labelled. */
   restaurantName?: string;
   /** A proposal this user already has in for this place. */
   pending?: string;
 }> = ({ open, onClose, onSelect, current, restaurantName, pending }) => {
+  const existing = useMemo(
+    () => (Array.isArray(current) ? current : current ? [current] : [])
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean),
+    [current],
+  );
+  const full = existing.length >= CUISINE_MAX_COUNT;
   const { phoneMode } = useSettings();
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState('');
@@ -114,6 +123,9 @@ export const CuisinePicker: React.FC<{
                 </h2>
                 <p className="mt-0.5 text-[12.5px] leading-snug text-on-surface/45">
                   {restaurantName ? <>for <span className="font-semibold text-on-surface/65">{restaurantName}</span>. </> : null}
+                  {existing.length > 0
+                    ? <>A restaurant can have up to {CUISINE_MAX_COUNT}, so this is an <em className="not-italic font-semibold text-on-surface/65">additional</em> one. </>
+                    : null}
                   Sent for review — it goes live once it's approved, or once {AUTO_APPLY_VOTES} people suggest the same thing.
                 </p>
               </div>
@@ -126,6 +138,13 @@ export const CuisinePicker: React.FC<{
                 <X size={17} />
               </button>
             </div>
+
+            {full && (
+              <div className="mx-5 mb-3 rounded-xl bg-on-surface/[0.05] px-3 py-2.5 text-[12.5px] leading-snug text-on-surface/60">
+                This restaurant already has {CUISINE_MAX_COUNT} cuisines, the most it can hold. You
+                can still suggest one — a reviewer would have to swap it for an existing one.
+              </div>
+            )}
 
             {pending && (
               <div className="mx-5 mb-3 flex items-center gap-2 rounded-xl bg-primary/[0.07] px-3 py-2.5 text-[12.5px] text-on-surface/70">
@@ -171,15 +190,17 @@ export const CuisinePicker: React.FC<{
               ) : (
                 <ul>
                   {filtered.map((label) => {
-                    const active = !!current && label.toLowerCase() === current.toLowerCase();
+                    const active = existing.includes(label.toLowerCase());
                     return (
                       <li key={label}>
                         <button
                           type="button"
-                          onClick={() => pick(label)}
+                          onClick={() => { if (!active) void pick(label); }}
+                          aria-disabled={active}
+                          title={active ? 'Already one of this restaurant’s cuisines' : undefined}
                           className={cn(
-                            'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-on-surface/[0.05]',
-                            active && 'bg-on-surface/[0.05]',
+                            'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors',
+                            active ? 'cursor-default bg-on-surface/[0.05]' : 'hover:bg-on-surface/[0.05]',
                           )}
                         >
                           <span className={cn('text-[15px] text-on-surface', active ? 'font-bold' : 'font-medium')}>

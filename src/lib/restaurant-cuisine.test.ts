@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { rows, upserts, upsert, osmHits, lookupCalls, credited } = vi.hoisted(() => ({
+const { rows, tagRows, upserts, upsert, osmHits, lookupCalls, credited } = vi.hoisted(() => ({
   rows: [] as Array<{ restaurant_id: string; cuisine: string; source: string; confidence: number }>,
+  /** restaurant_cuisine_tags — the crowd-sourced additional cuisines (071). */
+  tagRows: [] as Array<{ restaurant_id: string; cuisine: string; votes: number; created_at: string }>,
   upserts: [] as Array<{ restaurant_id: string; cuisine: string; source: string }>,
   upsert: vi.fn(),
   /** What the OSM lookup will claim to have found, keyed by place id. */
@@ -24,32 +26,43 @@ vi.mock('./cuisine-lookup', () => ({
 vi.mock('./supabase', () => ({
   supabaseConfigured: true,
   supabase: {
-    from: () => ({
-      select: () => ({
-        in: async (_col: string, ids: string[]) => ({
-          data: rows.filter((r) => ids.includes(r.restaurant_id)),
-          error: null,
-        }),
-      }),
-      upsert: (row: { restaurant_id: string; cuisine: string; source: string }) => {
-        upsert(row);
-        upserts.push(row);
-        return Promise.resolve({ error: null });
-      },
-    }),
+    from: (table: string) => {
+      const source = () => (table === 'restaurant_cuisine_tags' ? tagRows : rows) as Array<Record<string, unknown>>;
+      // The tags read chains .in().order().order(); the primary read stops
+      // at .in(). One thenable that answers both.
+      const q = (filter: (r: Record<string, unknown>) => boolean) => {
+        const self = {
+          in: (_c: string, ids: string[]) => q((r) => filter(r) && ids.includes(r.restaurant_id as string)),
+          eq: (c: string, v: unknown) => q((r) => filter(r) && r[c] === v),
+          order: () => self,
+          limit: () => self,
+          then: (res: (v: unknown) => unknown) => res({ data: source().filter(filter), error: null }),
+        };
+        return self;
+      };
+      return {
+        select: () => q(() => true),
+        upsert: (row: { restaurant_id: string; cuisine: string; source: string }) => {
+          upsert(row);
+          upserts.push(row);
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
   },
 }));
 
 import {
   settleRestaurantCuisine, publishRestaurantCuisine, getRestaurantCuisineBatch,
-  cuisineConfidence, PERSIST_CONFIDENCE_FLOOR,
+  cuisineConfidence, PERSIST_CONFIDENCE_FLOOR, CUISINE_MAX_COUNT,
+  getRestaurantCuisineTags,
 } from './restaurant-cuisine';
 
 /** A rural place: Google knows it's a restaurant and nothing more. */
 const OPAQUE = { types: ['restaurant', 'point_of_interest', 'establishment'] };
 
 beforeEach(() => {
-  rows.length = 0; upserts.length = 0; upsert.mockClear();
+  rows.length = 0; tagRows.length = 0; upserts.length = 0; upsert.mockClear();
   lookupCalls.length = 0;
   for (const k of Object.keys(osmHits)) delete osmHits[k];
   for (const k of Object.keys(credited)) delete credited[k];
@@ -145,7 +158,7 @@ describe('getRestaurantCuisineBatch', () => {
     );
     const out = await getRestaurantCuisineBatch(['a', 'b', 'missing']);
     expect(Object.keys(out).sort()).toEqual(['a', 'b']);
-    expect(out.a).toEqual({ cuisine: 'Thai', source: 'community', confidence: 80 });
+    expect(out.a).toEqual({ cuisine: 'Thai', source: 'community', confidence: 80, cuisines: ['Thai'] });
   });
 
   // The floor is what stops a name guess being written into a user's rating.
@@ -295,5 +308,67 @@ describe('settleRestaurantCuisine · crediting the source', () => {
   it('credits nothing when Google answered', async () => {
     await settleRestaurantCuisine({ restaurantId: 'c3', place: { types: ['thai_restaurant'] } });
     expect(credited.c3).toBe('google');
+  });
+});
+
+
+/**
+ * A restaurant can be more than one thing (migration 071).
+ *
+ * The extras are crowd-sourced only — approved, or agreed by enough
+ * people — so they never come through the source ranking above. The
+ * primary keeps its meaning exactly: it is the one canonical value that
+ * filters, facets, top lists and saved ratings mean by "the cuisine".
+ */
+const tag = (restaurantId: string, cuisine: string, votes = 1, created = '2026-01-01') =>
+  ({ restaurant_id: restaurantId, cuisine, votes, created_at: created });
+
+describe('getRestaurantCuisineBatch · additional cuisines', () => {
+  it('returns the primary first, then the extras', async () => {
+    rows.push({ restaurant_id: 'a', cuisine: 'Italian', source: 'google', confidence: 60 });
+    tagRows.push(tag('a', 'Pizza'), tag('a', 'Seafood'));
+    const out = await getRestaurantCuisineBatch(['a']);
+    expect(out.a.cuisine).toBe('Italian');
+    expect(out.a.cuisines).toEqual(['Italian', 'Pizza', 'Seafood']);
+  });
+
+  it('leaves a single-cuisine restaurant as a one-item list', async () => {
+    rows.push({ restaurant_id: 'b', cuisine: 'Thai', source: 'community', confidence: 80 });
+    expect((await getRestaurantCuisineBatch(['b'])).b.cuisines).toEqual(['Thai']);
+  });
+
+  it('never exceeds the cap, whatever the database hands back', async () => {
+    rows.push({ restaurant_id: 'c', cuisine: 'Italian', source: 'google', confidence: 60 });
+    tagRows.push(tag('c', 'Pizza'), tag('c', 'Seafood'), tag('c', 'Greek'), tag('c', 'Cuban'));
+    const out = await getRestaurantCuisineBatch(['c']);
+    expect(out.c.cuisines).toHaveLength(CUISINE_MAX_COUNT);
+  });
+
+  it('never repeats the primary as an extra', async () => {
+    rows.push({ restaurant_id: 'd', cuisine: 'Italian', source: 'google', confidence: 60 });
+    // 071 refuses this at the database, but a stale row must not produce
+    // "Italian, Italian" on a card either.
+    tagRows.push(tag('d', 'italian'), tag('d', 'Pizza'));
+    expect((await getRestaurantCuisineBatch(['d'])).d.cuisines).toEqual(['Italian', 'Pizza']);
+  });
+
+  it('ignores tags for a restaurant with no primary', async () => {
+    // A tag only exists alongside a primary; one without means the primary
+    // was just removed, and the honest answer meanwhile is nothing.
+    tagRows.push(tag('orphan', 'Pizza'));
+    expect(await getRestaurantCuisineBatch(['orphan'])).toEqual({});
+  });
+});
+
+describe('getRestaurantCuisineTags', () => {
+  it('returns only the extras, not the primary', async () => {
+    rows.push({ restaurant_id: 'e', cuisine: 'Italian', source: 'google', confidence: 60 });
+    tagRows.push(tag('e', 'Pizza'));
+    expect(await getRestaurantCuisineTags('e')).toEqual(['Pizza']);
+  });
+
+  it('is empty for a restaurant with one cuisine, and for no id', async () => {
+    expect(await getRestaurantCuisineTags('nothing')).toEqual([]);
+    expect(await getRestaurantCuisineTags('')).toEqual([]);
   });
 });

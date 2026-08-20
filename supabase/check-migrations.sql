@@ -1,4 +1,4 @@
--- Did 067 through 070 land? One row per thing each migration creates.
+-- Did 067 through 071 land? One row per thing each migration creates.
 -- Reads catalogue definitions rather than calling anything, so it still
 -- answers on a database where none of them have run.
 SELECT * FROM (VALUES
@@ -46,6 +46,21 @@ SELECT * FROM (VALUES
      coalesce((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
                 WHERE n.nspname='public' AND c.relname='restaurant_cuisine_lookups'), false)
      AND NOT EXISTS (SELECT 1 FROM pg_policies
-                      WHERE schemaname='public' AND tablename='restaurant_cuisine_lookups'))
+                      WHERE schemaname='public' AND tablename='restaurant_cuisine_lookups')),
+  ('071', 'cuisine cap is 3',
+     EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='cuisine_max_count')),
+  ('071', 'restaurant_cuisine_tags table',
+     to_regclass('public.restaurant_cuisine_tags') IS NOT NULL),
+  ('071', 'tags are server-write-only (read policy, no write policies)',
+     (SELECT count(*) FROM pg_policies
+       WHERE schemaname='public' AND tablename='restaurant_cuisine_tags') = 1),
+  ('071', 'approve takes an add/primary mode',
+     EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='approve_cuisine_suggestion'
+                AND p.pronargs = 2)),
+  ('071', 'admin can remove a cuisine',
+     EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='remove_restaurant_cuisine'))
 ) AS t(migration, check_name, ok)
 ORDER BY migration, check_name;

@@ -61,7 +61,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, cuisineCredit, suggestCuisine, mySuggestion, michelin,
+    priceStr, cuisine, cuisines, cuisineLine, cuisineCredit, suggestCuisine, mySuggestion, michelin,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
@@ -474,7 +474,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section>
               <EditableCuisineLine
-                cuisine={cuisine}
+                cuisine={cuisineLine}
                 priceStr={priceStr}
                 onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
@@ -1314,7 +1314,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           else showToast(res.error || 'Could not send that suggestion');
           return res.ok;
         }}
-        current={cuisine}
+        current={cuisines}
         restaurantName={place?.name}
         pending={mySuggestion?.status === 'pending' ? mySuggestion.cuisine : undefined}
       />

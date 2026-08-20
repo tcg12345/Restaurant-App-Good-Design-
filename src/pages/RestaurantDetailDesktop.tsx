@@ -70,7 +70,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, cuisineCredit, suggestCuisine, mySuggestion,
+    priceStr, cuisine, cuisines, cuisineLine, cuisineCredit, suggestCuisine, mySuggestion,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
@@ -318,7 +318,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="absolute left-0 right-0 bottom-0 p-[38px_42px] flex items-end justify-between gap-7">
               <div className="min-w-0">
                 <EditableCuisineLine
-                  cuisine={cuisine}
+                  cuisine={cuisineLine}
                   priceStr={priceStr}
                   onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
@@ -345,7 +345,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="flex items-start justify-between gap-8 pt-1">
               <div className="min-w-0">
                 <EditableCuisineLine
-                  cuisine={cuisine}
+                  cuisine={cuisineLine}
                   priceStr={priceStr}
                   onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
@@ -975,7 +975,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           else showToast(res.error || 'Could not send that suggestion');
           return res.ok;
         }}
-        current={cuisine}
+        current={cuisines}
         restaurantName={place?.name}
         pending={mySuggestion?.status === 'pending' ? mySuggestion.cuisine : undefined}
       />
