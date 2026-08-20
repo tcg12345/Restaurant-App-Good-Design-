@@ -27,13 +27,13 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
-import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { scoreColor } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { TopListCard } from '../components/TopListCard';
 import {
   MIN_LIST_SIZE, cityFromAddress, countCategories, autoTopListConfigs, visibleTopListConfigs,
   buildTopList, loadCustomization, saveCustomization, topListKey,
-  topListPlainLabel,
+  topListPlainLabel, topListKindLabel,
   type TopListConfig, type TopListCustomization,
 } from '../lib/topLists';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
@@ -264,6 +264,32 @@ const SettingsRow: React.FC<{
     )}
   </button>
 );
+/** One number on the "at a glance" plinth. Serif and oversized because
+ *  three of these ARE the summary — a 13px label with a 13px value reads
+ *  as a form field, not a statement. */
+const Stat: React.FC<{
+  value: string;
+  label: string;
+  isDesktop: boolean;
+  valueClass?: string;
+}> = ({ value, label, isDesktop, valueClass }) => (
+  <div className={cn('min-w-0 text-center', isDesktop ? 'px-3 py-3.5' : 'px-2 py-3')}>
+    <dt className="sr-only">{label}</dt>
+    <dd>
+      <span className={cn(
+        'block font-serif font-bold leading-none tabular-nums',
+        isDesktop ? 'text-[26px]' : 'text-[22px]',
+        valueClass || 'text-on-surface',
+      )}>
+        {value}
+      </span>
+      <span className="mt-1.5 block truncate text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40">
+        {label}
+      </span>
+    </dd>
+  </div>
+);
+
 const EditTopListsSheet: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -319,33 +345,47 @@ const EditTopListsSheet: React.FC<{
             )}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+
+            {/* Header. The count sits in the title rather than in a
+                subtitle, so the sheet says what state you are in before it
+                says what you can do about it. */}
             <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4 border-b border-on-surface/[0.06]',
+              'flex flex-shrink-0 items-start justify-between gap-4 border-b border-on-surface/[0.06]',
+              phoneMode ? 'px-5 pb-4 pt-3' : 'px-7 pb-5 pt-6',
             )}>
-              <div>
-                <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Edit top lists</h3>
-                <p className="text-[11.5px] text-on-surface/45 mt-0.5">Remove auto-picked lists or add your own slices.</p>
+              <div className="min-w-0">
+                <h3 className={cn('font-serif font-bold leading-tight text-on-surface', phoneMode ? 'text-[21px]' : 'text-[25px]')}>
+                  Top lists
+                </h3>
+                <p className="mt-1 text-[12.5px] leading-snug text-on-surface/45">
+                  {visibleLists.length === 0
+                    ? 'Add a slice of your ratings to get started.'
+                    : `${visibleLists.length} on your profile. Drag to reorder, or add another slice below.`}
+                </p>
               </div>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/10 transition-colors">
-                <X size={16} className="text-on-surface/60" />
+              <button
+                onClick={onClose}
+                aria-label="Close"
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-on-surface/45 transition-colors hover:bg-on-surface/[0.06] hover:text-on-surface"
+              >
+                <X size={17} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-              {/* Current lists — Reorder.Group so the user can drag any
-                  row to a new spot. Drag handle on the left, X on the
-                  right. The whole row is the drag affordance so touch
-                  reorder feels natural on phones. */}
+            <div className={cn('flex-1 overflow-y-auto', phoneMode ? 'px-5 py-5' : 'px-7 py-6')}>
+              {/* ── Your lists ──
+                  Full rows rather than chips: each carries its kind, its
+                  size and its own remove control, which a chip has no room
+                  for. Reorder.Group makes any row draggable — the whole
+                  row, so touch reorder works without aiming at a handle. */}
               <section>
-                <div className="flex items-baseline justify-between mb-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Your lists</p>
-                  {visibleLists.length > 1 && (
-                    <p className="text-[10.5px] text-on-surface/35">Drag to reorder</p>
-                  )}
-                </div>
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35">
+                  On your profile
+                </p>
                 {visibleLists.length === 0 ? (
-                  <p className="text-[13px] text-on-surface/45">No lists yet. Add one below.</p>
+                  <div className="rounded-2xl border border-dashed border-on-surface/[0.12] px-4 py-7 text-center">
+                    <p className="text-[13px] text-on-surface/45">No lists yet — add one below.</p>
+                  </div>
                 ) : (
                   <Reorder.Group
                     axis="y"
@@ -353,29 +393,37 @@ const EditTopListsSheet: React.FC<{
                     onReorder={onReorder}
                     className="space-y-1.5"
                   >
-                    {visibleLists.map((c) => (
+                    {visibleLists.map((c, i) => (
                       <Reorder.Item
                         key={topListKey(c)}
                         value={c}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-on-surface/[0.04] border border-on-surface/[0.06] cursor-grab active:cursor-grabbing select-none"
+                        className="group flex cursor-grab select-none items-center gap-3 rounded-2xl border border-on-surface/[0.07] bg-surface px-3 py-2.5 transition-colors active:cursor-grabbing hover:border-on-surface/[0.14]"
                         whileDrag={{
-                          scale: 1.02,
-                          boxShadow: '0 6px 20px -8px rgba(0,0,0,0.18)',
+                          scale: 1.015,
+                          boxShadow: '0 14px 34px -14px rgba(0,0,0,0.3)',
                           zIndex: 10,
                         }}
                       >
-                        <GripVertical size={15} className="text-on-surface/30 flex-shrink-0" />
-                        <span className="flex-1 min-w-0 text-[13.5px] font-medium text-on-surface/80 truncate">
-                          {topListPlainLabel(c)}
+                        <GripVertical size={15} className="flex-shrink-0 text-on-surface/20 transition-colors group-hover:text-on-surface/45" />
+                        <span className="w-4 flex-shrink-0 text-center font-serif text-[13px] font-bold tabular-nums text-on-surface/25">
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-semibold leading-tight text-on-surface">
+                            {topListPlainLabel(c)}
+                          </span>
+                          <span className="mt-0.5 block text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/35">
+                            {topListKindLabel(c)}
+                          </span>
                         </span>
                         <button
                           type="button"
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={() => onDelete(c)}
                           aria-label={`Remove ${topListPlainLabel(c)}`}
-                          className="w-7 h-7 rounded-full bg-on-surface/[0.06] hover:bg-rose-100 text-on-surface/45 hover:text-rose-600 flex items-center justify-center transition-colors flex-shrink-0"
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-on-surface/30 transition-colors hover:bg-rose-500/10 hover:text-rose-600"
                         >
-                          <X size={13} />
+                          <X size={14} />
                         </button>
                       </Reorder.Item>
                     ))}
@@ -383,44 +431,62 @@ const EditTopListsSheet: React.FC<{
                 )}
               </section>
 
-              {/* Add a list */}
-              <section>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-2.5">Add a list</p>
+              {/* ── Add a list ──
+                  A segmented control rather than five loose pills: the
+                  categories are one choice, and a filled track says so. */}
+              <section className="mt-7">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35">
+                  Add a list
+                </p>
 
-                <div className="flex flex-wrap gap-2 mb-3">
+                <div className="mb-4 flex gap-0.5 rounded-full bg-on-surface/[0.05] p-1">
                   {tabs.map((t) => (
                     <button
                       key={t.key}
                       type="button"
                       onClick={() => setCategory(t.key)}
                       className={cn(
-                        'px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors border',
-                        category === t.key
-                          ? 'bg-primary text-white border-primary'
-                          : 'bg-on-surface/[0.04] border-on-surface/[0.08] text-on-surface/55 hover:bg-on-surface/[0.08]',
+                        'relative flex-1 rounded-full px-2 py-1.5 text-[12px] font-semibold transition-colors',
+                        category === t.key ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/70',
                       )}
                     >
-                      {t.label}
+                      {category === t.key && (
+                        <motion.span
+                          layoutId="toplist-cat"
+                          className="absolute inset-0 rounded-full bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.10)] ring-1 ring-on-surface/[0.06]"
+                          transition={{ type: 'spring', damping: 30, stiffness: 380 }}
+                        />
+                      )}
+                      <span className="relative">{t.label}</span>
                     </button>
                   ))}
                 </div>
 
                 {addable.length === 0 ? (
-                  <p className="text-[12.5px] text-on-surface/45 px-1">
-                    Nothing eligible here yet — categories need at least {MIN_LIST_SIZE} rated restaurants to qualify.
-                  </p>
+                  <div className="rounded-2xl border border-dashed border-on-surface/[0.12] px-4 py-7 text-center">
+                    <p className="text-[12.5px] leading-relaxed text-on-surface/45">
+                      Nothing eligible here yet.<br />
+                      A list needs at least {MIN_LIST_SIZE} rated places to qualify.
+                    </p>
+                  </div>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid gap-1.5 sm:grid-cols-2">
                     {addable.map(({ config, label, count }) => (
                       <button
                         key={topListKey(config)}
                         type="button"
                         onClick={() => onAdd(config)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.08] hover:bg-primary/[0.08] hover:border-primary/30 hover:text-primary text-[12px] font-semibold text-on-surface/75 transition-colors"
+                        className="group flex items-center gap-2.5 rounded-2xl border border-on-surface/[0.07] px-3 py-2.5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.04]"
                       >
-                        <Plus size={12} strokeWidth={2.6} />
-                        {label}
-                        <span className="text-on-surface/35 font-medium">· {count}</span>
+                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-on-surface/[0.05] text-on-surface/40 transition-colors group-hover:bg-primary group-hover:text-white">
+                          <Plus size={13} strokeWidth={2.8} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-on-surface/80 transition-colors group-hover:text-primary">
+                          {label}
+                        </span>
+                        <span className="flex-shrink-0 text-[11.5px] font-bold tabular-nums text-on-surface/30">
+                          {count}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1298,50 +1364,34 @@ export const Profile: React.FC = () => {
           ) : (
             <div className={cn('pb-10', isDesktop ? 'space-y-12' : 'space-y-9')}>
               {/* ── At a glance ──
-                  One quiet line of numbers where a 128px score circle and a
-                  40px restaurant name used to shout. The #1 place is still
-                  the headline, just at a size the rest of the page can
-                  live beside. */}
-              <section>
-                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                  <span className={cn('font-serif font-bold tabular-nums leading-none text-on-surface', isDesktop ? 'text-[34px]' : 'text-[28px]')}>
-                    {ratings.length}
-                  </span>
-                  <span className="text-[13.5px] font-semibold text-on-surface/50">
-                    place{ratings.length === 1 ? '' : 's'} rated
-                  </span>
-                  {scoresUnlocked && overallAvg > 0 && (
-                    <>
-                      <span className="text-on-surface/20">·</span>
-                      <span className={cn('rounded-md border px-1.5 py-0.5 text-[12.5px] font-bold tabular-nums', scoreBadgeBg(overallAvg), scoreColor(overallAvg))}>
-                        {overallAvg.toFixed(1)} avg
-                      </span>
-                    </>
-                  )}
-                  {visibleLists.length > 0 && (
-                    <>
-                      <span className="text-on-surface/20">·</span>
-                      <span className="text-[13.5px] font-semibold text-on-surface/50 tabular-nums">
-                        {visibleLists.length} list{visibleLists.length === 1 ? '' : 's'}
-                      </span>
-                    </>
-                  )}
-                </div>
-                {topOverall && (
+                  One panel, not a loose line of numbers above a card. The
+                  #1 place is the headline and the totals are its plinth:
+                  the eye lands on the restaurant, then reads the three
+                  numbers that give it scale. Everything shares one border,
+                  so the top of the tab is a single object instead of two
+                  competing ones. */}
+              <section className="overflow-hidden rounded-[26px] border border-on-surface/[0.08] bg-gradient-to-b from-on-surface/[0.035] to-transparent">
+                {topOverall ? (
                   <Link
                     to={`/restaurant/${topOverall.restaurantId}`}
-                    className="group mt-4 flex items-center gap-4 rounded-2xl border border-on-surface/[0.07] bg-on-surface/[0.02] p-3.5 transition-colors hover:border-on-surface/[0.14]"
+                    className={cn('group flex items-center gap-4', isDesktop ? 'p-5' : 'p-4')}
                   >
-                    <span className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-on-surface/[0.06]">
+                    <span className={cn(
+                      'relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-on-surface/[0.06] ring-1 ring-on-surface/[0.06]',
+                      isDesktop ? 'h-[76px] w-[76px]' : 'h-[62px] w-[62px]',
+                    )}>
                       {topOverall.image
-                        ? <img src={topOverall.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                        : <Star size={18} className="text-on-surface/25" />}
+                        ? <img src={topOverall.image} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.06]" referrerPolicy="no-referrer" />
+                        : <Star size={20} className="text-on-surface/25" />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-primary">
-                        <Star size={11} className="fill-primary" /> Your #1
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
+                        <Star size={10} className="fill-primary" /> Your #1
                       </span>
-                      <span className="mt-1 block truncate font-serif text-[19px] font-bold leading-tight text-on-surface transition-colors group-hover:text-primary">
+                      <span className={cn(
+                        'mt-1 block truncate font-serif font-bold leading-tight text-on-surface transition-colors group-hover:text-primary',
+                        isDesktop ? 'text-[24px]' : 'text-[20px]',
+                      )}>
                         {topOverall.name}
                       </span>
                       <span className="mt-0.5 block truncate text-[12.5px] text-on-surface/45">
@@ -1350,7 +1400,26 @@ export const Profile: React.FC = () => {
                     </span>
                     <OwnScoreBadge rating={numericScore(topOverall.score)} unlocked={scoresUnlocked} size="xl" />
                   </Link>
+                ) : (
+                  <div className={cn('flex items-center gap-3', isDesktop ? 'p-5' : 'p-4')}>
+                    <Star size={18} className="text-on-surface/20" />
+                    <p className="text-[13.5px] text-on-surface/45">Rate a few places and your #1 shows up here.</p>
+                  </div>
                 )}
+
+                {/* The plinth. Serif numerals so they read as a statement
+                    rather than a readout, hairline-divided so the three
+                    stay distinct without needing boxes of their own. */}
+                <dl className="grid grid-cols-3 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.07]">
+                  <Stat value={String(ratings.length)} label={`place${ratings.length === 1 ? '' : 's'} rated`} isDesktop={isDesktop} />
+                  <Stat
+                    value={scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(1) : '—'}
+                    label="average"
+                    isDesktop={isDesktop}
+                    valueClass={scoresUnlocked && overallAvg > 0 ? scoreColor(overallAvg) : undefined}
+                  />
+                  <Stat value={String(visibleLists.length)} label={`top list${visibleLists.length === 1 ? '' : 's'}`} isDesktop={isDesktop} />
+                </dl>
               </section>
 
               {/* ── Top lists ──
@@ -1376,12 +1445,17 @@ export const Profile: React.FC = () => {
                       Edit
                     </button>
                   </div>
-                  {/* Size the cover, let the count follow: two up on a
-                      phone, four on a tablet, five or six across a desktop
-                      column — without the tile itself changing shape. */}
-                  <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(210px,1fr))]">
+                  {/* One rail, both viewports. A wrapping grid of eleven
+                      covers is a wall — it pushed everything below it off
+                      the screen and made a shelf of lists look like the
+                      whole page. Scrolling sideways keeps the section one
+                      row tall however many lists exist, and the cover is a
+                      fixed width so the tile never changes shape. */}
+                  <div className="flex gap-3 snap-x overflow-x-auto no-scrollbar pb-1">
                     {visibleLists.map((list) => (
-                      <TopListCard key={list.key} list={list} scoresUnlocked={scoresUnlocked} />
+                      <div key={list.key} className={cn('flex-shrink-0 snap-start', isDesktop ? 'w-[196px]' : 'w-[152px]')}>
+                        <TopListCard list={list} scoresUnlocked={scoresUnlocked} />
+                      </div>
                     ))}
                   </div>
                 </section>
