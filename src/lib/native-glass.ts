@@ -82,11 +82,13 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
  *  and to read as *tab bar* icons rather than as app glyphs: `safari` and
  *  `film` are literally the Safari and movie-reel app marks, which is why the
  *  first pass looked like someone else's icons pasted into this app.
+ *  `play.rectangle` for Reels rather than `play.square.stack`, which renders
+ *  at 25pt as an odd canister with a triangle in it.
  *  Order matters — it's the on-screen order. */
 export const GLASS_TAB_ITEMS: GlassTabItem[] = [
   { path: '/', symbol: 'house', selectedSymbol: 'house.fill', label: 'Home' },
   { path: '/search', symbol: 'magnifyingglass', label: 'Search' },
-  { path: '/reels', symbol: 'play.square.stack', selectedSymbol: 'play.square.stack.fill', label: 'Reels' },
+  { path: '/reels', symbol: 'play.rectangle', selectedSymbol: 'play.rectangle.fill', label: 'Reels' },
   { path: '/pantry', symbol: 'list.bullet', label: 'Lists' },
   { path: '/profile', symbol: 'person.crop.circle', selectedSymbol: 'person.crop.circle.fill', label: 'Profile' },
 ];
