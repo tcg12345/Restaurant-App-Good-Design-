@@ -206,8 +206,11 @@ const TAG_TO_LABEL: Record<string, string> = {
   ukrainian: 'Ukrainian', hungarian: 'Hungarian', czech: 'Czech', austrian: 'Austrian',
   swiss: 'Swiss', belgian: 'Belgian', dutch: 'Dutch', danish: 'Danish', swedish: 'Swedish',
   norwegian: 'Norwegian', finnish: 'Finnish', basque: 'Basque', catalan: 'Catalan',
-  sicilian: 'Sicilian', tuscan: 'Tuscan', cantonese: 'Cantonese', sichuan: 'Szechuan',
-  szechuan: 'Szechuan', hunan: 'Hunan', taiwanese: 'Taiwanese', tibetan: 'Tibetan',
+  sicilian: 'Sicilian', tuscan: 'Tuscan', cantonese: 'Cantonese', sichuan: 'Sichuan',
+  // Both spellings land on the one the suggestion list offers. A writer
+  // that stores "Szechuan" while the picker only offers "Sichuan" splits
+  // one cuisine across two labels, and consensus never fires for either.
+  szechuan: 'Sichuan', hunan: 'Hunanese', taiwanese: 'Taiwanese', tibetan: 'Tibetan',
   burmese: 'Burmese', cambodian: 'Cambodian', laotian: 'Laotian', singaporean: 'Singaporean',
   sri_lankan: 'Sri Lankan', israeli: 'Israeli', egyptian: 'Egyptian', nigerian: 'Nigerian',
   senegalese: 'Senegalese', somali: 'Somali', tunisian: 'Tunisian', uzbek: 'Uzbek',

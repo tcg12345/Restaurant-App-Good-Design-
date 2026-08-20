@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check, Clock, Loader2, Plus, Search, SquarePen, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { SUGGESTABLE_CUISINES } from '../lib/cuisine';
+import { SUGGESTABLE_CUISINES, searchCuisines } from '../lib/cuisine';
 import { AUTO_APPLY_VOTES } from '../lib/supabase-cuisine-suggestions';
 import { CUISINE_MAX_COUNT } from '../lib/restaurant-cuisine';
 import { useSettings } from '../contexts/SettingsContext';
@@ -61,15 +61,10 @@ export const CuisinePicker: React.FC<{
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return ALL_LABELS;
-    // Prefix matches first — typing "ch" should reach Chinese before
-    // French, which merely contains the letters.
-    const starts = ALL_LABELS.filter((c) => c.toLowerCase().startsWith(q));
-    const contains = ALL_LABELS.filter((c) => !c.toLowerCase().startsWith(q) && c.toLowerCase().includes(q));
-    return [...starts, ...contains];
-  }, [query]);
+  // Ranking and alias handling live in lib/cuisine, where they are tested
+  // — the list is long enough now that "type three letters and hope" is
+  // not a search.
+  const filtered = useMemo(() => searchCuisines(query, ALL_LABELS), [query]);
 
   const pick = async (label: string) => {
     if (saving) return;

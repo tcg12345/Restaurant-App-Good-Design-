@@ -246,7 +246,10 @@ describe('cuisineFromOsmTag', () => {
     expect(cuisineFromOsmTag('italian')).toEqual({ label: 'Italian', canonical: true });
     expect(cuisineFromOsmTag('barbecue')).toEqual({ label: 'BBQ', canonical: true });
     expect(cuisineFromOsmTag('steak_house')).toEqual({ label: 'Steakhouse', canonical: true });
-    expect(cuisineFromOsmTag('sichuan')).toEqual({ label: 'Szechuan', canonical: true });
+    // Both OSM spellings land on the label the picker offers, so one
+    // cuisine is never split across two labels.
+    expect(cuisineFromOsmTag('sichuan')).toEqual({ label: 'Sichuan', canonical: true });
+    expect(cuisineFromOsmTag('szechuan')).toEqual({ label: 'Sichuan', canonical: true });
     expect(cuisineFromOsmTag('sri_lankan')).toEqual({ label: 'Sri Lanka'.concat('n'), canonical: true });
   });
 

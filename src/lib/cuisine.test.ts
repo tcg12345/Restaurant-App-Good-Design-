@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveCuisine, cuisineLabel, canonicalCuisineLabel, cuisineFromTypes, labelForCuisineType,
-  cuisineFromName, isUnknownCuisine, displayCuisine, formatCuisines } from './cuisine';
+  cuisineFromName, isUnknownCuisine, displayCuisine, formatCuisines, SUGGESTABLE_CUISINES, searchCuisines } from './cuisine';
 
 /** What Google returns for a rural place: it knows the type, but `types`
  *  carries only the generic tail. This is the case the whole module is for. */
@@ -354,5 +354,116 @@ describe('formatCuisines', () => {
 
   it('preserves the order it is given — the primary comes first', () => {
     expect(formatCuisines(['Pizza', 'Italian'])).toBe('Pizza, Italian');
+  });
+});
+
+
+/**
+ * What a person can propose.
+ *
+ * The list is the app's vocabulary for the whole crowd-sourcing flow — a
+ * cuisine that is not in it cannot be suggested, cannot reach consensus,
+ * and cannot ever be shown. The gap was measurable: the Michelin data
+ * this app ships labels 4,229 restaurants "Modern", 1,690 "Contemporary"
+ * and 1,426 "Creative", and it DISPLAYED all of them while offering none.
+ */
+describe('SUGGESTABLE_CUISINES', () => {
+  const has = (label: string) =>
+    SUGGESTABLE_CUISINES.some((c) => c.toLowerCase() === label.toLowerCase());
+
+  it('covers the styles the app already displays', () => {
+    for (const label of ['Modern', 'Contemporary', 'Creative', 'Traditional',
+                         'Classic', 'Seasonal', 'Fusion', 'Innovative']) {
+      expect(has(label), label).toBe(true);
+    }
+  });
+
+  it('covers style-crossed-with-place, which is how guides name a kitchen', () => {
+    for (const label of ['American Contemporary', 'Modern British', 'Modern French',
+                         'Classic French', 'Italian Contemporary', 'Japanese Contemporary']) {
+      expect(has(label), label).toBe(true);
+    }
+  });
+
+  it('covers regional slices, not just national ones', () => {
+    for (const label of ['Sichuan', 'Shanghainese', 'Cantonese', 'Northern Thai',
+                         'South Indian', 'Piedmontese', 'Sicilian', 'Provençal',
+                         'Andalusian', 'Oaxacan', 'Lowcountry']) {
+      expect(has(label), label).toBe(true);
+    }
+  });
+
+  it('has no duplicates, in any casing', () => {
+    const lower = SUGGESTABLE_CUISINES.map((c) => c.toLowerCase());
+    expect(new Set(lower).size).toBe(lower.length);
+  });
+
+  it('never offers a non-answer as something to suggest', () => {
+    // "Restaurant", "Food", "International" describe nothing. Offering one
+    // would let the crowd vote a place back to having no cuisine at all.
+    for (const junk of ['Restaurant', 'Food', 'Establishment', 'International',
+                        'Regional', 'World', 'Other']) {
+      expect(has(junk), junk).toBe(false);
+    }
+  });
+
+  it('is sorted, so the unsearched list is navigable', () => {
+    const sorted = [...SUGGESTABLE_CUISINES].sort((a, b) => a.localeCompare(b));
+    expect(SUGGESTABLE_CUISINES).toEqual(sorted);
+  });
+});
+
+/**
+ * Searching it.
+ *
+ * At 400 labels the ranking IS the feature. And the aliases are what stop
+ * the taxonomy's own vocabulary being a barrier: the list says "BBQ", the
+ * sign outside says "Barbecue", and before this the second one found
+ * nothing at all.
+ */
+describe('searchCuisines', () => {
+  const first = (q: string) => searchCuisines(q)[0];
+
+  it('finds a cuisine by the word on the restaurant’s sign', () => {
+    expect(first('barbecue')).toBe('BBQ');
+    expect(first('barbeque')).toBe('BBQ');
+    expect(first('szechuan')).toBe('Sichuan');
+    expect(first('boba')).toBe('Bubble Tea');
+    expect(first('taqueria')).toBe('Mexican');
+    expect(first('hamburger')).toBe('Burgers');
+  });
+
+  it('puts an exact prefix first, ahead of a mere containment', () => {
+    expect(first('ch')).toBe('Chaozhou');
+    expect(first('contemporary')).toBe('Contemporary');
+    expect(first('modern')).toBe('Modern');
+    expect(first('american')).toBe('American');
+  });
+
+  it('matches a word inside a label, so a second word is reachable', () => {
+    const r = searchCuisines('contemporary');
+    expect(r).toContain('American Contemporary');
+    expect(r).toContain('Japanese Contemporary');
+  });
+
+  it('returns the whole list for an empty query', () => {
+    expect(searchCuisines('')).toEqual(SUGGESTABLE_CUISINES);
+    expect(searchCuisines('   ')).toEqual(SUGGESTABLE_CUISINES);
+  });
+
+  it('returns nothing for a query that matches nothing', () => {
+    expect(searchCuisines('zzzzz')).toEqual([]);
+  });
+
+  it('is case-insensitive', () => {
+    expect(searchCuisines('THAI')).toContain('Thai');
+    expect(searchCuisines('BaRbEcUe')[0]).toBe('BBQ');
+  });
+
+  it('never returns a label twice', () => {
+    for (const q of ['a', 'e', 'an', 'american', 'contemporary', 'bbq']) {
+      const r = searchCuisines(q);
+      expect(new Set(r).size, q).toBe(r.length);
+    }
   });
 });
