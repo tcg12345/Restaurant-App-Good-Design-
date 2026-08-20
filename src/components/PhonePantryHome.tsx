@@ -125,12 +125,7 @@ export const PhonePantryHome: React.FC<Props> = ({
               aria-hidden
             />
             <div
-              className={cn(
-                'relative inline-flex items-center gap-0.5 rounded-full p-[3px] backdrop-blur-2xl',
-                darkMode
-                  ? 'bg-white/[0.1] ring-1 ring-white/[0.14] shadow-[0_10px_30px_-14px_rgba(0,0,0,0.8)]'
-                  : 'bg-surface/85 ring-1 ring-on-surface/[0.09] shadow-[0_10px_30px_-14px_rgba(0,0,0,0.45)]',
-              )}
+              className="glass-control relative inline-flex items-center gap-0.5 rounded-full p-[3px]"
             >
               {(['restaurants', 'recipes'] as PantryTab[]).map((t) => {
                 const Icon = t === 'restaurants' ? UtensilsCrossed : ChefHat;

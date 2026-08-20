@@ -1004,7 +1004,7 @@ export const Profile: React.FC = () => {
               type="button"
               onClick={() => navigate('/create')}
               aria-label="Create"
-              className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/80 transition-colors"
+              className="glass-control w-10 h-10 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
             >
               <Plus size={20} />
             </button>

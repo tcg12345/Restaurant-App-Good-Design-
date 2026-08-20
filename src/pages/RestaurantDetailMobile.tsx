@@ -279,7 +279,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <button
             onClick={() => navigate(-1)}
             aria-label="Back"
-            className="hit-44 pointer-events-auto w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+            className="hit-44 glass-control pointer-events-auto w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
           </button>
@@ -287,14 +287,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={() => { if (place) toggleWishlist(wishMeta); }}
               aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 glass-control w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-primary text-primary' : ''} />
             </button>
             <button
               onClick={() => { if (place) setChatShareTarget(buildShareTarget()); }}
               aria-label="Share"
-              className="hit-44 w-[38px] h-[38px] rounded-full bg-paper/90 backdrop-blur-md ring-1 ring-black/5 shadow-[0_2px_10px_rgba(0,0,0,0.12)] flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+              className="hit-44 glass-control w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
             >
               <Share2 size={16} />
             </button>

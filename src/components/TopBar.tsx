@@ -6,7 +6,6 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { useNotifications } from '../contexts/NotificationsContext';
-import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 
 interface TopBarProps {
@@ -40,7 +39,6 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   // The Circle button is the only way into the notification centre on a
   // phone, so its badge covers requests + alerts together.
   const { unreadCount: alertCount } = useNotifications();
-  const { darkMode } = useSettings();
   const circleBadge = pendingRequestCount + alertCount;
   const navigate = useNavigate();
   const location = useLocation();
@@ -67,7 +65,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   const backButton = (
     <button
       onClick={handleBack}
-      className="hit-44 w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+      className="hit-44 glass-control w-10 h-10 rounded-full flex items-center justify-center text-on-surface/70 transition-colors"
       aria-label="Back to Explore"
     >
       <ArrowLeft size={20} />
@@ -79,7 +77,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
    *  full header. */
   const buildRightCluster = (compact: boolean) => {
     const btn = cn(
-      'hit-44 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors relative',
+      'hit-44 glass-control rounded-full flex items-center justify-center text-on-surface/70 transition-colors relative',
       compact ? 'w-9 h-9' : 'w-10 h-10',
     );
     const badge = cn(
@@ -173,10 +171,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
         />
         <div
           className={cn(
-            'relative flex items-center gap-1.5 rounded-full p-1.5 backdrop-blur-2xl',
-            darkMode
-              ? 'bg-white/[0.1] ring-1 ring-white/[0.14] shadow-[0_12px_32px_-16px_rgba(0,0,0,0.85)]'
-              : 'bg-surface/85 ring-1 ring-on-surface/[0.09] shadow-[0_12px_32px_-16px_rgba(0,0,0,0.5)]',
+            'glass-control relative flex items-center gap-1.5 rounded-full p-1.5',
           )}
         >
           {leftAction ?? (showBackButton ? backButton : null)}

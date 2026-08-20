@@ -533,6 +533,67 @@ html.kb-open body {
   @apply bg-paper/80 backdrop-blur-xl;
 }
 
+/* ── Glass controls ────────────────────────────────────────────────────
+   The floating chrome — header buttons, the Create ＋, back buttons, the
+   condensed scroll headers — reaching for as much of iOS 26's Liquid
+   Glass as web content can have.
+
+   What's here and what isn't: `backdrop-filter` gives blur, and pushing
+   saturation past 100% recovers the colour the blur washes out, which is
+   what stops it looking like frosted grey. The specular edge is faked
+   with two inset shadows — a bright top edge and a dimmer bottom one —
+   so the control reads as a lit bevel rather than a flat disc.
+
+   What no CSS can do: refract the content behind it (Liquid Glass lenses
+   it), track device motion in the highlight, or re-tint itself from
+   what's underneath. The phone tab bar gets the real material by moving
+   out of the page entirely — see lib/native-glass.ts.
+
+   Deliberately not applied to in-content buttons. Glass is navigation-
+   layer chrome; stacking it on ordinary controls flattens the hierarchy
+   it exists to express (and Apple's own guidance says the same). */
+.glass-control {
+  background-color: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    /* specular: lit top edge, faint bounce along the bottom */
+    inset 0 1px 0 0 rgb(255 255 255 / 0.65),
+    inset 0 -1px 0 0 rgb(255 255 255 / 0.16),
+    /* hairline containment */
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.07),
+    /* the control floats over content, so it casts */
+    0 4px 14px -6px rgb(0 0 0 / 0.22);
+}
+
+/* On dark the specular flips role: the lit edge is what separates the
+   control from the page, and the cast shadow does almost nothing, so it
+   trades places with a brighter rim. */
+.dark .glass-control {
+  background-color: color-mix(in srgb, var(--color-surface) 52%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.14),
+    inset 0 -1px 0 0 rgb(255 255 255 / 0.05),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.1),
+    0 6px 18px -8px rgb(0 0 0 / 0.7);
+}
+
+/* Reduce Transparency (and browsers without backdrop-filter): drop to an
+   opaque fill. A blur-less translucent control over live content is
+   unreadable, which is exactly what the setting is asking us to avoid. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-control {
+    background-color: var(--color-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-control {
+    background-color: var(--color-surface);
+  }
+}
+
 /* Pull-to-refresh spinner (PullToRefresh.tsx). While the user drags, the ring
    is rotated inline by pull distance; once a refresh fires, `.ptr-spin` takes
    over and spins it continuously until the page reloads. */
