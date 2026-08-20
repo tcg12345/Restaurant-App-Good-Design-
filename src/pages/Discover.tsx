@@ -771,11 +771,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterSheetOpen, setFilterSheetOpenRaw] = useState(false);
-  const setFilterSheetOpen = useCallback((show: boolean) => {
-    setFilterSheetOpenRaw(show);
-    setHideBottomNav(show);
-  }, [setHideBottomNav]);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // Hiding the tab bar is an effect with a cleanup here, like every other
+  // writer in the app (SocialFeed.tsx is the reference), rather than a setter
+  // that fires and forgets. `/` is a keep-alive layer: it stays mounted while
+  // you are on Lists or Profile, so a bare `setHideBottomNav(true)` had
+  // nothing to undo it — open the filter sheet, switch tabs, and the bar was
+  // gone everywhere for the rest of the session. The route check is the other
+  // half: a layer that isn't the page you're on must not speak for the tab bar
+  // at all.
+  const ownsRoute = location.pathname === '/' || location.pathname === '/map';
+  useEffect(() => {
+    if (!ownsRoute) return;
+    setHideBottomNav(filterSheetOpen);
+    return () => setHideBottomNav(false);
+  }, [ownsRoute, filterSheetOpen, setHideBottomNav]);
 
   // Filter state — discover
   const [sortBy, setSortBy] = useState<SortOption>('recommended');

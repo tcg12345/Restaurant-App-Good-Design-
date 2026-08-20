@@ -48,6 +48,9 @@ export const BottomNav: React.FC = () => {
     enabled: true,
     hidden: navHidden,
     activePath: activeTabPath(location.pathname),
+    // The full route as well as the owning tab: the native bar un-shrinks on
+    // every navigation, including ones that stay within a tab.
+    pathname: location.pathname,
     onSelect: (path) => navigate(path),
   });
 
