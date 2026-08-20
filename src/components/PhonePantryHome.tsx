@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
+import { motion } from 'motion/react';
 import { Bookmark, ChefHat, ChevronRight, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useHeaderFade } from '../lib/useHeaderFade';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -85,7 +87,14 @@ export const PhonePantryHome: React.FC<Props> = ({
   onOpenAllRecipes,
   onCreateRecipeList,
 }) => {
-  const { darkMode } = useSettings();
+  const { darkMode, phoneMode } = useSettings();
+  // The in-flow tab track dissolves as the page scrolls and hands off to
+  // a compact glass capsule pinned at the top, so switching tabs never
+  // means scrolling back up first. The distance is explicit: the track's
+  // own height would swap the two within 40px of scroll, which reads as
+  // a flicker — 80 puts the hand-off just after the track clears the top
+  // of the viewport.
+  const fade = useHeaderFade({ enabled: phoneMode, windowScroll: true, fadeDist: 80 });
   // Split lists by their kind so each tab only shows the relevant ones.
   const restaurantLists = useMemo(
     () => lists.filter((l) => l.type !== 'home-cooking'),
@@ -98,8 +107,65 @@ export const PhonePantryHome: React.FC<Props> = ({
 
   return (
     <div className="pt-safe-4 pb-32">
+      {/* ── Condensed selector ──
+          Zero-height sticky rail: it pins to the top of the viewport
+          without taking a row of layout, so the capsule floats over the
+          cards it replaces the track for. */}
+      {phoneMode && (
+        <div className="sticky top-0 z-30 h-0">
+          <motion.div
+            style={fade.condensedStyle}
+            className="absolute inset-x-0 top-0 flex justify-center pt-safe-3 pb-2 -mx-3 px-3"
+          >
+            {/* Soft scrim: cards dissolve into the top edge instead of
+                cutting across it. The capsule stays glass; the strip
+                behind it doesn't have to. */}
+            <div
+              className="absolute inset-x-0 top-0 -bottom-3 bg-gradient-to-b from-surface via-surface/70 to-transparent pointer-events-none"
+              aria-hidden
+            />
+            <div
+              className={cn(
+                'relative inline-flex items-center gap-0.5 rounded-full p-[3px] backdrop-blur-2xl',
+                darkMode
+                  ? 'bg-white/[0.1] ring-1 ring-white/[0.14] shadow-[0_10px_30px_-14px_rgba(0,0,0,0.8)]'
+                  : 'bg-surface/85 ring-1 ring-on-surface/[0.09] shadow-[0_10px_30px_-14px_rgba(0,0,0,0.45)]',
+              )}
+            >
+              {(['restaurants', 'recipes'] as PantryTab[]).map((t) => {
+                const Icon = t === 'restaurants' ? UtensilsCrossed : ChefHat;
+                const active = tab === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => onTabChange(t)}
+                    aria-pressed={active}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 h-8 pl-3 pr-3.5 rounded-full text-[12.5px] font-bold transition-colors',
+                      active
+                        ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                        : darkMode
+                          ? 'text-white/55 active:text-white/80'
+                          : 'text-on-surface/50 active:text-on-surface/80',
+                    )}
+                  >
+                    <Icon size={13} strokeWidth={2.4} className="flex-shrink-0" />
+                    {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* ── Tab pill ── */}
-      <div className={cn('inline-flex w-full rounded-full p-1', darkMode ? 'bg-white/[0.04]' : 'bg-on-surface/[0.06]')}>
+      <motion.div
+        ref={fade.headerRef}
+        style={phoneMode ? fade.headerStyle : undefined}
+        className={cn('inline-flex w-full rounded-full p-1', darkMode ? 'bg-white/[0.04]' : 'bg-on-surface/[0.06]')}
+      >
         {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
           <button
             key={t}
@@ -122,7 +188,7 @@ export const PhonePantryHome: React.FC<Props> = ({
             {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
           </button>
         ))}
-      </div>
+      </motion.div>
 
       {tab === 'restaurants' ? (
         <>

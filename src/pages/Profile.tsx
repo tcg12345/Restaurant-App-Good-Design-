@@ -995,6 +995,10 @@ export const Profile: React.FC = () => {
         <TopBar
           centerLogo={phoneMode}
           fadeOnScroll={phoneMode}
+          // Scrolling swaps the header for a compact glass bar carrying
+          // the same actions plus your name, so Messages and Circle stay
+          // one tap away instead of only existing at the top of the page.
+          condensedTitle={phoneMode ? displayName : undefined}
           leftAction={phoneMode ? (
             <button
               type="button"
