@@ -16,6 +16,7 @@
 import { supabase, supabaseConfigured } from './supabase';
 import { resolveCuisine, cuisineFromName, type CuisineSource } from './cuisine';
 import { lookupCuisines, noteCuisineSource } from './cuisine-lookup';
+import { announceCuisineChange } from './cuisine-events';
 
 /**
  * Where a cached cuisine came from, strongest first. Mirrors
@@ -67,6 +68,8 @@ export interface CachedCuisine {
 /** Mirrors cuisine_max_count() in migration 071 — the DB is authoritative;
  *  this is here so the UI can say what the number is. */
 export const CUISINE_MAX_COUNT = 3;
+
+export { announceCuisineChange, onCuisineChange } from './cuisine-events';
 
 /**
  * The floor for writing a cached cuisine into somebody's saved rating.
@@ -192,7 +195,13 @@ export function publishRestaurantCuisine(restaurantId: string, cuisine: string, 
   if (SERVER_ONLY.has(source)) return;
   void supabase.from('restaurant_cuisine')
     .upsert({ restaurant_id: restaurantId, cuisine: trimmed, source }, { onConflict: 'restaurant_id' })
-    .then(({ error }) => { if (error) console.warn('[Cuisine] cache write failed:', error.message); });
+    .then(({ error }) => {
+      if (error) { console.warn('[Cuisine] cache write failed:', error.message); return; }
+      // The server may well have dropped this as weaker than what it
+      // already had — announcing anyway is correct and cheap, because a
+      // listener re-reads and finds nothing new.
+      announceCuisineChange(restaurantId);
+    });
 }
 
 /**

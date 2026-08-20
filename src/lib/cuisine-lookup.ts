@@ -21,6 +21,7 @@
  * never worth a visible error.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { announceCuisineChange } from './cuisine-events';
 
 export interface LookupPlace {
   restaurantId: string;
@@ -95,6 +96,9 @@ async function callServer(places: LookupPlace[]): Promise<Record<string, string>
         if (!entry?.cuisine) continue;
         out[id] = entry.cuisine;
         noteCuisineSource(id, entry.source || '');
+        // A place that had nothing now has something. Tell whatever is on
+        // screen rather than waiting for it to remount.
+        announceCuisineChange(id);
       }
     } catch (err) {
       console.warn('[Cuisine] OSM lookup threw:', err);

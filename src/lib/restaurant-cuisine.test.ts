@@ -52,6 +52,7 @@ vi.mock('./supabase', () => ({
   },
 }));
 
+import { onCuisineChange, resetCuisineListeners } from './cuisine-events';
 import {
   settleRestaurantCuisine, publishRestaurantCuisine, getRestaurantCuisineBatch,
   cuisineConfidence, PERSIST_CONFIDENCE_FLOOR, CUISINE_MAX_COUNT,
@@ -370,5 +371,38 @@ describe('getRestaurantCuisineTags', () => {
   it('is empty for a restaurant with one cuisine, and for no id', async () => {
     expect(await getRestaurantCuisineTags('nothing')).toEqual([]);
     expect(await getRestaurantCuisineTags('')).toEqual([]);
+  });
+});
+
+
+/**
+ * Publishing must announce.
+ *
+ * The cards read a persisted meta blob, so nothing on screen notices a
+ * cache write on its own. If publish stops announcing, the symptom is not
+ * an error — it is a card quietly showing last week's answer.
+ */
+describe('publishRestaurantCuisine · announcing', () => {
+  beforeEach(() => resetCuisineListeners());
+
+  it('tells the app which restaurant changed', async () => {
+    const seen: string[] = [];
+    onCuisineChange((id) => seen.push(id));
+    publishRestaurantCuisine('ChIJxyz', 'Peruvian', 'google');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen).toEqual(['ChIJxyz']);
+  });
+
+  it('says nothing when there was nothing to write', async () => {
+    const seen: string[] = [];
+    onCuisineChange((id) => seen.push(id));
+    publishRestaurantCuisine('ChIJxyz', 'Restaurant', 'google');  // the non-answer
+    publishRestaurantCuisine('ChIJxyz', '', 'google');
+    publishRestaurantCuisine('', 'Thai', 'google');
+    publishRestaurantCuisine('ChIJxyz', 'Thai', 'approved');      // server-only tier
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen).toEqual([]);
   });
 });

@@ -9,6 +9,7 @@
  * the caller is `authenticated` (see the guard in 069).
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { announceCuisineChange } from './cuisine-events';
 
 export type SuggestionStatus = 'pending' | 'approved' | 'denied' | 'auto';
 
@@ -151,10 +152,16 @@ export type ApprovalMode = 'add' | 'primary';
 export async function approveCuisineSuggestion(
   id: string,
   mode: ApprovalMode = 'add',
+  /** Lets the caller tell the rest of the app which restaurant changed.
+   *  The RPC takes a suggestion id and returns nothing, so this is the
+   *  only place that knows. */
+  restaurantId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseConfigured) return { ok: false, error: 'Not configured' };
   const { error } = await supabase.rpc('approve_cuisine_suggestion', { p_id: id, p_mode: mode });
-  return error ? { ok: false, error: error.message } : { ok: true };
+  if (error) return { ok: false, error: error.message };
+  if (restaurantId) announceCuisineChange(restaurantId);
+  return { ok: true };
 }
 
 /**
@@ -174,7 +181,9 @@ export async function removeRestaurantCuisine(
     p_restaurant_id: restaurantId,
     p_cuisine: cuisine,
   });
-  return error ? { ok: false, error: error.message } : { ok: true };
+  if (error) return { ok: false, error: error.message };
+  announceCuisineChange(restaurantId);
+  return { ok: true };
 }
 
 export async function denyCuisineSuggestion(id: string, reason?: string): Promise<{ ok: boolean; error?: string }> {

@@ -60,7 +60,10 @@ export const AdminCuisineSuggestions: React.FC = () => {
     setBusy(group.id);
     const res = decision === 'deny'
       ? await denyCuisineSuggestion(group.id)
-      : await approveCuisineSuggestion(group.id, decision);
+      // The restaurant id goes with it so the rest of the app can drop its
+      // stale copy — the RPC only takes a suggestion id, so this is the
+      // only place that knows which restaurant just changed.
+      : await approveCuisineSuggestion(group.id, decision, group.restaurantId);
     setBusy(null);
     if (!res.ok) { showToast(res.error || 'That did not go through'); return; }
     showToast(
@@ -69,6 +72,12 @@ export const AdminCuisineSuggestions: React.FC = () => {
           : `${group.cuisine} added to ${group.restaurantName || 'this restaurant'}`,
     );
     setGroups((prev) => prev.filter((g) => g.id !== group.id));
+    // Other rows in the queue can be for the same restaurant, and they
+    // must not keep showing the cuisine list as it was a moment ago.
+    if (decision !== 'deny') {
+      const cached = await getRestaurantCuisineBatch([group.restaurantId]);
+      setCurrent((prev) => ({ ...prev, [group.restaurantId]: cached[group.restaurantId]?.cuisines ?? [] }));
+    }
   };
 
   /** Free a slot on a restaurant that is at the cap. */

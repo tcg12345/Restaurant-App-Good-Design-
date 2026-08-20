@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { getRestaurantCuisineBatch, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
+import { getRestaurantCuisineBatch, getRestaurantCuisine, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
 import { lookupCuisines } from '../lib/cuisine-lookup';
 import { isUnknownCuisine } from '../lib/cuisine';
+import { onCuisineChange } from '../lib/cuisine-events';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
@@ -1898,6 +1899,46 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     syncMetaToCloud(next);
   }, [syncMetaToCloud]);
 
+  /**
+   * Adopt a cuisine the moment the app learns it changed.
+   *
+   * Without this the only thing that refreshes a card is opening the
+   * restaurant's detail page, which re-caches its meta on the way past —
+   * so an approved cuisine took until the next visit to appear, and the
+   * persisted meta blob meant "next visit" could be days.
+   *
+   * Writes to BOTH places a card can read from: the meta blob, always,
+   * because it is a display cache and the shared answer is by definition
+   * more current; and the user's own rating, only when what it holds is a
+   * non-answer, because that column is theirs and a real cuisine in it was
+   * not put there by guesswork.
+   */
+  useEffect(() => onCuisineChange((restaurantId) => {
+    void (async () => {
+      const fresh = await getRestaurantCuisine(restaurantId);
+      const label = fresh?.cuisine;
+      if (!label || isUnknownCuisine(label)) return;
+
+      const meta = restaurantMetaRef.current[restaurantId];
+      if (meta && meta.cuisine !== label) {
+        commitMeta((prev) => ({ ...prev, [restaurantId]: { ...prev[restaurantId], cuisine: label } }));
+      }
+
+      const rating = ratingsRef.current.find((r) => r.restaurantId === restaurantId);
+      if (rating && isUnknownCuisine(rating.cuisine)
+          && (fresh?.confidence ?? 0) >= PERSIST_CONFIDENCE_FLOOR) {
+        const now = Date.now();
+        const next = ratingsRef.current.map((r) => (
+          r.restaurantId === restaurantId ? { ...r, cuisine: label, updatedAt: now } : r
+        ));
+        ratingsRef.current = next;
+        setRatings(next);
+        saveToStorage(STORAGE_KEY_RATINGS, next);
+        syncRatingsToCloud(next);
+      }
+    })();
+  }), [commitMeta, syncRatingsToCloud]);
+
   // Persist the unified tombstone set to localStorage (always) and the durable
   // __tombstones__ meta stash (cloud, when ready) so deletions stick locally
   // and converge across devices.
@@ -2367,7 +2408,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [commitMeta]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
-    if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
+    const cached = restaurantMeta[restaurantId];
+    if (cached) {
+      // The meta blob is written when a detail page renders and then
+      // persists forever, so its cuisine can be older than everything else
+      // on the device. A non-answer in it must not shadow a real cuisine
+      // the rating has since acquired — that is the difference between a
+      // card saying "Restaurant" and saying "Peruvian".
+      if (isUnknownCuisine(cached.cuisine)) {
+        const fresher = ratings.find((r) => r.restaurantId === restaurantId)?.cuisine;
+        if (fresher && !isUnknownCuisine(fresher)) return { ...cached, cuisine: fresher };
+      }
+      return cached;
+    }
     const rated = ratings.find((r) => r.restaurantId === restaurantId);
     if (rated) return { id: rated.restaurantId, name: rated.name, image: rated.image, cuisine: rated.cuisine, price: rated.price, address: rated.address };
     const wished = wishlist.find((w) => w.restaurantId === restaurantId);

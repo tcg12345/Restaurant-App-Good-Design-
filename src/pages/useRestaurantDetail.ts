@@ -12,6 +12,7 @@ import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, formatCuisines, type CuisineSource } from '../lib/cuisine';
 import { settleRestaurantCuisine, getRestaurantCuisineTags } from '../lib/restaurant-cuisine';
+import { onCuisineChange } from '../lib/cuisine-events';
 import { isOsmCuisine, osmAttribution } from '../lib/cuisine-lookup';
 import { submitCuisineSuggestion, getMyCuisineSuggestion, type CuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
@@ -267,6 +268,23 @@ export function useRestaurantDetail() {
 
   const [extraCuisines, setExtraCuisines] = useState<string[]>([]);
 
+  /**
+   * Re-read when this restaurant's cuisine changes under us.
+   *
+   * The settle below runs in an effect keyed on the place, so it fires
+   * once and then holds. That is wrong for the whole point of the review
+   * flow: an admin approves a suggestion, comes straight back here, and
+   * the header still shows what it showed before the approval. Bumping a
+   * nonce is enough — the effects re-run and re-read the cache.
+   */
+  const [cuisineNonce, setCuisineNonce] = useState(0);
+  useEffect(() => {
+    if (!place?.id) return;
+    return onCuisineChange((id) => {
+      if (id === place.id) setCuisineNonce((n) => n + 1);
+    });
+  }, [place?.id]);
+
   // Their own pending/decided proposal, so the screen can say what
   // happened to it rather than silently showing the old label.
   useEffect(() => {
@@ -293,7 +311,7 @@ export function useRestaurantDetail() {
       lng: place.lng,
     }).then((settled) => { if (!cancelled) setSettledCuisine(settled); });
     return () => { cancelled = true; };
-  }, [place, michelin]);
+  }, [place, michelin, cuisineNonce]);
 
   // settledCuisine is the ANSWER, not a fallback: settleRestaurantCuisine
   // has already weighed the shared cache against Michelin and Google and
@@ -325,7 +343,7 @@ export function useRestaurantDetail() {
     void getRestaurantCuisineTags(place.id)
       .then((tags) => { if (!cancelled) setExtraCuisines(tags); });
     return () => { cancelled = true; };
-  }, [place?.id, mySuggestion?.status]);
+  }, [place?.id, mySuggestion?.status, cuisineNonce]);
 
   const cuisines = useMemo(
     () => [cuisine, ...extraCuisines].filter(Boolean),

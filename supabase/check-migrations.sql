@@ -1,4 +1,4 @@
--- Did 067 through 071 land? One row per thing each migration creates.
+-- Did 067 through 072 land? One row per thing each migration creates.
 -- Reads catalogue definitions rather than calling anything, so it still
 -- answers on a database where none of them have run.
 SELECT * FROM (VALUES
@@ -61,6 +61,13 @@ SELECT * FROM (VALUES
                 AND p.pronargs = 2)),
   ('071', 'admin can remove a cuisine',
      EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-              WHERE n.nspname='public' AND p.proname='remove_restaurant_cuisine'))
+              WHERE n.nspname='public' AND p.proname='remove_restaurant_cuisine')),
+  ('072', 'you may re-suggest after a decision',
+     EXISTS (SELECT 1 FROM pg_policies
+              WHERE schemaname='public' AND tablename='cuisine_suggestions'
+                AND cmd='UPDATE' AND qual NOT LIKE '%pending%')),
+  ('072', 'a re-suggested row loses its old verdict',
+     EXISTS (SELECT 1 FROM pg_trigger
+              WHERE tgname='trg_reset_cuisine_suggestion_verdict' AND NOT tgisinternal))
 ) AS t(migration, check_name, ok)
 ORDER BY migration, check_name;
