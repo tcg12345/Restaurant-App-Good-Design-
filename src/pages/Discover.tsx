@@ -3401,7 +3401,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   };
 
   const renderPlaceCard = (p: PlaceResult) => {
-    const { cuisine, price } = michCuisinePrice(p, getCuisineLabel(p.types), p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '');
+    const { cuisine, price } = michCuisinePrice(p, getCuisineLabel(p), p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '');
     const city = extractCityState(p.fullAddress || '', p.address || '');
     // Only resolve (and show) the Michelin distinction while a Michelin filter is active.
     const michHit = selectedMichelin.length > 0 && michelinReady
@@ -3521,7 +3521,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // page's distance + driving + walking strip is injected as the
   // headSlot so it sits above the popup's standard action row.
   const renderPanelDetail = (place: PlaceResult) => {
-    const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place.types), place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '');
+    const { cuisine, price } = michCuisinePrice(place, getCuisineLabel(place), place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '');
     // Michelin distinction for the badge: dataset-sourced rows carry a synthetic
     // id (look up directly); real Google places match by name + coords.
     const michelin = michelinReady
@@ -4919,7 +4919,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     suggestedRestaurants={mode === 'home' ? recommendations.slice(0, 6).map((p) => ({
                       id: p.id,
                       name: p.name,
-                      cuisine: getCuisineLabel((p as any).types || []),
+                      cuisine: getCuisineLabel(p as any),
                       rating: (p as any).rating ?? null,
                       address: (p as any).address || '',
                       price: priceLevelToString((p as any).priceLevel ?? -1) || communityPrices[p.id] || '',

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Loader2, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { displayCuisine } from '../lib/cuisine';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { loadLastSelectedLocation } from './HomeLocationBar';
@@ -268,7 +269,7 @@ export const SearchPopup: React.FC<Props> = ({
                           <PopupRow
                             key={r.restaurantId}
                             name={r.name}
-                            sub={[r.cuisine || 'Restaurant', r.price].filter(Boolean).join(' · ')}
+                            sub={[displayCuisine(r.cuisine), r.price].filter(Boolean).join(' · ')}
                             score={r.score}
                             disabled={already}
                             statusLabel={already ? 'Added' : undefined}
@@ -319,7 +320,7 @@ export const SearchPopup: React.FC<Props> = ({
                         // (location kept for context); else the usual derived sub.
                         const sub = mich
                           ? [mich.cuisine, michelinPriceDisplay(mich), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ')
-                          : [getCuisineLabel(p.types || []), priceLevelToString(p.priceLevel), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ');
+                          : [getCuisineLabel(p), priceLevelToString(p.priceLevel), formatLocationLabel(p.addressComponents, p.fullAddress || p.address)].filter(Boolean).join(' · ');
                         return (
                           <PopupRow
                             key={p.id}

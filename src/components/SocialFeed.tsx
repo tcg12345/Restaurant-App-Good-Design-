@@ -8,8 +8,10 @@ import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
 import { usePosts } from '../contexts/PostsContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { displayCuisine } from '../lib/cuisine';
 import { ScoreBadge } from './ScoreBadge';
 import { ScoreRing } from './cards';
+import { RatingStripCard, ratingStripGridClass } from './RatingStripCard';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -297,7 +299,7 @@ const SuggestionsRail: React.FC<{
                   <div className="flex items-start justify-between gap-2.5">
                     <div className="min-w-0">
                       <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary truncate block">
-                        {r.cuisine || 'Restaurant'}
+                        {displayCuisine(r.cuisine)}
                       </span>
                       <h5 className="mt-0.5 font-serif font-semibold text-[16px] text-on-surface leading-[1.18] tracking-[-0.015em] line-clamp-1 group-hover:text-primary transition-colors">
                         {r.name}
@@ -1021,104 +1023,46 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   );
 
   /**
-   * A batch of ratings nobody photographed.
+   * A run of ratings nobody photographed.
    *
    * At full width these were near-identical rows — a name, a score, and
    * nothing to look at — and three of them in a row pushed the photos
    * everyone came for off the screen. They still belong in the feed, just
-   * not at that size. Same ingredients as the full card (who, where,
-   * score), a quarter of the height.
+   * not at that size: same ingredients as the full card (who, where,
+   * score) in a square tile you scan rather than read. layoutFeed
+   * guarantees one run per heading, so this always carries the label.
+   * Geometry lives in RatingStripCard.
    */
-  const RatingStrip: React.FC<{ entries: FeedEntry[]; labelled?: boolean }> = ({ entries, labelled = true }) => (
+  const RatingStrip: React.FC<{ entries: FeedEntry[] }> = ({ entries }) => (
     <div>
-      {labelled && (
-        <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface/40">
-          Also rated
-        </p>
-      )}
-      <ul className={cn(
-        // Grid, not flex, so one class swap changes the whole geometry:
-        // a swipeable rail of percentage-width columns on a phone, four
-        // equal columns filling the row on a desktop feed.
-        'grid gap-3 snap-x',
-        // FOUR fixed columns rather than auto-cols-fr: a leftover strip of
-        // one would otherwise stretch that single card across the whole
-        // row, which reads as exactly the full-width card this replaces.
-        // Empty cells keep every card the same size.
-        phoneMode
-          ? 'grid-flow-col auto-cols-[82%] overflow-x-auto no-scrollbar -mx-[18px] px-[18px]'
-          : 'grid-flow-col auto-cols-[82%] overflow-x-auto no-scrollbar -mx-1 px-1 sm:grid-flow-row sm:grid-cols-4 sm:overflow-x-visible',
-      )}>
+      <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface/40">
+        Also rated
+      </p>
+      <ul className={ratingStripGridClass(phoneMode)}>
         {entries.map((e) => {
           const r = e.source.rating!;
           const color = avatarColor(e.authorId);
           const name = getName(e.authorId);
           const place = e.restaurant?.name || r.restaurant_name;
-          const meta = [r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ');
-          const liked = userLiked.has(r.id);
           return (
             <li key={e.key} className="snap-start min-w-0">
-              <div className="group flex h-full min-w-0 flex-col rounded-2xl border border-on-surface/[0.07] bg-paper p-3.5 transition-all hover:border-on-surface/15 hover:shadow-[0_6px_20px_-10px_rgba(0,0,0,0.25)]">
-                {/* The card body is the tap target; the action bar below
-                    is deliberately outside it so a like isn't a navigate. */}
-                <button
-                  type="button"
-                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none"
-                >
-                  {/* Author line gets the full width; the score sits beside
-                      the restaurant name, exactly where the full-width card
-                      puts it when there's no photo to host it. Sharing the
-                      header with the ring truncated every name to "Jenifer …". */}
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full', color.bg)}>
-                      <span className={cn('text-[11px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
-                    </span>
-                    <span className="min-w-0 truncate text-[12px] leading-tight">
-                      <span className="font-bold text-on-surface">{name}</span>
-                      <span className="text-on-surface/40"> · {timeAgo(activityTimestamp(r))}</span>
-                    </span>
-                  </div>
-                  <div className="mt-2.5 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="font-serif text-[17px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-2 transition-colors group-hover:text-primary">
-                        {place}
-                      </h3>
-                      {meta && (
-                        <p className="mt-1 truncate text-[12px] font-medium text-on-surface/50">{meta}</p>
-                      )}
-                    </div>
-                    <ScoreRing score={Number(r.score)} size={40} className="mt-0.5 flex-shrink-0" />
-                  </div>
-                  {r.notes && (
-                    <p className="mt-2 text-[13px] leading-[1.45] text-on-surface/70 line-clamp-2">{r.notes}</p>
-                  )}
-                </button>
-
-                <div className="mt-3 flex items-center gap-1 border-t border-on-surface/[0.06] pt-1.5 -ml-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleLike(r.id)}
-                    aria-label={liked ? `Unlike ${place}` : `Like ${place}`}
-                    className={cn(
-                      'inline-flex h-9 items-center gap-1.5 rounded-full px-2 transition-colors',
-                      liked ? 'text-red-500' : 'text-on-surface/55 hover:bg-on-surface/[0.04] hover:text-red-500',
-                    )}
-                  >
-                    <Heart size={17} className={liked ? 'fill-red-500' : ''} />
-                    <span className="text-[12px] font-semibold tabular-nums">{likes[r.id] || 0}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenComments(r.id)}
-                    aria-label={`Comments on ${place}`}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full px-2 text-on-surface/55 transition-colors hover:bg-on-surface/[0.04] hover:text-primary"
-                  >
-                    <MessageSquare size={17} />
-                    <span className="text-[12px] font-semibold tabular-nums">{commentCounts[r.id] || 0}</span>
-                  </button>
-                </div>
-              </div>
+              <RatingStripCard
+                name={name}
+                initial={initialOf(name)}
+                avatarBg={color.bg}
+                avatarText={color.text}
+                when={timeAgo(activityTimestamp(r))}
+                place={place}
+                meta={[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
+                score={Number(r.score)}
+                notes={r.notes}
+                liked={userLiked.has(r.id)}
+                likeCount={likes[r.id] || 0}
+                commentCount={commentCounts[r.id] || 0}
+                onOpen={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                onLike={() => handleLike(r.id)}
+                onComment={() => handleOpenComments(r.id)}
+              />
             </li>
           );
         })}
@@ -1254,19 +1198,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             );
           }
           if (row.kind === 'strip') {
-            // Leftover strips run back-to-back once the full cards are
-            // spent; one heading over the run reads better than the same
-            // three words repeated down the page.
-            const heads = feedRows[rowIndex - 1]?.kind !== 'strip';
+            // One row per run — layoutFeed merges adjacent strips, so this
+            // never renders two bordered "Also rated" blocks in a stack.
             return (
               <li
                 key={`strip-${row.entries[0]?.key ?? 'empty'}`}
-                className={cn(
-                  'border-b border-on-surface/[0.08] last:border-0',
-                  heads ? (phoneMode ? 'py-4' : 'py-5') : (phoneMode ? 'pb-4' : 'pb-5'),
-                )}
+                className={cn('border-b border-on-surface/[0.08] last:border-0', phoneMode ? 'py-4' : 'py-5')}
               >
-                <RatingStrip entries={row.entries} labelled={heads} />
+                <RatingStrip entries={row.entries} />
               </li>
             );
           }

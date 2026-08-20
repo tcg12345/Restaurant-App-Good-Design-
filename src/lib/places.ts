@@ -23,6 +23,12 @@ export interface PlaceResult {
   fullAddress: string;
   photoUrl: string | null;
   types: string[];
+  /** Google's single best type for the place, and its localized human
+   *  label. Far more reliable than `types` for cuisine — see
+   *  lib/cuisine.ts. Undefined on places saved before these were
+   *  requested, which the resolver handles. */
+  primaryType?: string;
+  primaryTypeDisplayName?: string;
   userRatingCount: number;
   /** Optional — Google v1 returns these when requested in the FieldMask.
    *  Used by formatLocationLabel() to build "Neighborhood, Borough" /
@@ -104,6 +110,8 @@ interface GooglePlace {
   formattedAddress?: string;
   addressComponents?: AddressComponent[];
   types?: string[];
+  primaryType?: string;
+  primaryTypeDisplayName?: { text: string };
   userRatingCount?: number;
   regularOpeningHours?: { weekdayDescriptions?: string[]; openNow?: boolean };
 }
@@ -122,6 +130,8 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     // See block comment above: Places Photos media is never requested.
     photoUrl: null,
     types: p.types || [],
+    primaryType: p.primaryType,
+    primaryTypeDisplayName: p.primaryTypeDisplayName?.text,
     userRatingCount: p.userRatingCount ?? 0,
     hours: p.regularOpeningHours?.weekdayDescriptions,
   }));
@@ -143,7 +153,13 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // Billing: searches already request rating/priceLevel/userRatingCount, which
 // put them in the Enterprise SKU — regularOpeningHours is the same tier, so
 // adding it does not change the per-request cost.
-const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.userRatingCount,places.regularOpeningHours';
+// primaryType / primaryTypeDisplayName are what make cuisine resolvable
+// outside big cities: rural places routinely come back with types =
+// ['restaurant','point_of_interest','establishment'] while primaryType says
+// `barbecue_restaurant`. Both are Pro-tier fields and these requests are
+// already Enterprise (rating / priceLevel / userRatingCount), so asking for
+// them does not change the per-request cost. See lib/cuisine.ts.
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.primaryType,places.primaryTypeDisplayName,places.userRatingCount,places.regularOpeningHours';
 
 // Google's `places:searchText` endpoint only accepts `locationRestriction`
 // with a `rectangle`; passing a `circle` there returns a 400. (The
@@ -420,7 +436,7 @@ export async function searchNearbyRestaurants(
     ]);
 
     const all = [...byDistance, ...byPopularity, ...byText];
-    const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+    const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
     return sortByDistance(lat, lng, deduped).slice(0, cap);
   }
 
@@ -438,7 +454,7 @@ export async function searchNearbyRestaurants(
   ]);
 
   const all = [...byPopularity, ...byDistance, ...textResults.flat()];
-  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
   return sortByQuality(deduped).slice(0, cap);
 }
 
@@ -489,7 +505,7 @@ async function searchWithFilters(
   ]);
 
   const all = [...textResults.flat(), ...byDistance];
-  let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
   // Distance-ranked nearby doesn't honour price/cuisine filters server-side,
   // so trim its contributions client-side. Price level on PlaceResult is
   // 0 when unknown — those aren't excluded because the filter can't tell
@@ -530,6 +546,70 @@ const LODGING_TYPES = new Set([
 ]);
 export function isLodgingPlace(types: string[]): boolean {
   return types.some((t) => LODGING_TYPES.has(t));
+}
+
+/**
+ * Venues that CONTAIN food rather than being a food business.
+ *
+ * Same failure as the hotels above, one step further out. A cinema, a mall
+ * and a stadium all carry `restaurant` or `food` in `types` — because they
+ * have a concession stand or a food court — so a food-type check alone
+ * lets them through, and a shopping mall turns up in a restaurant
+ * recommendation. Their actual restaurants are separate places with their
+ * own ids.
+ *
+ * Deliberately NOT here: `night_club`, `park`, `tourist_attraction`,
+ * `market`, `national_park`. Each has enough genuine restaurants and bars
+ * carrying it that excluding them would cost more than it saves.
+ */
+export const VENUE_TYPES = new Set([
+  // Retail that happens to sell food
+  'shopping_mall', 'department_store', 'supermarket', 'grocery_store',
+  'convenience_store', 'gas_station', 'liquor_store', 'discount_store',
+  'home_improvement_store', 'warehouse_store', 'wholesaler',
+  // Entertainment and attractions
+  'movie_theater', 'performing_arts_theater', 'concert_hall', 'casino',
+  'amusement_park', 'amusement_center', 'water_park', 'bowling_alley',
+  'zoo', 'aquarium', 'museum', 'art_gallery', 'planetarium',
+  'stadium', 'arena', 'sports_complex', 'sports_activity_location',
+  'golf_course', 'ski_resort', 'gym', 'fitness_center', 'spa',
+  // Transport
+  'airport', 'international_airport', 'train_station', 'subway_station',
+  'light_rail_station', 'bus_station', 'transit_station', 'ferry_terminal',
+  'rest_stop', 'parking',
+  // Institutions
+  'hospital', 'school', 'primary_school', 'secondary_school', 'university',
+  'library', 'church', 'mosque', 'synagogue', 'hindu_temple',
+  'city_hall', 'courthouse', 'police', 'post_office', 'bank',
+  // Rooms you hire rather than eat out in
+  'event_venue', 'banquet_hall', 'wedding_venue', 'convention_center',
+  'community_center',
+]);
+
+/** Every type in the app's own cuisine taxonomy — a place carrying one of
+ *  these is a specific kind of food business, not a venue with a kitchen. */
+const SPECIFIC_FOOD_TYPES = new Set(
+  CUISINE_TYPES.map((c) => c.type).filter((t): t is string => !!t),
+);
+
+/**
+ * Is this place a venue rather than somewhere to eat?
+ *
+ * `primaryType` is Google's own answer to "what IS this place", which is
+ * exactly the question, so when it is present it decides alone: a cinema
+ * that sells popcorn is a cinema.
+ *
+ * Places cached before we started requesting `primaryType` have to fall
+ * back to `types`, which is weaker — a restaurant inside a mall can carry
+ * the mall's type — so there the venue only wins when nothing else claims
+ * the place as a specific kind of food business.
+ */
+export function isVenuePlace(place: { primaryType?: string; types?: string[] }): boolean {
+  const primary = place.primaryType?.trim();
+  if (primary) return VENUE_TYPES.has(primary);
+  const types = place.types ?? [];
+  if (types.some((t) => SPECIFIC_FOOD_TYPES.has(t))) return false;
+  return types.some((t) => VENUE_TYPES.has(t));
 }
 
 // Exported for the recommendation engine's price-restricted query path — the
@@ -605,7 +685,7 @@ export async function searchPlacesByText(
   const exactPlaces = mapPlaces(exactRes.places || []);
 
   // Filter exact results to only food-related places
-  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types));
+  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
 
   // Merge: exact name matches first (higher relevance), then broad results
   const merged = [...foodExact, ...broadPlaces];
@@ -704,7 +784,7 @@ export async function searchPlacesByTextPaged(
 // endpoint is separately billed and every rendered image is its own call.
 // The detail page now surfaces user-uploaded photos only; if none exist it
 // shows a "No photos added yet" placeholder.
-const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,addressComponents,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
+const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,addressComponents,types,primaryType,primaryTypeDisplayName,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
 
 // In-memory cache for place details (5 min TTL)
 const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
@@ -755,6 +835,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     photoUrl: null,
     photoUrls: [],
     types: p.types || [],
+    primaryType: (p as GooglePlace).primaryType,
+    primaryTypeDisplayName: (p as GooglePlace).primaryTypeDisplayName?.text,
     userRatingCount: p.userRatingCount ?? 0,
     phone: p.nationalPhoneNumber || '',
     website: p.websiteUri || '',

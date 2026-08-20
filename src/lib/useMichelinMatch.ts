@@ -7,6 +7,7 @@
 // Google-derived cuisine/price and upgrade in place when Michelin data arrives.
 
 import { useEffect, useState } from 'react';
+import { displayCuisine } from './cuisine';
 import {
   findMichelinMatchSync,
   isMichelinIndexReady,
@@ -98,7 +99,11 @@ export function useMichelinMatch(
   const michelin = ready && name ? findMichelinMatchSync(name, lat, lng, address) : null;
   return {
     michelin,
-    cuisine: michelin ? michelin.cuisine : fallbackCuisine,
+    // The fallback is a SAVED cuisine, and saved cuisines still carry the
+    // word "Restaurant" from the years the resolver answered that when it
+    // didn't know. Every card in the app reads its cuisine through here, so
+    // this is the one place that has to refuse to repeat it.
+    cuisine: michelin ? michelin.cuisine : displayCuisine(fallbackCuisine),
     price: michelin ? michelinPriceDisplay(michelin) : fallbackPrice,
   };
 }

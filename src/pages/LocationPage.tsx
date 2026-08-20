@@ -33,6 +33,7 @@ import {
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { cuisineLabel } from '../lib/cuisine';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { scoreHex, scoreTintStyle } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -162,21 +163,9 @@ function cityKeyFromLabel(label: string): string {
    Duplicated lightly from recommendations.ts so the row can render without
    cross-importing the recommendation engine's internals. Falls back to ''
    (renders as "Restaurant") when no known cuisine type is present. */
-const GOOGLE_TYPE_TO_CUISINE: Record<string, string> = (() => {
-  const out: Record<string, string> = {};
-  for (const entry of CUISINE_TYPES) {
-    if (entry.type) out[entry.type] = entry.label;
-  }
-  return out;
-})();
-
-function inferCuisineLabel(types: string[]): string {
-  for (const t of types) {
-    const label = GOOGLE_TYPE_TO_CUISINE[t];
-    if (label && label !== 'All') return label;
-  }
-  return '';
-}
+/** Cuisine for a place — one shared resolver (lib/cuisine), so this page,
+ *  LocationChat and the restaurant detail can't drift apart. */
+const inferCuisineLabel = cuisineLabel;
 
 /* ── Query rotation ──────────────────────────────────────────────────────────
    Google Places' text search caps at ~20 hits per call, so "infinite scroll"
@@ -2286,6 +2275,12 @@ export const LocationPage: React.FC = () => {
             <ArrowLeft />
           </button>
 
+          <span className="fb-divider" />
+
+          {/* What you're filtering BY. Flexes, and is the only part
+              allowed to wrap — so a narrow desktop gets two tidy rows
+              instead of four ragged ones. */}
+          <div className="fb-group is-filters">
           {/* Clear-all-cuisines chip */}
           <button
             type="button"
@@ -2321,9 +2316,12 @@ export const LocationPage: React.FC = () => {
             <span className="sw" />
             Open now
           </button>
+          </div>
 
-          <span className="fb-spacer" />
-
+          {/* How you're viewing the results. Held together so Sort,
+              Filters and the view switcher can never end up on
+              different rows from each other. */}
+          <div className="fb-group is-actions">
           {/* Sort */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <button
@@ -2380,6 +2378,7 @@ export const LocationPage: React.FC = () => {
             >
               <MapIcon /> Map
             </button>
+          </div>
           </div>
         </div>
         )}
@@ -2447,7 +2446,7 @@ export const LocationPage: React.FC = () => {
               const michHit = michelinReady
                 ? findMichelinMatchSync(p.name, p.lat, p.lng, p.address)
                 : null;
-              const cuisine = michHit ? michHit.cuisine : inferCuisineLabel(p.types);
+              const cuisine = michHit ? michHit.cuisine : inferCuisineLabel(p);
               const priceLabel = michHit ? michelinPriceDisplay(michHit) : priceLevelToString(p.priceLevel);
               const meta = restaurantMeta[p.id];
               const areaLabel = formatLocationLabel(
@@ -3526,7 +3525,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // Hook must run before the early returns below to satisfy Rules of Hooks.
   const mich = useMichelinMatch(
     place.name, place.lat, place.lng, place.fullAddress || place.address,
-    inferCuisineLabel(place.types), priceLevelToString(place.priceLevel),
+    inferCuisineLabel(place), priceLevelToString(place.priceLevel),
   );
   const { restaurantMeta, cacheRestaurantMeta, ratings } = useLists();
   const driveLabel = formatTravelTime(driveMin);

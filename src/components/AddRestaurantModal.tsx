@@ -10,6 +10,9 @@ import { settleScores, tierOfScore } from '../lib/settleScores';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { CuisinePicker, EditableCuisineLine } from './CuisinePicker';
+import { submitCuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
@@ -28,6 +31,7 @@ export const AddRestaurantModal: React.FC = () => {
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const { dragProps } = useBottomSheet(addRestaurantModalOpen, closeAddRestaurantModal);
   // Double-tapping Save during the sheet's exit animation must not save
   // twice — the second isNewVisit save archives the first as a phantom visit.
@@ -51,6 +55,12 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
+  /** A cuisine this user has just proposed for this place. Display only —
+   *  it is NOT written into the rating being saved. Rating a place is when
+   *  someone most reliably knows what it serves, which is why the control
+   *  is here, but a suggestion changes nothing until it's reviewed. */
+  const [suggestedCuisine, setSuggestedCuisine] = useState('');
+  const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
   const [visitDate, setVisitDate] = useState(localISODate());
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
@@ -117,6 +127,10 @@ export const AddRestaurantModal: React.FC = () => {
 
   useEffect(() => {
     if (addRestaurantModalOpen && restaurant) {
+      // The override belongs to the restaurant, not the session — clear it
+      // whenever the modal opens on a different one.
+      setSuggestedCuisine('');
+      setCuisinePickerOpen(false);
       const ex = getRating(restaurant.id);
       const startAsNewVisit = addRestaurantModalInitialPage === 'new-visit';
       if (startAsNewVisit && ex) {
@@ -229,6 +243,7 @@ export const AddRestaurantModal: React.FC = () => {
   // No pick and no meta price → persist '' (unset); fabricating '$$' would
   // stamp a made-up tier on the rating.
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '');
+  const resolvedCuisine = restaurant?.cuisine || '';
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -310,7 +325,7 @@ export const AddRestaurantModal: React.FC = () => {
     if (!restaurant) return rawScore;
     const self: RestaurantRating = {
       restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+      cuisine: resolvedCuisine, price: resolvedPrice, address: restaurant.address,
       score: rawScore, notes: '', visitDate: '', wouldReturn: true, tags: [], photos: [],
       listIds: [], friendIds: [], createdAt: 0,
     };
@@ -336,7 +351,7 @@ export const AddRestaurantModal: React.FC = () => {
     rateRestaurant(
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+        cuisine: resolvedCuisine, price: resolvedPrice, address: restaurant.address,
         score: finalScore, notes, visitDate, wouldReturn: isNewVisit ? true : (existing?.wouldReturn ?? true), tags: selectedTags,
         // blob: previews are session-scoped — they'd be dead links after a
         // reload. Save is blocked while any remain; this filter is the
@@ -666,6 +681,12 @@ export const AddRestaurantModal: React.FC = () => {
                     <h2 className="font-serif font-bold text-[27px] leading-[1.08] tracking-[-0.015em] text-on-surface">
                       {restaurant.name}
                     </h2>
+                    <EditableCuisineLine
+                      cuisine={resolvedCuisine}
+                      onEdit={() => setCuisinePickerOpen(true)}
+                      pending={!!suggestedCuisine}
+                      className="group/cuisine mt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/45"
+                    />
                   </div>
 
                   {/* New Visit vs Update toggle */}
@@ -1283,6 +1304,33 @@ export const AddRestaurantModal: React.FC = () => {
         </>
       )}
     </AnimatePresence>
+
+    {/* Proposing a cuisine while rating the place. Rating is when someone
+        most reliably knows what a restaurant serves, which is why the
+        control is here — but it files a suggestion and nothing more. The
+        rating being saved keeps whatever cuisine the app resolved. */}
+    <CuisinePicker
+      open={cuisinePickerOpen}
+      onClose={() => setCuisinePickerOpen(false)}
+      onSelect={async (c) => {
+        if (!restaurant?.id || !user?.id) return false;
+        const res = await submitCuisineSuggestion({
+          userId: user.id,
+          restaurantId: restaurant.id,
+          cuisine: c,
+          restaurantName: restaurant.name,
+          restaurantAddress: restaurant.address,
+          currentCuisine: resolvedCuisine,
+        });
+        if (!res.ok) return false;
+        setSuggestedCuisine(c);
+        showToast('Sent for review', { subtitle: `You suggested ${c} — nothing changes until it's approved` });
+        return true;
+      }}
+      current={resolvedCuisine}
+      restaurantName={restaurant?.name}
+      pending={suggestedCuisine || undefined}
+    />
     </>
   );
 };

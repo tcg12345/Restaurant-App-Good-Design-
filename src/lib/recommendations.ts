@@ -1,5 +1,5 @@
 import type { PlaceResult } from './places';
-import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace } from './places';
+import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace, isVenuePlace } from './places';
 import type { CommunityRating } from './supabase-community';
 import {
   getExpertRatings,
@@ -156,13 +156,19 @@ export const DEFAULT_WEIGHTS = {
 
 /**
  * Whether a Google-sourced place belongs in a RECOMMENDATION pool at all:
- * it must be a food place and must NOT be lodging. Hotels (Airelles, Cheval
- * Blanc, …) rank high on "fine dining <city>" text queries and often carry
- * their restaurants' cuisine types on the property POI itself — recommending
- * the hotel instead of its restaurant is always wrong. Exported for tests.
+ * it must be a food place, and must be neither lodging nor a venue that
+ * merely contains food.
+ *
+ * Hotels (Airelles, Cheval Blanc, …) rank high on "fine dining <city>" text
+ * queries and often carry their restaurants' cuisine types on the property
+ * POI itself, so a food-type check alone lets them through — and
+ * recommending the hotel instead of its restaurant is always wrong. Cinemas,
+ * malls and stadiums fail the same way via their concessions and food
+ * courts. In every case the actual restaurant is a separate place with its
+ * own id. Exported for tests.
  */
-export function recPoolEligible(p: { types: string[] }): boolean {
-  return isFoodPlace(p.types) && !isLodgingPlace(p.types);
+export function recPoolEligible(p: { types: string[]; primaryType?: string }): boolean {
+  return isFoodPlace(p.types) && !isLodgingPlace(p.types) && !isVenuePlace(p);
 }
 
 /** "Korean, Contemporary" / "Sushi / Japanese" → ["Korean","Contemporary"] … */
@@ -1148,7 +1154,7 @@ export async function gatherRecCandidates(
               useRestriction: true,
               priceLevels: q.priceLevels,
             })
-              .then((page) => page.places.filter((p) => isFoodPlace(p.types)))
+              .then((page) => page.places.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p)))
               .catch(() => [] as PlaceResult[])
           : searchPlacesByText(
               q.text,

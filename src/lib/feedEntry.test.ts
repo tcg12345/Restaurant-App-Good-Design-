@@ -256,13 +256,31 @@ describe('layoutFeed', () => {
     ]);
   });
 
-  it('caps a strip at 4 and opens a new one for the rest', () => {
+  // Chunks of four that land back-to-back are one run, not two sections:
+  // the feed borders each row, so a stacked pair read as the same block
+  // repeated under a divider.
+  it('runs the leftovers as a single strip, not stacked chunks of four', () => {
     const rows = layoutFeed([
       ...Array.from({ length: 4 }, (_, i) => post(`p${i}`, 9_000 - i)),
       ...Array.from({ length: 6 }, (_, i) => plainRating(`r${i}`, 5_000 - i)),
     ]);
     const strips = rows.filter((r) => r.kind === 'strip');
-    expect(strips.map((r) => (r.kind === 'strip' ? r.entries.length : 0))).toEqual([4, 2]);
+    expect(strips.map((r) => (r.kind === 'strip' ? r.entries.length : 0))).toEqual([6]);
+  });
+
+  it('never emits two strips back to back, however the run falls', () => {
+    for (const posts of [0, 1, 3, 4, 5, 8]) {
+      for (const ratings of [1, 2, 5, 9, 13]) {
+        const rows = layoutFeed([
+          ...Array.from({ length: posts }, (_, i) => post(`p${i}`, 9_000 - i)),
+          ...Array.from({ length: ratings }, (_, i) => plainRating(`r${i}`, 5_000 - i)),
+        ]);
+        const adjacent = rows.some((r, i) => r.kind === 'strip' && rows[i - 1]?.kind === 'strip');
+        expect(adjacent, `${posts} posts + ${ratings} ratings`).toBe(false);
+        // Nothing is lost to the merge.
+        expect(rows.flatMap((r) => (r.kind === 'strip' ? r.entries : []))).toHaveLength(ratings);
+      }
+    }
   });
 
   it('never opens the feed with a strip', () => {
@@ -282,9 +300,10 @@ describe('layoutFeed', () => {
     expect(stripped).toHaveLength(10);
   });
 
-  it('a feed of nothing but photoless ratings is all strips', () => {
+  it('a feed of nothing but photoless ratings is one strip', () => {
     const rows = layoutFeed(Array.from({ length: 5 }, (_, i) => plainRating(`r${i}`, 9_000 - i)));
-    expect(rows.map((r) => r.kind)).toEqual(['strip', 'strip']);
+    expect(rows.map((r) => r.kind)).toEqual(['strip']);
+    expect(rows[0].kind === 'strip' && rows[0].entries).toHaveLength(5);
   });
 
   it('disabled renders everything full-width (the Verified tab)', () => {

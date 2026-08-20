@@ -28,6 +28,9 @@ export async function enforceRateLimit(
   req: Request,
   endpoint: string,
   maxPerHour: number,
+  /** Shown to the caller on 429. Defaults to the AI wording, which is what
+   *  every caller but cuisine-lookup wants. */
+  message = "You've reached the hourly limit for AI requests. Please try again in a little while.",
 ): Promise<Response | null> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -47,7 +50,7 @@ export async function enforceRateLimit(
     return null;
   }
   if (data === false) {
-    return jsonResponse(429, "You've reached the hourly limit for AI requests. Please try again in a little while.");
+    return jsonResponse(429, message);
   }
   return null;
 }

@@ -631,7 +631,7 @@ const RateSurface: React.FC = () => {
           setRemote(places.slice(0, 12).map((p) => ({
             id: p.id,
             name: p.name,
-            cuisine: getCuisineLabel(p.types),
+            cuisine: getCuisineLabel(p),
             price: priceLevelToString(p.priceLevel) || '',
             address: p.fullAddress || p.address || '',
           })));

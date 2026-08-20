@@ -2706,7 +2706,7 @@ const AddToNightSheet: React.FC<{
   };
 
   const addFromSearch = (place: PlaceResult) => {
-    const cuisine = getCuisineLabel(place.types);
+    const cuisine = getCuisineLabel(place);
     const meta: RestaurantMeta = {
       id: place.id, name: place.name, image: place.photoUrl || '',
       cuisine, price: '', address: place.fullAddress || place.address,
@@ -2926,7 +2926,7 @@ const AddToNightSheet: React.FC<{
                             )}
                             <div className="flex-1 min-w-0">
                               <p className="text-[13px] font-semibold truncate">{place.name}</p>
-                              <p className="text-[10px] text-on-surface/40">{getCuisineLabel(place.types)}{place.rating > 0 ? ` · ★ ${place.rating}` : ''}</p>
+                              <p className="text-[10px] text-on-surface/40">{[getCuisineLabel(place), place.rating > 0 ? `★ ${place.rating}` : ''].filter(Boolean).join(' · ')}</p>
                             </div>
                             {alreadyAdded ? (
                               <span className="text-[10px] text-on-surface/30 font-medium flex-shrink-0">Added</span>
@@ -6774,7 +6774,7 @@ export const Pantry: React.FC = () => {
         onPickPlace={(place) => {
           const meta: RestaurantMeta = {
             id: place.id, name: place.name, image: place.photoUrl || '',
-            cuisine: getCuisineLabel(place.types || []),
+            cuisine: getCuisineLabel(place),
             price: '',
             address: place.fullAddress || place.address,
           };

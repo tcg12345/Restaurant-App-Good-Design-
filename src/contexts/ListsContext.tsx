@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
+import { getRestaurantCuisineBatch, getRestaurantCuisine, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
+import { lookupCuisines } from '../lib/cuisine-lookup';
+import { isUnknownCuisine } from '../lib/cuisine';
+import { onCuisineChange } from '../lib/cuisine-events';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals, saveCustomOrder, saveVisitHistoryColumn, type UserAppData } from '../lib/supabase-db';
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
@@ -23,6 +27,13 @@ export interface PhotoItem {
   caption: string;        // dish name / description
   isFavorite: boolean;    // marked as favorite dish
 }
+
+// How many still-nameless restaurants one sign-in may send to the OSM
+// cuisine lookup. Two of the Edge Function's 25-place batches: enough to
+// clear a normal person's blanks in a session or two, small enough that a
+// 500-rating account doesn't open with a burst of requests at a
+// volunteer-run API.
+const OSM_BACKFILL_LIMIT = 50;
 
 export interface RestaurantRating {
   restaurantId: string;
@@ -1788,6 +1799,92 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   }, [cloudLoaded, userId, retryPendingPhotoUploads]);
 
+  /**
+   * Fill in cuisines the app couldn't resolve when the rating was saved.
+   *
+   * A rating stores whatever cuisine was on the card at the time, and for
+   * places Google doesn't describe in `types` — overwhelmingly rural ones —
+   * that was nothing. The shared cache (migration 068) is fed by everyone
+   * who opens such a place's detail page and by every cuisine any user has
+   * already typed, so a blank saved months ago is very often answerable
+   * now. One batched read per session, only for the ratings that need it.
+   *
+   * Deliberately narrow: it only ever replaces a NON-ANSWER, never a
+   * cuisine the user has, and it ignores cache rows below
+   * PERSIST_CONFIDENCE_FLOOR — a guess read off the restaurant's name is
+   * fine to show on a detail page but must not be written into someone's
+   * own data, where it would be indistinguishable from what they entered.
+   *
+   * "Non-answer" rather than "blank" is load-bearing. The old resolver
+   * wrote the word "Restaurant" whenever it didn't know, so most rows that
+   * need repairing are not empty — they are confidently wrong. Gating this
+   * on emptiness meant the pass walked straight past five of the six
+   * ratings it existed to fix.
+   *
+   * And when nothing better is found, the non-answer is CLEARED. '' is what
+   * the resolver returns for unknown now; leaving "Restaurant" behind would
+   * keep the app asserting something it does not know, and would re-block
+   * this same pass on the next run.
+   */
+  // Tracks WHICH account this ran for, not merely that it ran — a plain
+  // boolean would skip the pass for the second user on a shared device.
+  const cuisineBackfilledForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cloudLoaded || cuisineBackfilledForRef.current === (userId ?? '')) return;
+    const blanks = ratingsRef.current.filter(
+      (r) => r.restaurantId && isUnknownCuisine(r.cuisine),
+    );
+    cuisineBackfilledForRef.current = userId ?? '';
+    if (blanks.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const cached = await getRestaurantCuisineBatch(blanks.map((r) => r.restaurantId));
+      if (cancelled) return;
+
+      // Whatever the shared cache still can't name is where Google failed
+      // — overwhelmingly rural places — so it is worth one trip to
+      // OpenStreetMap. Capped, and newest ratings first: this runs on
+      // every sign-in, and someone with hundreds of blanks must not turn
+      // that into a burst of requests at a volunteer-run API. The rest
+      // fill in on the next session, or the moment their detail page is
+      // opened.
+      const unnamed = blanks
+        .filter((r) => (cached[r.restaurantId]?.confidence ?? 0) < PERSIST_CONFIDENCE_FLOOR)
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))
+        .slice(0, OSM_BACKFILL_LIMIT);
+      // No coordinates are sent: ratings don't carry any, and the server
+      // prefers its own geocode cache over a client's claim regardless.
+      const found = unnamed.length > 0
+        ? await lookupCuisines(unnamed.map((r) => ({ restaurantId: r.restaurantId, name: r.name })))
+        : {};
+      if (cancelled) return;
+      if (Object.keys(cached).length === 0 && Object.keys(found).length === 0) return;
+
+      const now = Date.now();
+      let changed = 0;
+      const next = ratingsRef.current.map((r) => {
+        if (!isUnknownCuisine(r.cuisine)) return r;
+        const hit = cached[r.restaurantId];
+        // An OSM answer sits above PERSIST_CONFIDENCE_FLOOR by
+        // construction (55 > 50), so it is safe to write into a user's own
+        // rating — but only where the cache had nothing better.
+        const label = (hit && hit.confidence >= PERSIST_CONFIDENCE_FLOOR ? hit.cuisine : found[r.restaurantId]) || '';
+        // Covers both "found nothing and it was already blank" and "found
+        // exactly what is already there" — neither is a change worth a sync.
+        if (label === (r.cuisine || '').trim()) return r;
+        changed++;
+        return { ...r, cuisine: label, updatedAt: now };
+      });
+      if (changed === 0) return;
+      ratingsRef.current = next;
+      setRatings(next);
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+    })();
+    return () => { cancelled = true; };
+  }, [cloudLoaded, userId, syncRatingsToCloud]);
+
   // Pure-updater-safe meta commit: computes the next blob from the eager
   // restaurantMetaRef OUTSIDE setState (same-tick calls build on each other),
   // then persists exactly once. The old pattern ran saveToStorage +
@@ -1801,6 +1898,46 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     saveToStorage(STORAGE_KEY_META, next);
     syncMetaToCloud(next);
   }, [syncMetaToCloud]);
+
+  /**
+   * Adopt a cuisine the moment the app learns it changed.
+   *
+   * Without this the only thing that refreshes a card is opening the
+   * restaurant's detail page, which re-caches its meta on the way past —
+   * so an approved cuisine took until the next visit to appear, and the
+   * persisted meta blob meant "next visit" could be days.
+   *
+   * Writes to BOTH places a card can read from: the meta blob, always,
+   * because it is a display cache and the shared answer is by definition
+   * more current; and the user's own rating, only when what it holds is a
+   * non-answer, because that column is theirs and a real cuisine in it was
+   * not put there by guesswork.
+   */
+  useEffect(() => onCuisineChange((restaurantId) => {
+    void (async () => {
+      const fresh = await getRestaurantCuisine(restaurantId);
+      const label = fresh?.cuisine;
+      if (!label || isUnknownCuisine(label)) return;
+
+      const meta = restaurantMetaRef.current[restaurantId];
+      if (meta && meta.cuisine !== label) {
+        commitMeta((prev) => ({ ...prev, [restaurantId]: { ...prev[restaurantId], cuisine: label } }));
+      }
+
+      const rating = ratingsRef.current.find((r) => r.restaurantId === restaurantId);
+      if (rating && isUnknownCuisine(rating.cuisine)
+          && (fresh?.confidence ?? 0) >= PERSIST_CONFIDENCE_FLOOR) {
+        const now = Date.now();
+        const next = ratingsRef.current.map((r) => (
+          r.restaurantId === restaurantId ? { ...r, cuisine: label, updatedAt: now } : r
+        ));
+        ratingsRef.current = next;
+        setRatings(next);
+        saveToStorage(STORAGE_KEY_RATINGS, next);
+        syncRatingsToCloud(next);
+      }
+    })();
+  }), [commitMeta, syncRatingsToCloud]);
 
   // Persist the unified tombstone set to localStorage (always) and the durable
   // __tombstones__ meta stash (cloud, when ready) so deletions stick locally
@@ -2271,7 +2408,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [commitMeta]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
-    if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
+    const cached = restaurantMeta[restaurantId];
+    if (cached) {
+      // The meta blob is written when a detail page renders and then
+      // persists forever, so its cuisine can be older than everything else
+      // on the device. A non-answer in it must not shadow a real cuisine
+      // the rating has since acquired — that is the difference between a
+      // card saying "Restaurant" and saying "Peruvian".
+      if (isUnknownCuisine(cached.cuisine)) {
+        const fresher = ratings.find((r) => r.restaurantId === restaurantId)?.cuisine;
+        if (fresher && !isUnknownCuisine(fresher)) return { ...cached, cuisine: fresher };
+      }
+      return cached;
+    }
     const rated = ratings.find((r) => r.restaurantId === restaurantId);
     if (rated) return { id: rated.restaurantId, name: rated.name, image: rated.image, cuisine: rated.cuisine, price: rated.price, address: rated.address };
     const wished = wishlist.find((w) => w.restaurantId === restaurantId);
@@ -2384,6 +2533,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Re-rating a previously-deleted restaurant clears its tombstone so it
     // isn't filtered straight back out on the next load.
     untombstone('restaurants', rating.restaurantId);
+    // A cuisine on a saved rating is a fact about the restaurant, not about
+    // this user — contribute it so the next person who sees this place gets
+    // it too. The row carries no user id or score, and it is NOT gated on
+    // the score-unlock threshold: a new user's answer is as true as anyone
+    // else's, and gating it would starve the cache of exactly the rural
+    // places that need it. The server ranks it below a correction and above
+    // a guess.
+    publishRestaurantCuisine(rating.restaurantId, rating.cuisine || '', 'community_single');
     // Derive the save from the freshest ratings we know about — ratingsRef,
     // not the render closure. Same-tick saves (bulk import, fast double-save)
     // each assign the ref before returning, so every call builds on the one

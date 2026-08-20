@@ -9,7 +9,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
-import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
+import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
+import { cuisineLabel, formatCuisines, type CuisineSource } from '../lib/cuisine';
+import { settleRestaurantCuisine, getRestaurantCuisineTags } from '../lib/restaurant-cuisine';
+import { onCuisineChange } from '../lib/cuisine-events';
+import { isOsmCuisine, osmAttribution } from '../lib/cuisine-lookup';
+import { submitCuisineSuggestion, getMyCuisineSuggestion, type CuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { findMichelinMatch, michelinPriceDisplay, isMichelinSyntheticId, parseMichelinSyntheticId, type MichelinInfo } from '../lib/michelin';
 
 // @ts-ignore
@@ -29,15 +34,22 @@ export function formatReviewCount(count: number): string {
   return String(count);
 }
 
-export function getCuisineLabel(types: string[]): string {
-  for (const t of types) {
-    const match = CUISINE_TYPES.find((c) => c.type === t);
-    if (match && match.label !== 'All') return match.label;
-  }
-  if (types.includes('restaurant')) return 'Restaurant';
-  if (types.includes('cafe')) return 'Café';
-  if (types.includes('bakery')) return 'Bakery';
-  return 'Restaurant';
+/**
+ * A place's cuisine label, or '' when we genuinely don't know.
+ *
+ * Thin wrapper over lib/cuisine so every call site shares one resolution
+ * order. Accepts a whole place OR a bare `types` array — passing the place
+ * is strictly better, since that's what carries `primaryType` and
+ * `primaryTypeDisplayName`.
+ *
+ * It used to answer 'Restaurant' when it had nothing, which read as a real
+ * cuisine everywhere downstream: rural places showed "Restaurant" as their
+ * cuisine and saved ratings carried it, which is how profile top lists grew
+ * a "Restaurant" category. Unknown is '' now and drops out of the meta
+ * lines, which are all built with .filter(Boolean).
+ */
+export function getCuisineLabel(source: string[] | CuisineSource): string {
+  return cuisineLabel(Array.isArray(source) ? { types: source } : source);
 }
 
 export function getTodayHours(hours: string[]): string {
@@ -57,6 +69,13 @@ export function useRestaurantDetail() {
   const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(null);
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
+  /** Cuisine settled through the shared cache (migration 068) — the answer
+   *  when Google's payload has none, and the write that gives every other
+   *  screen this place's cuisine. '' until it resolves. */
+  const [settledCuisine, setSettledCuisine] = useState('');
+  /** This user's own proposal for this place, if they've made one. Shown
+   *  back to them so a pending suggestion doesn't look like it vanished. */
+  const [mySuggestion, setMySuggestion] = useState<CuisineSuggestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -245,13 +264,101 @@ export function useRestaurantDetail() {
   // addresses often drop the country and state, which used to make cards
   // display the street name as a fake city. Keyed off place.id so we
   // don't write on every re-render.
+  useEffect(() => { setMySuggestion(null); }, [id]);
+
+  const [extraCuisines, setExtraCuisines] = useState<string[]>([]);
+
+  /**
+   * Re-read when this restaurant's cuisine changes under us.
+   *
+   * The settle below runs in an effect keyed on the place, so it fires
+   * once and then holds. That is wrong for the whole point of the review
+   * flow: an admin approves a suggestion, comes straight back here, and
+   * the header still shows what it showed before the approval. Bumping a
+   * nonce is enough — the effects re-run and re-read the cache.
+   */
+  const [cuisineNonce, setCuisineNonce] = useState(0);
+  useEffect(() => {
+    if (!place?.id) return;
+    return onCuisineChange((id) => {
+      if (id === place.id) setCuisineNonce((n) => n + 1);
+    });
+  }, [place?.id]);
+
+  // Their own pending/decided proposal, so the screen can say what
+  // happened to it rather than silently showing the old label.
+  useEffect(() => {
+    if (!place?.id || !user?.id) return;
+    let cancelled = false;
+    void getMyCuisineSuggestion(user.id, place.id)
+      .then((row) => { if (!cancelled) setMySuggestion(row); });
+    return () => { cancelled = true; };
+  }, [place?.id, user?.id]);
+
+  useEffect(() => {
+    if (!place?.id) return;
+    let cancelled = false;
+    void settleRestaurantCuisine({
+      restaurantId: place.id,
+      name: place.name,
+      michelinCuisine: michelin?.cuisine,
+      place,
+      // The detail page is where a missing cuisine is most glaring, and
+      // it stays open long enough to pay for a lookup. If Google, Michelin
+      // and the shared cache have all come up short, ask OpenStreetMap.
+      lookup: true,
+      lat: place.lat,
+      lng: place.lng,
+    }).then((settled) => { if (!cancelled) setSettledCuisine(settled); });
+    return () => { cancelled = true; };
+  }, [place, michelin, cuisineNonce]);
+
+  // settledCuisine is the ANSWER, not a fallback: settleRestaurantCuisine
+  // has already weighed the shared cache against Michelin and Google and
+  // returned the winner. Treating it as a last resort — only consulted
+  // when Google had nothing — is why an approved correction on a place
+  // Google does describe never showed up. It is '' until that resolves,
+  // so the local read is what fills the first paint.
+  const cuisine = settledCuisine
+    || (michelin ? michelin.cuisine : place ? getCuisineLabel(place) : '');
+
+  // ODbL asks for the credit where the data is shown, so it is scoped to
+  // the one restaurant OSM actually answered rather than bolted onto every
+  // screen. Keyed off settledCuisine rather than `cuisine`: an OSM answer
+  // only ever arrives through settleRestaurantCuisine, so when the label on
+  // screen is the local Google or Michelin read there is nothing to credit.
+  const cuisineCredit = useMemo(
+    () => (place?.id && settledCuisine && isOsmCuisine(place.id) ? osmAttribution() : ''),
+    [place?.id, settledCuisine],
+  );
+
+  // The additional cuisines (migration 071). Crowd-sourced only, so they
+  // are nothing to do with settleRestaurantCuisine's source ranking and are
+  // read on their own. `cuisine` above stays the single primary — it is
+  // what gets saved onto a rating and what every filter and top list means
+  // by "the cuisine"; only the display gets the whole set.
+  useEffect(() => {
+    if (!place?.id) { setExtraCuisines([]); return; }
+    let cancelled = false;
+    void getRestaurantCuisineTags(place.id)
+      .then((tags) => { if (!cancelled) setExtraCuisines(tags); });
+    return () => { cancelled = true; };
+  }, [place?.id, mySuggestion?.status, cuisineNonce]);
+
+  const cuisines = useMemo(
+    () => [cuisine, ...extraCuisines].filter(Boolean),
+    [cuisine, extraCuisines],
+  );
+  /** "Italian, Pizza" — what the header prints. */
+  const cuisineLine = useMemo(() => formatCuisines(cuisines), [cuisines]);
+
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
     cacheRestaurantMeta({
       id: place.id,
       name: place.name,
       image: place.photoUrl || '',
-      cuisine: getCuisineLabel(place.types),
+      cuisine: cuisine || getCuisineLabel(place),
       price: priceLevelToString(place.priceLevel),
       address: place.fullAddress || place.address,
       lat: place.lat,
@@ -261,7 +368,39 @@ export function useRestaurantDetail() {
       // freshness stamp) so cards stop serving a stale cached schedule.
       ...(place.hours != null ? { hours: place.hours, hoursFetchedAt: Date.now() } : {}),
     });
-  }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cacheRestaurantMeta]);
+    // `cuisine` is a dep so the cached meta is rewritten once the shared
+    // cache settles a place Google had nothing for.
+  }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cuisine, cacheRestaurantMeta]);
+
+  /**
+   * Propose a cuisine for this restaurant.
+   *
+   * Changes nothing — not what anyone else sees, and not the suggester's
+   * own rating either. A cuisine applies when an admin approves it, or
+   * when enough independent people propose the same thing (migration
+   * 069), and until then "suggested" means exactly that. Writing it into
+   * their own rating in the meantime made the button do two different
+   * things at once, one of them invisible to the review queue.
+   */
+  const suggestCuisine = useCallback(async (next: string): Promise<{ ok: boolean; error?: string }> => {
+    const label = (next || '').trim();
+    if (!place?.id || !label) return { ok: false, error: 'Pick a cuisine first' };
+    if (!user?.id) return { ok: false, error: 'Sign in to suggest an edit' };
+
+    const res = await submitCuisineSuggestion({
+      userId: user.id,
+      restaurantId: place.id,
+      cuisine: label,
+      restaurantName: place.name,
+      restaurantAddress: place.fullAddress || place.address,
+      currentCuisine: cuisine,
+    });
+    if (!res.ok) return res;
+
+    setMySuggestion(await getMyCuisineSuggestion(user.id, place.id));
+    return { ok: true };
+  }, [place, user, cuisine]);
+
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
   // place is updated. Used as an effect dep below.
@@ -346,11 +485,6 @@ export function useRestaurantDetail() {
     : place
       ? (priceLevelToString(place.priceLevel) || communityPrice || '')
       : '';
-  const cuisine = michelin
-    ? michelin.cuisine
-    : place
-      ? getCuisineLabel(place.types)
-      : '';
 
   // Load community photos: the cover first (one tiny row → instant hero), then
   // the full set behind it. getCommunityPhotos returns [] on error/timeout, and
@@ -430,6 +564,11 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
+    cuisines,
+    cuisineLine,
+    cuisineCredit,
+    suggestCuisine,
+    mySuggestion,
 
     photos,
     directionsUrl,

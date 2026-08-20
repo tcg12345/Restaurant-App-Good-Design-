@@ -701,7 +701,7 @@ export const SearchMain: React.FC = () => {
       const mich = michelinByPlaceId[place.id];
       // Real cuisine from the place's Google types (Michelin's when matched)
       // — the card reads "Sushi · Manhattan · $$", not just the location.
-      const label = mich ? mich.cuisine : getCuisineLabel(place.types);
+      const label = mich ? mich.cuisine : getCuisineLabel(place);
       const priceText = mich ? michelinPriceDisplay(mich) : price;
       const meta = {
         id: place.id, name: place.name, image: place.photoUrl || '',

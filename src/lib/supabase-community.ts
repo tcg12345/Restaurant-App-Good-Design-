@@ -2,6 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { reportClientError } from './error-reporting';
 import { buildRatingPayload, type ActivityStamp, type RatingPayloadData } from './ratingPayload';
 import type { HomeMeal } from '../contexts/ListsContext';
 
@@ -545,6 +546,38 @@ export async function isUsernameTaken(username: string, excludeUserId?: string):
   } catch { return null; }
 }
 
+/**
+ * Profile columns the app can save without. Identity (user_id,
+ * display_name, username, updated_at) is never in here — those must fail
+ * loudly. See {@link missingSchemaColumn} for why this list exists.
+ */
+const OPTIONAL_PROFILE_COLUMNS = new Set([
+  'home_city', 'home_lat', 'home_lng', 'bio', 'is_public', 'taste_profile',
+]);
+
+/**
+ * The column name inside PostgREST's "not in the schema cache" error, or
+ * null when the error is something else.
+ *
+ * PostgREST rejects a write naming a column it doesn't know about — code
+ * PGRST204, message `Could not find the 'home_city' column of
+ * 'user_profiles' in the schema cache` — BEFORE the statement reaches
+ * Postgres, so the whole row is lost, not just that field. Two things
+ * produce it: a migration that never ran against this database, or a schema
+ * cache that predates a column which does exist. Either way it used to fail
+ * the entire profile save: a new user who typed a home city on the setup
+ * wizard could never finish signup (skipping the city step worked, because
+ * then the payload carried no home_* keys at all). Callers use this to drop
+ * the unknown column and retry — an optional field must never cost someone
+ * their account. See migration 067 for the database-side repair.
+ */
+export function missingSchemaColumn(error: { code?: string; message?: string } | null): string | null {
+  if (!error) return null;
+  const message = error.message ?? '';
+  if (error.code !== 'PGRST204' && !/schema cache/i.test(message)) return null;
+  return /'([^']+)' column/.exec(message)?.[1] ?? null;
+}
+
 export async function saveProfile(
   userId: string,
   displayName: string,
@@ -552,7 +585,7 @@ export async function saveProfile(
   bio?: string,
   isPublic?: boolean,
   homeBase?: SaveProfileHomeBase,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; droppedColumns?: string[] }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
     const payload: any = {
@@ -571,12 +604,28 @@ export async function saveProfile(
       if (homeBase.homeLat !== undefined) payload.home_lat = homeBase.homeLat;
       if (homeBase.homeLng !== undefined) payload.home_lng = homeBase.homeLng;
     }
-    const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
-    if (error) {
+    // Each PGRST204 names exactly one unknown column, so retry once per
+    // optional column the payload carries (+1 for the final success).
+    const droppedColumns: string[] = [];
+    for (let attempt = 0; attempt <= OPTIONAL_PROFILE_COLUMNS.size; attempt++) {
+      const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
+      if (!error) {
+        return droppedColumns.length ? { success: true, droppedColumns } : { success: true };
+      }
       if (error.code === '23505') return { success: false, error: 'Username is already taken' };
+      const missing = missingSchemaColumn(error);
+      if (missing && OPTIONAL_PROFILE_COLUMNS.has(missing) && missing in payload) {
+        // The database is behind the app. Save what it CAN store rather
+        // than dead-ending the user, and leave a breadcrumb so the missing
+        // migration gets noticed instead of silently costing profile data.
+        delete payload[missing];
+        droppedColumns.push(missing);
+        reportClientError('saveProfile:unknown-column', new Error(error.message), missing);
+        continue;
+      }
       return { success: false, error: error.message };
     }
-    return { success: true };
+    return { success: false, error: 'Could not save your profile. Please try again.' };
   } catch (err) { return { success: false, error: String(err) }; }
 }
 

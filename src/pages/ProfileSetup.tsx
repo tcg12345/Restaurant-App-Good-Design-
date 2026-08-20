@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { User, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { saveProfile, isUsernameTaken } from '../lib/supabase-community';
-import { geocodePlace, searchLocations, type HomeLocation } from '../components/HomeLocationBar';
+import { geocodePlace, type HomeLocation } from '../components/HomeLocationBar';
+import { CityAutocomplete } from '../components/CityAutocomplete';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding wizard; desktop keeps the
 // original single-form AuthShell design.
@@ -13,71 +14,20 @@ import * as OB from '../components/onboarding/OnboardingKit';
 
 type StepKey = 'name' | 'handle' | 'city' | 'visibility';
 
-/* ── City autocomplete (mobile wizard) — Mapbox suggestions ─────────────── */
-const CityAutocomplete: React.FC<{
-  value: string;
-  onChange: (v: string) => void;
-  onPick: (loc: HomeLocation) => void;
-  onSubmit?: () => void;
-}> = ({ value, onChange, onPick, onSubmit }) => {
-  const [suggestions, setSuggestions] = useState<HomeLocation[]>([]);
-  const [open, setOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipNext = useRef(false);
-
-  useEffect(() => {
-    if (skipNext.current) { skipNext.current = false; return; }
-    const q = value.trim();
-    if (timer.current) clearTimeout(timer.current);
-    if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
-    timer.current = setTimeout(async () => {
-      const res = await searchLocations(q);
-      setSuggestions(res);
-      setOpen(res.length > 0);
-    }, 250);
-    return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [value]);
-
-  const pick = (loc: HomeLocation) => {
-    skipNext.current = true;
-    onChange(loc.label);
-    onPick(loc);
-    setOpen(false);
-    setSuggestions([]);
-  };
-
-  return (
-    <div className="relative">
-      <OB.Field
-        value={value} onChange={onChange} placeholder="e.g. New York"
-        icon={<MapPin size={16} strokeWidth={1.6} />} autoFocus autoCapitalize="words"
-        onSubmit={onSubmit}
-        onFocus={() => { if (suggestions.length) setOpen(true); }}
-        onBlur={() => { setTimeout(() => setOpen(false), 150); }}
-      />
-      {open && suggestions.length > 0 && (
-        <div
-          className="absolute left-0 right-0 z-20 overflow-hidden"
-          style={{ top: 'calc(100% + 8px)', borderRadius: 15, background: 'var(--ob-card)', border: `1.5px solid ${OB.BORDER}`, boxShadow: '0 16px 40px rgba(40,24,14,0.14)' }}
-        >
-          {suggestions.map((s, i) => (
-            <button
-              key={`${s.label}-${i}`}
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); pick(s); }}
-              className="w-full flex items-center gap-2.5 text-left cursor-pointer border-none transition-colors"
-              style={{ padding: '12px 16px', background: 'var(--ob-card)', borderTop: i === 0 ? 'none' : '1px solid var(--ob-divider)' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)')}
-            >
-              <MapPin size={15} strokeWidth={1.6} style={{ color: OB.LABEL_GREY, flexShrink: 0 }} />
-              <span className="truncate" style={{ fontSize: 14.5, color: 'var(--ob-ink-soft)' }}>{s.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+/**
+ * Save failures are shown verbatim to someone in the middle of creating an
+ * account, so keep database internals out of them — "Could not find the
+ * 'home_city' column … in the schema cache" is not something they can act
+ * on. Anything we deliberately worded (the username rules) passes through.
+ */
+const friendlyError = (raw?: string): string => {
+  const message = (raw || '').trim();
+  if (!message) return 'Something went wrong. Please try again.';
+  if (/username/i.test(message)) return message;
+  if (/schema cache|column|relation|constraint|violates|policy|permission denied|duplicate key|JWT|row-level/i.test(message)) {
+    return "We couldn't save your profile just now. Please try again.";
+  }
+  return message;
 };
 
 export const ProfileSetup: React.FC = () => {
@@ -181,7 +131,7 @@ export const ProfileSetup: React.FC = () => {
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) await refreshProfile();
-      else setError(res.error || 'Something went wrong');
+      else setError(friendlyError(res.error));
       setSubmitting(false);
     };
     const handleSubmitThenVerify = async () => {
@@ -195,7 +145,7 @@ export const ProfileSetup: React.FC = () => {
       if (res.ok) {
         navigate('/verify/apply');
         await refreshProfile();
-      } else setError(res.error || 'Something went wrong');
+      } else setError(friendlyError(res.error));
       setSubmitting(false);
     };
     const handleBack = () => { void signOut(); };
@@ -250,11 +200,12 @@ export const ProfileSetup: React.FC = () => {
               <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
                 Home city <span className="normal-case font-medium text-on-surface/35">(optional)</span>
               </label>
-              <input type="text" placeholder="e.g. New York, NY"
+              <CityAutocomplete
+                variant="form"
                 value={homeCity}
-                onChange={(e) => setHomeCity(e.target.value)}
-                autoCapitalize="words" autoCorrect="off"
-                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+                onChange={(v) => { setHomeCity(v); setHomeGeo(null); }}
+                onPick={setHomeGeo}
+              />
               <p className="text-[11px] text-on-surface/40 mt-1 px-1">Helps us surface restaurants near you.</p>
             </div>
             <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
@@ -313,7 +264,7 @@ export const ProfileSetup: React.FC = () => {
     const res = await persistProfile();
     setSubmitting(false);
     if (res.ok) setScreen('done');
-    else setError(res.error || 'Something went wrong');
+    else setError(friendlyError(res.error));
   };
 
   const finishThenVerify = async () => {
@@ -324,7 +275,7 @@ export const ProfileSetup: React.FC = () => {
     if (res.ok) {
       navigate('/verify/apply');
       void refreshProfile();
-    } else setError(res.error || 'Something went wrong');
+    } else setError(friendlyError(res.error));
   };
 
   const next = () => {

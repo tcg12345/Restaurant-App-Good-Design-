@@ -15,12 +15,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell } from 'lucide-react';
+import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell , Utensils } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationsContext';
-import type { AppNotification } from '../lib/supabase-notifications';
+import { isReviewNotification, type AppNotification } from '../lib/supabase-notifications';
 import {
   getFriends, getProfilesByIds, getFriendActivity, getExpertProfiles,
   getExpertStats, followPublicAccount, removeFriend,
@@ -1003,6 +1003,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   // than the review page, because that's the surface that now shows the
   // comments left on your rating — the thing you came to read.
   const notificationTarget = (n: AppNotification): string => {
+    // Review traffic lands in the queue, not on the restaurant: the point
+    // of the row is that there's a decision waiting.
+    if (n.subjectType === 'cuisine') return '/admin/cuisine';
     if (n.subjectType === 'post') return `/r/post-${n.subjectId}`;
     if (n.subjectType === 'reel') return `/r/reel-${n.subjectId}`;
     return n.restaurantId ? `/restaurant/${n.restaurantId}` : `/review/${n.subjectId}`;
@@ -1013,6 +1016,8 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     const name = p?.display_name || p?.username || 'Someone';
     const color = avatarColor(n.actorId);
     const isLike = n.kind === 'like';
+    const isReview = isReviewNotification(n);
+    const isAuto = n.kind === 'cuisine_auto';
     const isNew = n.readAt == null || highlightedNotifs.has(n.id);
     const subject = n.subjectType === 'rating' ? 'rating' : n.subjectType;
     const place = n.subjectLabel.trim();
@@ -1041,12 +1046,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             <span
               className={cn(
                 'absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] rounded-full grid place-items-center ring-2 ring-surface',
-                isLike ? 'bg-rose-500 text-white' : 'bg-primary text-white',
+                isReview ? (isAuto ? 'bg-emerald-600 text-white' : 'bg-sky-600 text-white')
+                  : isLike ? 'bg-rose-500 text-white' : 'bg-primary text-white',
               )}
             >
-              {isLike
-                ? <Heart size={10} strokeWidth={0} className="fill-current" />
-                : <MessageCircle size={10} strokeWidth={3} />}
+              {isReview
+                ? (isAuto ? <Check size={10} strokeWidth={3.5} /> : <Utensils size={10} strokeWidth={3} />)
+                : isLike
+                  ? <Heart size={10} strokeWidth={0} className="fill-current" />
+                  : <MessageCircle size={10} strokeWidth={3} />}
             </span>
           </span>
 
@@ -1058,10 +1066,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               >
                 {name}
               </span>
-              <span className="font-normal">{isLike ? ' liked your ' : ' commented on your '}{subject}</span>
+              <span className="font-normal">
+                {isAuto ? ' — enough people agreed, so a cuisine changed on '
+                  : isReview ? ' suggested a cuisine for '
+                  : isLike ? ' liked your ' : ' commented on your '}
+                {!isReview && subject}
+              </span>
               {place && (
                 <>
-                  <span className="font-normal">{n.subjectType === 'rating' ? ' of ' : ' · '}</span>
+                  <span className="font-normal">{isReview ? '' : n.subjectType === 'rating' ? ' of ' : ' · '}</span>
                   <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">{place}</span>
                 </>
               )}

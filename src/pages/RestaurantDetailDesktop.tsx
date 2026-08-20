@@ -5,16 +5,19 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   Edit3, Send, Building2, TrendingUp, TrendingDown,
-  Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon,
+  Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon, Pencil,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
 import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
+import { SquarePen } from 'lucide-react';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { useToast } from '../contexts/ToastContext';
 import { type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,12 +70,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
     photoIndex, setPhotoIndex,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine,
+    priceStr, cuisine, cuisines, cuisineLine, cuisineCredit, suggestCuisine, mySuggestion,
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
     visitHistory, visitCount,
   } = useRestaurantDetail();
+  const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
+  const { showToast } = useToast();
 
   // Sticky-nav title fade — appears once the editorial hero has scrolled
   // out of view. Threshold matches the rough height of the hero block.
@@ -312,9 +317,15 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
             <div className="absolute left-0 right-0 bottom-0 p-[38px_42px] flex items-end justify-between gap-7">
               <div className="min-w-0">
-                <div className="text-xs font-bold uppercase tracking-[0.2em] text-white/82">
-                  {cuisine}{priceStr ? ` · ${priceStr}` : ''}
-                </div>
+                <EditableCuisineLine
+                  cuisine={cuisineLine}
+                  priceStr={priceStr}
+                  onEdit={() => setCuisinePickerOpen(true)}
+                pending={mySuggestion?.status === 'pending'}
+                credit={cuisineCredit}
+                  onPhoto
+                  className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-white/82"
+                />
                 <h1 className="mt-3 font-serif font-bold text-white text-[58px] leading-[0.98] tracking-[-0.03em]">
                   {place.name}
                 </h1>
@@ -333,9 +344,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <>
             <div className="flex items-start justify-between gap-8 pt-1">
               <div className="min-w-0">
-                <div className="text-xs font-bold uppercase tracking-[0.2em] text-on-surface/55">
-                  {cuisine}{priceStr ? ` · ${priceStr}` : ''}
-                </div>
+                <EditableCuisineLine
+                  cuisine={cuisineLine}
+                  priceStr={priceStr}
+                  onEdit={() => setCuisinePickerOpen(true)}
+                pending={mySuggestion?.status === 'pending'}
+                credit={cuisineCredit}
+                  className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-on-surface/55"
+                />
                 <h1 className="mt-3.5 font-serif font-bold text-on-surface text-[56px] leading-none tracking-[-0.03em]">
                   {place.name}
                 </h1>
@@ -873,7 +889,15 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-1.5">Details</div>
             <div className="flex items-center justify-between py-3 border-t border-on-surface/[0.06]">
               <span className="text-[13.5px] font-semibold text-on-surface/55">Cuisine</span>
-              <span className="text-[13.5px] font-bold text-on-surface text-right">{cuisine}</span>
+              <button
+                type="button"
+                onClick={() => setCuisinePickerOpen(true)}
+                title="Suggest a different cuisine"
+                className="inline-flex items-center gap-1.5 text-right text-[13.5px] font-bold text-on-surface transition-colors hover:text-sky-700"
+              >
+                {cuisine || <span className="font-semibold text-on-surface/40">Not set</span>}
+                <SquarePen size={11} strokeWidth={2.4} className="flex-shrink-0 text-sky-600 opacity-80" />
+              </button>
             </div>
             {priceStr && (
               <div className="flex items-center justify-between py-3 border-t border-on-surface/[0.06]">
@@ -938,6 +962,23 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
       {/* Unified share dialog */}
       <ShareDialog open={!!chatShareTarget} payload={chatShareTarget ? { sharedRestaurant: chatShareTarget } : null} onClose={() => setChatShareTarget(null)} />
+
+      {/* Correcting the cuisine — the only thing that can write the `user`
+          tier of the shared cache, so it's what fixes a wrong label (or the
+          app's own guess) for everybody. */}
+      <CuisinePicker
+        open={cuisinePickerOpen}
+        onClose={() => setCuisinePickerOpen(false)}
+        onSelect={async (c) => {
+          const res = await suggestCuisine(c);
+          if (res.ok) showToast('Sent for review', { subtitle: `You suggested ${c} — an admin will take a look` });
+          else showToast(res.error || 'Could not send that suggestion');
+          return res.ok;
+        }}
+        current={cuisines}
+        restaurantName={place?.name}
+        pending={mySuggestion?.status === 'pending' ? mySuggestion.cuisine : undefined}
+      />
 
     </div>
   );
