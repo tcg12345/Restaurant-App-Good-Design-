@@ -147,12 +147,16 @@ public class AppThemePlugin: CAPPlugin, CAPBridgedPlugin {
 //
 // VERIFY ON DEVICE (the material does not render meaningfully in the
 // simulator, so none of this can be checked from a build alone):
-//   1. `UIGlassEffect`'s exact API surface. Every iOS 26 symbol is reached
-//      through one of three small factories (`makeBarEffect`, `makeLensEffect`,
-//      `makeContainerEffect`) plus `applyShape`, so a signature change is a
-//      one-function fix and every older OS already takes the UIBlurEffect path.
-//      `UICornerConfiguration.capsule()` in particular is the corner API that
-//      replaced `layer.cornerRadius` for glass in the iOS 26 betas.
+//   1. How the material actually looks. The iOS 26 *names* are settled — the
+//      compiler resolves `UIGlassEffect.tintColor`, `UIGlassContainerEffect`
+//      and `UIVisualEffectView.cornerConfiguration = .capsule()` against the
+//      SDK, so they are no longer the open question they were when this was
+//      written blind. What a build cannot tell you is whether the specular
+//      rim, the shadow and the lens read right. Every iOS 26 symbol is still
+//      reached through one of three small factories (`makeBarEffect`,
+//      `makeLensEffect`, `makeContainerEffect`) plus `applyShape`, so a
+//      signature change stays a one-function fix, and every older OS already
+//      takes the UIBlurEffect path.
 //   2. `usesGlassContainer`. Nesting the bar and the lens in a
 //      UIGlassContainerEffect is what makes two pieces of glass merge and
 //      morph into one another as the lens slides. It ships **off**, because
@@ -1031,11 +1035,19 @@ final class GlassTabBarContent: UIView, UIGestureRecognizerDelegate {
         activeIndex = index
         highlight(index: index, animated: animated)
         guard let index else {
-            let fade = { self.lens?.alpha = 0 }
+            // Unwrapped before the closure rather than chained inside it:
+            // `lens?.alpha = 0` is an expression of type `Void?`, so a closure
+            // bound to a `let` infers `() -> Void?` and won't pass as UIKit's
+            // `() -> Void`. (An inline closure literal gets away with it —
+            // the contextual type discards the result — but a named one has
+            // no context to be inferred from.)
+            guard let lens else { return }
             if animated {
-                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: fade)
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) {
+                    lens.alpha = 0
+                }
             } else {
-                fade()
+                lens.alpha = 0
             }
             return
         }
