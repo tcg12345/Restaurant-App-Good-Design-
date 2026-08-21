@@ -3,8 +3,9 @@
  * ios/App/App/MainViewController.swift).
  *
  * On iOS 26 the phone tab bar stops being a DOM element and becomes a real
- * UIKit `UIGlassEffect` view layered over the WebView, so it refracts the
- * page scrolling underneath it the way system chrome does. Everywhere else —
+ * UIKit `UITabBar` layered over the WebView — the system control itself, not a
+ * reproduction of it, so it refracts the page scrolling underneath it and
+ * moves its selection exactly the way system chrome does. Everywhere else —
  * older iOS, Android, the browser, or a device with Reduce Transparency on —
  * `useNativeGlassNav` reports inactive and the web `BottomNav` keeps
  * rendering exactly as before.
@@ -23,8 +24,9 @@ export interface GlassTabItem {
   /** Filled counterpart drawn while the tab is selected — the thing that
    *  makes a tab bar read as native rather than as five outlines. Omit
    *  where the symbol has no `.fill` variant (magnifyingglass, list.bullet);
-   *  the sliding pill carries those alone. A name that doesn't resolve
-   *  falls back to `symbol` rather than blanking the tab. */
+   *  `UITabBarItem` then reuses the outline for both states, which is right —
+   *  the lens carries those on its own. A name that doesn't resolve falls
+   *  back to `symbol` rather than blanking the tab. */
   selectedSymbol?: string;
   /** Shown under the icon, and read by VoiceOver. */
   label: string;
@@ -47,19 +49,29 @@ interface LiquidGlassPlugin {
     activePath?: string;
   }): Promise<void>;
   setActiveTab(options: { path: string }): Promise<void>;
-  /** Shrink the bar out of the way (scrolling down) or restore it. Driven
-   *  from `useGlassScrollMinimize` below — see the comment there for why the
-   *  scroll signal cannot come from the native side. */
+  /** Shrink the bar out of the way (scrolling down) or restore it: the
+   *  platter contracts to a single pill around the selected tab, the shape
+   *  the system's own minimize produces. Driven from `useGlassScrollMinimize`
+   *  below — see the comment there for why the scroll signal cannot come from
+   *  the native side, and why `UITabBarController.tabBarMinimizeBehavior`
+   *  isn't the answer either: it can only watch the document scroll, which is
+   *  flat on two of the five tabs. */
   setMinimized(options: { minimized: boolean; animated?: boolean }): Promise<void>;
-  /** Force the bar's dark chrome. The material and icons resolve by *trait*
-   *  (the app theme), not by what's behind them — so over the always-black
-   *  Reels page a light-themed app got a light warm fog with charcoal icons
-   *  that vanished against dark video. Instagram flips to near-black chrome
-   *  with white icons there; this is that flip. `dark: false` follows the
-   *  app theme again. */
+  /** Tell the bar the page behind it is dark. Nearly a no-op now: the real
+   *  material re-chromes itself from its backdrop, so over the always-black
+   *  Reels page the bar goes charcoal with white glyphs unprompted (the
+   *  hand-built one couldn't — it resolved by trait, and stayed a light warm
+   *  fog with charcoal icons that vanished against dark video). All this
+   *  still does is lift the brand accent, which is a fixed rust that reads
+   *  dim on that charcoal. */
   setBarStyle(options: { dark: boolean }): Promise<void>;
   setVisible(options: { visible: boolean; animated?: boolean }): Promise<void>;
   removeTabBar(): Promise<void>;
+  /** Declarative and idempotent: the full set of on-screen chrome buttons,
+   *  every time any of it changes. The native side diffs by id. See
+   *  lib/glass-buttons.tsx for why the buttons move native at all. */
+  setGlassButtons(options: { buttons: Array<Record<string, unknown>> }): Promise<void>;
+  clearGlassButtons(): Promise<void>;
   addListener(
     event: 'tabSelected',
     fn: (data: { path: string }) => void,
@@ -71,6 +83,10 @@ interface LiquidGlassPlugin {
   addListener(
     event: 'supportChanged',
     fn: (data: { supported: boolean }) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    event: 'glassButtonTapped',
+    fn: (data: { id: string }) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -89,23 +105,31 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
     async setBarStyle() { /* no-op */ },
     async setVisible() { /* no-op */ },
     async removeTabBar() { /* no-op */ },
+    async setGlassButtons() { /* the page keeps its CSS controls */ },
+    async clearGlassButtons() { /* no-op */ },
     addListener: noopListener,
   },
 });
 
-/** SF Symbols chosen to read as the same icons the web nav draws in Lucide,
- *  and to read as *tab bar* icons rather than as app glyphs: `safari` and
- *  `film` are literally the Safari and movie-reel app marks, which is why the
- *  first pass looked like someone else's icons pasted into this app.
- *  `play.rectangle` for Reels rather than `play.square.stack`, which renders
- *  at 25pt as an odd canister with a triangle in it.
+/** The app's own glyphs, not SF Symbols.
+ *
+ *  `app.*` names are drawn natively from the design set in
+ *  `ios/App/App/tab-icons/` — see `TabGlyph` in MainViewController.swift.
+ *  `person` is the one SF Symbol left, and it only shows on the Profile tab
+ *  until the signed-in user's initial arrives.
+ *
+ *  No `.fill` counterparts on any of them: a filled glyph is the heaviest mark
+ *  a tab bar can draw, and with the lens and the accent both already saying
+ *  which tab is selected, it was saying it a third time in the loudest
+ *  available voice. Selection is the lens plus the tint now.
+ *
  *  Order matters — it's the on-screen order. */
 export const GLASS_TAB_ITEMS: GlassTabItem[] = [
-  { path: '/', symbol: 'house', selectedSymbol: 'house.fill', label: 'Home' },
-  { path: '/search', symbol: 'magnifyingglass', label: 'Search' },
-  { path: '/reels', symbol: 'play.rectangle', selectedSymbol: 'play.rectangle.fill', label: 'Reels' },
-  { path: '/pantry', symbol: 'list.bullet', label: 'Lists' },
-  { path: '/profile', symbol: 'person.crop.circle', selectedSymbol: 'person.crop.circle.fill', label: 'Profile' },
+  { path: '/', symbol: 'app.home', label: 'Home' },
+  { path: '/search', symbol: 'app.search', label: 'Search' },
+  { path: '/reels', symbol: 'app.reels', label: 'Reels' },
+  { path: '/pantry', symbol: 'app.lists', label: 'Lists' },
+  { path: '/profile', symbol: 'person', label: 'Profile' },
 ];
 
 /** Which tab owns a route. Longest-prefix match so `/pantry?list=x` and
@@ -299,9 +323,8 @@ export function useNativeGlassNav(options: {
    *  because nothing else in `src/lib/` depends on react-router, and the
    *  caller already holds the location. */
   pathname: string;
-  /** The page behind the bar is dark regardless of theme (Reels), so the bar
-   *  should wear its dark chrome — near-black glass, white icons — the way
-   *  Instagram's does over dark content. */
+  /** The page behind the bar is dark regardless of theme (Reels). The
+   *  material handles the chrome itself; this only lifts the accent. */
   darkPage?: boolean;
   /** First letter of the signed-in user's name; the Profile tab draws it as
    *  the app's initial-circle avatar, Instagram-style. */
@@ -370,6 +393,8 @@ export function useNativeGlassNav(options: {
       ? GLASS_TAB_ITEMS.map((item) => (item.path === '/profile' ? { ...item, avatarInitial } : item))
       : GLASS_TAB_ITEMS;
     void LiquidGlass.configureTabBar({
+      // Vestigial: `UITabBar` draws the iOS 26 floating platter and insets and
+      // seats it itself. Kept so the bridge's shape doesn't change.
       items,
       variant: 'capsule',
       activePath,

@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
 import { useNotifications } from '../contexts/NotificationsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
+import { GlassButton, GlassGroup, GlassSurface } from '../lib/glass-buttons';
 
 interface TopBarProps {
   title?: string;
@@ -62,56 +63,86 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
     </div>
   );
 
+  // 44pt, not the old 40: a glass control needs enough of itself for the
+  // material to read, which is why the system's own circular chrome is this
+  // size, and it lands exactly on the minimum touch target as a bonus.
   const backButton = (
-    <button
+    <GlassButton
+      id="topbar-back"
+      symbol="arrow.left"
+      label="Back to Explore"
       onClick={handleBack}
-      className="hit-44 glass-control w-10 h-10 rounded-full flex items-center justify-center text-on-surface/70 transition-colors"
-      aria-label="Back to Explore"
+      className="hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface/70 transition-colors"
     >
       <ArrowLeft size={20} />
-    </button>
+    </GlassButton>
   );
 
   /** Messages + Circle, at the full header size or the condensed one.
    *  `rightAction` is a caller-sized node, so it only rides along in the
    *  full header. */
   const buildRightCluster = (compact: boolean) => {
-    const btn = cn(
-      'hit-44 glass-control rounded-full flex items-center justify-center text-on-surface/70 transition-colors relative',
-      compact ? 'w-9 h-9' : 'w-10 h-10',
-    );
     const badge = cn(
       'absolute rounded-full text-white font-bold flex items-center justify-center border-2 border-surface',
       compact ? '-top-1 -right-1 min-w-[17px] h-[17px] px-1 text-[10px]' : '-top-0.5 -right-0.5 min-w-[20px] h-5 px-1.5 text-[12px]',
     );
     const icon = compact ? 18 : 21;
-    return (
-      <div className={cn('flex items-center', compact ? 'gap-1' : 'gap-2')}>
-        {!compact && rightAction}
-        <button
-          className={btn}
-          onClick={() => navigate('/messages')}
-          aria-label="Messages"
-        >
-          <MessageCircle size={icon} />
-          {unreadCount > 0 && (
-            <span className={cn(badge, 'bg-primary')}>{unreadCount}</span>
-          )}
-        </button>
-        {!isCirclePage && (
-          <button
-            className={btn}
-            onClick={() => navigate('/circle')}
-            aria-label="Your Circle"
-          >
+    const scope = compact ? 'compact' : 'full';
+
+    // Messages and Circle share one capsule rather than sitting in two of
+    // their own. Two touching glass circles read as two objects; one surface
+    // with two regions reads as the single control it is, which is how the
+    // system groups its own header actions.
+    const items = [
+      {
+        id: 'messages',
+        symbol: 'message',
+        label: 'Messages',
+        badge: unreadCount > 0 ? String(unreadCount) : undefined,
+        onClick: () => navigate('/messages'),
+        icon: (
+          <>
+            <MessageCircle size={icon} />
+            {unreadCount > 0 && <span className={cn(badge, 'bg-primary')}>{unreadCount}</span>}
+          </>
+        ),
+      },
+      ...(isCirclePage ? [] : [{
+        id: 'circle',
+        symbol: 'person.2',
+        label: 'Your Circle',
+        badge: circleBadge > 0 ? String(circleBadge) : undefined,
+        badgeTone: (pendingRequestCount > 0 ? 'danger' : 'primary') as 'danger' | 'primary',
+        onClick: () => navigate('/circle'),
+        icon: (
+          <>
             <Users size={icon} />
             {circleBadge > 0 && (
               <span className={cn(badge, pendingRequestCount > 0 ? 'bg-red-500' : 'bg-primary')}>
                 {circleBadge}
               </span>
             )}
-          </button>
-        )}
+          </>
+        ),
+      }]),
+    ];
+
+    // The capsule's own padding is what separates the regions; each is a
+    // square so the glyphs sit on the same centres the old circles used.
+    const region = cn(
+      'relative flex items-center justify-center text-on-surface/70 transition-colors',
+      compact ? 'w-9 h-9' : 'w-11 h-11',
+    );
+
+    return (
+      <div className={cn('flex items-center', compact ? 'gap-1' : 'gap-2')}>
+        {!compact && rightAction}
+        <GlassGroup
+          id={`topbar-actions-${scope}`}
+          className="flex items-center rounded-full"
+          itemClassName={region}
+          items={items}
+        />
       </div>
     );
   };
@@ -174,16 +205,18 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
             'glass-control relative flex items-center gap-1.5 rounded-full p-1.5',
           )}
         >
-          {leftAction ?? (showBackButton ? backButton : null)}
-          <button
-            type="button"
-            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            aria-label={`${condensedTitle} — back to top`}
-            className="flex-1 min-w-0 px-1 text-center font-serif font-bold text-[15px] leading-tight truncate text-on-surface"
-          >
-            {condensedTitle}
-          </button>
-          {buildRightCluster(true)}
+          <GlassSurface>
+            {leftAction ?? (showBackButton ? backButton : null)}
+            <button
+              type="button"
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              aria-label={`${condensedTitle} — back to top`}
+              className="flex-1 min-w-0 px-1 text-center font-serif font-bold text-[15px] leading-tight truncate text-on-surface"
+            >
+              {condensedTitle}
+            </button>
+            {buildRightCluster(true)}
+          </GlassSurface>
         </div>
       </motion.div>
     </div>

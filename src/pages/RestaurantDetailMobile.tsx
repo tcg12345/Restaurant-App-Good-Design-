@@ -8,11 +8,12 @@ import {
   Car, Footprints, Award, Images, Plus,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
+import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { tierOfScore } from '../lib/settleScores';
 import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
-import { scoreColor, scoreChipBg, scoreGradient } from '../lib/score';
+import { scoreColor, scoreChipBg, scoreTintStyle } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -179,7 +180,9 @@ export const RestaurantDetailMobile: React.FC = () => {
   // Hours start collapsed — the summary row already shows the Open/Closed
   // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
-  const [myRatingOpen, setMyRatingOpen] = useState(false);
+  // Earlier visits fold away under the current rating — the summary is
+  // always visible now, so there is nothing left to collapse at the top.
+  const [earlierVisitsOpen, setEarlierVisitsOpen] = useState(false);
   // Ref on the "My Rating Details" section so the Your Rating summary
   // card above can smooth-scroll down to it when tapped.
   const myRatingRef = useRef<HTMLElement | null>(null);
@@ -241,8 +244,13 @@ export const RestaurantDetailMobile: React.FC = () => {
   /* ── Score-color helpers — kept on the app's score thresholds
      (≥8 / ≥5 / <5) so chips and discs stay consistent across the page. ── */
   const chipBg = (s: number) => scoreChipBg(s);
-  // Soft-tinted score pill for friend chips in "From your circle".
-  const softChip = (s: number) => (s >= 8 ? 'bg-green-100 text-green-700' : s >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600');
+  // Soft-tinted score pill for friend chips in "From your circle" — the
+  // token tints, not raw Tailwind greens, so every score on the page speaks
+  // the same muted palette.
+  const softChip = (s: number) =>
+    s >= 8 ? 'bg-score-high-tint text-score-high-ink'
+    : s >= 5 ? 'bg-score-mid-tint text-score-mid-ink'
+    : 'bg-score-low-tint text-score-low-ink';
 
   // One source of truth for the share payload — used by the top bar,
   // the action chips, and the empty-circle CTA.
@@ -263,9 +271,10 @@ export const RestaurantDetailMobile: React.FC = () => {
   // Used by the title re-rate / "rated" controls.
   const ratingMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
 
-  // Full-bleed hairline divider (breaks out of the 18px page gutter).
-  // Reused by reference; React lets us share one element instance.
-  const sep = <div className="h-px bg-line -mx-[18px] my-7" aria-hidden />;
+  // Sections separate by rhythm, not by rules. There used to be seven
+  // full-bleed hairlines, each carrying 28px of margin above and below —
+  // the better part of a screen spent drawing lines between things whose
+  // eyebrow labels already said where they started.
 
   return (
     <div className="min-h-screen bg-cream">
@@ -276,28 +285,44 @@ export const RestaurantDetailMobile: React.FC = () => {
           the white fill an edge on the white page). ── */}
       <div className="sticky top-0 z-50 h-0">
         <div className="absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none">
-          <button
+          <GlassButton
+            id="restaurant-back"
+            symbol="arrow.left"
+            label="Back"
             onClick={() => navigate(-1)}
-            aria-label="Back"
-            className="hit-44 glass-control pointer-events-auto w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+            className="hit-44 pointer-events-auto w-11 h-11 rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
-          </button>
-          <div className="pointer-events-auto flex items-center gap-2.5">
-            <button
-              onClick={() => { if (place) toggleWishlist(wishMeta); }}
-              aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-              className="hit-44 glass-control w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
-            >
-              <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-primary text-primary' : ''} />
-            </button>
-            <button
-              onClick={() => { if (place) setChatShareTarget(buildShareTarget()); }}
-              aria-label="Share"
-              className="hit-44 glass-control w-[38px] h-[38px] rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
-            >
-              <Share2 size={16} />
-            </button>
+          </GlassButton>
+          {/* Save + share share one capsule, the same one-piece-of-glass
+              rule as the header pair on Discover: two touching circles read
+              as two objects; one surface with two regions reads as the
+              single control it is. */}
+          <div className="pointer-events-auto">
+            <GlassGroup
+              id="restaurant-actions"
+              className="flex items-center rounded-full"
+              itemClassName="relative w-11 h-11 flex items-center justify-center text-ink-2"
+              items={[
+                {
+                  id: 'save',
+                  // The saved state is the glyph and its tint, same as the
+                  // web button — a filled bookmark in the brand rust.
+                  symbol: place && isWishlisted(place.id) ? 'bookmark.fill' : 'bookmark',
+                  tint: (place && isWishlisted(place.id) ? 'primary' : 'label') as 'primary' | 'label',
+                  label: place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist',
+                  onClick: () => { if (place) toggleWishlist(wishMeta); },
+                  icon: <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-primary text-primary' : ''} />,
+                },
+                {
+                  id: 'share',
+                  symbol: 'square.and.arrow.up',
+                  label: 'Share',
+                  onClick: () => { if (place) setChatShareTarget(buildShareTarget()); },
+                  icon: <Share2 size={16} />,
+                },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -435,26 +460,6 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* Prev / next arrows — step through photos inline without opening
-            the full gallery. */}
-        {photos.length > 1 && (
-          <>
-            <button
-              onClick={(e) => { e.stopPropagation(); heroSlide(-1); }}
-              aria-label="Previous photo"
-              className="hit-44 absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
-            >
-              <ChevronLeft size={20} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); heroSlide(1); }}
-              aria-label="Next photo"
-              className="hit-44 absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 text-white/90 flex items-center justify-center active:scale-90 transition-transform drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
-            >
-              <ChevronRight size={20} />
-            </button>
-          </>
-        )}
       </div>
       ) : (
         <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 60px)' }} aria-hidden />
@@ -479,24 +484,26 @@ export const RestaurantDetailMobile: React.FC = () => {
                 onEdit={() => setCuisinePickerOpen(true)}
                 pending={mySuggestion?.status === 'pending'}
                 credit={cuisineCredit}
-                className="group/cuisine uppercase mb-2 text-on-surface/50"
+                // Sentence case at a normal tracking, not wide-tracked caps.
+                // "CLASSIC CUISINE · $$$$" set in spaced uppercase shouted
+                // over the name it is supposed to introduce.
+                className="group/cuisine mb-2 text-on-surface/45 text-[13px] font-medium tracking-normal normal-case"
               />
-              <div className="flex items-center justify-between gap-3">
-                <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '31px', fontWeight: 600, lineHeight: 1.02, letterSpacing: '-0.01em' }}>
+              <div className="flex items-start justify-between gap-3">
+                <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '31px', fontWeight: 600, lineHeight: 1.05, letterSpacing: '-0.01em' }}>
                   {place.name}
                 </h1>
-                <div className="flex items-center gap-2.5 flex-shrink-0">
+                <div className="flex items-center gap-2.5 flex-shrink-0 mt-0.5">
                   {myRating ? (
                     <>
-                      {/* Already rated → the + becomes a re-rate (log a new
-                          visit), and the heart becomes a "rated" checkmark
-                          (tap to view/edit your rating). Wishlist still lives
-                          in the top bar. */}
+                      {/* Already rated → re-rate (log a new visit) is quiet,
+                          and the checkmark says "you've rated this" (tap to
+                          view/edit). Wishlist lives in the top bar only. */}
                       <button
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta, 'new-visit')}
                         aria-label="Re-rate"
-                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
+                        className="hit-44 w-11 h-11 rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
                       >
                         <Star size={17} />
                       </button>
@@ -504,30 +511,24 @@ export const RestaurantDetailMobile: React.FC = () => {
                         type="button"
                         onClick={() => openAddRestaurantModal(ratingMeta)}
                         aria-label="You've rated this — view your rating"
-                        className="hit-44 w-[38px] h-[38px] rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
+                        className="hit-44 w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center text-primary active:scale-95 transition-transform"
                       >
                         <Check size={18} strokeWidth={2.5} />
                       </button>
                     </>
                   ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => openAddRestaurantModal(wishMeta)}
-                        aria-label="Add rating"
-                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
-                      >
-                        <Plus size={18} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleWishlist(wishMeta)}
-                        aria-label={isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-                        className="hit-44 w-[38px] h-[38px] rounded-full bg-cream-2 flex items-center justify-center active:scale-95 transition-transform"
-                      >
-                        <Bookmark size={17} className={isWishlisted(place.id) ? 'fill-primary text-primary' : 'text-ink-2'} />
-                      </button>
-                    </>
+                    /* One prominent CTA: rating is the page's main verb, and
+                       the bookmark that used to sit beside it duplicated the
+                       save in the top bar. Solid brand fill, soft brand
+                       shadow — prominent without shouting. */
+                    <button
+                      type="button"
+                      onClick={() => openAddRestaurantModal(wishMeta)}
+                      aria-label="Add rating"
+                      className="hit-44 w-11 h-11 rounded-full bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/25 active:scale-95 transition-transform"
+                    >
+                      <Plus size={20} strokeWidth={2.2} />
+                    </button>
                   )}
                 </div>
               </div>
@@ -537,25 +538,16 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </div>
               )}
 
-              {/* Address + distance */}
-              <div className="mt-3.5 flex items-baseline gap-1.5 min-w-0 text-[14px] text-on-surface/60">
-                <MapPin size={14} className="text-primary/70 flex-shrink-0 translate-y-0.5" />
-                <span className="truncate">{place.address}</span>
-                {dist && (
-                  <>
-                    <span className="text-on-surface/25 flex-shrink-0">·</span>
-                    <span className="flex-shrink-0">{dist}</span>
-                  </>
-                )}
-              </div>
-
-              {/* Open / closed status */}
+              {/* One status line, one place line. These used to be three
+                  stacked rows — address+distance, open/closed, then drive
+                  and walk times — which is a lot of grey text under a name
+                  for facts that belong together. */}
               {place.isOpen !== null && (
-                <div className="mt-2 flex items-center gap-2 text-[14px]">
-                  <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', place.isOpen ? 'bg-secondary' : 'bg-red-500')} />
+                <div className="mt-3.5 flex items-center gap-2 text-[14px]">
+                  <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', place.isOpen ? 'bg-olive' : 'bg-clay')} />
                   {place.isOpen ? (
                     <span className="text-on-surface/65">
-                      <span className="font-semibold text-secondary">Open</span>
+                      <span className="font-semibold text-olive">Open</span>
                       {(() => {
                         const line = getTodayHours(place.hours);
                         const close = line.split(/\s*[–-]\s*/)[1];
@@ -564,7 +556,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     </span>
                   ) : (
                     <span className="text-on-surface/65">
-                      <span className="font-semibold text-red-600">Closed</span>
+                      <span className="font-semibold text-clay">Closed</span>
                       {(() => {
                         const next = getNextOpenLabel(place.hours, restaurantLocalNow(place.lng));
                         return next ? <span> · opens {next}</span> : null;
@@ -574,64 +566,56 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </div>
               )}
 
-              {/* Travel times */}
-              {homeLocationForDistance && destForDistance && (driveLabel || walkLabel) && (
-                <div className="mt-2 flex items-center gap-3 text-[13px] text-on-surface/65">
-                  {driveLabel && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Car size={14} className="text-on-surface/45" />
-                      {driveLabel}
-                    </span>
-                  )}
-                  {driveLabel && walkLabel && <span className="text-on-surface/25">·</span>}
-                  {walkLabel && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Footprints size={14} className="text-on-surface/45" />
-                      {walkLabel}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div className="mt-2 flex items-center gap-1.5 min-w-0 text-[14px] text-on-surface/60">
+                <MapPin size={14} className="text-primary/70 flex-shrink-0" />
+                <span className="truncate">{place.address}</span>
+                {dist && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="flex-shrink-0">{dist}</span></>}
+                {driveLabel && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="inline-flex items-center gap-1 flex-shrink-0"><Car size={13} className="text-on-surface/40" />{driveLabel}</span></>}
+                {!driveLabel && walkLabel && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="inline-flex items-center gap-1 flex-shrink-0"><Footprints size={13} className="text-on-surface/40" />{walkLabel}</span></>}
+              </div>
             </section>
           );
         })()}
 
-        {/* ── Quick actions — horizontal warm pill row. Disabled chips dim
-            when there's no destination (no phone / website). ── */}
-        <div className="flex gap-2.5 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] mt-5 py-1">
-          {[
+        {/* ── Actions — a fixed row, not a scroller. There were five chips
+            in a horizontally-scrolling strip, which hid whichever ones did
+            not fit and put Share one tap from the Share already in the
+            header. What is left is the three things you leave the app to
+            do, plus the Michelin link when there is one. ── */}
+        {(() => {
+          const actions = [
             { Icon: Phone, label: 'Call', href: place.phone ? `tel:${place.phone}` : null },
             // Route goes through openExternalUrl so native hands off to the
             // Maps app instead of bouncing the tap through Safari.
-            { Icon: Navigation, label: 'Route', href: directionsUrl || null, onClick: directionsUrl ? () => { void openExternalUrl(directionsUrl); } : undefined },
-            { Icon: Globe, label: 'Web', href: place.website || null, external: true },
-            { Icon: Send, label: 'Share', onClick: () => setChatShareTarget(buildShareTarget()) },
-            ...(michelin ? [{ Icon: Award, label: 'Michelin Guide', href: michelin.guideUrl, external: true, accent: true }] : []),
-          ].map(({ Icon, label, href, external, onClick, accent }: any) => {
-            const inner = (
-              <>
-                <Icon size={15} className={accent ? 'text-primary' : 'text-ink-3'} />
-                <span>{label}</span>
-              </>
-            );
-            const base = 'flex-shrink-0 inline-flex items-center gap-2 px-[15px] py-[9px] rounded-full whitespace-nowrap active:scale-[0.97] transition-transform';
-            const cls = cn(base, accent ? 'bg-primary/10 text-primary' : 'bg-cream-2 text-ink-2');
-            const style = { fontSize: '13.5px', fontWeight: 500 } as const;
-            if (onClick) return <button key={label} type="button" onClick={onClick} className={cls} style={style}>{inner}</button>;
-            if (!href) return <div key={label} className={cn(base, 'bg-cream-2 text-ink-4 opacity-50')} style={style}>{inner}</div>;
-            return (
-              <a key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls} style={style}>
-                {inner}
-              </a>
-            );
-          })}
-        </div>
+            { Icon: Navigation, label: 'Route', onClick: directionsUrl ? () => { void openExternalUrl(directionsUrl); } : undefined, href: directionsUrl || null },
+            { Icon: Globe, label: 'Website', href: place.website || null, external: true },
+            ...(michelin ? [{ Icon: Award, label: 'Michelin', href: michelin.guideUrl, external: true, accent: true }] : []),
+          ] as any[];
+          const base = 'flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl active:scale-[0.97] transition-transform';
+          return (
+            <div className="flex gap-2 mt-6">
+              {actions.map(({ Icon, label, href, external, onClick, accent }) => {
+                const inner = (
+                  <>
+                    <Icon size={17} className={accent ? 'text-primary' : 'text-ink-2'} />
+                    <span style={{ fontSize: '12px', fontWeight: 600 }}>{label}</span>
+                  </>
+                );
+                const cls = cn(base, accent ? 'bg-primary/8 text-primary' : 'bg-cream-2 text-ink-2');
+                if (onClick) return <button key={label} type="button" onClick={onClick} className={cls}>{inner}</button>;
+                if (!href) return <div key={label} className={cn(base, 'bg-cream-2 text-ink-4 opacity-45')}>{inner}</div>;
+                return (
+                  <a key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls}>
+                    {inner}
+                  </a>
+                );
+              })}
+            </div>
+          );
+        })()}
 
-        {sep}
-
-        {/* ── Ratings — matches the mobile reference file: three depth-lit
-            gradient score circles (disc over label over count) with a
-            hairline-separated Google row beneath. No surrounding card. ── */}
+        {/* ── Ratings — three token-tinted score rings over a quiet Google
+            line. No surrounding card. ── */}
         {(() => {
           const expertAvg = expertRecommendations.length > 0
             ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
@@ -642,25 +626,31 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          const discGradient = (s: number) => scoreGradient(s);
-          const discShadow = (s: number) =>
-            `0 5px 14px ${s >= 8 ? 'rgba(20,135,90,0.32)' : s >= 5 ? 'rgba(201,130,27,0.30)' : 'rgba(193,59,46,0.30)'}, inset 0 1px 0 rgba(255,255,255,0.4), inset 0 0 0 1px rgba(255,255,255,0.08)`;
-
+          // Token-tinted rings, not glossy discs. The old circles were
+          // saturated traffic-light gradients with hard-coded green/red
+          // glows — the loudest thing on a page whose palette is warm cream
+          // and rust. A soft tint fill, a hairline ring in the tier colour,
+          // and the score in the tier's ink reads calmer, and every value
+          // comes from the same tokens the rest of the app scores with.
           const Col = ({ label, score, count, countLabel, emptyCopy, onClick }: {
             label: string; score: number | null; count: number; countLabel: string; emptyCopy: string; onClick?: () => void;
           }) => {
+            const tint = score != null ? scoreTintStyle(score) : null;
             const body = (
               <>
-                {score != null ? (
-                  <div className="w-[58px] h-[58px] rounded-full flex items-center justify-center" style={{ background: discGradient(score), boxShadow: discShadow(score) }}>
-                    <span className="text-white tabular-nums" style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '0.3px' }}>{score.toFixed(1)}</span>
+                {score != null && tint ? (
+                  <div
+                    className="w-[58px] h-[58px] rounded-full flex items-center justify-center"
+                    style={{ background: tint.background, boxShadow: `inset 0 0 0 1.5px ${tint.ring}` }}
+                  >
+                    <span className="tabular-nums" style={{ color: tint.color, fontSize: '18px', fontWeight: 700, letterSpacing: '0.2px' }}>{score.toFixed(1)}</span>
                   </div>
                 ) : (
-                  <div className="w-[58px] h-[58px] rounded-full bg-cream-2 flex items-center justify-center" style={{ boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}>
+                  <div className="w-[58px] h-[58px] rounded-full bg-cream-2 flex items-center justify-center" style={{ boxShadow: 'inset 0 0 0 1px var(--color-line)' }}>
                     <span className="text-ink-4" style={{ fontSize: '18px', fontWeight: 600 }}>—</span>
                   </div>
                 )}
-                <span className="uppercase text-on-surface/40 mt-[11px]" style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.09em' }}>{label}</span>
+                <span className="section-eyebrow mt-[11px]" style={{ fontSize: '9px' }}>{label}</span>
                 {score != null ? (
                   <span className="text-on-surface mt-1" style={{ fontSize: '13px', fontWeight: 600 }}>{count.toLocaleString()} {countLabel}</span>
                 ) : (
@@ -676,8 +666,8 @@ export const RestaurantDetailMobile: React.FC = () => {
           };
 
           return (
-            <section>
-              <p className="uppercase text-on-surface/40 mb-[18px]" style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.14em' }}>Ratings</p>
+            <section className="mt-9">
+              <p className="section-eyebrow mb-[18px]">Ratings</p>
               <div className="flex">
                 <Col
                   label="Everyone"
@@ -707,16 +697,175 @@ export const RestaurantDetailMobile: React.FC = () => {
                 )}
               </div>
               {hasGoogle && (
-                <div className="flex items-center gap-2.5 mt-5 pt-[17px] border-t border-line">
-                  <span className="inline-flex items-center rounded-[7px] bg-cream-2 text-ink-3" style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.07em', padding: '4px 10px' }}>GOOGLE</span>
-                  <span className="text-on-surface tabular-nums" style={{ fontSize: '15px', fontWeight: 700 }}>{place.rating}</span>
-                  <Star size={15} className="fill-amber-400 text-amber-400" />
-                  <span className="text-on-surface/55" style={{ fontSize: '13px' }}>{formatReviewCount(place.userRatingCount)} reviews</span>
+                /* A footnote to the three scores above, not a fourth block:
+                   Google's five-point scale is a different measure and reads
+                   as one quiet line saying so. */
+                <p className="mt-5 flex items-center gap-1.5 text-on-surface/50" style={{ fontSize: '13px' }}>
+                  <Star size={13} className="fill-score-mid text-score-mid" />
+                  <span className="text-on-surface/75 tabular-nums" style={{ fontWeight: 600 }}>{place.rating}</span>
+                  <span>on Google · {formatReviewCount(place.userRatingCount)} reviews</span>
+                </p>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* ── Your rating — one section for everything you have recorded
+            here: the score, what you wrote, and every earlier visit.
+            This used to be three. "My rating" was a collapsible holding a
+            Score / Price / Visited tri-panel above four editor
+            sub-sections; "Visit history" was a timeline that showed the
+            same notes, tags, photos and dates again in a different
+            layout; the comments sat between them. Two layouts for one set
+            of facts is the definition of clutter, so they are one thing
+            now — a summary you can read at a glance, an Edit that opens
+            the editor that already exists, and the earlier visits folded
+            away until you want them. ── */}
+        {myRating && place && (() => {
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
+          type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+          const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
+          const dateLabel = parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? null;
+          const companions = (myRating.friendIds || []).map((fid) => friendNames[fid] || fid.slice(0, 8));
+          const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const earlier = [...visitHistory]
+            .map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos }))
+            .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
+          // The facts under the score, joined rather than stacked.
+          const facts = [dateLabel && `Visited ${dateLabel}`, myRating.price, companions.length ? `with ${companions.join(', ')}` : null].filter(Boolean);
+
+          return (
+            <section ref={myRatingRef} className="mt-9 scroll-mt-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="section-eyebrow">Your rating</p>
+                <div className="flex items-center gap-4">
+                  <button onClick={() => openAddRestaurantModal(meta, 'new-visit')} className="inline-flex items-center gap-1.5 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
+                    <Star size={13} /> Re-rate
+                  </button>
+                  <button onClick={() => openAt('main')} className="inline-flex items-center gap-1.5 text-ink-3 active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
+                    <Edit3 size={13} /> Edit
+                  </button>
+                </div>
+              </div>
+
+              {/* Score, then the facts about the visit on one line. */}
+              <button onClick={() => openAt('main')} className="flex items-baseline gap-2.5 text-left active:opacity-70 transition-opacity">
+                <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '34px', fontWeight: 600, lineHeight: 1 }}>
+                  {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
+                </span>
+                {scoresUnlocked && <span className="text-ink-4" style={{ fontSize: '14px' }}>/ 10</span>}
+              </button>
+              {facts.length > 0 && (
+                <p className="mt-2 text-ink-3" style={{ fontSize: '13px' }}>{facts.join(' · ')}</p>
+              )}
+
+              {/* What you wrote. */}
+              {myRating.notes ? (
+                <p className="mt-3 italic text-ink-2 font-serif" style={{ fontSize: '16px', lineHeight: 1.55 }}>&ldquo;{myRating.notes}&rdquo;</p>
+              ) : (
+                <button onClick={() => openAt('notes')} className="mt-3 block italic text-ink-3 active:text-ink-2 transition-colors" style={{ fontSize: '14px' }}>Add notes…</button>
+              )}
+
+              {(myRating.tags?.length || 0) > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {myRating.tags.map((t) => (
+                    <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-cream-2 text-ink-2">{t}</span>
+                  ))}
+                </div>
+              )}
+
+              {(myRating.photos?.length || 0) > 0 && (
+                <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] snap-x snap-mandatory">
+                  {myRating.photos.map((ph, i) => (
+                    <img key={i} src={ph.url} className="w-24 h-24 rounded-xl object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
+                  ))}
+                </div>
+              )}
+
+              {/* Earlier visits — the old timeline, folded away. Each row
+                  is date, score and the note; tapping opens the rest. */}
+              {earlier.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-line">
+                  <button
+                    type="button"
+                    onClick={() => setEarlierVisitsOpen(!earlierVisitsOpen)}
+                    className="w-full flex items-center justify-between text-left active:opacity-70 transition-opacity"
+                  >
+                    <span className="text-ink-2" style={{ fontSize: '13px', fontWeight: 600 }}>
+                      {earlier.length} earlier {earlier.length === 1 ? 'visit' : 'visits'}
+                    </span>
+                    <ChevronDown size={15} className={cn('text-ink-3 transition-transform duration-200', earlierVisitsOpen && 'rotate-180')} />
+                  </button>
+                  <AnimatePresence>
+                    {earlierVisitsOpen && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                        <ul className="divide-y divide-line">
+                          {earlier.map((e) => {
+                            const isExpanded = expandedVisit === e.id;
+                            const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
+                            const day = e.date ? e.date.getDate() : '';
+                            return (
+                              <li key={e.id}>
+                                <button type="button" onClick={() => setExpandedVisit(isExpanded ? null : e.id)} className="w-full flex items-center gap-3 py-3 text-left active:opacity-70 transition-opacity">
+                                  <div className="flex-shrink-0 w-10 flex flex-col items-center">
+                                    <span className="text-ink-4 leading-none" style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{month}</span>
+                                    <span className="text-ink-2 leading-none mt-1 tabular-nums font-serif" style={{ fontSize: '15px' }}>{day}</span>
+                                  </div>
+                                  <p className={cn('flex-1 min-w-0 truncate', e.notes ? 'italic text-ink-2 font-serif' : 'text-ink-4')} style={{ fontSize: '13px' }}>
+                                    {e.notes ? `“${e.notes}”` : 'No notes'}
+                                  </p>
+                                  <span className={cn('flex-shrink-0 inline-flex items-center h-7 px-2.5 rounded-lg tabular-nums', softChip(e.score))} style={{ fontSize: '13px', fontWeight: 700 }}>
+                                    {e.score.toFixed(1)}
+                                  </span>
+                                </button>
+                                <AnimatePresence>
+                                  {isExpanded && (
+                                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                                      <div className="pb-3 pl-[52px] space-y-2.5">
+                                        {e.tags && e.tags.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {e.tags.map((t) => (<span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-cream-2 text-ink-2">{t}</span>))}
+                                          </div>
+                                        )}
+                                        {e.photos && e.photos.length > 0 && (
+                                          <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                                            {e.photos.slice(0, 6).map((ph, i) => (<img key={i} src={ph.url} className="w-16 h-16 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />))}
+                                          </div>
+                                        )}
+                                        {confirmDeleteVisitId === e.id ? (
+                                          <div className="flex items-center justify-between gap-2 bg-score-low-tint border border-score-low/25 rounded-lg px-3 py-2">
+                                            <p className="text-xs font-medium text-score-low-ink">Delete this visit?</p>
+                                            <div className="flex gap-1.5">
+                                              <button type="button" onClick={() => setConfirmDeleteVisitId(null)} className="px-2.5 py-1 text-[11px] font-semibold text-ink-2 border border-line rounded-md bg-paper">Cancel</button>
+                                              <button type="button" onClick={() => { if (!place) return; deleteVisit(place.id, e.id); setConfirmDeleteVisitId(null); setExpandedVisit(null); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-score-low rounded-md">Delete</button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <button type="button" onClick={() => setConfirmDeleteVisitId(e.id)} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-score-low-ink active:opacity-70 transition-opacity">
+                                            <Trash2 size={13} /> Delete visit
+                                          </button>
+                                        )}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
             </section>
           );
         })()}
+
+        {/* Likes + comments friends left on your rating. */}
+        {myRating && place && (
+          <YourReviewComments restaurantId={place.id} variant="mobile" className="mt-8" />
+        )}
 
         {/* ── From your circle — one row per friend: monogram avatar, name,
             a one-line taste of their note, their score chip, and a chevron
@@ -742,16 +891,13 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           return (
             <>
-              {sep}
-              <section>
+              <section className="mt-9">
                 <button
                   type="button"
                   onClick={() => (hasFriends || expertRecommendations.length > 0) && navigate(`/restaurant/${place.id}/circle`)}
                   className="w-full flex items-center justify-between mb-4 active:opacity-70 transition-opacity"
                 >
-                  <span className="uppercase text-primary" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.12em' }}>
-                    From your circle
-                  </span>
+                  <span className="section-eyebrow text-primary">From your circle</span>
                   {ratings.length > SHOWN && (
                     <span className="inline-flex items-center gap-1 text-primary" style={{ fontSize: '13px', fontWeight: 600 }}>
                       See all {ratings.length}
@@ -797,299 +943,30 @@ export const RestaurantDetailMobile: React.FC = () => {
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-[14px] bg-paper border border-line px-4 py-6 text-center">
-                    <Users size={20} className="mx-auto text-on-surface/30 mb-2" />
-                    <p className="text-on-surface/55" style={{ fontSize: '13px' }}>No friends have rated this yet</p>
+                  /* One line, not a bordered box with an icon in it. An empty
+                     state should take the room its message needs. */
+                  <p className="text-on-surface/45" style={{ fontSize: '13.5px' }}>
+                    No friends have rated this yet ·{' '}
                     <button
                       type="button"
                       onClick={() => setChatShareTarget(buildShareTarget())}
-                      className="mt-2 text-primary active:opacity-70 transition-opacity"
-                      style={{ fontSize: '12px', fontWeight: 600 }}
+                      className="text-primary active:opacity-70 transition-opacity"
+                      style={{ fontWeight: 600 }}
                     >
                       Share with a friend
                     </button>
-                  </div>
+                  </p>
                 )}
               </section>
             </>
           );
         })()}
 
-        {/* ── More from {name} — reels / posts featuring this restaurant. ── */}
-        <RestaurantFeaturedReels
-          restaurantId={place.id}
-          restaurantName={place.name}
-          size="md"
-          className="mt-7"
-        />
-
-        {/* ── My Rating — collapsible. Header carries the score chip inline;
-            expanded body opens with a Score / Price / Visited tri-panel,
-            then editable Notes / Tags / Photos / companions. ── */}
-        {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.fullAddress || place.address };
-          type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
-          const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
-          const hasNotes = !!myRating.notes;
-          const hasTags = (myRating.tags?.length || 0) > 0;
-          const hasPhotos = (myRating.photos?.length || 0) > 0;
-          const hasDate = !!myRating.visitDate;
-          const hasFriends = (myRating.friendIds?.length || 0) > 0;
-          const dateLabel = parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? null;
-          const eyebrowStyle = { fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em' } as const;
-          return (
-            <>
-              {sep}
-              <section ref={myRatingRef} className="scroll-mt-4">
-                <button onClick={() => setMyRatingOpen(!myRatingOpen)} className="w-full flex items-center justify-between py-1 text-left active:opacity-70 transition-opacity">
-                  <span className="flex items-center gap-3">
-                    <span className="section-eyebrow">My rating</span>
-                    <span className={cn('inline-flex items-center justify-center h-6 px-2.5 rounded-lg', chipBg(myRating.score))}>
-                      <span className="text-white tabular-nums" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '12.5px', fontWeight: 600 }}>
-                        {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
-                      </span>
-                    </span>
-                  </span>
-                  <ChevronDown size={16} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', myRatingOpen && 'rotate-180')} />
-                </button>
-
-                <AnimatePresence>
-                  {myRatingOpen && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                      <div className="pt-4">
-                        {/* Re-rate / Edit */}
-                        <div className="flex items-center justify-end gap-3 mb-4">
-                          <button onClick={() => openAddRestaurantModal(meta, 'new-visit')} className="inline-flex items-center gap-1.5 text-white bg-primary active:opacity-90 transition-opacity px-3 py-1.5 rounded-full" style={{ fontSize: '12.5px', fontWeight: 700 }}>
-                            <Star size={12} className="fill-white" /> Re-rate
-                          </button>
-                          <button onClick={() => openAt('main')} className="flex items-center gap-1 text-primary active:opacity-70 transition-opacity" style={{ fontSize: '13px', fontWeight: 600 }}>
-                            <Edit3 size={13} /> Edit
-                          </button>
-                        </div>
-
-                        {/* Tri-panel: Score / Price / Visited */}
-                        <div className="flex rounded-2xl overflow-hidden bg-cream-2" style={{ boxShadow: 'inset 0 0 0 1px var(--color-line)' }}>
-                          <button onClick={() => openAt('main')} className="flex-1 p-4 text-left active:opacity-70 transition-opacity">
-                            <div className="uppercase text-ink-4" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em' }}>Score</div>
-                            <div className="mt-1.5">
-                              {scoresUnlocked ? (
-                                <>
-                                  <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '25px', fontWeight: 600 }}>{myRating.score.toFixed(1)}</span>
-                                  <span className="text-ink-4" style={{ fontSize: '13px' }}> / 10</span>
-                                </>
-                              ) : (
-                                <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '19px', fontWeight: 600 }}>{TIER_LABELS[tierOfScore(myRating.score)]}</span>
-                              )}
-                            </div>
-                          </button>
-                          {(
-                            <>
-                              <div className="w-px bg-line" />
-                              <button onClick={() => openAt('price')} className="flex-1 p-4 text-left active:opacity-70 transition-opacity">
-                                <div className="uppercase text-ink-4" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em' }}>Price</div>
-                                <div className="mt-1.5 text-ink" style={{ fontSize: '20px', fontWeight: 700 }}>{myRating.price || <span className="text-ink-4 font-serif italic font-normal text-[16px]">Add</span>}</div>
-                              </button>
-                            </>
-                          )}
-                          <div className="w-px bg-line" />
-                          <button onClick={() => openAt('date')} className="flex-1 p-4 text-left active:opacity-70 transition-opacity">
-                            <div className="uppercase text-ink-4" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em' }}>Visited</div>
-                            <div className="mt-1.5 text-ink" style={{ fontSize: '14px', fontWeight: 600 }}>{dateLabel || <span className="text-ink-4 font-serif italic font-normal text-[16px]">Add</span>}</div>
-                          </button>
-                        </div>
-
-                        <div className="space-y-5 mt-5">
-                          {/* Notes */}
-                          <div>
-                            <button onClick={() => openAt('notes')} className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity" style={eyebrowStyle}>
-                              <StickyNote size={13} /><span>Notes</span><Edit3 size={11} className="text-ink-3 ml-0.5" />
-                            </button>
-                            {hasNotes ? (
-                              <p className="mt-2 italic text-ink-2 font-serif" style={{ fontSize: '16px', lineHeight: 1.55 }}>"{myRating.notes}"</p>
-                            ) : (
-                              <button onClick={() => openAt('notes')} className="mt-2 italic text-ink-3 active:text-ink-2 transition-colors" style={{ fontSize: '14px' }}>Add notes…</button>
-                            )}
-                          </div>
-
-                          {/* Tags */}
-                          <div>
-                            <button onClick={() => openAt('tags')} className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity" style={eyebrowStyle}>
-                              <Tag size={13} /><span>Tags</span><Edit3 size={11} className="text-ink-3 ml-0.5" />
-                            </button>
-                            {hasTags ? (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {myRating.tags.map((t) => (
-                                  <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-cream-2 text-ink-2">{t}</span>
-                                ))}
-                              </div>
-                            ) : (
-                              <button onClick={() => openAt('tags')} className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors" style={{ fontSize: '14px' }}>Add tags…</button>
-                            )}
-                          </div>
-
-                          {/* Photos */}
-                          <div>
-                            <button onClick={() => openAt('photos')} className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity" style={eyebrowStyle}>
-                              <Image size={13} /><span>Photos</span><Edit3 size={11} className="text-ink-3 ml-0.5" />
-                            </button>
-                            {hasPhotos ? (
-                              <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-[18px] px-[18px] snap-x snap-mandatory">
-                                {myRating.photos.map((p, i) => (
-                                  <img key={i} src={p.url} className="w-24 h-24 rounded-xl object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
-                                ))}
-                              </div>
-                            ) : (
-                              <button onClick={() => openAt('photos')} className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors" style={{ fontSize: '14px' }}>Add photos…</button>
-                            )}
-                          </div>
-
-                          {/* Companions */}
-                          {(
-                            <div>
-                              <button onClick={() => openAt('friends')} className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity" style={eyebrowStyle}>
-                                <Users size={13} /><span>With</span><Edit3 size={11} className="text-ink-3 ml-0.5" />
-                              </button>
-                              {hasFriends ? (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  {myRating.friendIds.map((fid) => (
-                                    <span key={fid} className="text-xs font-medium px-2.5 py-1 rounded-full bg-cream-2 text-ink-2">{friendNames[fid] || fid.slice(0, 8)}</span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <button onClick={() => openAt('friends')} className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors" style={{ fontSize: '14px' }}>Add companions…</button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </section>
-            </>
-          );
-        })()}
-
-        {/* ── On your rating — likes + comments friends left on it, which
-            otherwise only ever appeared in THEIR feeds. Renders nothing
-            when there's been no engagement. ── */}
-        {myRating && place && (
-          <YourReviewComments restaurantId={place.id} variant="mobile" leading={sep} />
-        )}
-
-        {/* ── Visit History — date-badge timeline with score trend arrows. ── */}
-        {myRating && visitHistory.length > 0 && place && (() => {
-          const scoreBorder = (s: number) =>
-            s >= 8 ? 'border-l-green-500' : s >= 5 ? 'border-l-amber-500' : 'border-l-red-500';
-          const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          const parseDate = parseVisitDate;
-
-          type Entry = {
-            id: string; score: number; date: Date | null; notes?: string; tags?: string[];
-            photos?: { url: string }[]; trend: 'up' | 'down' | 'same' | null; isCurrent: boolean;
-          };
-
-          const entries: Entry[] = [];
-          entries.push({
-            id: 'current', score: myRating.score, date: parseDate(myRating.visitDate), notes: myRating.notes,
-            tags: myRating.tags, photos: myRating.photos, trend: null, isCurrent: true,
-          });
-          visitHistory.forEach((v) => {
-            entries.push({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, trend: null, isCurrent: false });
-          });
-
-          entries.sort((a, b) => {
-            const at = a.date ? a.date.getTime() : 0;
-            const bt = b.date ? b.date.getTime() : 0;
-            return bt - at;
-          });
-
-          for (let i = 0; i < entries.length; i++) {
-            const cur = entries[i];
-            const older = entries[i + 1];
-            if (!older) { cur.trend = null; continue; }
-            const diff = cur.score - older.score;
-            cur.trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : cur.isCurrent ? 'same' : null;
-          }
-
-          return (
-            <section className="mt-7">
-              <p className="section-eyebrow mb-4">Visit history</p>
-              <ul className="divide-y divide-line">
-                {entries.map((e) => {
-                  const isExpanded = expandedVisit === e.id;
-                  const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
-                  const day = e.date ? e.date.getDate() : '';
-                  const fullDate = e.date ? e.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date';
-                  return (
-                    <li key={e.id}>
-                      <button type="button" onClick={() => setExpandedVisit(isExpanded ? null : e.id)} className="w-full flex items-center gap-3 py-3.5 text-left active:opacity-70 transition-opacity">
-                        <div className={cn('flex-shrink-0 w-11 h-11 rounded-[10px] bg-cream-2 flex flex-col items-center justify-center border-l-[3px]', scoreBorder(e.score))}>
-                          <span className="text-ink-3 leading-none" style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: '9px', letterSpacing: '0.1em' }}>{month}</span>
-                          <span className="text-ink leading-none mt-1 tabular-nums" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '16px', fontWeight: 500 }}>{day}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {e.notes ? (
-                            <p className="italic text-ink-2 line-clamp-2" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '12px', lineHeight: 1.4 }}>"{e.notes}"</p>
-                          ) : (
-                            <p className="italic text-ink-4" style={{ fontSize: '12px' }}>No notes</p>
-                          )}
-                          <p className="text-ink-3 mt-0.5" style={{ fontSize: '11px' }}>{fullDate}</p>
-                        </div>
-                        <div className="flex-shrink-0 flex items-center gap-1">
-                          <div className={cn('w-11 h-7 rounded-md flex items-center justify-center', chipBg(e.score))}>
-                            <span className="text-white tabular-nums" style={{ fontFamily: '"Fraunces", "Noto Serif", serif', fontSize: '13px', fontWeight: 600 }}>{e.score.toFixed(1)}</span>
-                          </div>
-                          {e.trend === 'up' && <span className="text-olive leading-none" style={{ fontSize: '16px', fontWeight: 700 }}>↑</span>}
-                          {e.trend === 'down' && <span className="text-clay leading-none" style={{ fontSize: '16px', fontWeight: 700 }}>↓</span>}
-                        </div>
-                      </button>
-
-                      <AnimatePresence>
-                        {isExpanded && (
-                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                            <div className="pb-4 pl-[calc(44px+0.75rem)] space-y-2.5">
-                              {e.tags && e.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                  {e.tags.map((t) => (<span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-cream-2 text-ink-2">{t}</span>))}
-                                </div>
-                              )}
-                              {e.photos && e.photos.length > 0 && (
-                                <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                                  {e.photos.slice(0, 6).map((p, i) => (<img key={i} src={p.url} className="w-16 h-16 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />))}
-                                </div>
-                              )}
-                              {confirmDeleteVisitId === e.id ? (
-                                <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                                  <p className="text-xs font-medium text-red-700">Delete this visit?</p>
-                                  <div className="flex gap-1.5">
-                                    <button type="button" onClick={() => setConfirmDeleteVisitId(null)} className="px-2.5 py-1 text-[11px] font-semibold text-ink-2 border border-line rounded-md bg-paper">Cancel</button>
-                                    <button type="button" onClick={() => { if (!place) return; deleteVisit(place.id, e.id); setConfirmDeleteVisitId(null); setExpandedVisit(null); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-md">Delete</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button" onClick={() => setConfirmDeleteVisitId(e.id)} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-red-500 active:opacity-70 transition-opacity">
-                                  <Trash2 size={13} /> Delete visit
-                                </button>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          );
-        })()}
-
         {/* ── Expert Picks — editorial list of authoritative reviews. ── */}
         {expertRecommendations.length > 0 && (
           <>
-            {sep}
-            <section>
-              <p className="section-eyebrow mb-4">Verified Picks</p>
+            <section className="mt-9">
+              <p className="section-eyebrow mb-4">Verified picks</p>
               <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
                 {expertRecommendations.map((rec) => {
                   const isExpanded = expandedExpertId === rec.id;
@@ -1124,9 +1001,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                         {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
                           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                             <div className="pt-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <p className="section-eyebrow mb-2">Highlight dishes</p>
                               <div className="flex flex-wrap gap-1.5">
-                                {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">{dish}</span>))}
+                                {rec.highlight_dishes.map((dish) => (<span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/8 text-primary">{dish}</span>))}
                               </div>
                             </div>
                           </motion.div>
@@ -1140,11 +1017,18 @@ export const RestaurantDetailMobile: React.FC = () => {
           </>
         )}
 
+        {/* ── More from {name} — reels / posts featuring this restaurant. ── */}
+        <RestaurantFeaturedReels
+          restaurantId={place.id}
+          restaurantName={place.name}
+          size="md"
+          className="mt-9"
+        />
+
         {/* ── Hours — flat accordion with today's status inline. ── */}
         {place.hours.length > 0 && (
           <>
-            {sep}
-            <section>
+            <section className="mt-9">
               <button onClick={() => setHoursOpen(!hoursOpen)} className="w-full flex items-center justify-between py-1 text-left active:opacity-70 transition-opacity">
                 <span className="flex items-center gap-3 min-w-0">
                   <span className="section-eyebrow flex-shrink-0">Hours</span>
@@ -1184,11 +1068,9 @@ export const RestaurantDetailMobile: React.FC = () => {
           </>
         )}
 
-        {sep}
-
         {/* Location eyebrow sits inside the padded main; the map below
             breaks out of the page gutter to bleed edge-to-edge. */}
-        <p className="section-eyebrow mb-3">Location</p>
+        <p className="section-eyebrow mt-9 mb-3">Location</p>
       </main>
 
       {/* ── Map — full-bleed canvas flush with the page bottom. ── */}
@@ -1220,10 +1102,6 @@ export const RestaurantDetailMobile: React.FC = () => {
           Open in Maps
           <ExternalLink size={12} />
         </a>
-        <div className="absolute bottom-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-paper border border-line text-ink shadow-sm" style={{ fontSize: '12px', fontWeight: 600 }}>
-          <MapPin size={12} className="text-primary" />
-          <span className="max-w-[60vw] truncate">{place.address}</span>
-        </div>
       </section>
 
       {/* Safe-area spacer — the page used to end flush with the map, which
@@ -1268,7 +1146,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
                 {friendsStats.ratings.map((r) => {
                   return (
-                    <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 p-3">
+                    <div key={r.id} className="bg-paper rounded-xl border border-line p-3">
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">

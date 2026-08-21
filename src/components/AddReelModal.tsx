@@ -13,6 +13,7 @@
  * accepted.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -1111,15 +1112,17 @@ export const AddReelModal: React.FC = () => {
 
             {/* ── Header ── */}
             <div className="pt-safe-4 px-4 pb-2.5 flex items-center relative flex-shrink-0 z-10">
-              <button
-                type="button"
-                onClick={onBackTap}
+              <GlassButton
+                id="reel-composer-back"
+                symbol={canGoBack && !submitting ? 'chevron.left' : 'xmark'}
+                label={submitting && !isEditing ? 'Cancel upload' : canGoBack ? 'Back' : 'Close'}
+                tint="white"
                 disabled={submitting && isEditing}
-                className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={submitting && !isEditing ? 'Cancel upload' : canGoBack ? 'Back' : 'Close'}
+                onClick={onBackTap}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
               >
                 {canGoBack && !submitting ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
-              </button>
+              </GlassButton>
 
               {/* Centered title + step dots */}
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 mt-[calc(env(safe-area-inset-top,0px)/2)] flex flex-col items-center gap-[5px]">

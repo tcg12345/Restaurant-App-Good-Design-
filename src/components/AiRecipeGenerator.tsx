@@ -6,6 +6,7 @@
 // Advanced builder's Review step.
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -305,9 +306,15 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
         <div className="rcx-head-row">
           {tabSlot}
           <div className="rcx-head-actions">
-            <button type="button" className="rcx-head-close" onClick={onClose} aria-label="Close">
+            <GlassButton
+              id="recipe-ai-close"
+              symbol="xmark"
+              label="Close"
+              onClick={onClose}
+              className="rcx-head-close"
+            >
               <X size={14} />
-            </button>
+            </GlassButton>
           </div>
         </div>
       </div>

@@ -20,6 +20,7 @@
  *             animated success overlay after sharing.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, ChefHat, MapPin, Check, Music2, Trash2, AlertCircle, Loader2, Globe, Users as UsersIcon, Plus, Image as ImageIcon, Video as VideoIcon, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Link2 } from 'lucide-react';
@@ -1256,8 +1257,12 @@ export const AddPostModal: React.FC = () => {
 
             {/* ── Header ── */}
             <div className="pt-safe-4 px-4 pb-2.5 flex items-center relative flex-shrink-0 z-10">
-              <button
-                type="button"
+              <GlassButton
+                id="post-composer-back"
+                symbol={step > (isEditing ? 3 : 1) && !sharedPost ? 'chevron.left' : 'xmark'}
+                label={submitting && !isEditing ? 'Cancel upload' : step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
+                tint="white"
+                disabled={submitting && isEditing}
                 onClick={() => {
                   // While a create upload runs this doubles as Cancel —
                   // aborts the uploads; createPost tears the post down.
@@ -1265,12 +1270,10 @@ export const AddPostModal: React.FC = () => {
                   if (step > (isEditing ? 3 : 1) && !sharedPost) goToStep((step - 1) as Step);
                   else closeAddPostModal();
                 }}
-                disabled={submitting && isEditing}
-                className="w-9 h-9 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
-                aria-label={submitting && !isEditing ? 'Cancel upload' : step > (isEditing ? 3 : 1) && !sharedPost ? 'Back' : 'Close'}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
               >
                 {step > (isEditing ? 3 : 1) && !sharedPost ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
-              </button>
+              </GlassButton>
 
               {/* Centered title + step dots */}
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 mt-[calc(env(safe-area-inset-top,0px)/2)] flex flex-col items-center gap-[5px]">

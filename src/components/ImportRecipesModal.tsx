@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
@@ -433,13 +434,15 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                 <h2 className="font-serif font-bold text-xl truncate">Import Recipes</h2>
                 <p className="text-xs text-on-surface/40 mt-0.5">Upload a CSV or JSON file</p>
               </div>
-              <button
+              <GlassButton
+                id="import-recipes-close"
+                symbol="xmark"
+                label="Close"
                 onClick={handleClose}
-                className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"
-                aria-label="Close"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 transition-colors"
               >
-                <X size={22} />
-              </button>
+                <X size={18} />
+              </GlassButton>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-6 space-y-4">

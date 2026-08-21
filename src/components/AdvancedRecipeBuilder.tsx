@@ -13,6 +13,7 @@
 // JSON snapshot; the reducer is rebuildable from any saved snapshot.
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { localISODate } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 'lucide-react';
@@ -976,9 +977,15 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             <button type="button" className="rcx-head-link" onClick={handleSaveDraft}>
               Save draft
             </button>
-            <button type="button" className="rcx-head-close" onClick={onClose} aria-label="Close">
+            <GlassButton
+              id="recipe-builder-close"
+              symbol="xmark"
+              label="Close"
+              onClick={onClose}
+              className="rcx-head-close"
+            >
               <X size={14} />
-            </button>
+            </GlassButton>
           </div>
         </div>
 
@@ -1115,15 +1122,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           <div className="rcx-modal is-wide" onClick={(e) => e.stopPropagation()}>
             <div className="rcx-modal-head">
               <span className="rcx-modal-eyebrow"><Sparkles size={13} /> Edit with AI</span>
-              <button
-                type="button"
-                className="rcx-head-close"
-                onClick={() => setAiEditOpen(false)}
+              <GlassButton
+                id="recipe-builder-ai-edit-close"
+                symbol="xmark"
+                label="Close"
                 disabled={aiEditBusy}
-                aria-label="Close"
+                onClick={() => setAiEditOpen(false)}
+                className="rcx-head-close"
               >
                 <X size={14} />
-              </button>
+              </GlassButton>
             </div>
             <p className="rcx-modal-sub">
               Describe a change and the AI will revise <strong>{state.name.trim() || 'this recipe'}</strong> —

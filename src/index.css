@@ -534,35 +534,50 @@ html.kb-open body {
 }
 
 /* ── Glass controls ────────────────────────────────────────────────────
-   The floating chrome — header buttons, the Create ＋, back buttons, the
-   condensed scroll headers — reaching for as much of iOS 26's Liquid
+   The floating chrome — header buttons, the Create ＋, back/save/share,
+   the condensed scroll headers — reaching for as much of iOS 26's Liquid
    Glass as web content can have.
 
-   What's here and what isn't: `backdrop-filter` gives blur, and pushing
-   saturation past 100% recovers the colour the blur washes out, which is
-   what stops it looking like frosted grey. The specular edge is faked
-   with two inset shadows — a bright top edge and a dimmer bottom one —
-   so the control reads as a lit bevel rather than a flat disc.
+   The numbers are calibrated, not guessed. A probe rendered these circles
+   in a WKWebView with real `UIGlassEffect` circles directly beneath them
+   over an identical backdrop and measured both. Over ordinary app content
+   — warm paper, a photo band, body copy — native glass reads 69 chroma /
+   220 luminance against a 130/140 backdrop; 72% and 280% put this at
+   69/212, which is as close as the two knobs reach. It is a wide target:
+   the material re-adapts to what is behind it, and two runs over the same
+   backdrop measured 30 luminance apart, so these sit mid-envelope rather
+   than on any single reading.
 
-   What no CSS can do: refract the content behind it (Liquid Glass lenses
-   it), track device motion in the highlight, or re-tint itself from
-   what's underneath. The phone tab bar gets the real material by moving
-   out of the page entirely — see lib/native-glass.ts.
+   What no CSS can do is the part that actually makes glass read as glass:
+   refract. In the same probe the native circles visibly bend the stripes
+   behind them into a lens, compressed at the rim and magnified through the
+   middle. `backdrop-filter` has no equivalent and there is no other web
+   API that does. So the rim is faked instead — a lit top edge, a hairline
+   all the way round, and a darker band just inside the lower edge, which
+   together read as a piece of glass with thickness rather than as a
+   frosted circle. It is a good approximation and it is an approximation.
+
+   The phone tab bar is the exception, and the reason it looks different
+   from these: it left the page entirely and is a real UIKit control. See
+   lib/native-glass.ts.
 
    Deliberately not applied to in-content buttons. Glass is navigation-
-   layer chrome; stacking it on ordinary controls flattens the hierarchy
-   it exists to express (and Apple's own guidance says the same). */
+   layer chrome; stacking it on ordinary controls flattens the hierarchy it
+   exists to express (and Apple's own guidance says the same). */
 .glass-control {
-  background-color: color-mix(in srgb, var(--color-surface) 62%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  background-color: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(280%);
+  backdrop-filter: blur(24px) saturate(280%);
   box-shadow:
-    /* specular: lit top edge, faint bounce along the bottom */
-    inset 0 1px 0 0 rgb(255 255 255 / 0.65),
-    inset 0 -1px 0 0 rgb(255 255 255 / 0.16),
-    /* hairline containment */
-    inset 0 0 0 0.5px rgb(0 0 0 / 0.07),
-    /* the control floats over content, so it casts */
+    /* specular: the lit top edge, and a fainter bounce along the bottom */
+    inset 0 1px 0 0 rgb(255 255 255 / 0.85),
+    inset 0 -1px 0 0 rgb(255 255 255 / 0.22),
+    /* the rim — a hairline the whole way round is what reads as an edge
+       rather than as a fill that happens to be round */
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.55),
+    /* thickness: glass shades just inside its lower rim */
+    inset 0 -7px 11px -8px rgb(0 0 0 / 0.30),
+    /* it floats over the page, so it casts */
     0 4px 14px -6px rgb(0 0 0 / 0.22);
 }
 
@@ -570,11 +585,12 @@ html.kb-open body {
    control from the page, and the cast shadow does almost nothing, so it
    trades places with a brighter rim. */
 .dark .glass-control {
-  background-color: color-mix(in srgb, var(--color-surface) 52%, transparent);
+  background-color: color-mix(in srgb, var(--color-surface) 58%, transparent);
   box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.14),
-    inset 0 -1px 0 0 rgb(255 255 255 / 0.05),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.1),
+    inset 0 1px 0 0 rgb(255 255 255 / 0.22),
+    inset 0 -1px 0 0 rgb(255 255 255 / 0.07),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.16),
+    inset 0 -7px 11px -8px rgb(0 0 0 / 0.5),
     0 6px 18px -8px rgb(0 0 0 / 0.7);
 }
 

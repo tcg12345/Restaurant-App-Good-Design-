@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
-import { motion } from 'motion/react';
 import { Bookmark, ChefHat, ChevronRight, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useHeaderFade } from '../lib/useHeaderFade';
+import { useGlassSegments } from '../lib/glass-buttons';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -88,13 +87,24 @@ export const PhonePantryHome: React.FC<Props> = ({
   onCreateRecipeList,
 }) => {
   const { darkMode, phoneMode } = useSettings();
-  // The in-flow tab track dissolves as the page scrolls and hands off to
-  // a compact glass capsule pinned at the top, so switching tabs never
-  // means scrolling back up first. The distance is explicit: the track's
-  // own height would swap the two within 40px of scroll, which reads as
-  // a flicker — 80 puts the hand-off just after the track clears the top
-  // of the viewport.
-  const fade = useHeaderFade({ enabled: phoneMode, windowScroll: true, fadeDist: 80 });
+  // Native Liquid Glass over both states of the tab selector. The in-flow
+  // track and the condensed capsule register as segmented glass controls —
+  // one capsule of real material with a flat selection pill sliding on it —
+  // and this component's markup becomes the invisible layout + the fallback
+  // for everywhere the material doesn't exist. The scroll hand-off between
+  // the two keeps working exactly as before: the native mirrors ride each
+  // wrapper's animated opacity.
+  const segItems = (['restaurants', 'recipes'] as PantryTab[]).map((t) => ({
+    id: t,
+    symbol: '',
+    title: t === 'restaurants' ? 'Restaurants' : 'Recipes',
+    label: t === 'restaurants' ? 'Restaurants' : 'Recipes',
+    tint: 'label' as const,
+    active: tab === t,
+    onClick: () => onTabChange(t),
+  }));
+  const trackSeg = useGlassSegments({ id: 'pantry-tabs', items: segItems });
+  const miniSeg = useGlassSegments({ id: 'pantry-tabs-mini', items: segItems });
   // Split lists by their kind so each tab only shows the relevant ones.
   const restaurantLists = useMemo(
     () => lists.filter((l) => l.type !== 'home-cooking'),
@@ -106,84 +116,109 @@ export const PhonePantryHome: React.FC<Props> = ({
   );
 
   return (
-    <div className="pt-safe-4 pb-32">
-      {/* ── Condensed selector ──
-          Zero-height sticky rail: it pins to the top of the viewport
-          without taking a row of layout, so the capsule floats over the
-          cards it replaces the track for. */}
-      {phoneMode && (
-        <div className="sticky top-0 z-30 h-0">
-          <motion.div
-            style={fade.condensedStyle}
-            className="absolute inset-x-0 top-0 flex justify-center pt-safe-3 pb-2 -mx-3 px-3"
+    // No `pt-safe-4` on phone: the sticky rail below applies the safe area
+    // itself, and having both meant the capsule sat a whole inset lower than
+    // the notch while the page was at rest — the band of white space. The
+    // rail is zero-height, so the spacer after it is what actually reserves
+    // the room.
+    <div className={cn('pb-32', !phoneMode && 'pt-safe-4')}>
+      {/* ── Tab selector ──
+          One control in one state: the compact capsule, sticky at the top.
+          It used to be two — a full-width in-flow track that dissolved into
+          this capsule as you scrolled. The small one was always the better
+          of the two, so it is the only one now, and it simply stays.
+
+          A zero-height sticky rail, exactly like the condensed overlay it
+          replaces: the capsule floats over the page rather than occupying a
+          row, which is what keeps a second band of safe-area padding from
+          stacking on the page's own. The spacer below the rail is what
+          gives the first cards their initial clearance. */}
+      {phoneMode ? (
+        <>
+        <div className="sticky top-0 z-30 h-0 -mx-3">
+          <div className="absolute inset-x-0 top-0 px-3 pt-safe-3 pb-2 flex justify-center">
+          {/* Soft scrim: cards dissolve into the top edge instead of cutting
+              across it. The capsule stays glass; the strip behind it does
+              not have to be. */}
+          <div
+            className="absolute inset-x-0 top-0 -bottom-3 bg-gradient-to-b from-surface via-surface/70 to-transparent pointer-events-none"
+            aria-hidden
+          />
+          <div
+            ref={miniSeg.ref}
+            className={cn(
+              'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
+              !miniSeg.active && 'glass-control',
+            )}
           >
-            {/* Soft scrim: cards dissolve into the top edge instead of
-                cutting across it. The capsule stays glass; the strip
-                behind it doesn't have to. */}
-            <div
-              className="absolute inset-x-0 top-0 -bottom-3 bg-gradient-to-b from-surface via-surface/70 to-transparent pointer-events-none"
-              aria-hidden
-            />
-            <div
-              className="glass-control relative inline-flex items-center gap-0.5 rounded-full p-[3px]"
-            >
-              {(['restaurants', 'recipes'] as PantryTab[]).map((t) => {
-                const Icon = t === 'restaurants' ? UtensilsCrossed : ChefHat;
-                const active = tab === t;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => onTabChange(t)}
-                    aria-pressed={active}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 h-8 pl-3 pr-3.5 rounded-full text-[12.5px] font-bold transition-colors',
-                      active
+            {(['restaurants', 'recipes'] as PantryTab[]).map((t) => {
+              const Icon = t === 'restaurants' ? UtensilsCrossed : ChefHat;
+              const active = tab === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => onTabChange(t)}
+                  aria-pressed={active}
+                  aria-hidden={miniSeg.active || undefined}
+                  tabIndex={miniSeg.active ? -1 : undefined}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 h-8 pl-3 pr-3.5 rounded-full text-[12.5px] font-bold transition-colors',
+                    // Layout only while the native control draws on top.
+                    miniSeg.active ? 'opacity-0'
+                      : active
                         ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
                         : darkMode
                           ? 'text-white/55 active:text-white/80'
                           : 'text-on-surface/50 active:text-on-surface/80',
-                    )}
-                  >
-                    <Icon size={13} strokeWidth={2.4} className="flex-shrink-0" />
-                    {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
+                  )}
+                >
+                  <Icon size={13} strokeWidth={2.4} className="flex-shrink-0" />
+                  {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
+                </button>
+              );
+            })}
+          </div>
+          </div>
+        </div>
+        {/* Clearance for the floating capsule: the safe area it sits under,
+            its own height, and the gap beneath it — no more. */}
+        <div aria-hidden style={{ height: 'calc(max(0.75rem, env(safe-area-inset-top, 0px)) + 46px)' }} />
+        </>
+      ) : (
+        /* Desktop keeps the full-width track: there is no scroll hand-off to
+           simplify there, and a small centred capsule in a wide column reads
+           as lost rather than tidy. */
+        <div
+          ref={trackSeg.ref}
+          className={cn(
+            'inline-flex w-full rounded-full p-1',
+            !trackSeg.active && (darkMode ? 'bg-white/[0.04]' : 'bg-on-surface/[0.06]'),
+          )}
+        >
+          {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => onTabChange(t)}
+              aria-hidden={trackSeg.active || undefined}
+              tabIndex={trackSeg.active ? -1 : undefined}
+              className={cn(
+                'flex-1 py-2 rounded-full text-sm font-semibold transition-all',
+                trackSeg.active ? 'opacity-0'
+                  : tab === t
+                    ? darkMode
+                      ? 'bg-white/[0.16] text-white ring-1 ring-white/10 shadow-sm shadow-black/30'
+                      : 'bg-white text-on-surface shadow-sm'
+                    : darkMode
+                      ? 'text-on-surface/40'
+                      : 'text-on-surface/45',
+              )}
+            >
+              {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
+            </button>
+          ))}
         </div>
       )}
-
-      {/* ── Tab pill ── */}
-      <motion.div
-        ref={fade.headerRef}
-        style={phoneMode ? fade.headerStyle : undefined}
-        className={cn('inline-flex w-full rounded-full p-1', darkMode ? 'bg-white/[0.04]' : 'bg-on-surface/[0.06]')}
-      >
-        {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => onTabChange(t)}
-            className={cn(
-              'flex-1 py-2 rounded-full text-sm font-semibold transition-all',
-              // In dark mode the literal `bg-white` is remapped (with
-              // !important) to the dark paper tone, which is *darker* than the
-              // track — so the selected pill vanished. Branch on the theme to
-              // give dark mode a clearly elevated, lighter pill instead.
-              tab === t
-                ? darkMode
-                  ? 'bg-white/[0.16] text-white ring-1 ring-white/10 shadow-sm shadow-black/30'
-                  : 'bg-white text-on-surface shadow-sm'
-                : darkMode
-                  ? 'text-on-surface/40'
-                  : 'text-on-surface/45',
-            )}
-          >
-            {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
-          </button>
-        ))}
-      </motion.div>
 
       {tab === 'restaurants' ? (
         <>

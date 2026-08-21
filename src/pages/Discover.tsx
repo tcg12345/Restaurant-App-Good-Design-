@@ -8,6 +8,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
+import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreHex } from '../lib/score';
@@ -3949,14 +3950,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         title="Home"
         centerLogo={phoneMode}
         leftAction={phoneMode ? (
-          <button
-            type="button"
+          <GlassButton
+            id="discover-create"
+            symbol="plus"
+            label="Create"
             onClick={() => navigate('/create')}
-            aria-label="Create"
-            className="glass-control w-10 h-10 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
+            className="w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
           >
             <Plus size={20} />
-          </button>
+          </GlassButton>
         ) : undefined}
       />
       <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
@@ -3984,22 +3986,34 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
   // The immersed mini cluster — only the key actions, on frosted circles with
   // no header bar, that slides back in on scroll-up.
-  const miniIconBtn = "w-10 h-10 rounded-full bg-surface/65 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.12)] flex items-center justify-center text-on-surface/85 active:scale-90 transition-transform";
+  // Same material as the full header's buttons — these were the one piece of
+  // floating chrome still hand-rolling their own frost. 44pt like the rest.
+  const miniIconBtn = "w-11 h-11 rounded-full flex items-center justify-center text-on-surface/85 active:scale-90 transition-transform";
   const miniHeaderNode = (
     <div className="flex items-center justify-between px-3 pt-safe-3 pb-2">
-      <button type="button" onClick={() => navigate('/create')} aria-label="Create" className={miniIconBtn}>
+      <GlassButton id="mini-create" symbol="plus" label="Create"
+        onClick={() => navigate('/create')} className={miniIconBtn}>
         <Plus size={20} />
-      </button>
+      </GlassButton>
       <div className="flex items-center gap-2">
-        <button type="button" onClick={() => navigate('/search/main')} aria-label="Search" className={miniIconBtn}>
+        <GlassButton id="mini-search" symbol="magnifyingglass" label="Search"
+          onClick={() => navigate('/search/main')} className={miniIconBtn}>
           <Search size={20} />
-        </button>
-        <button type="button" onClick={() => navigate('/messages')} aria-label="Messages" className={miniIconBtn}>
-          <MessageCircle size={20} />
-        </button>
-        <button type="button" onClick={() => navigate('/circle')} aria-label="Your Circle" className={miniIconBtn}>
-          <Users size={20} />
-        </button>
+        </GlassButton>
+        {/* Messages and Circle share one capsule here exactly as they do in
+            the full header above — the same pair shouldn't regroup itself as
+            the page scrolls. */}
+        <GlassGroup
+          id="mini-actions"
+          className="flex items-center rounded-full"
+          itemClassName="w-11 h-11 flex items-center justify-center text-on-surface/85"
+          items={[
+            { id: 'messages', symbol: 'message', label: 'Messages',
+              onClick: () => navigate('/messages'), icon: <MessageCircle size={20} /> },
+            { id: 'circle', symbol: 'person.2', label: 'Your Circle',
+              onClick: () => navigate('/circle'), icon: <Users size={20} /> },
+          ]}
+        />
       </div>
     </div>
   );

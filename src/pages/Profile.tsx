@@ -22,6 +22,7 @@ import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn, parseVisitDate } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
@@ -1000,14 +1001,15 @@ export const Profile: React.FC = () => {
           // one tap away instead of only existing at the top of the page.
           condensedTitle={phoneMode ? displayName : undefined}
           leftAction={phoneMode ? (
-            <button
-              type="button"
+            <GlassButton
+              id="profile-create"
+              symbol="plus"
+              label="Create"
               onClick={() => navigate('/create')}
-              aria-label="Create"
-              className="glass-control w-10 h-10 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
+              className="w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
             >
               <Plus size={20} />
-            </button>
+            </GlassButton>
           ) : undefined}
         />
       )}

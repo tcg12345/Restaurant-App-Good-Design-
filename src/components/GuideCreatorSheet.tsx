@@ -18,6 +18,7 @@
  * upfront id, and the Live Editor round-trip.
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
@@ -1789,9 +1790,15 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   {busy ? <Loader2 size={12} className="animate-spin" /> : null}
                   Save draft
                 </button>
-                <button type="button" className="gcx-head-close" onClick={onClose} aria-label="Close">
+                <GlassButton
+                  id="guide-close"
+                  symbol="xmark"
+                  label="Close"
+                  onClick={onClose}
+                  className="gcx-head-close"
+                >
                   <X size={phoneMode ? 18 : 14} strokeWidth={2.4} />
-                </button>
+                </GlassButton>
               </div>
             </div>
             <h2 className="gcx-step-title">{stepTitles[step]}</h2>

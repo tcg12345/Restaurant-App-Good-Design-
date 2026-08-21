@@ -41,6 +41,7 @@ import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaIte
 import { POST_MAX_ITEMS } from '../contexts/PostsContext';
 import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 
 type Mode = 'post' | 'rate' | 'guide' | 'recipe';
 const MODES: Mode[] = ['post', 'rate', 'guide', 'recipe'];
@@ -461,19 +462,21 @@ const PostSurface: React.FC<{
         className="absolute inset-x-4 z-30 flex items-center justify-between pointer-events-none"
         style={{ top: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
       >
-        <button
-          type="button"
+        <GlassButton
+          id="create-close-post"
+          symbol="xmark"
+          label="Close"
+          // The material re-chromes itself from the backdrop; the glyph can't,
+          // so it flips with the same signal the old classes flipped on.
+          tint={sheetPos === 'full' ? 'label' : 'white'}
           onClick={() => navigate('/')}
-          aria-label="Close"
           className={cn(
-            'w-9 h-9 rounded-full flex items-center justify-center pointer-events-auto transition-colors duration-300',
-            sheetPos === 'full'
-              ? 'bg-on-surface/[0.06] text-on-surface/70 active:bg-on-surface/[0.12]'
-              : 'bg-white/10 text-white active:bg-white/20',
+            'w-11 h-11 rounded-full flex items-center justify-center pointer-events-auto transition-colors duration-300',
+            sheetPos === 'full' ? 'text-on-surface/70' : 'text-white',
           )}
         >
           <X size={16} strokeWidth={2.4} />
-        </button>
+        </GlassButton>
         {count > 0 && (
           <motion.button
             initial={{ opacity: 0, y: -6 }}
@@ -863,14 +866,15 @@ export const Create: React.FC = () => {
             aria-hidden={!active}
           >
             {m !== 'post' && (
-              <button
-                type="button"
+              <GlassButton
+                id={`create-close-${m}`}
+                symbol="xmark"
+                label="Close"
                 onClick={() => navigate('/')}
-                aria-label="Close"
-                className="w-10 h-10 mb-3 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+                className="w-11 h-11 mb-3 rounded-full flex items-center justify-center text-on-surface/70 transition-colors"
               >
                 <X size={19} />
-              </button>
+              </GlassButton>
             )}
             {m === 'post' && <PostSurface onFullChange={setPostSheetFull} />}
             {m === 'rate' && <RateSurface />}

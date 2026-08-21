@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Sparkles, RotateCcw, SkipForward, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -367,14 +368,15 @@ const InlineCompare: React.FC<{
   return (
     <motion.div key="inline-compare" {...stepMotion} className="flex-1 flex flex-col justify-center">
       <div className="relative w-full max-w-md mx-auto">
-        <button
-          type="button"
+        <GlassButton
+          id="h2h-back"
+          symbol="chevron.left"
+          label="Back"
           onClick={onBack}
-          className="absolute -top-1.5 left-0 w-9 h-9 -ml-2 rounded-full grid place-items-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/5 transition-colors"
-          aria-label="Back"
+          className="absolute -top-1.5 left-0 w-9 h-9 -ml-2 rounded-full grid place-items-center text-on-surface/40 transition-colors"
         >
           <ChevronLeft size={18} />
-        </button>
+        </GlassButton>
         <div className="text-center mb-6 px-10">
           <h2 className="font-serif font-bold text-[24px] leading-[1.15] tracking-[-0.015em] text-on-surface">
             Which did you enjoy more?

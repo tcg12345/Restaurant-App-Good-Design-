@@ -250,9 +250,13 @@ export const EditableCuisineLine: React.FC<{
   credit?: string;
   className?: string;
 }> = ({ cuisine, priceStr, onEdit, onPhoto, pending, credit, className }) => {
-  const blue = onPhoto
-    ? 'border-sky-300/60 text-sky-100 hover:border-sky-200 hover:bg-sky-400/15'
-    : 'border-sky-500/40 text-sky-700 hover:border-sky-500/70 hover:bg-sky-500/[0.07]';
+  // Warm and quiet. This chip sits under a serif name on cream paper: a
+  // blue dashed outline was the one cold thing on the page, and a bordered
+  // pill made an editorial footnote look like a call to action. It is a
+  // small tinted affordance now, and it only firms up on press.
+  const tone = onPhoto
+    ? 'text-white/70 active:text-white'
+    : 'text-on-surface/35 active:text-primary';
   const label = pending ? 'Suggestion pending' : cuisine ? 'Suggest edit' : 'Suggest a cuisine';
   const Icon = pending ? Clock : cuisine ? SquarePen : Plus;
   return (
@@ -264,12 +268,12 @@ export const EditableCuisineLine: React.FC<{
         type="button"
         onClick={onEdit}
         className={cn(
-          'ml-2 inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-1 align-middle text-[10.5px] tracking-normal transition-colors',
-          pending ? 'border-dotted opacity-80' : '',
-          blue,
+          'ml-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-[11px] tracking-normal transition-colors',
+          pending ? 'opacity-70' : '',
+          tone,
         )}
       >
-        <Icon size={11} strokeWidth={2.6} />
+        <Icon size={11} strokeWidth={2.2} />
         {label}
       </button>
       {credit && (

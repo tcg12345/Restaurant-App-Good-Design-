@@ -12,6 +12,7 @@
 // generator: same header and footer CTA.
 
 import React, { useEffect, useRef, useState } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { X, Link2, Camera, ClipboardType, ClipboardPaste, Plus, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { HomeMeal } from '../contexts/ListsContext';
@@ -169,9 +170,15 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
         <div className="rcx-head-row">
           {tabSlot}
           <div className="rcx-head-actions">
-            <button type="button" className="rcx-head-close" onClick={onClose} aria-label="Close">
+            <GlassButton
+              id="recipe-import-close"
+              symbol="xmark"
+              label="Close"
+              onClick={onClose}
+              className="rcx-head-close"
+            >
               <X size={14} />
-            </button>
+            </GlassButton>
           </div>
         </div>
         <div className="rcx-title-row">

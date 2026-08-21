@@ -14,6 +14,7 @@
 // photos / dishes / dates pass through untouched on update).
 
 import React, { useState, useEffect } from 'react';
+import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Link2, Camera, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
@@ -272,10 +273,19 @@ export const AddHomeMealModal: React.FC = () => {
   // when a seed is under review (going back would discard it — the
   // dedicated "Back to AI draft" chip covers the AI case).
   const methodChip = (!existing && !seed) ? (
-    <button type="button" className="rcx-method-chip" onClick={() => setStage('choose')}>
+    <GlassButton
+      id="recipe-method-chip"
+      symbol="chevron.left"
+      // A pill, not a circle: the native side lays the chevron and the word
+      // out together when a title is set.
+      title="New recipe"
+      label="Back to new recipe"
+      onClick={() => setStage('choose')}
+      className="rcx-method-chip"
+    >
       <ChevronLeft size={13} strokeWidth={2.4} />
       New recipe
-    </button>
+    </GlassButton>
   ) : undefined;
 
   return (

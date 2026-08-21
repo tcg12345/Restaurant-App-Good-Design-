@@ -26,11 +26,12 @@ const navItems = [
  * removed.
  *
  * On iOS 26 this hands the job over entirely: `useNativeGlassNav` installs a
- * real UIKit Liquid Glass bar above the WebView (see
+ * real UIKit `UITabBar` above the WebView (see
  * ios/App/App/MainViewController.swift) and this component renders nothing.
- * The material genuinely refracts the page beneath it, which no amount of
- * `backdrop-filter` can do. Older iOS, Android and the browser keep the
- * markup below, unchanged.
+ * Not a Liquid Glass lookalike — the system control, which genuinely refracts
+ * the page beneath it and lenses the glyph under its selection, neither of
+ * which any amount of `backdrop-filter` can do. Older iOS, Android and the
+ * browser keep the markup below, unchanged.
  */
 export const BottomNav: React.FC = () => {
   const { hideBottomNav, keyboardOpen } = useSettings();
@@ -56,8 +57,8 @@ export const BottomNav: React.FC = () => {
     // The full route as well as the owning tab: the native bar un-shrinks on
     // every navigation, including ones that stay within a tab.
     pathname: location.pathname,
-    // Reels is black regardless of theme, so the bar wears its dark chrome
-    // there — near-black glass, white icons — the way Instagram's does.
+    // Reels is black regardless of theme. The material re-chromes itself from
+    // what's behind it, so this only lifts the brand accent.
     darkPage: location.pathname.startsWith('/reels'),
     // The Profile tab draws the signed-in user as the app's initial-circle
     // avatar (there are no avatar photos in the data model to show).

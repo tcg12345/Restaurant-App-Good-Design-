@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw, ChefHat, Trash2, Loader2, Lock } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { compressImage } from '../lib/images';
 import { dropDeadPhotos } from '../lib/pendingPhotos';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
@@ -523,20 +524,27 @@ export const AddRestaurantModal: React.FC = () => {
                   className="relative flex flex-col flex-1 min-h-0 bg-on-surface/[0.025]">
                   {/* Floating chrome — the step content owns the page. */}
                   {existing && !tieBreakActive && (
-                    <button
+                    <GlassButton
+                      id="rate-back-to-details"
+                      symbol="chevron.left"
+                      label="Back to details"
                       onClick={() => setPage('main')}
-                      aria-label="Back to details"
                       style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
-                      className="absolute left-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors"
+                      className="absolute left-5 z-10 w-9 h-9 rounded-full flex items-center justify-center text-on-surface/50 transition-colors"
                     >
                       <ChevronLeft size={18} />
-                    </button>
+                    </GlassButton>
                   )}
-                  <button onClick={closeAddRestaurantModal} aria-label="Close"
+                  <GlassButton
+                    id="rate-close-rating"
+                    symbol="xmark"
+                    label="Close"
+                    onClick={closeAddRestaurantModal}
                     style={{ top: 'max(1.25rem, env(safe-area-inset-top))' }}
-                    className="absolute right-5 z-10 w-9 h-9 rounded-full bg-surface shadow-[0_2px_10px_-2px_rgba(28,24,22,0.14)] ring-1 ring-on-surface/[0.05] flex items-center justify-center text-on-surface/50 hover:text-on-surface transition-colors">
+                    className="absolute right-5 z-10 w-9 h-9 rounded-full flex items-center justify-center text-on-surface/50 transition-colors"
+                  >
                     <X size={17} />
-                  </button>
+                  </GlassButton>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-16 flex flex-col">
                     {tieBreakActive && (
                       <div className="pt-2 pb-3 text-center">
@@ -669,10 +677,15 @@ export const AddRestaurantModal: React.FC = () => {
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
                   <div className="px-5 pt-safe-4 sm:pt-5 pb-1 flex items-center justify-end flex-shrink-0">
-                    <button onClick={closeAddRestaurantModal} aria-label="Close"
-                      className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.08] transition-colors">
+                    <GlassButton
+                      id="rate-close-main"
+                      symbol="xmark"
+                      label="Close"
+                      onClick={closeAddRestaurantModal}
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/45 transition-colors"
+                    >
                       <X size={18} />
-                    </button>
+                    </GlassButton>
                   </div>
                   <div className="px-5 pb-4 flex-shrink-0">
                     <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary/75 mb-2">
