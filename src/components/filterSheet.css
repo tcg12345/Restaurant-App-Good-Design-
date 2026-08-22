@@ -749,3 +749,108 @@
   border-bottom: 1px solid var(--fs-border);
   font-size: 14px;
 }
+
+/* ── A filter's own page ──────────────────────────────────────────────
+   Hours, Michelin, Cuisine and City each get a full page, so their rows
+   are the page's content rather than items on a menu: page type, a count
+   under each label so the choice can be made on evidence, hairlines
+   instead of hover slabs, and a check that reads at arm's length. */
+.fs-page-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--fs-border);
+}
+.fs-page-search svg {
+  width: 15px;
+  height: 15px;
+  color: var(--fs-muted);
+  flex-shrink: 0;
+}
+.fs-page-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--fs-ink);
+}
+.fs-page-search input::placeholder { color: var(--fs-muted); }
+.fs-page-search-clear {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--fs-ink) 12%, transparent);
+  color: var(--fs-ink);
+}
+
+.fs-page-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 17px 0;
+  text-align: left;
+  border-top: 1px solid var(--fs-border);
+  transition: opacity .18s ease;
+}
+.fs-page-row:first-child { border-top: 0; }
+.fs-page-row:active { opacity: 0.62; }
+.fs-page-row-text { flex: 1; min-width: 0; display: block; }
+.fs-page-row-label {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.026em;
+  color: var(--fs-ink);
+}
+.fs-page-row-label.is-on { color: var(--fs-accent); }
+.fs-page-row-meta {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--fs-muted);
+}
+.fs-page-check {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--fs-ink) 6%, transparent);
+  color: transparent;
+  transition: background .16s, color .16s;
+}
+.fs-page-check.is-on {
+  background: var(--fs-accent);
+  color: #fff;
+}
+.fs-page-empty {
+  padding: 26px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fs-muted);
+}
+
+/* Sub-page header: the title steps down from the sheet's own, and Clear
+   replaces the × because a page you pushed into is left by going back. */
+.fs-title.is-sub {
+  font-size: 19px;
+  letter-spacing: -0.032em;
+}
+.fs-clear {
+  flex-shrink: 0;
+  padding: 8px 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fs-accent);
+}

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2, Sparkles } from 'lucide-react';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
@@ -42,6 +42,7 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../compo
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { Collapse } from '../components/Collapse';
+import { GlassButton } from '../lib/glass-buttons';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
  *  old "Search this list" pill that hijacked the (since removed) global
@@ -1339,7 +1340,11 @@ const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | '
 // right edge.
 const ListMoreMenu: React.FC<{
   items: { label: string; icon?: React.ReactNode; onClick: () => void; destructive?: boolean }[];
-}> = ({ items }) => {
+  /** Render the trigger as floating glass chrome (phone list headers). */
+  glass?: boolean;
+  /** Distinct per header — glass buttons register by id. */
+  glassId?: string;
+}> = ({ items, glass = false, glassId = 'list-more' }) => {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -1351,18 +1356,33 @@ const ListMoreMenu: React.FC<{
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
   if (items.length === 0) return null;
+  const triggerClass = glass
+    ? 'hit-44 w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
+    : 'w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors';
   return (
     <div ref={wrapRef} className="relative flex-shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="More actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors"
-      >
-        <MoreHorizontal size={18} />
-      </button>
+      {glass ? (
+        <GlassButton
+          id={glassId}
+          symbol="ellipsis"
+          label="More actions"
+          onClick={() => setOpen((v) => !v)}
+          className={triggerClass}
+        >
+          <MoreHorizontal size={18} />
+        </GlassButton>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className={triggerClass}
+        >
+          <MoreHorizontal size={18} />
+        </button>
+      )}
       {open && (
         <div
           role="menu"
@@ -1624,6 +1644,24 @@ const ListDetailView: React.FC<{
     ratedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
     return Array.from(set).sort();
   }, [isHomeCooking, wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
+  // How many places each option would keep. A filter page that lists forty
+  // cuisines without saying which of them you have two of is asking you to
+  // guess; the count is the whole reason to pick one over another.
+  const cuisineCounts = useMemo(() => {
+    const out: Record<string, number> = {};
+    [...wishlistedRestaurantsRaw, ...ratedRestaurantsRaw].forEach(({ info }) => {
+      if (info?.cuisine) out[info.cuisine] = (out[info.cuisine] || 0) + 1;
+    });
+    return out;
+  }, [wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
+  const cityCounts = useMemo(() => {
+    const out: Record<string, number> = {};
+    [...wishlistedRestaurantsRaw, ...ratedRestaurantsRaw].forEach(({ info }) => {
+      const c = extractCityState(info?.address || '', info?.address || '');
+      if (c) out[c] = (out[c] || 0) + 1;
+    });
+    return out;
+  }, [wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
   const wishlistAllCities = useMemo(() => {
     if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
@@ -1850,42 +1888,46 @@ const ListDetailView: React.FC<{
           — Pantry's tab pill handles navigation, the toolbar below
           handles search, and delete moves to the More menu (⋯). */}
       {phoneMode && (
-        <div className="pt-safe-4 flex items-center gap-2 mb-3">
-          <button
+        <div className="pt-safe-4 flex items-center gap-2.5 mb-3.5">
+          <GlassButton
+            id="list-back"
+            symbol="chevron.left"
+            label="Back"
             onClick={onBack}
-            aria-label="Back"
-            className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+            className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="ml-auto flex items-center gap-2">
+            <ChevronLeft size={18} strokeWidth={2.1} />
+          </GlassButton>
+          <div className="flex-1" />
+          <div className="flex items-center gap-2.5">
             {!isHomeCooking && (
               <button
                 type="button"
                 onClick={() => navigate('/map', { state: { listView: { id: list.id } } })}
                 aria-label="View this list on the map"
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-on-surface/[0.06] text-on-surface/75 hover:bg-on-surface/[0.1] transition-colors flex-shrink-0"
+                className="flex-none inline-flex items-center gap-1.5 rounded-full border border-on-surface/20 text-on-surface px-3 py-[9px] active:bg-on-surface/[0.06] transition-colors"
+                style={{ fontSize: '12px', fontWeight: 700 }}
               >
-                <MapPin size={15} />
-                <span>Map</span>
+                <MapPin size={13} />
+                Map
               </button>
             )}
-            <button
-              type="button"
+            <GlassButton
+              id="list-add"
+              symbol="plus"
+              tint="primary"
+              label={isHomeCooking ? 'Add Recipe' : 'Add Rating'}
               onClick={handlePlusClick}
               className={cn(
-                'inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
-                isHomeCooking
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  : 'bg-primary text-white hover:bg-primary/90',
+                'hit-44 flex-none w-[34px] h-[34px] rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
+                isHomeCooking ? 'bg-emerald-600' : 'bg-primary',
               )}
             >
-              <Plus size={15} strokeWidth={2.5} />
-              <span>
-                {isHomeCooking ? 'Add Recipe' : 'Add Rating'}
-              </span>
-            </button>
+              <Plus size={17} strokeWidth={2.4} />
+            </GlassButton>
             <ListMoreMenu
+              glass
+              glassId="list-detail-more"
               items={isWishlistView || isProtectedRecipeList ? [] : [{
                 label: 'Delete list',
                 icon: <Trash2 size={14} />,
@@ -2396,6 +2438,7 @@ const ListDetailView: React.FC<{
           onMichelinToggle={toggleWlMichelin}
           allCuisines={wishlistAllCuisines}
           allCities={wishlistAllCities}
+          counts={{ cuisine: cuisineCounts, city: cityCounts }}
           onReset={resetWishlistFilters}
           activeCount={wishlistActiveFilterCount}
         />
@@ -2448,8 +2491,10 @@ const FilterSheet: React.FC<{
   onMichelinToggle: (d: string) => void;
   allCities: string[];
   allCuisines: string[];
+  /** Per-option counts for the Cuisine / City pages. */
+  counts?: { cuisine: Record<string, number>; city: Record<string, number> };
   onReset: () => void;
-}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, onReset }) => {
+}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, counts, onReset }) => {
   return (
     <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset}>
       <FilterSection label="Sort by">
@@ -2486,6 +2531,7 @@ const FilterSheet: React.FC<{
           id="cuisine"
           label="Cuisine"
           options={allCuisines.map((c) => ({ value: c, label: c }))}
+          counts={counts?.cuisine}
           selected={cuisineFilter}
           onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
           emptyLabel="Any"
@@ -2496,6 +2542,7 @@ const FilterSheet: React.FC<{
           id="city"
           label="City / Location"
           options={allCities.map((c) => ({ value: c, label: c }))}
+          counts={counts?.city}
           selected={cityFilter}
           onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
           emptyLabel="Any"
@@ -2530,9 +2577,11 @@ const WishlistFilterSheet: React.FC<{
   onMichelinToggle: (d: string) => void;
   allCuisines: string[];
   allCities: string[];
+  /** Per-option counts for the Cuisine / City pages. */
+  counts?: { cuisine: Record<string, number>; city: Record<string, number> };
   onReset: () => void;
   activeCount: number;
-}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, onReset, activeCount }) => {
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, counts, onReset, activeCount }) => {
   return (
     <FilterSheetShell
       open={open}
@@ -2574,6 +2623,7 @@ const WishlistFilterSheet: React.FC<{
           id="cuisine"
           label="Cuisine"
           options={allCuisines.map((c) => ({ value: c, label: c }))}
+          counts={counts?.cuisine}
           selected={cuisineFilter}
           onToggle={(v) => onCuisineFilter(cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v])}
           emptyLabel="Any"
@@ -2584,6 +2634,7 @@ const WishlistFilterSheet: React.FC<{
           id="city"
           label="City / Location"
           options={allCities.map((c) => ({ value: c, label: c }))}
+          counts={counts?.city}
           selected={cityFilter}
           onToggle={(v) => onCityFilter(cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v])}
           emptyLabel="Any"
@@ -5810,6 +5861,19 @@ export const Pantry: React.FC = () => {
     return Array.from(cuisines).sort();
   }, [ratings]);
 
+  // Counts for the Cuisine / City filter pages — same evidence the list
+  // sheets show, from the same ratings.
+  const rootFilterCounts = useMemo(() => {
+    const cuisine: Record<string, number> = {};
+    const city: Record<string, number> = {};
+    ratings.forEach((r) => {
+      if (r.cuisine) cuisine[r.cuisine] = (cuisine[r.cuisine] || 0) + 1;
+      const c = cityFromAddress(r.address);
+      if (c) city[c] = (city[c] || 0) + 1;
+    });
+    return { cuisine, city };
+  }, [ratings]);
+
   const allPrices = ['$', '$$', '$$$', '$$$$'];
 
   // Filter and sort rated restaurants
@@ -6069,7 +6133,7 @@ export const Pantry: React.FC = () => {
   };
 
   return (
-    <div className="pb-32">
+    <div className="pb-32 type-archivo">
       {/* Combined tabs + list selector — desktop only.
           The tab pill IS the list selector: each tab shows the active
           list within its section (emoji + name + count + chevron).
@@ -6332,32 +6396,47 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
-                <div className="pt-safe-4 flex items-center gap-2 mb-3">
+                {/* Back · For you · rate · ⋯ — the design's header. The
+                    verb used to be a wide "＋ Add Rating" pill that ate a
+                    third of the row and left the two icon buttons beside
+                    it looking like an afterthought; a circle in the same
+                    red says the same thing in a quarter of the width. The
+                    three chrome controls are glass, like every other piece
+                    of floating chrome in the app. */}
+                <div className="pt-safe-4 flex items-center gap-2.5 mb-3.5">
                   {showAllRated && (
-                    <button
+                    <GlassButton
+                      id="rated-back"
+                      symbol="chevron.left"
+                      label="Back"
                       onClick={() => setShowAllRated(false)}
-                      aria-label="Back"
-                      className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
-                      <ArrowLeft size={20} />
-                    </button>
+                      <ChevronLeft size={18} strokeWidth={2.1} />
+                    </GlassButton>
                   )}
+                  <div className="flex-1" />
                   <button
                     type="button"
                     onClick={() => navigate('/pantry/recommended')}
-                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary/10 text-primary hover:bg-primary/15 transition-colors flex-shrink-0"
+                    className="flex-none inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3 py-[9px] active:opacity-80 transition-opacity"
+                    style={{ fontSize: '12px', fontWeight: 700 }}
                   >
-                    <span>For you</span>
+                    <Sparkles size={13} />
+                    For you
                   </button>
-                  <button
-                    type="button"
+                  <GlassButton
+                    id="rated-add"
+                    symbol="plus"
+                    tint="primary"
+                    label="Add Rating"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                    className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
                   >
-                    <Plus size={15} strokeWidth={2.5} />
-                    <span>Add Rating</span>
-                  </button>
+                    <Plus size={17} strokeWidth={2.4} />
+                  </GlassButton>
                   <ListMoreMenu
+                    glass
                     items={[
                       { label: 'Export CSV', icon: <Download size={14} />, onClick: () => handleExport('csv') },
                       { label: 'Export JSON', icon: <Download size={14} />, onClick: () => handleExport('json') },
@@ -6720,6 +6799,7 @@ export const Pantry: React.FC = () => {
         onMichelinToggle={toggleMichelinFilter}
         allCities={allCities}
         allCuisines={allCuisines}
+        counts={rootFilterCounts}
         onReset={handleResetFilters}
       />
 

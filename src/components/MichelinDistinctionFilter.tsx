@@ -1,7 +1,17 @@
 import { Star, Soup, Utensils } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MICHELIN_DISTINCTIONS, type MichelinDistinction } from '../lib/michelin';
-import { FilterDrillRow } from './filterPrimitives';
+import { FilterDrillRow, FilterCheckRow } from './filterPrimitives';
+
+/** What the Guide's own words mean, said once on the page rather than
+ *  assumed. */
+const MICHELIN_META: Record<string, string> = {
+  '3 Stars': 'Worth a special journey',
+  '2 Stars': 'Worth a detour',
+  '1 Star': 'High-quality cooking',
+  'Bib Gourmand': 'Good quality, good value',
+  'Selected': 'In the Guide',
+};
 
 interface MichelinDistinctionFilterProps {
   /** Currently-selected distinction keys (multi-select, OR semantics). */
@@ -77,9 +87,30 @@ export function MichelinDrillSection({ selected, onToggle }: Omit<MichelinDistin
       ? selected[0]
       : `${selected[0]} +${selected.length - 1}`;
   return (
-    <FilterDrillRow id="michelin" label="Michelin" value={value} isSet={selected.length > 0}>
-      <p className="fs-sub" style={{ marginTop: 10 }}>Show only restaurants in the Michelin Guide.</p>
-      <MichelinDistinctionFilter selected={selected} onToggle={onToggle} />
+    <FilterDrillRow
+      id="michelin"
+      label="Michelin"
+      value={value}
+      isSet={selected.length > 0}
+      subtitle="Pick as many as you like"
+      onClear={selected.length > 0 ? () => selected.forEach((v) => onToggle(v as MichelinDistinction)) : undefined}
+    >
+      {/* Rows, not a two-column card grid. Every other page in this flow
+          is a list of rows with a check on the right; Michelin was the one
+          that made you re-learn where the control was. The glyph that made
+          the cards worth having stays, on the left of its own row. */}
+      <div className="fs-optionlist-rows">
+        {MICHELIN_DISTINCTIONS.map((opt) => (
+          <FilterCheckRow
+            key={opt}
+            label={opt}
+            meta={MICHELIN_META[opt] || undefined}
+            active={selected.includes(opt)}
+            onToggle={() => onToggle(opt)}
+            leading={<span className="fs-michelin-mark"><OptionMark value={opt} /></span>}
+          />
+        ))}
+      </div>
     </FilterDrillRow>
   );
 }

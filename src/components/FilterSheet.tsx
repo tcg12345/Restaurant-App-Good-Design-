@@ -48,10 +48,18 @@ interface FilterSheetProps {
   children: React.ReactNode;
 }
 
+/** What a drill page tells the sheet about itself when it opens. */
+export interface FilterPageMeta {
+  /** The rule, stated: "One choice" / "Pick as many as you like". */
+  subtitle?: string;
+  /** Clears just this page's selection, from the page's own header. */
+  onClear?: () => void;
+}
+
 export interface FilterSheetNav {
   /** The drill page currently open, or null (main list). */
   activeId: string | null;
-  openPage: (id: string, title: string) => void;
+  openPage: (id: string, title: string, meta?: FilterPageMeta) => void;
   closePage: () => void;
   /** Mount point for the active drill page's content (portal target). */
   container: HTMLDivElement | null;
@@ -87,7 +95,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   const handleApply = onApply ?? onClose;
 
   // ── Drill sub-page state ──
-  const [page, setPage] = useState<{ id: string; title: string } | null>(null);
+  const [page, setPage] = useState<({ id: string; title: string } & FilterPageMeta) | null>(null);
   const [subContainer, setSubContainer] = useState<HTMLDivElement | null>(null);
   // Apply initialPage on each closed→open transition (read via ref so a
   // parent re-render can't re-trigger it mid-session).
@@ -99,7 +107,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
 
   const nav: FilterSheetNav = {
     activeId: page?.id ?? null,
-    openPage: (id, pageTitle) => setPage({ id, title: pageTitle }),
+    openPage: (id, pageTitle, meta) => setPage({ id, title: pageTitle, ...meta }),
     closePage: () => setPage(null),
     container: subContainer,
   };
@@ -146,7 +154,10 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                     <ChevronLeft size={17} />
                   </button>
                   <div className="fs-head-text">
-                    <h3 className="fs-title">{page.title}</h3>
+                    <h3 className="fs-title is-sub">{page.title}</h3>
+                    {/* The rule, stated. "Cuisine" alone doesn't say whether
+                        tapping a second one replaces the first. */}
+                    {page.subtitle && <p className="fs-subtitle">{page.subtitle}</p>}
                   </div>
                 </div>
               ) : (
@@ -158,9 +169,15 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   </div>
                 </div>
               )}
-              <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
-                <X size={16} />
-              </button>
+              {page ? (
+                page.onClear ? (
+                  <button type="button" onClick={page.onClear} className="fs-clear">Clear</button>
+                ) : null
+              ) : (
+                <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
+                  <X size={16} />
+                </button>
+              )}
             </div>
 
             <FilterSheetNavContext.Provider value={nav}>
@@ -196,14 +213,9 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
 
             <div className="fs-foot">
               {page ? (
-                <>
-                  <button type="button" onClick={onReset} className="fs-reset">
-                    {resetLabel}
-                  </button>
-                  <button type="button" onClick={() => setPage(null)} className="fs-apply">
-                    Done
-                  </button>
-                </>
+                <button type="button" onClick={() => setPage(null)} className="fs-apply">
+                  Done
+                </button>
               ) : (
                 <>
                   <button type="button" onClick={onReset} className="fs-reset">

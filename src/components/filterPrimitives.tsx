@@ -1,8 +1,16 @@
 import React, { useContext, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRight, Search, Check } from 'lucide-react';
+import { ChevronRight, Search, Check, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MEAL_KEYS, MEAL_LABELS, type HoursFilter, type MealKey } from '../lib/hours';
+
+/** The window each meal actually means, said out loud on the Hours page —
+ *  "Lunch" is a promise the filter should be willing to explain. */
+const MEAL_WINDOW_LABELS: Record<MealKey, string> = {
+  breakfast: 'Open in the morning',
+  lunch: 'Open around midday',
+  dinner: 'Open in the evening',
+};
 import { FilterSheetNavContext } from './FilterSheet';
 
 /* Shared presentational primitives for filter sheets. They render the
@@ -138,11 +146,15 @@ export const FilterDrillRow: React.FC<{
   isSet?: boolean;
   /** The sub-page content. */
   children: React.ReactNode;
-}> = ({ id, label, value, isSet, children }) => {
+  /** The rule, shown under the sub-page's title. */
+  subtitle?: string;
+  /** Clears this filter from the sub-page's own header. */
+  onClear?: () => void;
+}> = ({ id, label, value, isSet, subtitle, onClear, children }) => {
   const nav = useContext(FilterSheetNavContext);
   return (
     <>
-      <button type="button" className="fs-drill-row" onClick={() => nav.openPage(id, label)}>
+      <button type="button" className="fs-drill-row" onClick={() => nav.openPage(id, label, { subtitle, onClear })}>
         <span className="fs-drill-label">{label}</span>
         <span className={cn('fs-drill-value', isSet && 'is-set')}>{value || 'Any'}</span>
         <ChevronRight className="fs-drill-chev" />
@@ -174,7 +186,7 @@ export const FilterOptionList: React.FC<{
   return (
     <div className="fs-optionlist">
       {searchable && (
-        <div className="fs-dropdown-search is-page">
+        <div className="fs-page-search">
           <Search />
           <input
             type="text"
@@ -184,33 +196,56 @@ export const FilterOptionList: React.FC<{
             autoCapitalize="off"
             autoCorrect="off"
           />
+          {query && (
+            <button type="button" onClick={() => setQuery('')} className="fs-page-search-clear" aria-label="Clear search">
+              <X size={11} strokeWidth={2.6} />
+            </button>
+          )}
         </div>
       )}
       <div className="fs-optionlist-rows">
         {filtered.length === 0 ? (
-          <div className="fs-dropdown-empty">No matches</div>
+          <div className="fs-page-empty">Nothing matches that.</div>
         ) : (
-          filtered.map((o) => {
-            const active = selected.includes(o.value);
-            return (
-              <button
-                key={o.value}
-                type="button"
-                className={cn('fs-dropdown-row is-page', active && 'is-active')}
-                onClick={() => onToggle(o.value)}
-              >
-                <span className={cn('fs-checkbox', !multiple && 'is-radio', active && 'is-on')}>
-                  {active && <Check size={11} strokeWidth={3} />}
-                </span>
-                <span>{o.label}</span>
-              </button>
-            );
-          })
+          filtered.map((o) => (
+            <FilterCheckRow
+              key={o.value}
+              label={o.label}
+              meta={o.meta}
+              active={selected.includes(o.value)}
+              onToggle={() => onToggle(o.value)}
+            />
+          ))
         )}
       </div>
     </div>
   );
 };
+
+/* One row on a filter's own page: what it is, how many of your places it
+   would keep, and whether it is on. The old row was a 14px label beside a
+   small square checkbox on a rounded hover slab — a menu item. These are
+   the page's content, so they get the page's type and divide on hairlines
+   like every other list in the app. */
+export const FilterCheckRow: React.FC<{
+  label: string;
+  meta?: string;
+  active: boolean;
+  onToggle: () => void;
+  /** Optional glyph before the label (Michelin's stars / bib). */
+  leading?: React.ReactNode;
+}> = ({ label, meta, active, onToggle, leading }) => (
+  <button type="button" className="fs-page-row" onClick={onToggle} aria-pressed={active}>
+    {leading}
+    <span className="fs-page-row-text">
+      <span className={cn('fs-page-row-label', active && 'is-on')}>{label}</span>
+      {meta && <span className="fs-page-row-meta">{meta}</span>}
+    </span>
+    <span className={cn('fs-page-check', active && 'is-on')}>
+      <Check size={13} strokeWidth={2.8} />
+    </span>
+  </button>
+);
 
 /** Summary text for a drill row: "Any" / the one label / "First +N". */
 export function drillSummary(options: DropdownOption[], selected: string[], empty = 'Any'): string {
@@ -235,15 +270,26 @@ export const FilterDrillSection: React.FC<{
   searchPlaceholder?: string;
   /** Summary when nothing is selected. */
   emptyLabel?: string;
-}> = ({ id, label, options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search', emptyLabel = 'Any' }) => (
+  /** How many of your places each option would keep, by option value. */
+  counts?: Record<string, number>;
+  /** Noun for the count line — "place", "recipe". */
+  countNoun?: string;
+}> = ({ id, label, options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search', emptyLabel = 'Any', counts, countNoun = 'place' }) => (
   <FilterDrillRow
     id={id}
     label={label}
     value={drillSummary(options, selected, emptyLabel)}
     isSet={selected.length > 0}
+    subtitle={multiple ? 'Pick as many as you like' : 'One choice'}
+    onClear={selected.length > 0 ? () => selected.forEach((v) => onToggle(v)) : undefined}
   >
     <FilterOptionList
-      options={options}
+      options={counts
+        ? options.map((o) => {
+            const n = counts[o.value];
+            return n == null ? o : { ...o, meta: `${n} ${countNoun}${n === 1 ? '' : 's'}` };
+          })
+        : options}
       selected={selected}
       onToggle={onToggle}
       multiple={multiple}
@@ -276,18 +322,34 @@ export const HoursFilterSection: React.FC<{
     onChange({ ...value, meals: value.meals.includes(m) ? value.meals.filter((x) => x !== m) : [...value.meals, m] });
   const isSet = value.openNow || value.meals.length > 0;
   return (
-    <FilterDrillRow id="hours" label={label} value={hoursFilterSummary(value)} isSet={isSet}>
-      <p className="fs-sub" style={{ marginTop: 10 }}>Show places open for a meal.</p>
-      <PillRow>
-        <Pill active={value.openNow} onClick={() => onChange({ ...value, openNow: !value.openNow })}>
-          Open now
-        </Pill>
+    <FilterDrillRow
+      id="hours"
+      label={label}
+      value={hoursFilterSummary(value)}
+      isSet={isSet}
+      subtitle="Pick as many as you like"
+      onClear={isSet ? () => onChange({ openNow: false, meals: [] }) : undefined}
+    >
+      {/* Rows, like every other filter page — these used to be a row of
+          pills under a sentence, which made Hours the one page in the flow
+          that looked like a different app. */}
+      <div className="fs-optionlist-rows">
+        <FilterCheckRow
+          label="Open now"
+          meta="Serving at this moment"
+          active={value.openNow}
+          onToggle={() => onChange({ ...value, openNow: !value.openNow })}
+        />
         {MEAL_KEYS.map((m) => (
-          <Pill key={m} active={value.meals.includes(m)} onClick={() => toggleMealKey(m)}>
-            {MEAL_LABELS[m]}
-          </Pill>
+          <FilterCheckRow
+            key={m}
+            label={MEAL_LABELS[m]}
+            meta={MEAL_WINDOW_LABELS[m]}
+            active={value.meals.includes(m)}
+            onToggle={() => toggleMealKey(m)}
+          />
         ))}
-      </PillRow>
+      </div>
     </FilterDrillRow>
   );
 };
@@ -296,4 +358,7 @@ export const HoursFilterSection: React.FC<{
 export interface DropdownOption {
   value: string;
   label: string;
+  /** How many of your places this option would keep — shown under the
+   *  label so a filter can be chosen on evidence rather than on hope. */
+  meta?: string;
 }

@@ -1067,9 +1067,20 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   if (isPage) {
     if (!open) return null;
     return (
-      <div className="relative flex h-[100dvh] flex-col bg-surface">
+      /* Arriving from the list's "For you" chip. The route push used to
+         land the whole ranking in place on one frame, which read as the
+         page having been replaced rather than as having gone somewhere.
+         The header settles first and the rows rise under it — the same
+         drawer curve every other transition in the app uses. */
+      <motion.div
+        initial={{ opacity: 0, y: 18, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+        style={{ transformOrigin: 'center top' }}
+        className="type-archivo relative flex h-[100dvh] flex-col bg-surface"
+      >
         {mobileLayout}
-      </div>
+      </motion.div>
     );
   }
 
