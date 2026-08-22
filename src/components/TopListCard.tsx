@@ -17,7 +17,6 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { topListKindLabel, type TopList } from '../lib/topLists';
 
 /** Deterministic tint for a coverless list — same list, same colour, every
@@ -44,56 +43,47 @@ export const TopListCard: React.FC<{
   const leader = list.all[0];
   const cover = list.all.find((r) => r.image)?.image;
   return (
-    <Link
-      to={`/profile/top/${encodeURIComponent(list.key)}`}
-      className="group relative flex aspect-[4/5] flex-col overflow-hidden rounded-3xl bg-on-surface/[0.04] ring-1 ring-on-surface/[0.06] transition-shadow hover:shadow-[0_18px_40px_-20px_rgba(0,0,0,0.45)]"
-    >
-      {cover ? (
-        <img
-          src={cover}
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.05]"
-          referrerPolicy="no-referrer"
+    <Link to={`/profile/top/${encodeURIComponent(list.key)}`} className="block active:opacity-75 transition-opacity">
+      {/* The cover is the card. What used to hang below it inside the same
+          tall 4:5 frame — the kind label, the title, the count and the
+          leader — was four stacked lines of white type over a photograph,
+          which made the photograph a texture rather than a picture. The
+          title and count sit in the image; the leader steps outside it,
+          where it reads as the row it is. */}
+      <div className="relative h-[112px] rounded-[22px] overflow-hidden bg-on-surface/[0.06]">
+        {cover ? (
+          <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <div className={cn('absolute inset-0 bg-gradient-to-br', tintFor(list.key))} />
+        )}
+        <span
+          className="absolute inset-0"
+          style={{ background: 'linear-gradient(to top, rgba(18,15,14,0.62), rgba(18,15,14,0.05))' }}
         />
-      ) : (
-        <div className={cn('absolute inset-0 bg-gradient-to-br', tintFor(list.key))} />
-      )}
-      {/* Scrim: heavy at the foot where the type sits, barely there up top
-          so the photo still reads as a photo. */}
-      <div className={cn(
-        'absolute inset-0',
-        cover
-          ? 'bg-gradient-to-t from-black/85 via-black/45 to-black/10'
-          : 'bg-gradient-to-t from-black/70 via-black/25 to-transparent',
-      )} />
-
-      {scoresUnlocked && (
-        <span className={cn(
-          'absolute right-3 top-3 z-10 rounded-full border px-2 py-1 text-[12px] font-bold tabular-nums shadow-sm',
-          scoreBadgeBg(list.avg), scoreColor(list.avg),
-        )}>
-          {list.avg.toFixed(1)}
+        {scoresUnlocked && (
+          <span
+            className="absolute top-2.5 right-2.5 rounded-full bg-black/50 backdrop-blur-md text-white px-2.5 py-[7px] tabular-nums"
+            style={{ fontSize: '12px', fontWeight: 700 }}
+          >
+            {list.avg.toFixed(1)}
+          </span>
+        )}
+        <span className="absolute left-3.5 right-3.5 bottom-3">
+          <span className="block line-clamp-2 text-white" style={{ fontSize: '17px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.03em' }}>
+            {list.label}
+          </span>
+          <span className="mt-1.5 block text-white/75" style={{ fontSize: '11.5px', lineHeight: 1 }}>
+            {list.total} place{list.total === 1 ? '' : 's'} · {topListKindLabel(list.config)}
+          </span>
+        </span>
+      </div>
+      {leader && (
+        <span className="flex items-center gap-2 pt-[11px] px-0.5">
+          <span className="flex-none text-primary" style={{ fontSize: '11px', fontWeight: 700 }}>1</span>
+          <span className="flex-1 min-w-0 truncate text-on-surface/60" style={{ fontSize: '12.5px', fontWeight: 500, lineHeight: 1.2 }}>{leader.name}</span>
+          <ChevronRight size={13} className="flex-none text-on-surface/30" />
         </span>
       )}
-
-      <div className="relative z-10 mt-auto p-4">
-        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/60">
-          {topListKindLabel(list.config)}
-        </p>
-        <h3 className="mt-1 font-serif text-[19px] font-bold leading-[1.15] text-white line-clamp-2">
-          {list.label}
-        </h3>
-        <p className="mt-1 text-[12px] font-medium text-white/65 tabular-nums">
-          {list.total} place{list.total === 1 ? '' : 's'}
-        </p>
-        {leader && (
-          <p className="mt-2.5 flex items-center gap-1.5 border-t border-white/20 pt-2.5 text-[12.5px] text-white/85">
-            <span className="font-bold text-white/50">1</span>
-            <span className="min-w-0 flex-1 truncate font-semibold">{leader.name}</span>
-            <ChevronRight size={14} className="flex-shrink-0 text-white/50 transition-transform group-hover:translate-x-0.5" />
-          </p>
-        )}
-      </div>
     </Link>
   );
 };

@@ -4,7 +4,7 @@ import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
-  Shield, LifeBuoy, BadgeCheck, UploadCloud, Utensils,
+  Shield, LifeBuoy, BadgeCheck, UploadCloud, Utensils, ArrowUpDown,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,7 +28,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreTint, scoreSolid } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { TopListCard } from '../components/TopListCard';
 import {
@@ -175,6 +175,19 @@ function guideToCard(g: MyGuide, author: UserProfile | undefined, i: number): Gu
 /* ── EmptyTabState ──
    Friendly empty placeholder for any tab with no items. Matches the
    surface tone so it never feels like an error state. */
+/* A section opens with a rule and its name in sentence case — the same
+   furniture the restaurant page and the home feed use, so the three tab
+   roots read as one app rather than three. */
+const ProfileRule: React.FC = () => (
+  <div className="border-t border-on-surface/[0.14]" aria-hidden />
+);
+
+const ProfileHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
+    {children}
+  </h2>
+);
+
 const EmptyTabState: React.FC<{
   icon: React.ReactNode;
   title: string;
@@ -182,15 +195,23 @@ const EmptyTabState: React.FC<{
   ctaLabel: string;
   onCta: () => void;
 }> = ({ icon, title, subtitle, ctaLabel, onCta }) => (
-  <div className="text-center py-12 rounded-2xl border border-dashed border-on-surface/10">
-    <div className="mb-3 flex justify-center">{icon}</div>
-    <p className="text-sm font-semibold text-on-surface/55">{title}</p>
-    <p className="text-xs text-on-surface/35 mt-1 max-w-xs mx-auto">{subtitle}</p>
+  /* Flush left, like everything else on the page. A dashed box centred in
+     the column was the one thing here pretending to be a card, and it
+     centred three lines of copy that the rest of the page sets ragged
+     right. */
+  <div className="pt-14 flex flex-col items-start gap-2.5">
+    <span className="w-12 h-12 rounded-full bg-on-surface/[0.06] text-on-surface/45 flex items-center justify-center mb-1.5">
+      {icon}
+    </span>
+    <p className="text-on-surface" style={{ fontSize: '19px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.028em' }}>{title}</p>
+    <p className="text-on-surface/55 max-w-[280px]" style={{ fontSize: '14px', lineHeight: 1.55, textWrap: 'pretty' } as React.CSSProperties}>{subtitle}</p>
     <button
       type="button"
       onClick={onCta}
-      className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
+      className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-primary text-white px-[18px] py-[13px] active:opacity-85 transition-opacity"
+      style={{ fontSize: '13px', fontWeight: 700 }}
     >
+      <Plus size={14} strokeWidth={2.1} />
       {ctaLabel}
     </button>
   </div>
@@ -637,6 +658,7 @@ export const Profile: React.FC = () => {
   };
   const { phoneMode, darkMode, toggleDarkMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'rated' | 'posts' | 'reels' | 'guides'>('rated');
+  const [cuisineSort, setCuisineSort] = useState<'count' | 'alpha'>('count');
   const [editListsOpen, setEditListsOpen] = useState(false);
   const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
@@ -873,12 +895,18 @@ export const Profile: React.FC = () => {
   const publicProfilePath = `/user/${encodeURIComponent(username)}`;
 
   const cuisineStats = useMemo(() => {
-    const map = new Map<string, number>();
+    // Count AND mean score per cuisine: the bar's length says how much you
+    // eat of it, its colour says how you rate it.
+    const map = new Map<string, { n: number; sum: number }>();
     ratings.forEach((r) => {
       if (!r.cuisine) return;
-      map.set(r.cuisine, (map.get(r.cuisine) || 0) + 1);
+      const slot = map.get(r.cuisine) || { n: 0, sum: 0 };
+      slot.n += 1;
+      slot.sum += numericScore(r.score);
+      map.set(r.cuisine, slot);
     });
     return Array.from(map.entries())
+      .map(([name, { n, sum }]) => [name, n, n > 0 ? sum / n : 0] as [string, number, number])
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
   }, [ratings]);
@@ -986,9 +1014,15 @@ export const Profile: React.FC = () => {
     : null;
 
   const maxCuisine = cuisineStats[0]?.[1] || 1;
+  const sortedCuisines = useMemo(
+    () => (cuisineSort === 'alpha'
+      ? [...cuisineStats].sort((a, b) => a[0].localeCompare(b[0]))
+      : cuisineStats),
+    [cuisineStats, cuisineSort],
+  );
 
   return (
-    <div className="pb-32 min-h-screen bg-surface">
+    <div className="pb-32 min-h-screen bg-surface type-archivo">
       {/* Mirror the mobile Discover header — Create shortcut on the
           left, centered logo, messages/Circle cluster on the right.
           Hidden on desktop where the sidebar layout owns the chrome. */}
@@ -1055,12 +1089,17 @@ export const Profile: React.FC = () => {
       )}
 
       {/* ── Profile header ────────────────────────────────────────────── */}
-      <div className="px-5 pt-4 pb-3">
-        {/* Avatar + horizontal stats row */}
-        <div className="flex items-center gap-5">
-          <div className="relative flex-shrink-0">
-            <div className="w-[92px] h-[92px] rounded-full bg-gradient-to-br from-primary/30 to-primary/15 flex items-center justify-center">
-              <span className="text-[42px] font-serif font-bold text-primary leading-none">{displayName.charAt(0).toUpperCase()}</span>
+      <div className="px-[22px] pt-4 pb-1">
+        {/* Avatar, and the three numbers that describe the account, in a
+            row beside it. They used to be centred columns under a
+            gradient disc — three centred numbers next to a left-aligned
+            everything-else is two grids fighting over the same block. */}
+        <div className="flex items-center gap-[18px]">
+          <div className="relative flex-none">
+            <div className="w-[84px] h-[84px] rounded-full bg-primary/[0.12] flex items-center justify-center">
+              <span className="text-primary" style={{ fontSize: '34px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>
+                {displayName.charAt(0).toUpperCase()}
+              </span>
             </div>
             {profile?.is_verified && (
               <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
@@ -1069,122 +1108,103 @@ export const Profile: React.FC = () => {
             )}
           </div>
 
-          {/* Each stat opens its Instagram-style full-page list. */}
-          <div className="flex-1 grid grid-cols-3 gap-2">
-            <button type="button" onClick={() => navigate(`${publicProfilePath}/rated`)} className="flex flex-col items-center text-center group">
-              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{ratings.length}</span>
-              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">rated</span>
-            </button>
-            <button type="button" onClick={() => navigate(`${publicProfilePath}/followers`)} className="flex flex-col items-center text-center group">
-              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{followers}</span>
-              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">followers</span>
-            </button>
-            <button type="button" onClick={() => navigate(`${publicProfilePath}/following`)} className="flex flex-col items-center text-center group">
-              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums group-hover:text-primary transition-colors">{following}</span>
-              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">following</span>
-            </button>
+          <div className="flex-1 min-w-0 flex justify-between gap-2.5">
+            {([
+              ['rated', String(ratings.length), 'rated'],
+              ['followers', String(followers), 'followers'],
+              ['following', String(following), 'following'],
+            ] as const).map(([path, value, label]) => (
+              <button
+                key={path}
+                type="button"
+                onClick={() => navigate(`${publicProfilePath}/${path}`)}
+                className="flex-1 min-w-0 flex flex-col items-start gap-1.5 text-left active:opacity-60 transition-opacity"
+              >
+                <span className="text-on-surface tabular-nums" style={{ fontSize: '21px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>{value}</span>
+                <span className="text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1 }}>{label}</span>
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Name + handle */}
-        <div className="mt-5 flex items-baseline gap-2 flex-wrap">
-          <h1 className="text-[26px] font-serif font-bold text-on-surface leading-none tracking-tight">{displayName}</h1>
-          <span className="text-[15px] text-on-surface/40">@{username}</span>
-        </div>
-
-        {/* Public + joined */}
-        <div className="flex items-center gap-2 mt-2.5">
-          <span className={cn(
-            'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border',
-            profile?.is_public
-              ? 'bg-emerald-50/70 border-emerald-200/60 text-emerald-700'
-              : 'bg-on-surface/[0.04] border-on-surface/8 text-on-surface/45',
-          )}>
-            {profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}
-            {profile?.is_public ? 'Public' : 'Private'}
-          </span>
-          {profile?.is_verified && (
-            <>
-              <span className="text-on-surface/25 text-xs">·</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[11px] font-semibold text-primary">
-                <VerifiedBadge size={12} />
-                Verified{expertPickCount > 0 && ` · ${expertPickCount}`}
-              </span>
-            </>
-          )}
-          {memberSince && (
-            <>
-              <span className="text-on-surface/25 text-xs">·</span>
-              <span className="text-[12px] text-on-surface/45">Joined {memberSince}</span>
-            </>
-          )}
+        <div className="mt-4 flex flex-col gap-[7px]">
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <h1 className="text-on-surface" style={{ fontSize: '27px', fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.035em' }}>{displayName}</h1>
+            <span className="text-on-surface/45" style={{ fontSize: '13.5px' }}>@{username}</span>
+          </div>
+          {/* One quiet line, not three bordered chips. Whether the account
+              is public, whether it is verified and when it was made are
+              facts about the account, not badges it wears. */}
+          <div className="flex items-center gap-2 flex-wrap text-on-surface/45" style={{ fontSize: '12.5px' }}>
+            <span className="inline-flex items-center gap-1.5">
+              {profile?.is_public ? <Globe size={12} /> : <EyeOff size={12} />}
+              {profile?.is_public ? 'Public' : 'Private'}
+            </span>
+            {profile?.is_verified && (
+              <>
+                <span className="text-on-surface/25">·</span>
+                <span className="inline-flex items-center gap-1 text-primary" style={{ fontWeight: 600 }}>
+                  <VerifiedBadge size={12} />
+                  Verified{expertPickCount > 0 && ` · ${expertPickCount}`}
+                </span>
+              </>
+            )}
+            {memberSince && (
+              <>
+                <span className="text-on-surface/25">·</span>
+                <span>Joined {memberSince}</span>
+              </>
+            )}
+          </div>
         </div>
 
         {profile?.is_verified && profile?.verified_status && (
-          <p className="text-[13px] font-semibold text-primary/90 mt-2">{profile.verified_status}</p>
+          <p className="mt-2.5 text-primary" style={{ fontSize: '13px', fontWeight: 600 }}>{profile.verified_status}</p>
         )}
 
-        {bio && <p className="text-[13.5px] text-on-surface/65 mt-3 leading-relaxed">{bio}</p>}
+        {bio && (
+          <p className="mt-4 text-on-surface/60" style={{ fontSize: '14px', lineHeight: 1.55, textWrap: 'pretty' } as React.CSSProperties}>{bio}</p>
+        )}
 
-        {/* Action row */}
-        <div ref={createWrapRef} className="relative flex items-center gap-2 mt-4">
-          {/* Hidden media input for the unified Post entry — outside the
-              AnimatePresence menu so it survives the menu closing. */}
+        {/* Action row — one accent verb, one outlined verb, two outlined
+            circles. The four used to be equal-weight grey rectangles, so
+            nothing said which one you were meant to press. */}
+        <div ref={createWrapRef} className="relative flex items-center gap-2 mt-[22px]">
           {pickerInput}
           <button
             type="button"
             onClick={() => setCreateMenuOpen((o) => !o)}
             aria-haspopup="menu"
             aria-expanded={createMenuOpen}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 h-10 bg-primary text-white text-[13px] font-bold hover:bg-primary/90 transition-colors",
-              phoneMode ? "flex-1 rounded-xl" : "rounded-full px-5",
-            )}
+            className="flex-1 inline-flex items-center justify-center gap-[7px] rounded-full bg-primary text-white px-4 py-[13px] active:opacity-85 transition-opacity"
+            style={{ fontSize: '13px', fontWeight: 700 }}
           >
-            <Plus
-              size={15}
-              strokeWidth={2.5}
-              className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
-            />
+            <Plus size={15} strokeWidth={2.1} className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')} />
             Create
           </button>
           <button
             type="button"
             onClick={openEditProfile}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 h-10 text-[13px] font-bold transition-colors",
-              phoneMode
-                ? "flex-1 rounded-xl bg-on-surface/[0.06] text-on-surface/80 border border-on-surface/8 hover:bg-on-surface/10"
-                : "rounded-full px-5 bg-white text-on-surface/80 border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
-            )}
+            className="flex-none inline-flex items-center gap-[7px] rounded-full border border-on-surface/[0.22] text-on-surface px-4 py-[13px] active:bg-on-surface/[0.06] transition-colors"
+            style={{ fontSize: '13px', fontWeight: 700 }}
           >
             <SquarePen size={14} />
-            {phoneMode ? 'Edit' : 'Edit profile'}
+            Edit
           </button>
           <Link
             to={publicProfilePath}
-            className={cn(
-              "w-10 h-10 inline-flex items-center justify-center text-on-surface/55 transition-colors",
-              phoneMode
-                ? "rounded-xl bg-on-surface/[0.06] border border-on-surface/8 hover:bg-on-surface/10"
-                : "rounded-full bg-white border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
-            )}
+            className="flex-none w-11 h-11 rounded-full border border-on-surface/[0.22] text-on-surface flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
             aria-label="View public profile"
           >
-            <Upload size={15} />
+            <Upload size={16} />
           </Link>
           <button
             type="button"
             onClick={openSettings}
-            className={cn(
-              "w-10 h-10 inline-flex items-center justify-center text-on-surface/55 transition-colors",
-              phoneMode
-                ? "rounded-xl bg-on-surface/[0.06] border border-on-surface/8 hover:bg-on-surface/10"
-                : "rounded-full bg-white border border-on-surface/[0.08] shadow-sm hover:bg-on-surface/[0.03]",
-            )}
+            className="flex-none w-11 h-11 rounded-full border border-on-surface/[0.22] text-on-surface flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
             aria-label="Settings"
           >
-            <Settings size={15} />
+            <Settings size={16} />
           </button>
 
           <AnimatePresence>
@@ -1195,103 +1215,69 @@ export const Profile: React.FC = () => {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.97 }}
                 transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="absolute left-0 top-[calc(100%+0.25rem)] origin-top-left w-52 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                className="absolute left-0 top-[calc(100%+0.5rem)] origin-top-left w-56 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setCreateMenuOpen(false); openUnifiedPicker(); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                >
-                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                    <ImageIcon size={16} strokeWidth={2.2} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-bold leading-tight">Post</span>
-                    <span className="block text-[11px] text-on-surface/50 leading-tight">Photos or a video — one video posts as a reel</span>
-                  </span>
-                </button>
-                <div className="border-t border-on-surface/[0.06]" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setCreateMenuOpen(false); openGuideCreator(); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                >
-                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                    <BookOpen size={16} strokeWidth={2.2} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-bold leading-tight">Guide</span>
-                    <span className="block text-[11px] text-on-surface/50 leading-tight">Curated restaurants or recipes</span>
-                  </span>
-                </button>
-                <div className="border-t border-on-surface/[0.06]" />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setCreateMenuOpen(false); listsCtx.openHomeMealModal(); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                >
-                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                    <ChefHat size={16} strokeWidth={2.2} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-bold leading-tight">Recipe</span>
-                    <span className="block text-[11px] text-on-surface/50 leading-tight">Cook from home — ingredients &amp; steps</span>
-                  </span>
-                </button>
+                {([
+                  [<ImageIcon key="p" size={16} strokeWidth={2.2} />, 'Post', 'Photos or a video — one video posts as a reel', openUnifiedPicker],
+                  [<BookOpen key="g" size={16} strokeWidth={2.2} />, 'Guide', 'Curated restaurants or recipes', openGuideCreator],
+                  [<ChefHat key="r" size={16} strokeWidth={2.2} />, 'Recipe', 'Cook from home — ingredients & steps', () => listsCtx.openHomeMealModal()],
+                ] as const).map(([icon, label, sub, run], i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setCreateMenuOpen(false); (run as () => void)(); }}
+                    className={cn('w-full flex items-center gap-3 px-3 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors', i > 0 && 'border-t border-on-surface/[0.06]')}
+                  >
+                    <span className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-none">{icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-on-surface" style={{ fontSize: '14px', fontWeight: 700, lineHeight: 1.2 }}>{label}</span>
+                      <span className="block text-on-surface/45 mt-0.5" style={{ fontSize: '11px', lineHeight: 1.3 }}>{sub}</span>
+                    </span>
+                  </button>
+                ))}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
 
-      {/* ── Tab bar ───────────────────────────────────────────────────── */}
-      <div className="border-t border-on-surface/[0.08]">
-        {/* Four tabs, not five: TOP used to be its own tab of stacked
-            rails built from the very ratings RATED was already breaking
-            down. One tab now owns everything about what you've rated. */}
-        <div className="grid grid-cols-4">
-          {([
-            ['rated', Star, 'RATED'],
-            ['posts', LayoutGrid, 'POSTS'],
-            ['reels', Film, 'REELS'],
-            ['guides', BookOpen, 'GUIDES'],
-          ] as const).map(([key, Icon, label]) => {
-            const isActive = activeTab === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setActiveTab(key)}
-                className={cn(
-                  'relative py-3.5 flex flex-col items-center justify-center gap-1.5 transition-colors',
-                  isActive ? 'text-on-surface' : 'text-on-surface/30',
-                )}
-              >
-                <Icon size={18} className={cn(isActive && key === 'rated' && 'fill-on-surface')} />
-                <span className={cn(
-                  'text-[10px] font-bold tracking-[0.18em]',
-                  isActive ? 'text-on-surface' : 'text-on-surface/40',
-                )}>
-                  {label}
-                </span>
-                {isActive && (
-                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-on-surface" />
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {/* ── Tabs ──────────────────────────────────────────────────────
+          Pills, not four icon-and-caps columns under an underline. The
+          old bar spent a full row of height on decoration — an icon, a
+          spaced-capitals label and a sliding rule — to say one word. */}
+      <div className="mt-6 px-[22px] pb-3.5 flex gap-1.5 overflow-x-auto no-scrollbar border-b border-on-surface/[0.14]">
+        {([
+          ['rated', Star, 'Rated'],
+          ['posts', LayoutGrid, 'Posts'],
+          ['reels', Film, 'Reels'],
+          ['guides', BookOpen, 'Guides'],
+        ] as const).map(([key, Icon, label]) => {
+          const on = activeTab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              aria-pressed={on}
+              className={cn(
+                'flex-none inline-flex items-center gap-1.5 rounded-full border px-3 py-2.5 active:opacity-80 transition-colors',
+                on ? 'bg-on-surface border-on-surface text-cream' : 'bg-transparent border-on-surface/20 text-on-surface',
+              )}
+              style={{ fontSize: '12px', fontWeight: 700 }}
+            >
+              <Icon size={14} className={cn(on && key === 'rated' && 'fill-current')} />
+              {label}
+            </button>
+          );
+        })}
       </div>
-
       {/* ── Tab content ───────────────────────────────────────────────── */}
-      <main className="px-5 pt-3">
+      <main className="px-[22px]">
         {activeTab === 'posts' && (
           myPosts.length === 0 ? (
             <EmptyTabState
-              icon={<LayoutGrid size={32} className="text-on-surface/15" />}
+              icon={<LayoutGrid size={22} />}
               title="No posts yet"
               subtitle="Share photos and videos from your favorite spots."
               ctaLabel="Create a post"
@@ -1315,7 +1301,7 @@ export const Profile: React.FC = () => {
         {activeTab === 'reels' && (
           myReels.length === 0 ? (
             <EmptyTabState
-              icon={<Film size={32} className="text-on-surface/15" />}
+              icon={<Film size={22} />}
               title="No reels yet"
               subtitle="Share short videos of your favorite places and recipes."
               ctaLabel="Create a reel"
@@ -1338,7 +1324,7 @@ export const Profile: React.FC = () => {
         {activeTab === 'guides' && (
           visibleGuides.length === 0 ? (
             <EmptyTabState
-              icon={<BookOpen size={32} className="text-on-surface/15" />}
+              icon={<BookOpen size={22} />}
               title="No guides yet"
               subtitle="Curate a list of places or recipes worth sharing."
               ctaLabel="Create a guide"
@@ -1361,105 +1347,89 @@ export const Profile: React.FC = () => {
         {activeTab === 'rated' && (
           ratings.length === 0 ? (
             <EmptyTabState
-              icon={<Star size={32} className="text-on-surface/15" />}
+              icon={<Star size={22} />}
               title="No ratings yet"
               subtitle="Rate restaurants to build your top lists and see your cuisine breakdown."
-              ctaLabel="Open map"
+              ctaLabel="Rate a place"
               onCta={() => navigate('/')}
             />
           ) : (
-            <div className={cn('pb-10', isDesktop ? 'space-y-12' : 'space-y-9')}>
-              {/* ── At a glance ──
-                  One panel, not a loose line of numbers above a card. The
-                  #1 place is the headline and the totals are its plinth:
-                  the eye lands on the restaurant, then reads the three
-                  numbers that give it scale. Everything shares one border,
-                  so the top of the tab is a single object instead of two
-                  competing ones. */}
-              <section className="overflow-hidden rounded-[26px] border border-on-surface/[0.08] bg-gradient-to-b from-on-surface/[0.035] to-transparent">
-                {topOverall ? (
-                  <Link
-                    to={`/restaurant/${topOverall.restaurantId}`}
-                    className={cn('group flex items-center gap-4', isDesktop ? 'p-5' : 'p-4')}
-                  >
-                    <span className={cn(
-                      'relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-on-surface/[0.06] ring-1 ring-on-surface/[0.06]',
-                      isDesktop ? 'h-[76px] w-[76px]' : 'h-[62px] w-[62px]',
-                    )}>
-                      {topOverall.image
-                        ? <img src={topOverall.image} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.06]" referrerPolicy="no-referrer" />
-                        : <Star size={20} className="text-on-surface/25" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-primary">
-                        <Star size={10} className="fill-primary" /> Your #1
-                      </span>
-                      <span className={cn(
-                        'mt-1 block truncate font-serif font-bold leading-tight text-on-surface transition-colors group-hover:text-primary',
-                        isDesktop ? 'text-[24px]' : 'text-[20px]',
-                      )}>
+            <div className="pb-10">
+              {/* ── Your #1 ──
+                  The headline of the whole tab. It used to sit inside a
+                  bordered panel with a thumbnail and the three totals
+                  welded underneath — one object doing three jobs. The
+                  place is named at size, the score sits beside it, and
+                  the totals get their own row below. */}
+              {topOverall ? (
+                <section className="pt-6">
+                  <p className="flex items-center gap-[7px] text-primary" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+                    <Star size={13} className="fill-current" />
+                    Your #1
+                  </p>
+                  <Link to={`/restaurant/${topOverall.restaurantId}`} className="mt-3.5 flex items-center gap-3.5 active:opacity-70 transition-opacity">
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate text-on-surface" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.03em' }}>
                         {topOverall.name}
                       </span>
-                      <span className="mt-0.5 block truncate text-[12.5px] text-on-surface/45">
+                      <span className="mt-1.5 block truncate text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.3 }}>
                         {[topOverall.cuisine, topOverall.price, cityFromAddress(topOverall.address || '')].filter(Boolean).join(' · ')}
                       </span>
                     </span>
-                    <OwnScoreBadge rating={numericScore(topOverall.score)} unlocked={scoresUnlocked} size="xl" />
+                    {scoresUnlocked ? (
+                      <span className={cn('flex-none rounded-full px-3.5 py-2.5 tabular-nums', scoreTint(numericScore(topOverall.score)))} style={{ fontSize: '16px', fontWeight: 700, letterSpacing: '-0.02em' }}>
+                        {numericScore(topOverall.score).toFixed(1)}
+                      </span>
+                    ) : (
+                      <span className="flex-none w-11 h-11 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center" aria-label="Score hidden until you rate more places">
+                        <Lock size={17} />
+                      </span>
+                    )}
                   </Link>
-                ) : (
-                  <div className={cn('flex items-center gap-3', isDesktop ? 'p-5' : 'p-4')}>
-                    <Star size={18} className="text-on-surface/20" />
-                    <p className="text-[13.5px] text-on-surface/45">Rate a few places and your #1 shows up here.</p>
+                </section>
+              ) : (
+                <p className="pt-6 text-on-surface/45" style={{ fontSize: '13.5px' }}>Rate a few places and your #1 shows up here.</p>
+              )}
+
+              {/* Three tinted cells — the totals, given room rather than
+                  squeezed into a hairline-divided strip. */}
+              <div className="mt-6 grid grid-cols-3 gap-2.5">
+                {([
+                  [String(ratings.length), `Place${ratings.length === 1 ? '' : 's'} rated`, false],
+                  [scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(1) : '—', 'Your average', true],
+                  [String(visibleLists.length), `Top list${visibleLists.length === 1 ? '' : 's'}`, false],
+                ] as const).map(([value, label, accent]) => (
+                  <div key={label} className={cn('flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4', accent ? 'bg-primary/10' : 'bg-on-surface/[0.05]')}>
+                    <span className={cn('tabular-nums', accent ? 'text-primary' : 'text-on-surface')} style={{ fontSize: '24px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.04em' }}>{value}</span>
+                    <span className="text-on-surface/45" style={{ fontSize: '11px', fontWeight: 600, lineHeight: 1.1 }}>{label}</span>
                   </div>
-                )}
+                ))}
+              </div>
 
-                {/* The plinth. Serif numerals so they read as a statement
-                    rather than a readout, hairline-divided so the three
-                    stay distinct without needing boxes of their own. */}
-                <dl className="grid grid-cols-3 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.07]">
-                  <Stat value={String(ratings.length)} label={`place${ratings.length === 1 ? '' : 's'} rated`} isDesktop={isDesktop} />
-                  <Stat
-                    value={scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(1) : '—'}
-                    label="average"
-                    isDesktop={isDesktop}
-                    valueClass={scoresUnlocked && overallAvg > 0 ? scoreColor(overallAvg) : undefined}
-                  />
-                  <Stat value={String(visibleLists.length)} label={`top list${visibleLists.length === 1 ? '' : 's'}`} isDesktop={isDesktop} />
-                </dl>
-              </section>
-
-              {/* ── Top lists ──
-                  A shelf of covers, not eleven stacked rails. Each tile
-                  opens its full ranking at /profile/top/:listKey. */}
+              {/* ── Top lists ── */}
               {visibleLists.length > 0 && (
-                <section>
-                  <div className="mb-4 flex items-end justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className={cn('font-serif font-bold leading-tight text-on-surface', isDesktop ? 'text-[26px]' : 'text-[21px]')}>
-                        Top lists
-                      </h3>
-                      <p className="mt-0.5 text-[12.5px] text-on-surface/45">
+                <section className="mt-8">
+                  <ProfileRule />
+                  <div className="pt-3 flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <ProfileHeading>Top lists</ProfileHeading>
+                      <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.4 }}>
                         Your ratings, sliced. Tap one for the full ranking.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setEditListsOpen(true)}
-                      className="inline-flex h-9 flex-shrink-0 items-center gap-1.5 rounded-full border border-on-surface/[0.1] px-3.5 text-[12.5px] font-semibold text-on-surface/65 transition-colors hover:border-on-surface/25 hover:text-on-surface"
+                      className="flex-none inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2.5 active:opacity-70 transition-opacity"
+                      style={{ fontSize: '11.5px', fontWeight: 700 }}
                     >
-                      <Pencil size={13} />
+                      <Pencil size={12} />
                       Edit
                     </button>
                   </div>
-                  {/* One rail, both viewports. A wrapping grid of eleven
-                      covers is a wall — it pushed everything below it off
-                      the screen and made a shelf of lists look like the
-                      whole page. Scrolling sideways keeps the section one
-                      row tall however many lists exist, and the cover is a
-                      fixed width so the tile never changes shape. */}
-                  <div className="flex gap-3 snap-x overflow-x-auto no-scrollbar pb-1">
+                  <div className="mt-[18px] -mx-[22px] px-[22px] flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-[22px]">
                     {visibleLists.map((list) => (
-                      <div key={list.key} className={cn('flex-shrink-0 snap-start', isDesktop ? 'w-[196px]' : 'w-[152px]')}>
+                      <div key={list.key} className="flex-none w-[168px] snap-start">
                         <TopListCard list={list} scoresUnlocked={scoresUnlocked} />
                       </div>
                     ))}
@@ -1467,90 +1437,119 @@ export const Profile: React.FC = () => {
                 </section>
               )}
 
-              {/* ── Cuisine breakdown + Recent ──
-                  Side by side on desktop, where a single column left half
-                  the width empty; stacked on a phone. */}
-              <div className={cn(isDesktop ? 'grid grid-cols-2 gap-10 items-start' : 'space-y-9')}>
-                {cuisineStats.length > 0 && (
-                  <section>
-                    <h3 className="mb-4 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Cuisine breakdown</h3>
-                    <div className="space-y-3.5">
-                      {cuisineStats.map(([name, count]) => (
-                        <div key={name} className="flex items-center gap-3">
-                          <span className="w-24 truncate text-[13px] font-medium text-on-surface/75">{name}</span>
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-on-surface/[0.06]">
-                            <div
-                              className="h-full rounded-full bg-primary/70"
-                              style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
-                            />
-                          </div>
-                          <span className="w-6 text-right text-[12px] tabular-nums text-on-surface/40">{count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                )}
+              {/* ── Cuisines ──
+                  The bar now says something beyond how many: it carries
+                  the tier colour of what you actually scored that cuisine,
+                  so a long bar in the low tier reads as "you eat a lot of
+                  this and rate it badly" at a glance. */}
+              {cuisineStats.length > 0 && (
+                <section className="mt-8">
+                  <ProfileRule />
+                  <div className="pt-3 flex items-center justify-between gap-3">
+                    <ProfileHeading>Cuisines</ProfileHeading>
+                    <button
+                      type="button"
+                      onClick={() => setCuisineSort((s) => (s === 'count' ? 'alpha' : 'count'))}
+                      className="flex-none inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2 active:opacity-70 transition-opacity"
+                      style={{ fontSize: '11.5px', fontWeight: 700 }}
+                    >
+                      {cuisineSort === 'count' ? 'Most rated' : 'A–Z'}
+                      <ArrowUpDown size={12} />
+                    </button>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-3.5">
+                    {sortedCuisines.map(([name, count, avg]) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <span className="flex-none w-[104px] truncate text-on-surface" style={{ fontSize: '13.5px', fontWeight: 500, lineHeight: 1.2 }}>{name}</span>
+                        <span className="flex-1 h-[7px] rounded-full bg-on-surface/[0.08] overflow-hidden">
+                          <span
+                            className="block h-full rounded-full transition-[width] duration-[450ms] ease-[var(--ease-drawer)]"
+                            style={{
+                              width: `${Math.max(8, (count / maxCuisine) * 100)}%`,
+                              background: avg > 0 ? scoreSolid(avg) : 'var(--color-primary)',
+                              opacity: avg > 0 && avg < 6 ? 0.42 : 1,
+                            }}
+                          />
+                        </span>
+                        <span className="flex-none w-[22px] text-right text-on-surface/45 tabular-nums" style={{ fontSize: '12.5px', fontWeight: 700 }}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-                {recentRatings.length > 0 && (
-                  <section>
-                    <div className="mb-2 flex items-baseline justify-between">
-                      <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recent</h3>
-                      <button
-                        type="button"
-                        onClick={goToMyRatings}
-                        className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+              {/* ── Recent ratings ──
+                  Hairline rows, no thumbnails. A 44px cover per row is a
+                  column of avatars for places you already know you went
+                  to; what you came back for is the name and the number. */}
+              {recentRatings.length > 0 && (
+                <section className="mt-8">
+                  <ProfileRule />
+                  <div className="pt-3 flex items-center justify-between gap-3">
+                    <ProfileHeading>Recent ratings</ProfileHeading>
+                    <button
+                      type="button"
+                      onClick={goToMyRatings}
+                      className="flex-none inline-flex items-center gap-1 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2 active:opacity-70 transition-opacity"
+                      style={{ fontSize: '11.5px', fontWeight: 700 }}
+                    >
+                      See all {ratings.length}
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                  <div className="pt-2 flex flex-col">
+                    {recentRatings.map((r, i) => (
+                      <Link
+                        key={r.restaurantId}
+                        to={`/restaurant/${r.restaurantId}`}
+                        className={cn('flex items-center gap-3.5 py-3.5 active:opacity-60 transition-opacity', i > 0 && 'border-t border-on-surface/[0.09]')}
                       >
-                        See all <ChevronRight size={12} />
-                      </button>
-                    </div>
-                    <ul className="divide-y divide-on-surface/[0.06]">
-                      {recentRatings.map((r) => (
-                        <li key={r.restaurantId}>
-                          <Link to={`/restaurant/${r.restaurantId}`} className="group flex items-center gap-3.5 py-3">
-                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-on-surface/[0.05]">
-                              {r.image ? (
-                                <img src={r.image} alt="" className="h-full w-full object-cover" />
-                              ) : (
-                                <MapPin size={15} className="text-on-surface/30" />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate font-serif text-[14px] font-bold leading-tight">{r.name}</p>
-                              <p className="mt-0.5 text-[11.5px] text-on-surface/45">
-                                {r.visitDate
-                                  ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                  : ''}
-                                {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                              </p>
-                            </div>
-                            <OwnScoreBadge rating={numericScore(r.score)} unlocked={scoresUnlocked} size="sm" />
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-              </div>
-
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.022em' }}>{r.name}</span>
+                          <span className="mt-1.5 block truncate text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.3 }}>
+                            {[
+                              r.visitDate
+                                ? new Date(r.visitDate.length === 10 ? `${r.visitDate}T12:00:00` : r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : '',
+                              r.cuisine,
+                              cityFromAddress(r.address || ''),
+                            ].filter(Boolean).join(' · ')}
+                          </span>
+                        </span>
+                        {scoresUnlocked ? (
+                          <span className={cn('flex-none rounded-full px-[11px] py-2 tabular-nums', scoreTint(numericScore(r.score)))} style={{ fontSize: '13.5px', fontWeight: 700 }}>
+                            {numericScore(r.score).toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="flex-none w-8 h-8 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center" aria-label="Score hidden until you rate more places">
+                            <Lock size={14} />
+                          </span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
               {/* Recommended guides — real public guides from the community. */}
               {recommendedGuides.length > 0 && (
-                <section className={!isDesktop ? '-mx-5' : undefined}>
-                  <div className={cn('mb-4 flex items-end justify-between gap-3', !isDesktop && 'px-5')}>
-                    <div className="min-w-0">
-                      <h3 className={cn('font-serif font-bold leading-tight text-on-surface', isDesktop ? 'text-[26px]' : 'text-[21px]')}>
-                        Recommended guides
-                      </h3>
-                      <p className="mt-0.5 text-[12.5px] text-on-surface/45">Fresh from the community</p>
+                <section className="mt-8">
+                  <ProfileRule />
+                  <div className="pt-3 flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <ProfileHeading>Recommended guides</ProfileHeading>
+                      <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.4 }}>Fresh from the community.</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => navigate('/discover')}
-                      className="inline-flex flex-shrink-0 items-center gap-0.5 text-[13px] font-semibold text-primary hover:text-primary/80"
+                      className="flex-none inline-flex items-center gap-1 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2 active:opacity-70 transition-opacity"
+                      style={{ fontSize: '11.5px', fontWeight: 700 }}
                     >
-                      Explore <ChevronRight size={14} />
+                      Explore
+                      <ChevronRight size={12} />
                     </button>
                   </div>
-                  <div className={cn('flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x', !isDesktop && 'px-5')}>
+                  <div className="mt-[18px] -mx-[22px] px-[22px] flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-[22px]">
                     {recommendedGuides.map((g) => (
                       <GuideCard key={g.id} guide={g} />
                     ))}
