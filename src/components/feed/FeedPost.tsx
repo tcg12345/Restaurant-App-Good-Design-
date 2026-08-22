@@ -144,7 +144,7 @@ export const FeedPost: React.FC<FeedPostProps> = ({
               {kind}
             </span>
           </div>
-          <p className="mt-[5px] text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1 }}>{when}</p>
+          <p className="mt-[5px] truncate text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1.2 }}>{when}</p>
         </div>
         {onOverflow && (
           <button

@@ -38,6 +38,21 @@ import { Collapse } from './Collapse';
 import { FeedPost } from './feed/FeedPost';
 
 /**
+ * The town out of a full postal address.
+ *
+ * A post's location label is whatever the picker returned — often the
+ * street, the postcode, the city and the country. Set beside a timestamp
+ * that whole string wraps the author line onto two lines and says nothing
+ * the reader wanted. What they want is where it was: the city.
+ */
+function shortPlace(label?: string | null): string {
+  const parts = (label || '').split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+  const pick = parts.length >= 3 ? parts[parts.length - 2] : parts[0];
+  return pick.replace(/^\d{3,6}\s+/, '');
+}
+
+/**
  * A written note, split into the sentence that leads and the rest.
  *
  * Every post in the feed wants a headline and a body, but a rating carries
@@ -1293,7 +1308,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   authorHref={`/user/${authorUsername}`}
                   avatarClass={author?.avatarColor || 'bg-stone-700'}
                   kind={recipe ? 'Cooked' : 'Dined'}
-                  when={[timeAgo(p.createdAt), p.locationLabel].filter(Boolean).join(' · ')}
+                  when={[timeAgo(p.createdAt), shortPlace(p.locationLabel)].filter(Boolean).join(' · ')}
                   media={photos}
                   mediaHeight={recipe ? 268 : 300}
                   like={{ count: p.likesCount, liked: p.liked, onToggle: () => handleLikePost(p.id, p.liked) }}

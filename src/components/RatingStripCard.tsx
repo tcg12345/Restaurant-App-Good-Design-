@@ -31,7 +31,7 @@ import { scoreTint, scoreChipBg } from '../lib/score';
  *  heading. A rail cannot be misread that way, and it costs the feed one
  *  row of height instead of three. */
 export const ratingStripGridClass = (phoneMode: boolean): string => cn(
-  'grid grid-flow-col gap-2.5 snap-x overflow-x-auto no-scrollbar',
+  'grid grid-flow-col gap-2.5 snap-x scroll-px-5 overflow-x-auto no-scrollbar',
   'auto-cols-[224px]',
   !phoneMode && 'sm:auto-cols-[224px]',
 );

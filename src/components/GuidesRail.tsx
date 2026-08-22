@@ -64,7 +64,7 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
       </button>
     </div>
 
-    <div className="mt-4 flex gap-2.5 overflow-x-auto no-scrollbar snap-x px-5">
+    <div className="mt-4 flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-5 px-5">
       {guides.length === 0 && <BuildYourOwn onCreate={onCreate} wide />}
 
       {guides.map((g) => {

@@ -4967,7 +4967,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               {/* Social Feed — mobile only; on desktop the friend feed is the
                   left column of the two-column lower zone above. */}
               {!usingDesktopHeader && (
-                <div className="mt-5">
+                <div>
                   <SocialFeed
                     filter={mode === 'home' && phoneMode ? feedFilter : undefined}
                     onFilterChange={setFeedFilter}
