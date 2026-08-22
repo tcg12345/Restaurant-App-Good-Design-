@@ -774,7 +774,11 @@ export const RestaurantDetailMobile: React.FC = () => {
                       folded, so closing it never hides the answer. */}
                   {myRating && !myRatingOpen && (
                     <span
-                      className="flex-none rounded-full bg-primary/10 text-primary px-2.5 py-1.5"
+                      /* Tier-tinted, not accent-tinted: this is the same
+                         number the expanded section shows in the tier
+                         colour, and one score should not change colour
+                         because a section folded. */
+                      className={cn('flex-none rounded-full px-2.5 py-1.5', scoreTint(myRating.score))}
                       style={{ fontSize: '12.5px', fontWeight: 700 }}
                     >
                       {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
