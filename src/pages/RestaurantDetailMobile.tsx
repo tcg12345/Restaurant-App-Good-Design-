@@ -15,7 +15,7 @@ import { tierOfScore } from '../lib/settleScores';
 import { TIER_LABELS } from '../lib/headToHeadRating';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
-import { scoreColor, scoreChipBg, scoreTintStyle } from '../lib/score';
+import { scoreColor, scoreChipBg, scoreTint } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -64,11 +64,10 @@ import 'mapbox-gl/dist/mapbox-gl.css';
    restaurant's own name, and there are six of them down the page. The
    rule does the separating; the heading only has to say what follows. */
 const SECTION_TITLE_STYLE: React.CSSProperties = {
-  fontFamily: '"Newsreader", serif',
-  fontSize: '19px',
-  fontWeight: 600,
+  fontSize: '18px',
+  fontWeight: 700,
   lineHeight: 1.15,
-  letterSpacing: '-0.02em',
+  letterSpacing: '-0.022em',
 };
 
 const SectionRule: React.FC<{ className?: string }> = ({ className }) => (
@@ -318,7 +317,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   // eyebrow labels already said where they started.
 
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen bg-cream type-archivo">
 
       {/* ── Floating top controls — back / bookmark / share. Light glass
           circles so the icons stay legible both over the hero photo and
@@ -535,7 +534,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 className="group/cuisine mb-3 text-on-surface/45 text-[13.5px] font-medium tracking-normal normal-case"
               />
               <div className="flex items-start justify-between gap-3.5">
-                <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '30px', fontWeight: 600, lineHeight: 1.08, letterSpacing: '-0.02em' }}>
+                <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontSize: '30px', fontWeight: 700, lineHeight: 1.08, letterSpacing: '-0.035em' }}>
                   {place.name}
                 </h1>
                 <div className="flex items-center gap-[7px] flex-shrink-0 mt-0.5">
@@ -653,12 +652,14 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── Ratings — three cells: everyone, your friends, the experts.
-            They used to be three saturated rings on a bare row; a cell
-            gives the number a place to sit and lets the tint say which of
-            the three the page cares about. Google's five-point average is
-            a different measure, so it is a footnote beside the heading
-            rather than a fourth cell pretending to be comparable. ── */}
+        {/* ── Ratings — everyone, your friends, the experts. Three tinted
+            discs, centred over a name and a count. The tint and the ink
+            come from the score itself, not from which column it sits in:
+            a column can't be "the good one" — only a number can, and the
+            same tier palette colours every score on every page. Google's
+            five-point average is a different measure, so it sits beside
+            the heading as a footnote rather than as a fourth disc
+            pretending to be comparable. ── */}
         {(() => {
           const expertAvg = expertRecommendations.length > 0
             ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
@@ -669,25 +670,25 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          const Cell = ({ label, score, meta, tone, onClick }: {
-            label: string; score: number | null; meta: string; tone: 'neutral' | 'accent' | 'quiet'; onClick?: () => void;
+          const Disc = ({ label, score, meta, onClick }: {
+            label: string; score: number | null; meta: string; onClick?: () => void;
           }) => {
             const body = (
               <>
                 <span
-                  className={cn('font-serif tabular-nums', score == null ? 'text-on-surface/35' : tone === 'accent' ? 'text-primary' : 'text-on-surface')}
-                  style={{ fontSize: '27px', fontWeight: 600, lineHeight: 1, letterSpacing: '-0.03em', fontStyle: score == null ? 'italic' : 'normal' }}
+                  className={cn(
+                    'w-[72px] h-[72px] rounded-full flex items-center justify-center tabular-nums',
+                    score != null ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
+                  )}
+                  style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.01em' }}
                 >
                   {score != null ? score.toFixed(1) : '—'}
                 </span>
-                <span className="text-on-surface/45" style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{label}</span>
-                <span className={score != null ? 'text-on-surface/55' : 'text-on-surface/35'} style={{ fontSize: '12px' }}>{meta}</span>
+                <span className="mt-3 text-on-surface" style={{ fontSize: '14px', fontWeight: 700 }}>{label}</span>
+                <span className={cn('mt-1.5', score != null ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '13px' }}>{meta}</span>
               </>
             );
-            const cls = cn(
-              'flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4 text-left',
-              tone === 'accent' ? 'bg-primary/10' : tone === 'quiet' ? 'bg-on-surface/[0.035]' : 'bg-on-surface/[0.05]',
-            );
+            const cls = 'flex-1 min-w-0 flex flex-col items-center text-center';
             return onClick
               ? <button type="button" onClick={onClick} className={cn(cls, 'active:opacity-70 transition-opacity')}>{body}</button>
               : <div className={cls}>{body}</div>;
@@ -705,25 +706,22 @@ export const RestaurantDetailMobile: React.FC = () => {
                   </p>
                 )}
               </div>
-              <div className="mt-[18px] grid grid-cols-3 gap-2.5">
-                <Cell
+              <div className="mt-6 flex gap-2">
+                <Disc
                   label="Everyone"
                   score={hasCommunity ? communityStats.avgScore : null}
                   meta={hasCommunity ? `${communityStats.totalRatings.toLocaleString()} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}` : 'Be the first'}
-                  tone="neutral"
                 />
-                <Cell
+                <Disc
                   label="Friends"
                   score={hasFriends ? friendsStats.avgScore : null}
                   meta={hasFriends ? `${friendsStats.totalRatings} ${friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}` : 'None yet'}
-                  tone="accent"
                   onClick={hasFriends ? () => navigate(`/restaurant/${place.id}/circle`) : undefined}
                 />
-                <Cell
+                <Disc
                   label="Experts"
                   score={hasExperts ? expertAvg : null}
                   meta={hasExperts ? `${expertCount} ${expertCount === 1 ? 'pick' : 'picks'}` : 'No picks'}
-                  tone="quiet"
                 />
               </div>
             </section>
@@ -776,8 +774,8 @@ export const RestaurantDetailMobile: React.FC = () => {
                       folded, so closing it never hides the answer. */}
                   {myRating && !myRatingOpen && (
                     <span
-                      className="flex-none rounded-full bg-primary/10 text-primary font-serif px-2.5 py-1.5"
-                      style={{ fontSize: '12.5px', fontWeight: 600 }}
+                      className="flex-none rounded-full bg-primary/10 text-primary px-2.5 py-1.5"
+                      style={{ fontSize: '12.5px', fontWeight: 700 }}
                     >
                       {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
                     </span>
@@ -811,7 +809,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   <>
                     <div className="pt-[18px]">
                       <button onClick={() => openAt('main')} className="flex items-baseline gap-2 text-left active:opacity-70 transition-opacity">
-                        <span className={cn('font-serif', scoreColor(myRating.score))} style={{ fontSize: '40px', fontWeight: 600, lineHeight: 1, letterSpacing: '-0.03em' }}>
+                        <span className={scoreColor(myRating.score)} style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
                           {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
                         </span>
                         {scoresUnlocked && <span className="text-on-surface/45" style={{ fontSize: '15px' }}>/ 10</span>}
@@ -825,7 +823,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         rather than by a heading of its own weight. */}
                     <div className="mt-[22px] pt-[18px] border-t border-on-surface/[0.09]">
                       <div className="flex items-center justify-between gap-3 mb-3.5">
-                        <span className="text-on-surface font-serif" style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-0.02em' }}>Your notes &amp; photos</span>
+                        <span className="text-on-surface" style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '-0.02em' }}>Your notes &amp; photos</span>
                         {mineSummary && (
                           <span className="flex-none rounded-full bg-on-surface/[0.06] text-on-surface/60 px-2.5 py-1.5" style={{ fontSize: '11.5px', fontWeight: 600 }}>{mineSummary}</span>
                         )}
@@ -904,7 +902,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                   <button type="button" onClick={() => setExpandedVisit(isExpanded ? null : e.id)} className="w-full flex items-center gap-3 py-3 text-left active:opacity-70 transition-opacity">
                                     <div className="flex-shrink-0 w-10 flex flex-col items-center">
                                       <span className="text-on-surface/35 leading-none" style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{month}</span>
-                                      <span className="text-on-surface/70 leading-none mt-1 tabular-nums font-serif" style={{ fontSize: '15px' }}>{day}</span>
+                                      <span className="text-on-surface/70 leading-none mt-1 tabular-nums" style={{ fontSize: '15px', fontWeight: 700 }}>{day}</span>
                                     </div>
                                     <p className={cn('flex-1 min-w-0 truncate', e.notes ? 'text-on-surface/70' : 'text-on-surface/35')} style={{ fontSize: '13px' }}>
                                       {e.notes || 'No notes'}
@@ -952,7 +950,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   /* Nothing recorded yet — say what would go here and give
                      the one button that starts it. */
                   <div className="pt-[18px] flex flex-col items-start gap-2">
-                    <p className="font-serif text-on-surface" style={{ fontSize: '21px', fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+                    <p className="text-on-surface" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.028em', lineHeight: 1.2 }}>
                       You haven&rsquo;t rated this yet
                     </p>
                     <p className="text-on-surface/55" style={{ fontSize: '14px', lineHeight: 1.55 }}>
@@ -1028,7 +1026,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         <FriendAvatar name={name} size={40} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline gap-2">
-                            <span className="truncate text-on-surface font-serif" style={{ fontSize: '15.5px', fontWeight: 600, lineHeight: 1.2, letterSpacing: '-0.02em' }}>{name}</span>
+                            <span className="truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.022em' }}>{name}</span>
                             {recency && <span className="flex-none text-on-surface/45" style={{ fontSize: '12px' }}>{recency}</span>}
                           </div>
                           {r.notes ? (
@@ -1087,7 +1085,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Link to={`/user/${rec.expert_username}`} className="truncate text-on-surface font-serif" style={{ fontSize: '15.5px', fontWeight: 600, letterSpacing: '-0.02em' }}>
+                          <Link to={`/user/${rec.expert_username}`} className="truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.022em' }}>
                             {rec.expert_name}
                           </Link>
                           <span className="inline-flex items-center gap-1 text-primary" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>

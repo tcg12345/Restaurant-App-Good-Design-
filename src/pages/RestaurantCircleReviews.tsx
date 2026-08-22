@@ -186,7 +186,7 @@ export const RestaurantCircleReviews: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen pb-24 bg-cream">
+    <div className="min-h-screen pb-24 bg-cream type-archivo">
       {/* Top bar — fades away with scroll, back near the top */}
       <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-10 backdrop-blur-md bg-cream/90 border-b border-on-surface/[0.12]">
         <div className="flex items-center gap-3 px-3.5 pt-safe-4 pb-3">
@@ -205,7 +205,7 @@ export const RestaurantCircleReviews: React.FC = () => {
             {name && (
               <h1
                 className="text-on-surface truncate mt-1"
-                style={{ fontFamily: '"Newsreader", serif', fontSize: '16px', fontWeight: 600, letterSpacing: '-0.025em', lineHeight: 1.1 }}
+                style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1.1 }}
               >
                 {name}
               </h1>
@@ -227,7 +227,7 @@ export const RestaurantCircleReviews: React.FC = () => {
             {/* The number the page is about, then the sentence that reads it. */}
             {friends.length > 0 && (
               <div className="pt-[22px] flex items-end gap-3.5">
-                <span className="font-serif text-primary" style={{ fontSize: '44px', fontWeight: 600, lineHeight: 1, letterSpacing: '-0.035em' }}>
+                <span className="text-primary" style={{ fontSize: '44px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
                   {friendsAvg > 0 ? friendsAvg.toFixed(1) : '—'}
                 </span>
                 <div className="pb-[5px] min-w-0">
@@ -278,7 +278,7 @@ export const RestaurantCircleReviews: React.FC = () => {
                   <FriendAvatar name={e.displayName} size={42} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <span className="truncate text-on-surface font-serif" style={{ fontSize: '15.5px', fontWeight: 600, lineHeight: 1.2, letterSpacing: '-0.022em' }}>
+                      <span className="truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.022em' }}>
                         {e.displayName}
                       </span>
                       {e.when && <span className="flex-none text-on-surface/45" style={{ fontSize: '12px' }}>{e.when}</span>}

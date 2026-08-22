@@ -27,7 +27,7 @@ export const FriendAvatar: React.FC<{ name: string; size?: number }> = ({ name, 
     className="rounded-full flex items-center justify-center flex-shrink-0 text-white"
     style={{ width: size, height: size, background: friendAvatarColor(name) }}
   >
-    <span style={{ fontFamily: '"Newsreader", serif', fontSize: size * 0.36, fontWeight: 600, letterSpacing: '0.3px' }}>
+    <span style={{ fontSize: size * 0.37, fontWeight: 700 }}>
       {name.trim().charAt(0).toUpperCase() || 'F'}
     </span>
   </div>
@@ -117,7 +117,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 320 }}
         {...dragProps}
-        className="fixed bottom-0 inset-x-0 z-50 bg-cream rounded-t-[28px] max-h-[82vh] overflow-y-auto overscroll-contain"
+        className="fixed bottom-0 inset-x-0 z-50 bg-cream rounded-t-[28px] max-h-[82vh] overflow-y-auto overscroll-contain type-archivo"
         style={{ boxShadow: '0 -14px 44px rgba(18,15,14,0.26)', paddingLeft: 22, paddingRight: 22 }}
       >
         <div onPointerDown={startDrag} className="pt-3 pb-4 -mx-[22px] px-[22px] cursor-grab" style={{ touchAction: 'none' }}>
@@ -127,7 +127,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         <div className="flex items-center gap-3">
           <FriendAvatar name={name} size={46} />
           <div className="flex-1 min-w-0">
-            <p className="truncate text-on-surface" style={{ fontFamily: '"Newsreader", serif', fontSize: '17px', fontWeight: 600, lineHeight: 1.2 }}>{name}</p>
+            <p className="truncate text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.025em' }}>{name}</p>
             <p className="mt-1 truncate text-on-surface/45" style={{ fontSize: '12.5px' }}>
               {when ? `${when} · ` : ''}{restaurantName}
             </p>
@@ -141,7 +141,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         </div>
 
         <div className="mt-5 flex items-end gap-3">
-          <span className="font-serif text-primary" style={{ fontSize: '40px', fontWeight: 600, lineHeight: 1, letterSpacing: '-0.02em' }}>
+          <span className="text-primary" style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
             {score.toFixed(1)}
           </span>
           <span className="text-on-surface/45 pb-[5px]" style={{ fontSize: '13.5px' }}>out of 10</span>

@@ -307,6 +307,31 @@
 .dark .bg-on-surface\/\[0\.07\] { background-color: rgba(255, 255, 255, 0.08); }
 
 @layer components {
+  /* ── Restaurant detail: one grotesque, headings and body alike ──────
+     The page and its two sub-screens (the circle list, the review sheet)
+     are set in Archivo, which is what the design they were drawn from
+     uses for --font-heading and --font-body both. Scoped to that flow
+     rather than made global: everywhere else still pairs a serif with
+     Manrope, and this is the only place the pairing was replaced.
+
+     Form controls are named explicitly because a browser default beats
+     inheritance on them; Tailwind's preflight already sets
+     `font-family: inherit` there, but naming them costs nothing and
+     survives a preflight change. */
+  .type-archivo,
+  .type-archivo h1,
+  .type-archivo h2,
+  .type-archivo h3,
+  .type-archivo h4,
+  .type-archivo h5,
+  .type-archivo h6,
+  .type-archivo button,
+  .type-archivo input,
+  .type-archivo textarea,
+  .type-archivo select {
+    font-family: "Archivo", system-ui, -apple-system, sans-serif;
+  }
+
   /* Shared section header pattern used across the Restaurant Detail
      redesign — small uppercase JetBrains Mono eyebrow, then a larger
      Fraunces display title. Kept in CSS so the values live in one
