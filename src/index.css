@@ -354,6 +354,16 @@
   }
 }
 
+/* Inside the Archivo scope nothing is serif — including shared components
+   that hard-code the app's serif utility (TopBar's wordmark, section
+   titles). Unlayered on purpose: `font-serif` is a Tailwind utility, and
+   the utilities layer outranks the components layer no matter how specific
+   a selector in it is. An unlayered rule outranks every layer. */
+.type-archivo .font-serif,
+.type-archivo .section-title {
+  font-family: "Archivo", system-ui, -apple-system, sans-serif;
+}
+
 /* Expose the iOS safe-area-inset-top as a CSS variable so JS-side scroll
    math (e.g. RecipeMobileSectionNav's scroll-to handler) can read it via
    getComputedStyle. env() can't be read directly from JS. */

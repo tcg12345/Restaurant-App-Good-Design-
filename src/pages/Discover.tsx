@@ -49,7 +49,7 @@ import { useSetAssistantPageContext, type AssistantPageContext } from '../contex
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { SocialFeed } from '../components/SocialFeed';
+import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
 import {
   HomeLocationBar,
@@ -295,44 +295,38 @@ const LocationPill: React.FC<{ neighborhood: string | null; onOpen: () => void; 
   </button>
 );
 
-/** One prominent question instead of three stacked rails: where is the next
- *  meal coming from? Two tiles route to the full experiences — LocationPage
- *  recommendations and the Recipe Box. */
-const DualPromptCard: React.FC<{
+/** Where is the next meal coming from — the two ways in, as a pair.
+ *
+ *  The question that used to sit above them ("What sounds good?") was a
+ *  heading for two buttons that already say what they are, in a place where
+ *  the page has not yet shown you anything. The buttons keep the accent /
+ *  outline pairing so the eye still knows which one is the main verb. */
+const IntentPair: React.FC<{
   onFindRestaurant: () => void;
   findSubtitle: string;
   onCook: () => void;
   cookSubtitle: string;
 }> = ({ onFindRestaurant, findSubtitle, onCook, cookSubtitle }) => (
-  <section className="mt-4">
-    <h1 className="font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.02em]">
-      What sounds good?
-    </h1>
-    <div className="mt-3 grid grid-cols-2 gap-3">
-      <button
-        type="button"
-        onClick={onFindRestaurant}
-        className="rounded-2xl p-4 min-h-[120px] flex flex-col justify-between text-left bg-primary text-white active:scale-[0.98] transition-transform"
-      >
-        <span className="w-10 h-10 rounded-full bg-white/15 grid place-items-center"><UtensilsCrossed size={19} /></span>
-        <span>
-          <span className="block font-serif font-semibold text-[17px] leading-[1.15] tracking-[-0.015em]">Find a restaurant</span>
-          <span className="block text-[12px] opacity-70 mt-0.5">{findSubtitle}</span>
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onCook}
-        className="card-surface rounded-2xl p-4 min-h-[120px] flex flex-col justify-between text-left active:scale-[0.98] transition-transform"
-      >
-        <span className="w-10 h-10 rounded-full bg-primary/10 text-primary grid place-items-center"><ChefHat size={19} /></span>
-        <span>
-          <span className="block font-serif font-semibold text-[17px] leading-[1.15] tracking-[-0.015em] text-on-surface">Cook something</span>
-          <span className="block text-[12px] text-on-surface/60 mt-0.5">{cookSubtitle}</span>
-        </span>
-      </button>
-    </div>
-  </section>
+  <div className="pt-[18px] flex gap-2">
+    <button
+      type="button"
+      onClick={onFindRestaurant}
+      className="flex-1 min-w-0 rounded-[22px] bg-primary text-white p-[15px] flex flex-col items-start gap-[9px] text-left active:opacity-90 transition-opacity"
+    >
+      <UtensilsCrossed size={18} strokeWidth={1.8} />
+      <span className="block" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.025em' }}>Find a table</span>
+      <span className="block truncate max-w-full text-white/80" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{findSubtitle}</span>
+    </button>
+    <button
+      type="button"
+      onClick={onCook}
+      className="flex-1 min-w-0 rounded-[22px] border border-on-surface/[0.18] p-[15px] flex flex-col items-start gap-[9px] text-left active:bg-on-surface/[0.05] transition-colors"
+    >
+      <ChefHat size={18} strokeWidth={1.8} className="text-primary" />
+      <span className="block text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.025em' }}>Cook something</span>
+      <span className="block truncate max-w-full text-on-surface/45" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{cookSubtitle}</span>
+    </button>
+  </div>
 );
 
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
@@ -599,6 +593,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // neighborhood label — restores the location-switch popup the old
   // mobile header used to expose via the chevron control.
   const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
+  // Who the feed shows. Owned here because the chips live in the header;
+  // the feed reads it as a controlled prop.
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>('friends');
 
   // Data for My Ratings and Friends tabs — initialized from cache if it was
   // populated for this user earlier in the session. Cache lives until reload.
@@ -3946,10 +3943,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // the phone scroll-driven overlay.
   const mobileHeaderNode = (
     <>
+      {/* Brand flush left with the wordmark beside it, actions on the
+          right — compose, then the messages/circle capsule. The logo used
+          to be pinned dead centre with Create alone on the left, which
+          made the app's own name the one thing in the bar that wasn't a
+          control. */}
       <TopBar
-        title="Home"
-        centerLogo={phoneMode}
-        leftAction={phoneMode ? (
+        centerLogo={false}
+        rightAction={
           <GlassButton
             id="discover-create"
             symbol="plus"
@@ -3959,28 +3960,57 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           >
             <Plus size={20} />
           </GlassButton>
-        ) : undefined}
+        }
       />
-      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-4 pb-1" : "px-6 pt-2 pb-3")}>
         <button
           type="button"
           onClick={() => navigate('/search/main')}
           className="flex-1 min-w-0 relative"
           aria-label="Open search"
         >
-          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-          <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left truncate">
-            Search restaurants, cuisines...
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45" />
+          <div
+            className="w-full bg-on-surface/[0.055] rounded-full py-[11px] pl-[34px] pr-4 text-on-surface/40 text-left truncate"
+            style={{ fontSize: '13.5px' }}
+          >
+            Dishes, places, people
           </div>
         </button>
         {mode === 'home' && (
           <LocationPill
             neighborhood={homeLocation?.label?.split(',')[0]?.trim() || null}
             onOpen={() => setMobileLocationPickerOpen(true)}
-            className="max-w-[46%] flex-shrink-0"
+            className="max-w-[42%] flex-shrink-0"
           />
         )}
       </div>
+      {/* Who the feed is showing. This lived inside the feed as a grey
+          segmented track halfway down the page; it belongs with the other
+          things that decide what you are looking at. */}
+      {mode === 'home' && phoneMode && (
+        <div className="px-4 pt-3 pb-3 flex gap-1.5 overflow-x-auto no-scrollbar">
+          {([['friends', 'Your circle'], ['experts', 'Verified'], ['recipes', 'Recipes']] as const).map(([key, label]) => {
+            const on = feedFilter === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFeedFilter(key)}
+                aria-pressed={on}
+                className={cn(
+                  'flex-none inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] active:opacity-80 transition-colors',
+                  on ? 'bg-on-surface border-on-surface text-cream' : 'bg-transparent border-on-surface/20 text-on-surface',
+                )}
+                style={{ fontSize: '12px', fontWeight: 700 }}
+              >
+                {key === 'experts' && <VerifiedBadge size={12} />}
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </>
   );
 
@@ -4027,6 +4057,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         // two disagree after rotation. RecommendationsBrowser already
         // sizes itself this way.
         "relative h-[100dvh] w-full overflow-hidden bg-muted",
+        mode === 'home' && "type-archivo",
         // Desktop map mode lays out as a horizontal flex row so the new
         // results sidebar takes the left strip and the map fills the rest.
         isDesktopMapMode && "flex",
@@ -4613,7 +4644,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             <div
               ref={homeScrollRef}
               onScroll={phoneMode ? handleHomeScroll : undefined}
-              className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pb-32", phoneMode ? "px-3" : "px-6")}
+              className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pb-32", phoneMode ? "px-0" : "px-6")}
               style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
             >
 
@@ -4623,7 +4654,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   rendered, dimmed, so typing doesn't flash the whole list
                   out and in on every keystroke. */}
               {discoverSearchActive && (
-                <div className="mt-4">
+                <div className={cn("mt-4", phoneMode && "px-5")}>
                   {isSearching && places.length === 0 ? (
                     <div className="flex items-center justify-center py-16">
                       <Loader2 size={24} className="text-primary animate-spin" />
@@ -4786,8 +4817,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 // place of the old greeting + chips + three stacked rails.
                 // The wrapper ref anchors the scroll-header fade distance.
                 return (
-                  <div ref={dayLocRef}>
-                    <DualPromptCard
+                  <div ref={dayLocRef} className={cn(phoneMode && "px-5")}>
+                    <IntentPair
                       onFindRestaurant={() => {
                         if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
                         navigate(`/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`);
@@ -4938,6 +4969,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               {!usingDesktopHeader && (
                 <div className="mt-5">
                   <SocialFeed
+                    filter={mode === 'home' && phoneMode ? feedFilter : undefined}
+                    onFilterChange={setFeedFilter}
                     centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                     centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
                     suggestedRestaurants={mode === 'home' ? recommendations.slice(0, 6).map((p) => ({
