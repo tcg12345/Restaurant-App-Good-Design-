@@ -4,8 +4,9 @@ import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowUpDown, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
-  Plus, Search, SlidersHorizontal, Star, X,
+  Plus, Search, SlidersHorizontal, Star, X, Sparkles, ChevronLeft,
 } from 'lucide-react';
+import { GlassButton } from '../lib/glass-buttons';
 import { FilterSheet } from './FilterSheet';
 import { FilterSection, FilterDrillSection, Pill, PillRow, Segment, SegmentItem } from './filterPrimitives';
 import { useSettings } from '../contexts/SettingsContext';
@@ -893,65 +894,93 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         style={{ opacity: barBgOpacity }}
         className="absolute inset-0 border-b border-on-surface/[0.06] bg-surface/85 backdrop-blur-xl"
       />
-      <div className="pointer-events-auto relative flex items-center gap-1 pb-1.5 pl-2 pr-2 pt-safe-2">
-        <button
-          type="button"
+      {/* The list screen's own header, with "For you" lit — this IS that
+          screen in another mode, so it should not introduce a third kind
+          of top bar. Filters moves down into the chip row with the rest of
+          the controls. No ＋: on the list it opens the picker that chooses
+          a place to rate, and this page has no such picker — a button in
+          the same red that did something else would be worse than its
+          absence. Rating starts one tap back. */}
+      <div className="pointer-events-auto relative flex items-center gap-2.5 px-5 pb-2 pt-safe-2">
+        <GlassButton
+          id="foryou-back"
+          symbol="chevron.left"
+          label="Back"
           onClick={onClose}
-          className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-on-surface transition-colors active:bg-on-surface/[0.07]"
-          aria-label="Back"
+          className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
-          <ArrowLeft size={20} />
-        </button>
-        <motion.div
-          style={{ opacity: collapsedTitleOpacity, y: collapsedTitleY }}
-          className="pointer-events-none min-w-0 flex-1 text-center"
-          aria-hidden
+          <ChevronLeft size={18} strokeWidth={2.1} />
+        </GlassButton>
+        <div className="flex-1" />
+        <span
+          className="flex-none inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 text-primary px-3 py-[9px]"
+          style={{ fontSize: '12px', fontWeight: 700 }}
         >
-          <p className="truncate font-serif text-[15px] font-bold leading-tight text-on-surface">For you</p>
-          {city && <p className="truncate text-[10.5px] font-semibold leading-tight text-on-surface/45">{city}</p>}
-        </motion.div>
-        <button
-          type="button"
-          onClick={() => setFilterSheetOpen(true)}
-          className="relative grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-on-surface transition-colors active:bg-on-surface/[0.07]"
-          aria-label="Filters"
-        >
-          <SlidersHorizontal size={17} />
-          {mobileFilterCount > 0 && (
-            <span className="absolute right-0 top-0 grid h-4 min-w-[16px] place-items-center rounded-full bg-primary px-1 text-[9.5px] font-bold text-white">
-              {mobileFilterCount}
-            </span>
-          )}
-        </button>
+          <Sparkles size={13} />
+          For you
+        </span>
       </div>
     </div>
   );
 
   const sortLabel = SORTS.find((s) => s.key === sortBy)?.label ?? 'Best match';
   const mobileControlRow = (
-    <div className="flex items-center gap-2 px-4 pb-3.5">
+    /* The city is the page's subject, so it is a line — accent pin, the
+       place at heading weight, what it found beside it — and the controls
+       are the pill row underneath. Both used to be equal-weight grey
+       capsules sharing one row, which made "where" look like a setting. */
+    <div className="px-5 pb-3.5">
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
-        className="inline-flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-full border border-on-surface/[0.08] bg-on-surface/[0.045] px-3 text-left transition-colors active:bg-on-surface/[0.08]"
+        className="flex min-w-0 max-w-full items-center gap-2 pb-3 text-left active:opacity-70 transition-opacity"
         aria-label="Change location"
       >
-        <MapPin size={13} className="flex-shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-on-surface">
+        <MapPin size={14} strokeWidth={2.1} className="flex-shrink-0 text-primary" />
+        <span
+          className="min-w-0 truncate text-on-surface"
+          style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}
+        >
           {target ? target.label.split(',').slice(0, 2).join(',') : 'Choose a location'}
         </span>
-        <ChevronDown size={13} className="flex-shrink-0 text-on-surface/40" />
+        {target && visible.length > 0 && (
+          <span className="flex-shrink-0 text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1 }}>
+            {visible.length} picked
+          </span>
+        )}
+        <ChevronDown size={13} strokeWidth={2.2} className="flex-shrink-0 text-on-surface/45" />
+      </button>
+      <div className="flex items-center gap-[7px] overflow-x-auto no-scrollbar">
+      <button
+        type="button"
+        onClick={() => setFilterSheetOpen(true)}
+        className={cn(
+          'flex-none inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] active:opacity-80 transition-colors',
+          mobileFilterCount > 0
+            ? 'bg-on-surface border-on-surface text-cream'
+            : 'bg-transparent border-on-surface/20 text-on-surface',
+        )}
+        style={{ fontSize: '12px', fontWeight: 700 }}
+      >
+        <SlidersHorizontal size={13} />
+        Filters
+        {mobileFilterCount > 0 && (
+          <span className="grid h-4 min-w-[16px] place-items-center rounded-full bg-cream px-1 text-on-surface" style={{ fontSize: '9.5px', fontWeight: 700 }}>
+            {mobileFilterCount}
+          </span>
+        )}
       </button>
       <div className="relative flex-shrink-0">
         <button
           type="button"
           onClick={() => setSortMenuOpen((v) => !v)}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-on-surface/[0.08] bg-on-surface/[0.045] px-3 text-[13px] font-semibold text-on-surface transition-colors active:bg-on-surface/[0.08] whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 rounded-full border border-on-surface/20 px-[13px] py-[9px] text-on-surface active:opacity-80 transition-colors whitespace-nowrap"
+          style={{ fontSize: '12px', fontWeight: 700 }}
           aria-label="Sort"
         >
-          <ArrowUpDown size={12.5} className="text-on-surface/45" />
+          <ArrowUpDown size={12} />
           {sortLabel}
-          <ChevronDown size={13} className={cn('text-on-surface/40 transition-transform', sortMenuOpen && 'rotate-180')} />
+          <ChevronDown size={12} className={cn('opacity-55 transition-transform', sortMenuOpen && 'rotate-180')} />
         </button>
         {sortMenuOpen && (
           <>
@@ -975,23 +1004,19 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           </>
         )}
       </div>
+      </div>
     </div>
   );
 
   const mobileScroll = (
     <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain pb-safe-5">
-      {/* Hero — scrolls away under the chrome bar */}
-      <motion.div
-        style={{ opacity: heroOpacity, paddingTop: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.25rem)' }}
-        className="px-5 pb-3"
-      >
-        <h1 className="font-serif text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-on-surface">
-          Recommended for you
-        </h1>
-        <p className="mt-1 text-[13px] font-medium text-on-surface/50">{subtitle}</p>
-      </motion.div>
+      {/* No page title. "Recommended for you" at 26px over a subtitle
+          restating what the header already says, above a city line that is
+          the actual subject — three headings for one screen. The city line
+          is the heading now. */}
+      <div style={{ paddingTop: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.25rem)' }} />
       {mobileControlRow}
-      <div className="border-t border-on-surface/[0.05]" />
+      <div className="border-t border-on-surface/[0.09]" />
       {listContent}
     </div>
   );
