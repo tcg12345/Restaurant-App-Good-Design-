@@ -26,6 +26,8 @@ import {
   Plus, Printer, Share2, Sparkles, Star, Trash2, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem } from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
@@ -698,7 +700,6 @@ export const RecipePage: React.FC = () => {
   const [cookMode, setCookMode] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   // Save-to-list sheet. The heart reflects whether the recipe is in any
   // home-cooking list; clicking it opens the sheet to manage membership.
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
@@ -932,14 +933,13 @@ export const RecipePage: React.FC = () => {
   }, []);
 
   // ── Toast auto-dismiss ──
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   // ── Helpers ──
-  const showToast = useCallback((msg: string) => setToast(msg), []);
+  // The app's toast, not a private one. This page used to keep its own
+  // `useState` + `setTimeout` + two hand-rolled pills, entering on a keyframe
+  // with no exit at all — a second toast system sitting beside the real one,
+  // which springs in, springs out, and stacks properly.
+  const { showToast } = useToast();
   const handleSave = useCallback(() => {
     if (!data) return;
     setSaveSheetOpen(true);
@@ -1253,8 +1253,6 @@ export const RecipePage: React.FC = () => {
           cookPhotoCount={cookPhotos.length}
           openCookPhotos={() => setCookPhotosOpen(true)}
           isOwner={isOwner}
-          scrolled={scrolled}
-          toast={toast}
           cookMode={cookMode}
           setCookMode={setCookMode}
           reviewOpen={reviewOpen}
@@ -1485,11 +1483,6 @@ export const RecipePage: React.FC = () => {
           <button type="button" className="rd-action-btn" onClick={handleEdit}><Edit3 /> Edit</button>
         )}
         <div className="rd-action-divider" />
-        {data.tags.length > 0 && (
-          <div className="rd-tags">
-            {data.tags.map((t) => <span key={t} className="rd-tag">{t}</span>)}
-          </div>
-        )}
       </section>
 
       {/* ── Body: ingredients sidebar + directions ────────────────── */}
@@ -1887,12 +1880,6 @@ export const RecipePage: React.FC = () => {
         />
       )}
 
-      {/* ── Toast ────────────────────────────────────────────────── */}
-      {toast && (
-        <div className="rd-toast">
-          <Check /> {toast}
-        </div>
-      )}
 
       <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
       <ShareDialog
@@ -2461,8 +2448,6 @@ interface MobileViewProps {
   cookPhotoCount: number;
   openCookPhotos: () => void;
   isOwner: boolean;
-  scrolled: boolean;
-  toast: string | null;
   cookMode: boolean;
   setCookMode: React.Dispatch<React.SetStateAction<boolean>>;
   reviewOpen: boolean;
@@ -2488,37 +2473,69 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
   data, authorProfile, reviews, reviewerProfiles, myReview, related, relatedAuthors,
   stars5, ratingsCount, ratingBreakdown, totalMinutes, baseServings, scale,
   servings, setServings, checked, toggleCheck, doneSteps, toggleStep,
-  saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, scrolled, toast, cookMode, setCookMode, reviewOpen, setReviewOpen,
+  saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, cookMode, setCookMode, reviewOpen, setReviewOpen,
   handleSave, handleCooked, handleShare, handleEdit, submitReview,
   renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
   authorUsername, currentUserId, currentUserName, navigate,
 }) => (
   <div className="rdm">
-    {/* Sticky header */}
-    <nav className={cn('rdm-nav', scrolled && 'scrolled')}>
-      <div className="rdm-nav-row">
-        <button type="button" className="rdm-back" onClick={() => navigate(-1)} aria-label="Back">
-          <ArrowLeft />
-        </button>
-        <div className="rdm-nav-title">{data.title}</div>
-        <button
-          type="button"
-          className={cn('rdm-nav-icon', saved && 'saved')}
-          onClick={handleSave}
-          aria-label={saved ? 'Saved' : 'Save'}
+    {/* ── Floating chrome ──
+        The same controls the restaurant page floats over its hero, built from
+        the same components, so they get the same real material: back as a
+        lone glass circle, save and share sharing one capsule. The white
+        sticky bar these used to sit on is gone with them — glass laid on an
+        opaque bar has nothing behind it to bend, and the bar was itself a
+        blurred surface, which is the glass-on-glass stack `GlassSurface`
+        exists to prevent. Zero-height sticky wrapper so the controls hover
+        over the page rather than occupying a row of it. ── */}
+    <div className="sticky top-0 z-50 h-0">
+      <div className="absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none">
+        <GlassButton
+          id="recipe-back"
+          symbol="arrow.left"
+          label="Back"
+          onClick={() => navigate(-1)}
+          className="hit-44 pointer-events-auto w-11 h-11 rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
         >
-          <Bookmark fill={saved ? 'currentColor' : 'none'} />
-        </button>
-        <button type="button" className="rdm-nav-icon" onClick={handleShare} aria-label="Share">
-          <Share2 />
-        </button>
+          <ArrowLeft size={18} />
+        </GlassButton>
+        <div className="pointer-events-auto">
+          <GlassGroup
+            id="recipe-actions"
+            className="flex items-center rounded-full"
+            itemClassName="relative w-11 h-11 flex items-center justify-center text-ink-2"
+            items={[
+              {
+                id: 'save',
+                symbol: saved ? 'bookmark.fill' : 'bookmark',
+                tint: (saved ? 'primary' : 'label') as 'primary' | 'label',
+                label: saved ? 'Saved' : 'Save',
+                onClick: handleSave,
+                icon: <Bookmark size={16} className={saved ? 'fill-primary text-primary' : ''} />,
+              },
+              {
+                id: 'share',
+                // The system's share glyph, the same one the restaurant page
+                // asks for — not the three-dot network icon the web set was
+                // drawing here.
+                symbol: 'square.and.arrow.up',
+                label: 'Share',
+                onClick: handleShare,
+                icon: <Share2 size={16} />,
+              },
+            ]}
+          />
+        </div>
       </div>
-    </nav>
+    </div>
 
     <div className="rdm-page">
       {/* Hero — cook photos (swipeable) when added, else the original. Shown
           when there are photos OR the recipe is cooked (so the add-photos
           button is reachable even before any are added). */}
+      {!(heroPhotos.length > 0 || cooked) && (
+        <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 60px)' }} aria-hidden />
+      )}
       {(heroPhotos.length > 0 || cooked) && (
         <div className="rdm-hero-img">
           <HeroGallery
@@ -2570,21 +2587,6 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </div>
         )}
 
-        {(authorProfile || data.ownerId) && (
-          <button
-            type="button"
-            className="rdm-author"
-            onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
-          >
-            <div className="av" style={{ background: authorBg }}>{authorInitial}</div>
-            <div className="rdm-author-info">
-              <span className="byline">Recipe by</span>
-              <span className="name">{authorName}</span>
-              <span className="role">{authorRole}</span>
-            </div>
-          </button>
-        )}
-
         {data.importedFrom ? (() => {
           const note = importedNote(data.importedFrom);
           return note.href ? (
@@ -2605,41 +2607,36 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </div>
         ) : null}
 
+        {/* Label-and-value rows, not a grid of tiles. The total is the
+            number you act on; the split that makes it up is an aside on the
+            same line rather than a column of its own. */}
         <div className="rdm-stats">
-          {data.prepMinutes > 0 && (
-            <div className="rdm-stat">
-              <div className="l">Prep</div>
-              <div className="v">
-                {renderTimeValue(data.prepMinutes)}
-              </div>
-            </div>
-          )}
           <div className="rdm-stat">
-            <div className="l">Cook</div>
-            <div className="v">
-              {renderTimeValue(data.cookMinutes)}
-            </div>
-          </div>
-          <div className="rdm-stat">
-            <div className="l">Total</div>
+            <div className="l">Time</div>
             <div className="v">
               {renderTimeValue(totalMinutes)}
+              {/* Only worth breaking down when there is a break to show. With
+                  no prep time the split was "25 min · 25 cook" — the same
+                  number said twice. */}
+              {data.prepMinutes > 0 && data.cookMinutes > 0 && (
+                <span className="detail">
+                  {data.prepMinutes} prep, {data.cookMinutes} cook
+                </span>
+              )}
             </div>
           </div>
-          <div className="rdm-stat">
-            <div className="l">Serves</div>
-            <div className="v">{data.servings > 0 ? data.servings : '—'}</div>
-          </div>
-          <div className="rdm-stat">
-            <div className="l">Level</div>
-            <div className="v" style={{ fontSize: 14, paddingTop: 4 }}>
-              {data.difficulty ? DIFFICULTY_LABEL[data.difficulty] : '—'}
+          {data.servings > 0 && (
+            <div className="rdm-stat">
+              <div className="l">Serves</div>
+              <div className="v">{data.servings}</div>
             </div>
-          </div>
-          <div className="rdm-stat">
-            <div className="l">Steps</div>
-            <div className="v">{data.steps.length || '—'}</div>
-          </div>
+          )}
+          {data.difficulty && (
+            <div className="rdm-stat">
+              <div className="l">Level</div>
+              <div className="v">{DIFFICULTY_LABEL[data.difficulty]}</div>
+            </div>
+          )}
         </div>
 
         <div className="rdm-actions">
@@ -2656,13 +2653,6 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </button>
         </div>
       </section>
-
-      {/* Tags */}
-      {data.tags.length > 0 && (
-        <div className="rdm-tags">
-          {data.tags.map((t) => <span key={t} className="rdm-tag">{t}</span>)}
-        </div>
-      )}
 
       {/* Ingredients */}
       <section className="rdm-section">
@@ -2762,19 +2752,23 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             const isDone = doneSteps.has(i);
             return (
               <li key={i} className={cn('rdm-step', isDone && 'done')}>
-                <div className="rdm-step-num-wrap">
-                  <div className="rdm-step-num">{String(i + 1).padStart(2, '0')}</div>
-                  <button
-                    type="button"
-                    className="rdm-step-check"
-                    onClick={() => toggleStep(i)}
-                    aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
-                  >
-                    <Check />
-                  </button>
-                </div>
+                {/* One control on the left, the number inline with the title.
+                    The old card stacked a filled black 36px numeral above a
+                    second empty circle — two heavy marks in the margin for
+                    what is one step and one checkbox. */}
+                <button
+                  type="button"
+                  className="rdm-step-check"
+                  onClick={() => toggleStep(i)}
+                  aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+                >
+                  <Check />
+                </button>
                 <div>
-                  {title && <h3 className="rdm-step-title">{title}</h3>}
+                  <div className="rdm-step-head">
+                    <span className="rdm-step-num">Step {String(i + 1).padStart(2, '0')}</span>
+                    {title && <h3 className="rdm-step-title">{title}</h3>}
+                  </div>
                   <p className="rdm-step-body">{body}</p>
                   {timerNode}
                 </div>
@@ -2837,61 +2831,56 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         })()}
       </section>
 
-      {/* Author bio */}
-      {authorProfile && (
-        <section className="rdm-section">
-          <h2 className="rdm-section-title">About the {authorProfile.is_verified ? 'chef' : 'cook'}</h2>
-          <div className="rdm-author-bio">
-            <div className="rdm-author-bio-row">
-              <div className="rdm-author-bio-av" style={{ background: authorBg }}>{authorInitials}</div>
-              <div className="rdm-author-bio-info">
-                <h3 className="rdm-author-bio-name">{authorName}</h3>
-                <div className="rdm-author-bio-role">{authorRole}</div>
-              </div>
+
+      {/* Recipe by — down here rather than under the title. At the top it
+          sat between the dish and the facts you came for; down here it reads
+          as the sign-off it is, right where you'd go to say something back. */}
+      {(authorProfile || data.ownerId) && (
+        <section className="rdm-section rdm-section-tight">
+          <button
+            type="button"
+            className="rdm-author"
+            onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
+          >
+            <div className="av" style={{ background: authorBg }}>{authorInitial}</div>
+            <div className="rdm-author-info">
+              <span className="byline">Recipe by</span>
+              <span className="name">{authorName}</span>
+              <span className="role">{authorRole}</span>
             </div>
-            {authorProfile.bio && <p className="rdm-author-bio-text">{authorProfile.bio}</p>}
-            <div className="rdm-author-bio-stats">
-              <button
-                type="button"
-                className="rdm-author-bio-follow"
-                onClick={() => authorUsername && navigate(`/user/${authorUsername}`)}
-              >
-                View profile
-              </button>
-            </div>
-          </div>
+          </button>
         </section>
       )}
 
-      {/* Reviews */}
+      {/* Rate & comment — one section, the way the design has it. It used to
+          be a "Reviews" block (a big —/5 dial, a star row, a breakdown of
+          bars, a "Write a review" button) sitting above a separate
+          "Comments" block: five controls for what is really one act. Now the
+          stars are the control — tap one to open the review sheet — and the
+          count moves to the header where it stays out of the way. */}
       <section className="rdm-section">
         <h2 className="rdm-section-title">
-          Reviews
-          {ratingsCount > 0 && <span className="count">{ratingsCount.toLocaleString()}</span>}
+          Rate &amp; comment
+          <span className="count">
+            {myReview
+              ? `${Math.round(myReview.rating)} of 5`
+              : ratingsCount > 0
+                ? `${stars5.toFixed(1)} · ${ratingsCount.toLocaleString()} rating${ratingsCount === 1 ? '' : 's'}`
+                : 'Not rated yet'}
+          </span>
         </h2>
-        <div className="rdm-reviews-summary">
-          <div className="rdm-reviews-avg">
-            {ratingsCount > 0 ? stars5.toFixed(1) : '—'}<span className="of">/5</span>
-          </div>
-          <div>
-            <div className="rdm-reviews-stars">{renderStars(stars5)}</div>
-            <div className="rdm-reviews-count">
-              {ratingsCount > 0
-                ? `${ratingsCount.toLocaleString()} rating${ratingsCount === 1 ? '' : 's'}`
-                : 'No reviews yet'}
-            </div>
-            {myReview ? (
-              <div className="rdm-reviews-cta-done">
-                <Check /> Rated {Math.round(myReview.rating)}/5
-              </div>
-            ) : (
-              currentUserId && !isOwner && (
-                <button type="button" className="rdm-reviews-cta" onClick={() => setReviewOpen(true)}>
-                  <Star fill="currentColor" /> Write a review
-                </button>
-              )
-            )}
-          </div>
+        <div className="rdm-rate-stars">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-label={`Rate ${n} of 5`}
+              className={cn('rdm-rate-star', (myReview ? Math.round(myReview.rating) : 0) >= n && 'on')}
+              onClick={() => setReviewOpen(true)}
+            >
+              <Star fill="currentColor" />
+            </button>
+          ))}
         </div>
         {ratingsCount > 0 && (
           <div className="rdm-rating-bars">
@@ -2926,16 +2915,10 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             renderStars={renderStars}
           />
         ))}
-        {reviews.length === 0 && !myReview && (
-          <p style={{ textAlign: 'center', padding: '20px 8px', fontFamily: 'var(--serif)', fontStyle: 'italic', color: 'var(--muted)', fontSize: 14 }}>
-            Be the first to cook and review this.
-          </p>
-        )}
-      </section>
-
-      {/* Comments */}
-      <section className="rdm-section">
-        <h2 className="rdm-section-title">Comments</h2>
+        {/* The comment thread lives inside this section, not in one of its
+            own. Rating and commenting are the same act — "leave a mark on
+            this recipe" — and splitting them put a rule and a heading
+            through the middle of it. */}
         <RecipeCommentThread targetId={data.id} />
       </section>
 
@@ -3020,12 +3003,6 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
       />
     )}
 
-    {/* Toast */}
-    {toast && (
-      <div className="rdm-toast">
-        <Check /> {toast}
-      </div>
-    )}
   </div>
 );
 

@@ -851,7 +851,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 14, scale: 0.97 }}
                     transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                    className={cn('absolute left-0 right-0 bottom-full mb-3 z-20', phoneMode ? 'px-5' : 'px-7')}
+                    className={cn('absolute left-0 right-0 bottom-full origin-bottom mb-3 z-20', phoneMode ? 'px-5' : 'px-7')}
                   >
                     <div className="rounded-[20px] bg-surface border border-on-surface/10 shadow-[0_20px_60px_-14px_rgba(0,0,0,0.4)] p-4">
                       <div className="flex items-center justify-between mb-3">

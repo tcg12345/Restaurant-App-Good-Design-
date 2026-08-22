@@ -2,43 +2,91 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, Map as MapIcon, ChevronRight } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
+import { motion, useReducedMotion } from 'motion/react';
+import { useGlassSegments } from '../lib/glass-buttons';
 import { cn } from '../lib/utils';
 
 type SearchTab = 'discover' | 'following';
 
+const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
+  ['discover', 'Discover'],
+  ['following', 'Following'],
+];
+
 export const Search: React.FC = () => {
   const navigate = useNavigate();
   const [tab, setTab] = useState<SearchTab>('discover');
+  const reduceMotion = useReducedMotion();
+  // Which way the lens just travelled, so the incoming panel enters from the
+  // side it came from. The selector's lens slides; the content under it used
+  // to hard-cut, which read as two unrelated things happening at once.
+  const direction = tab === 'discover' ? -1 : 1;
+
+  // The same segmented glass the Lists page wears: on iOS 26 the native side
+  // draws a real tab bar over this box, lens and all, and this markup becomes
+  // the layout it is measured from plus the fallback everywhere else.
+  const seg = useGlassSegments({
+    id: 'search-tabs',
+    items: TABS.map(([key, label]) => ({
+      id: key,
+      symbol: '',
+      title: label,
+      label,
+      tint: 'label' as const,
+      active: tab === key,
+      onClick: () => setTab(key),
+    })),
+  });
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
 
-      {/* Tab switcher */}
-      <div className="px-4 pt-safe-5">
-        <div className="flex items-center gap-6">
-          {([
-            ['discover', 'Discover'],
-            ['following', 'Following'],
-          ] as const).map(([key, label]) => (
+      {/* Tab switcher — centred, because the control is a capsule now rather
+          than a pair of underlined words hugging the left margin. */}
+      <div className="px-4 pt-safe-3 flex justify-center">
+        <div
+          ref={seg.ref}
+          className={cn(
+            'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
+            !seg.active && 'glass-control',
+          )}
+        >
+          {TABS.map(([key, label]) => (
             <button
               key={key}
               type="button"
               onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              aria-hidden={seg.active || undefined}
+              tabIndex={seg.active ? -1 : undefined}
               className={cn(
-                'relative py-3 text-sm font-bold tracking-wide transition-colors',
-                tab === key ? 'text-on-surface' : 'text-on-surface/40 hover:text-on-surface/60',
+                // The box is the room the page reserves for the native
+                // control, so its height is the control's, not the text's.
+                'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
+                seg.active ? 'opacity-0'
+                  : tab === key
+                    ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                    : 'text-on-surface/50 active:text-on-surface/80',
               )}
             >
               {label}
-              {tab === key && (
-                <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-primary rounded-full" />
-              )}
             </button>
           ))}
         </div>
       </div>
 
       <main className="px-4 pt-4">
+        {/* Keyed on the tab, so switching mounts a fresh panel that fades in
+            over the outgoing one's place. No exit animation on purpose: a tab
+            is a high-frequency control, and waiting for an exit before the
+            entrance doubles the time you feel before the new content is
+            there. */}
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, x: reduceMotion ? 0 : direction * 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        >
         {tab === 'discover' ? (
           <div className="space-y-3">
             {/* Real input that transitions into the full search page on focus.
@@ -83,6 +131,7 @@ export const Search: React.FC = () => {
         ) : (
           <FollowingFeed />
         )}
+        </motion.div>
       </main>
     </div>
   );

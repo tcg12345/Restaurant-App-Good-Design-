@@ -386,10 +386,14 @@ const InlineCompare: React.FC<{
               {done + 1} of {total || done + 1}
             </span>
             <span className="relative w-16 h-[3px] rounded-full bg-on-surface/[0.08] overflow-hidden">
+              {/* scaleX off a full-width bar, not an animated `width`: width
+                  is laid out and painted every frame, scale is composited.
+                  `origin-left` is what makes it grow from the start of the
+                  track rather than out of its middle. */}
               <motion.span
-                className="absolute inset-y-0 left-0 bg-primary/70 rounded-full"
+                className="absolute inset-y-0 left-0 w-full origin-left bg-primary/70 rounded-full"
                 initial={false}
-                animate={{ width: `${progress * 100}%` }}
+                animate={{ scaleX: progress }}
                 transition={{ type: 'spring', stiffness: 200, damping: 28 }}
               />
             </span>
@@ -640,9 +644,9 @@ const InlineResult: React.FC<{
             </div>
             <div className="mt-2 h-1.5 rounded-full bg-on-surface/[0.07] overflow-hidden">
               <motion.div
-                className="h-full bg-primary rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${Math.min(100, (total / SCORE_UNLOCK_THRESHOLD) * 100)}%` }}
+                className="h-full w-full origin-left bg-primary rounded-full"
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: Math.min(1, total / SCORE_UNLOCK_THRESHOLD) }}
                 transition={{ delay: 0.3, duration: 0.5, ease: EASE }}
               />
             </div>

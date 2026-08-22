@@ -95,7 +95,11 @@ export function useBottomSheet(
       dragControls,
       dragListener: false,
       dragConstraints: { top: 0, bottom: 0 },
-      dragElastic: { top: 0, bottom: 0.5 },
+      // Downward is the dismissal, so it gives freely. Upward is a boundary,
+      // and a boundary that does not move at all reads as the gesture having
+      // broken — a little rubber band says "this is as far as it goes" while
+      // staying obviously alive under the finger.
+      dragElastic: { top: 0.06, bottom: 0.5 },
       onDragEnd: (_event, info) => {
         if (info.offset.y > 100 || info.velocity.y > 300) onClose();
       },

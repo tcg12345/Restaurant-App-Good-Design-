@@ -47,12 +47,20 @@ export interface GlassButtonSpec {
   disabled?: boolean;
 }
 
+/** What a group of segments is. The native side needs it told rather than
+ *  guessed: a selector with nothing selected is still a selector, and the two
+ *  kinds are different controls with opposite touch handling — an action row's
+ *  regions are pressed one at a time, a selector's choice is dragged along the
+ *  bar. */
+type GlassGroupKind = 'actions' | 'selector';
+
 interface Registration extends GlassButtonSpec {
   el: HTMLElement;
   onTap: () => void;
   /** Set for a shared capsule — see `GlassGroup`. Each entry gets its own
    *  region, glyph, badge and handler; the glass belongs to the capsule. */
   segments?: Array<GlassButtonSpec & { id: string; onTap: () => void; active?: boolean }>;
+  kind?: GlassGroupKind;
 }
 
 /** Everything currently on screen, by id. Module-level rather than context so
@@ -144,6 +152,7 @@ function sample(): void {
       symbol: reg.symbol,
       title: reg.title ?? '',
       label: reg.label,
+      kind: reg.kind ?? '',
       segments: (reg.segments ?? []).map((seg) => ({
         id: seg.id,
         symbol: seg.symbol,
@@ -336,6 +345,13 @@ export const GlassButton: React.FC<{
   );
 };
 
+/** The fallback's press. On iOS 26 the capsule itself is interactive glass:
+ *  the system swells it under the finger, leans it as the finger moves, and
+ *  settles it on release. CSS can't refract or lean, so the region dips
+ *  instead — enough that a press is answered. It lives here rather than at
+ *  the three call sites so they cannot drift on how a region answers a touch. */
+const REGION_PRESS = 'transition-transform active:scale-90';
+
 /**
  * Several actions sharing one capsule of glass — the header's Messages and
  * Circle pair.
@@ -376,6 +392,7 @@ export const GlassGroup: React.FC<{
       el,
       symbol: '',
       label: '',
+      kind: 'actions',
       onTap: () => {},
       segments: itemsRef.current.map((item) => ({
         ...item,
@@ -408,7 +425,7 @@ export const GlassGroup: React.FC<{
           aria-label={item.label}
           aria-hidden={active || undefined}
           tabIndex={active ? -1 : undefined}
-          className={itemClassName}
+          className={[itemClassName, active ? '' : REGION_PRESS].filter(Boolean).join(' ')}
         >
           {active ? <span className="opacity-0">{item.icon}</span> : item.icon}
         </button>
@@ -447,6 +464,7 @@ export function useGlassSegments(options: {
       el,
       symbol: '',
       label: '',
+      kind: 'selector',
       onTap: () => {},
       segments: itemsRef.current.map((item) => ({
         ...item,

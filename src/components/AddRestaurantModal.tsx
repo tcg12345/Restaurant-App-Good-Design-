@@ -761,7 +761,7 @@ export const AddRestaurantModal: React.FC = () => {
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setListDropdownOpen(false)} />
                           <motion.div initial={{ opacity: 0, y: -4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.97 }} transition={{ duration: 0.12 }}
-                            className="absolute top-full left-0 mt-1.5 bg-white rounded-2xl shadow-xl border border-on-surface/8 z-20 max-h-56 overflow-y-auto min-w-[220px]">
+                            className="absolute top-full left-0 origin-top-left mt-1.5 bg-white rounded-2xl shadow-xl border border-on-surface/8 z-20 max-h-56 overflow-y-auto min-w-[220px]">
                             {lists.map((list) => {
                               const selected = selectedListIds.includes(list.id);
                               return (

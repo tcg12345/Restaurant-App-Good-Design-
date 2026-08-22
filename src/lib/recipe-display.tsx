@@ -14,6 +14,7 @@ import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, 
 import { cn } from './utils';
 import { normalizeQuantityToken } from './ingredient-parsing';
 import { useRecipes } from '../contexts/RecipesContext';
+import { Collapse } from '../components/Collapse';
 
 /** Formats a minute total as a short "X hr Y min" string. */
 export const formatDuration = (minutes: number): string => {
@@ -570,16 +571,7 @@ export const RecipeDirectionsList: React.FC<{
                 {/* Body + optional timer collapse together via a single
                     height-animated container. Wrapped in AnimatePresence
                     so it cleanly mounts/unmounts. */}
-                <AnimatePresence initial={false}>
-                  {!isCollapsed && (
-                    <motion.div
-                      key="body"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                      className="overflow-hidden"
-                    >
+                <Collapse open={!isCollapsed}>
                       <p className={cn(
                         'selectable text-on-surface/85 whitespace-pre-wrap font-sans',
                         // pt-0 in compact mode so the Newsreader numeral
@@ -599,9 +591,7 @@ export const RecipeDirectionsList: React.FC<{
                           <StepTimer minutes={timerMinutes} />
                         </div>
                       )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                </Collapse>
               </div>
             </button>
           </li>

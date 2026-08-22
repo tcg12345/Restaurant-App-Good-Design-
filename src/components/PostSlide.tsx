@@ -26,6 +26,13 @@ import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { getCachedImage, loadCachedImage } from '../lib/image-cache';
 import { MuxReelMedia } from './MuxReelMedia';
 import { addScrollSettleListener } from '../lib/scroll-settle';
+import { Collapse } from './Collapse';
+
+/** The press. One value for every tappable thing in the reel, because a rail
+ *  where two buttons squash 20% and the two between them don't move at all
+ *  reads as breakage rather than feedback. 0.96 is inside the 0.95–0.98 band
+ *  a press is legible in without becoming a bounce. */
+const PRESS = { scale: 0.96 } as const;
 
 /**
  * Render a feed photo through the in-memory blob cache: instant + whole-image
@@ -74,27 +81,27 @@ const ActionRail: React.FC<{
 }> = ({ post, onLike, onSave, onComment, onShare }) => (
   <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
     <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
-      <motion.span whileTap={{ scale: 0.8 }} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80')}>
+      <motion.span whileTap={PRESS} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80')}>
         <Heart size={30} strokeWidth={2.2} className={cn(post.liked && 'fill-rose-500')} />
       </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(post.likesCount)}</span>
     </button>
     <button type="button" onClick={onComment} className="flex flex-col items-center gap-1 group" aria-label="Comments">
-      <span className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80">
+      <motion.span whileTap={PRESS} className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80">
         <MessageCircle size={28} strokeWidth={2.2} />
-      </span>
+      </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(post.commentsCount)}</span>
     </button>
     <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label="Save">
-      <motion.span whileTap={{ scale: 0.8 }} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.saved ? 'text-amber-300' : 'text-white group-hover:text-white/80')}>
+      <motion.span whileTap={PRESS} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.saved ? 'text-amber-300' : 'text-white group-hover:text-white/80')}>
         <Bookmark size={28} strokeWidth={2.2} className={cn(post.saved && 'fill-amber-300')} />
       </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(post.savesCount)}</span>
     </button>
     <button type="button" onClick={onShare} className="flex flex-col items-center gap-1 group" aria-label="Share">
-      <span className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80">
+      <motion.span whileTap={PRESS} className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80">
         <Share2 size={26} strokeWidth={2.2} />
-      </span>
+      </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
     </button>
   </div>
@@ -660,20 +667,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
               )}
             </div>
 
-            <AnimatePresence initial={false}>
-              {infoOpen && hasCollapsibleContent && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  // The collapse toggle is the caption block itself, not
-                  // the whole lower slide.
-                  className="overflow-hidden pointer-events-auto cursor-pointer"
-                  onClick={() => setInfoOpen(false)}
-                  role="button"
-                  aria-label="Collapse details"
-                >
+            <Collapse open={!!(infoOpen && hasCollapsibleContent)}>
                   {captionForItem && (
                     <p className="text-white text-[15px] font-serif italic leading-snug mb-1 line-clamp-3 max-w-[78%]">
                       {captionForItem}
@@ -703,9 +697,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                       <RecipeCard item={item} onClick={() => onItemAttachmentClick(item)} />
                     )}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            </Collapse>
 
             {/* Collapsed state keeps a small explicit affordance — the old
                 expand-by-tapping-anywhere is gone (those taps pause now). */}
@@ -763,7 +755,7 @@ export const DesktopPostSideActions: React.FC<DesktopPostSideActionsProps> = ({ 
   return (
     <div className="flex flex-col items-center gap-4 select-none">
       <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
-        <motion.span whileTap={{ scale: 0.85 }} className={cn(
+        <motion.span whileTap={PRESS} className={cn(
           'w-12 h-12 rounded-full flex items-center justify-center transition-colors bg-on-surface/[0.06] group-hover:bg-on-surface/10',
           post.liked && 'text-rose-500 bg-rose-50 group-hover:bg-rose-100',
         )}>
@@ -782,7 +774,7 @@ export const DesktopPostSideActions: React.FC<DesktopPostSideActionsProps> = ({ 
         )}
       </button>
       <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label="Save">
-        <motion.span whileTap={{ scale: 0.85 }} className={cn(
+        <motion.span whileTap={PRESS} className={cn(
           'w-12 h-12 rounded-full flex items-center justify-center transition-colors bg-on-surface/[0.06] group-hover:bg-on-surface/10',
           post.saved && 'text-amber-600 bg-amber-50 group-hover:bg-amber-100',
         )}>

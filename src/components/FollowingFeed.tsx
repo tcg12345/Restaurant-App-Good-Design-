@@ -23,6 +23,7 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { HoursFilterSection } from './filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
+import { Collapse } from './Collapse';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -896,14 +897,7 @@ const FollowingFilterSheet: React.FC<{
                     />
                   </div>
                 </button>
-                <AnimatePresence>
-                  {peopleOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
+                <Collapse open={peopleOpen}>
                       <div className="relative mb-2">
                         <SearchIcon
                           size={13}
@@ -966,9 +960,7 @@ const FollowingFilterSheet: React.FC<{
                           </p>
                         )}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                </Collapse>
               </div>
 
               {/* Score range */}
@@ -1077,14 +1069,7 @@ const FollowingFilterSheet: React.FC<{
                     />
                   </div>
                 </button>
-                <AnimatePresence>
-                  {cuisineOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
+                <Collapse open={cuisineOpen}>
                       <div className="relative mb-2">
                         <SearchIcon
                           size={13}
@@ -1123,9 +1108,7 @@ const FollowingFilterSheet: React.FC<{
                           <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
                         )}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                </Collapse>
               </div>
 
               {/* City */}
@@ -1165,14 +1148,7 @@ const FollowingFilterSheet: React.FC<{
                     />
                   </div>
                 </button>
-                <AnimatePresence>
-                  {cityOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
+                <Collapse open={cityOpen}>
                       <div className="relative mb-2">
                         <SearchIcon
                           size={13}
@@ -1211,9 +1187,7 @@ const FollowingFilterSheet: React.FC<{
                           <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>
                         )}
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                </Collapse>
               </div>
             </div>
 

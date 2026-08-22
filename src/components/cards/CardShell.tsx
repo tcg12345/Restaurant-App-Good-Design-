@@ -26,10 +26,11 @@ export type CardSurface = 'boxed' | 'flat-row' | 'photo-tile' | 'bare';
 function surfaceClasses(surface: CardSurface, interactive: boolean): string {
   switch (surface) {
     case 'boxed':
-      return cn('card-surface', interactive && 'card-surface-hover');
+      return cn('card-surface', interactive && 'card-surface-hover card-surface-press');
     case 'flat-row':
       return interactive ? 'transition-colors active:bg-on-surface/[0.05]' : '';
     case 'photo-tile':
+      return interactive ? 'card-tile-press' : '';
     case 'bare':
     default:
       return '';

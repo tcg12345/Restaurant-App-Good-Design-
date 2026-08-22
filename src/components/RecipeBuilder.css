@@ -151,7 +151,7 @@
   padding: 14px 2px;
   text-align: left;
   border-bottom: 1px solid #ece8e1;
-  animation: rcxRowIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
   transition: background 0.12s ease;
 }
 
@@ -214,7 +214,7 @@
   background: #ffffff;
   border: 1px solid #e4dfd7;
   border-radius: 16px;
-  animation: rcxRowIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -380,7 +380,7 @@
 }
 
 .rcx-step-anim {
-  animation: rcxStepIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxStepIn 0.32s var(--ease-out-strong) both;
 }
 
 .rcx-stack { display: grid; gap: 28px; }
@@ -862,7 +862,7 @@
   position: relative;
   border-radius: 16px;
   overflow: hidden;
-  animation: rcxRowIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
 }
 
 .rcx-photo-preview img {
@@ -944,7 +944,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  animation: rcxRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
 }
 
 .rcx-ing-input {
@@ -1145,7 +1145,7 @@
   border: 1px solid var(--rcx-hairline);
   border-radius: 16px;
   padding: 14px 15px;
-  animation: rcxRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
 }
 
 .rcx-step-head {
@@ -1218,7 +1218,7 @@
   background: rgba(159, 48, 18, 0.08);
   border-radius: 999px;
   color: var(--rcx-accent);
-  animation: rcxPopIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxPopIn 0.3s var(--ease-out-strong) both;
 }
 
 .rcx-time-chip input {
@@ -1256,7 +1256,7 @@
   border-radius: 12px;
   padding: 10px 12px;
   margin-top: 10px;
-  animation: rcxRowIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
 }
 
 .rcx-tip-label {
@@ -1414,7 +1414,7 @@
 
 .rcx-more-chev {
   color: var(--rcx-faint);
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.25s var(--ease-out-strong);
 }
 
 .rcx-more-btn.is-open .rcx-more-chev { transform: rotate(90deg); }
@@ -1429,7 +1429,7 @@
   margin-top: 16px;
   display: grid;
   gap: 22px;
-  animation: rcxStepIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxStepIn 0.3s var(--ease-out-strong) both;
 }
 
 .rcx-note-card {
@@ -1939,7 +1939,7 @@
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--rcx-hairline-strong);
-  animation: rcxRowIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
 }
 
 .rcx-import-thumb img {
@@ -2122,7 +2122,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 10px;
-  animation: rcxPopIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxPopIn 0.5s var(--ease-out-strong) both;
 }
 
 .rcx-published-check {
@@ -2136,7 +2136,7 @@
   font-size: 27px;
   font-weight: 650;
   color: var(--rcx-ink);
-  animation: rcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.1s both;
 }
 
 .rcx-published-sub {
@@ -2144,7 +2144,7 @@
   line-height: 1.55;
   color: var(--rcx-secondary);
   max-width: 300px;
-  animation: rcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
+  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.18s both;
 }
 
 .rcx-published-actions {
@@ -2154,7 +2154,7 @@
   width: 100%;
   max-width: 300px;
   margin-top: 14px;
-  animation: rcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.26s both;
+  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.26s both;
 }
 
 .rcx-published-view {
@@ -2199,7 +2199,7 @@
   border-radius: 20px;
   padding: 22px 20px;
   box-shadow: 0 24px 64px rgba(29, 26, 22, 0.3);
-  animation: rcxPopIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rcxPopIn 0.35s var(--ease-out-strong) both;
 }
 
 .rcx-modal.is-wide { max-width: 440px; }
@@ -2296,5 +2296,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rcx *, .rcx { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* Reduced motion is not "no motion" — a change that simply teleports is
+     harder to follow, not easier. Movement goes; opacity and colour stay and
+     do the explaining. Transforms are deliberately NOT blanket-reset: this
+     sheet centres elements with translate, and `transform: none` would drop
+     them out of position. */
+  .rcx .rcx-card,
+  .rcx [class*="rcxStepIn"],
+  .rcx [class*="rcxRowIn"] {
+    animation: none;
+  }
+  .rcx *,
+  .rcx {
+    transition-property: opacity, color, background-color, border-color, box-shadow;
+    transition-duration: 0.16s;
+  }
 }

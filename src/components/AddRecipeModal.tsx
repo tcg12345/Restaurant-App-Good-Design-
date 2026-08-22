@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Image, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { parseIngredientLine, displayAmount } from '../lib/ingredient-parsing';
 import { processPhoto } from '../lib/images';
@@ -27,7 +27,7 @@ const RECIPE_TAGS = [
   'Budget Friendly', 'Under 30 Min', 'Healthy', 'Spicy', 'Kid Friendly',
 ];
 
-type Page = 'main' | 'ingredients' | 'steps' | 'photos' | 'tags';
+type Page = 'main' | 'ingredients' | 'steps' | 'photos';
 
 export const AddRecipeModal: React.FC = () => {
   const { addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, closeAddRecipeModal, addRecipe, updateRecipe, removeRecipe } = useLists();
@@ -46,7 +46,6 @@ export const AddRecipeModal: React.FC = () => {
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [steps, setSteps] = useState<string[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [score, setScore] = useState(7);
   const [isPrivate, setIsPrivate] = useState(false);
 
@@ -55,7 +54,6 @@ export const AddRecipeModal: React.FC = () => {
   const [newIngredientAmount, setNewIngredientAmount] = useState('');
   const [newIngredientUnit, setNewIngredientUnit] = useState('');
   const [newStep, setNewStep] = useState('');
-  const [tagSearch, setTagSearch] = useState('');
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
@@ -79,7 +77,6 @@ export const AddRecipeModal: React.FC = () => {
         setIngredients([...existing.ingredients]);
         setSteps([...existing.steps]);
         setPhotos([...existing.photos]);
-        setSelectedTags([...existing.tags]);
         setScore(existing.score);
         setIsPrivate(existing.isPrivate);
       } else {
@@ -94,7 +91,6 @@ export const AddRecipeModal: React.FC = () => {
         setIngredients([]);
         setSteps([]);
         setPhotos([]);
-        setSelectedTags([]);
         setScore(7);
         setIsPrivate(false);
       }
@@ -104,7 +100,6 @@ export const AddRecipeModal: React.FC = () => {
       setNewIngredientAmount('');
       setNewIngredientUnit('');
       setNewStep('');
-      setTagSearch('');
       setSelectedPhotoIdx(null);
     }
   }, [addRecipeModalOpen, existing]);
@@ -168,7 +163,6 @@ export const AddRecipeModal: React.FC = () => {
 
   const removeStep = (idx: number) => setSteps((prev) => prev.filter((_, i) => i !== idx));
 
-  const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
 
   const removePhoto = (idx: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
@@ -184,11 +178,6 @@ export const AddRecipeModal: React.FC = () => {
     });
   };
 
-  const filteredTags = useMemo(() => {
-    if (!tagSearch.trim()) return RECIPE_TAGS;
-    const q = tagSearch.toLowerCase();
-    return RECIPE_TAGS.filter((t) => t.toLowerCase().includes(q));
-  }, [tagSearch]);
 
   const handleSave = () => {
     if (!title.trim() || !addRecipeModalListId) return;
@@ -197,6 +186,9 @@ export const AddRecipeModal: React.FC = () => {
       title: title.trim(),
       description: description.trim(),
       coverPhoto,
+      // Tags are no longer authored here, but an edit must not wipe the ones
+      // an older recipe already carries.
+      tags: existing?.tags ?? [],
       prepTime,
       cookTime,
       servings,
@@ -205,7 +197,6 @@ export const AddRecipeModal: React.FC = () => {
       ingredients,
       steps,
       photos,
-      tags: selectedTags,
       score,
       isPrivate,
       createdAt: existing?.createdAt || Date.now(),
@@ -231,7 +222,6 @@ export const AddRecipeModal: React.FC = () => {
   const hasIngredients = ingredients.length > 0;
   const hasSteps = steps.length > 0;
   const hasPhotos = photos.length > 0;
-  const hasTags = selectedTags.length > 0;
 
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
   const coverInput = <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />;
@@ -394,7 +384,6 @@ export const AddRecipeModal: React.FC = () => {
                         <DetailBtn icon={<Hash size={17} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
                         <DetailBtn icon={<FileText size={17} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
                         <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={() => { if (photos.length === 0) fileInputRef.current?.click(); else setPage('photos'); }} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
                       </div>
                     </div>
 
@@ -617,45 +606,6 @@ export const AddRecipeModal: React.FC = () => {
                 </SubPage>
               )}
 
-              {/* ═══════════ TAGS ═══════════ */}
-              {page === 'tags' && (
-                <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
-                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
-                    <div className="relative">
-                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                      <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
-                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                    </div>
-                    {hasTags && (
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedTags.map((tag) => (
-                          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {tag}<button onClick={() => toggleTag(tag)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
-                    {filteredTags.map((tag) => {
-                      const sel = selectedTags.includes(tag);
-                      return (
-                        <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
-                          )}>
-                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
-                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                          )}>{sel && <Check size={12} strokeWidth={3} />}</div>
-                          <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
-                        </button>
-                      );
-                    })}
-                    {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match "{tagSearch}"</p>}
-                  </div>
-                  <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
-                </SubPage>
-              )}
             </AnimatePresence>
           </motion.div>
         </motion.div>

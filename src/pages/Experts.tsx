@@ -224,7 +224,7 @@ export const Experts: React.FC = () => {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -6, scale: 0.96 }}
                       transition={{ duration: 0.12 }}
-                      className="absolute top-full right-0 mt-1.5 w-48 bg-surface rounded-2xl shadow-lg border border-on-surface/[0.08] overflow-hidden z-20"
+                      className="absolute top-full right-0 origin-top-right mt-1.5 w-48 bg-surface rounded-2xl shadow-lg border border-on-surface/[0.08] overflow-hidden z-20"
                     >
                       {(Object.keys(SORT_LABELS) as ExpertSort[]).map((s) => (
                         <button

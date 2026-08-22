@@ -34,6 +34,7 @@ import { useSignInModal } from '../contexts/SignInModalContext';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { Collapse } from './Collapse';
 
 /**
  * Photo strip with built-in failure handling — when the image URL 404s or
@@ -1712,18 +1713,15 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                             )}
 
                             {/* Replies thread — indented under the parent */}
-                            <AnimatePresence>
-                              {!isReply && expanded && replies.length > 0 && (
-                                <motion.ul
-                                  initial={{ height: 0, opacity: 0 }}
-                                  animate={{ height: 'auto', opacity: 1 }}
-                                  exit={{ height: 0, opacity: 0 }}
-                                  className="overflow-hidden mt-3 space-y-3"
-                                >
-                                  {replies.map((reply) => renderCommentRow(reply, true))}
-                                </motion.ul>
-                              )}
-                            </AnimatePresence>
+                            {/* The <ul> stays a <ul> — Collapse's own wrapper is a
+                                div, and a div between a list and its items is
+                                invalid markup a screen reader will not read as a
+                                list. */}
+                            <Collapse open={!isReply && expanded && replies.length > 0} className="mt-3">
+                              <ul className="space-y-3">
+                                {replies.map((reply) => renderCommentRow(reply, true))}
+                              </ul>
+                            </Collapse>
                           </div>
                         </div>
                       </li>

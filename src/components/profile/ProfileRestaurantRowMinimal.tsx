@@ -5,6 +5,7 @@ import { SquarePen, ArrowRight, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { scoreHex } from '../../lib/score';
 import type { CommunityRating, CommunityPhoto } from '../../lib/supabase-community';
+import { Collapse } from '../Collapse';
 
 interface Props {
   rating: CommunityRating;
@@ -93,15 +94,7 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
         <RingScore score={score} size={compact ? 42 : 46} />
       </button>
 
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
+      <Collapse open={expanded}>
             <div className={cn(pad, compact ? 'pb-[18px]' : 'pb-7')}>
               {hasReview && (
                 <>
@@ -159,9 +152,7 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
                 </Link>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
     </div>
   );
 };

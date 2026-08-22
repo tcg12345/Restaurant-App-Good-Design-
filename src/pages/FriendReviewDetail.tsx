@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { supabase, supabaseConfigured } from '../lib/supabase';
+import { Collapse } from '../components/Collapse';
 import {
   getProfilesByIds, getCommunityPhotos, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments,
@@ -464,9 +465,7 @@ export const FriendReviewDetail: React.FC = () => {
             )}
 
             {/* Expanded thread + input */}
-            <AnimatePresence initial={false}>
-              {commentsOpen && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <Collapse open={commentsOpen}>
                   <div className="mt-3 border-t border-on-surface/[0.07] pt-4 px-1 space-y-3">
                     {commentsLoading ? (
                       <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
@@ -525,9 +524,7 @@ export const FriendReviewDetail: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            </Collapse>
           </section>
         </div>
       </div>

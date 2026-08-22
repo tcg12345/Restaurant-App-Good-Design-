@@ -114,6 +114,29 @@
   --color-tile-brick-deep: #82494b;
 }
 
+
+/* ── Motion ───────────────────────────────────────────────────────────
+   The curves the app already had, named once instead of retyped. The first
+   was hand-written 45 times across the stylesheets in three different
+   spellings (`0.22, 1, 0.36, 1`, `.22,1,.36,1`, and the unspaced form) —
+   45 chances for one to drift a digit with nobody the wiser.
+
+   Deliberately NOT inside `@theme`: Tailwind v4 prunes theme variables that
+   no generated utility references, and `--ease-drawer` duly vanished from
+   the build the moment it was only used from TSX. A plain `:root` block is
+   always emitted, so a curve is here whether CSS reaches for it today or a
+   component reaches for it tomorrow.
+
+   Named for the job, not the shape:
+     --ease-out-strong  things arriving and leaving. The default.
+     --ease-lens        the tighter one the newer glass chrome uses.
+     --ease-drawer      iOS's own sheet curve, for anything from an edge. */
+:root {
+  --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-lens: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* ── Dark mode overrides ──────────────────────────────────────────────
    Override the same custom properties so every `bg-surface`,
    `text-on-surface`, `border-on-surface`, etc. in the app picks up the
@@ -365,11 +388,11 @@
      web --kb-height stays 0, so these are no-ops. */
   .kb-pad {
     padding-bottom: var(--kb-height, 0px);
-    transition: padding-bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: padding-bottom 0.25s var(--ease-out-strong);
   }
   .kb-bottom {
     bottom: var(--kb-height, 0px);
-    transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: bottom 0.25s var(--ease-out-strong);
   }
 
   /* ── 44pt minimum tap target (Apple HIG) ──
@@ -523,10 +546,38 @@ html.kb-open body {
    live in one place — previously copy-pasted across Pantry's grid + list cards.
    `bg-paper` (not literal white) so the surface tracks dark mode. */
 .card-surface {
-  @apply rounded-2xl bg-paper border border-on-surface/[0.07] transition-all duration-200 overflow-hidden;
+  @apply rounded-2xl bg-paper border border-on-surface/[0.07] overflow-hidden;
+  /* Named rather than `all`: `all` also animates properties that have no
+     business easing, and it does it off the compositor. */
+  transition:
+    transform 150ms var(--ease-out-strong),
+    border-color 200ms var(--ease-out-strong),
+    box-shadow 200ms var(--ease-out-strong);
 }
 .card-surface-hover {
   @apply hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px;
+}
+
+/* The press.
+
+   `card-surface-hover` carried the entire feedback story for these cards, and
+   Tailwind v4 gates every `hover:` behind `@media (hover: hover)` — so on a
+   phone a boxed card had nothing at all to say it had been touched. The app
+   suppresses iOS's own tap highlight globally (see the `html` rule above) on
+   the stated promise that "the app's own active:* states are the press
+   feedback", and here there were none to keep it.
+
+   0.985 rather than the 0.97 a button gets: the scale you notice is a
+   proportion of the element, and these are the biggest tap targets on the
+   screen. */
+.card-surface-press:active {
+  transform: scale(0.985);
+}
+.card-tile-press {
+  transition: transform 150ms var(--ease-out-strong);
+}
+.card-tile-press:active {
+  transform: scale(0.985);
 }
 
 .glass {

@@ -411,6 +411,10 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                         label: seg["label"] as? String ?? ""
                     )
                 }
+                // Older web bundles inside the same shell don't send a kind;
+                // fall back to the guess they were written against.
+                let kind = (entry["kind"] as? String).flatMap(GlassGroupKind.init(rawValue:))
+                    ?? (segments.contains(where: \.active) ? .selector : .actions)
                 return GlassButtonSpec(
                     id: id,
                     frame: CGRect(x: x, y: y, width: w, height: h),
@@ -421,7 +425,8 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                     badge: badge,
                     badgeTone: entry["badgeTone"] as? String ?? "primary",
                     label: entry["label"] as? String ?? "",
-                    segments: segments
+                    segments: segments,
+                    kind: kind
                 )
             }
             self.buttonLayer.setHost(self.bridge?.viewController?.view)
@@ -890,7 +895,11 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
             return
         }
         bar.isUserInteractionEnabled = false
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseIn]) {
+        // Ease *out*, not in. An ease-in starts slow, which spends the first
+        // frames of a dismissal — the exact moment being watched — barely
+        // moving. Leaving fast and settling is what reads as responsive, and
+        // it is the same rule the entrances follow.
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
             bar.alpha = 0
             bar.transform = Self.offscreen(bar)
         } completion: { _ in
@@ -1142,6 +1151,24 @@ struct GlassSegmentSpec {
     let label: String
 }
 
+/// What a group of segments *is*.
+///
+/// Sent by the page rather than inferred from whether some segment is active,
+/// because the inference is wrong in the one case that matters: a selector
+/// with nothing selected is still a selector, and would otherwise flip to the
+/// other kind — rebuilding the view under the user's finger. The two kinds
+/// want opposite touch handling, so the guess is not cosmetic.
+enum GlassGroupKind: String {
+    /// Independent actions sharing one piece of glass — Messages + Circle,
+    /// Save + Share. Each region is pressed on its own. See
+    /// `GlassActionGroupView`.
+    case actions
+    /// One control with a chosen region — the Lists page's Restaurants |
+    /// Recipes. The selection is dragged along the bar. See
+    /// `GlassSelectorBarView`.
+    case selector
+}
+
 struct GlassButtonSpec {
     let id: String
     let frame: CGRect
@@ -1154,55 +1181,244 @@ struct GlassButtonSpec {
     let badge: String?
     let badgeTone: String
     let label: String
-    /// Non-empty makes this a *group*: one piece of glass with these regions
-    /// laid across it, rather than one button. See `GlassGroupView`.
+    /// Non-empty makes this a *group*: several regions sharing one piece of
+    /// glass, rather than one button.
     let segments: [GlassSegmentSpec]
+    /// Which kind of group, when there are segments. Meaningless without them.
+    let kind: GlassGroupKind
 }
 
-/// Several actions sharing one capsule of glass — the header's Messages and
-/// Circle pair.
+/// The Lists page's Restaurants | Recipes selector.
 ///
-/// Drawn as one `UIGlassEffect` surface with plain buttons inside its
-/// `contentView`, rather than as N glass buttons sitting side by side. That is
-/// the same rule the tab bar's lens taught and that `GlassSurface` enforces on
-/// the web side: one floating layer of glass, never a row of them. Two
-/// touching capsules also read as two objects; one capsule with two regions
-/// reads as a single control, which is what it is.
+/// A real `UITabBar` with two items — the same answer the app's navbar
+/// arrived at, for the same reason. The lens, the way it magnifies what it is
+/// over, the drag that carries it between segments and the fluid morph on the
+/// way are all the system's, and none of them can be reached from public API
+/// any other way: the lens is a clear-glass view with a live portal onto a
+/// second, selected-styled copy of the row, masked out of the row beneath it.
+/// What this replaced was a flat pill sliding under static labels — an
+/// impression of that, with none of it.
 ///
-/// The buttons go *inside* `contentView`, which is where Apple says subviews
-/// of a visual effect view go — and, unlike the sibling-overlay arrangement
-/// that swallowed every tap in the first pass, hit-testing resolves to them
-/// because they are genuinely on top of the material rather than under it.
-final class GlassGroupView: UIView {
-    private let glass = UIVisualEffectView(effect: GlassGroupView.makeEffect())
+/// The one thing this class does is *place* it. A tab bar does not fill the
+/// frame it is given: it seats a platter inside it, inset from the sides and
+/// lifted off the bottom the way it would sit above a home indicator. So the
+/// bar is handed a frame around the box the page measured, then trued up —
+/// the platter's real rect is read back after layout and the bar shifted by
+/// whatever is left over. Measuring beats hard-coding 21pt, which is only
+/// today's number on today's device.
+final class GlassSelectorBarView: UIView, UITabBarDelegate {
+    /// Matches the fallback's `text-[13.5px] font-bold`, so the two layouts
+    /// agree — and it is the only lever on how far the lens's magnification
+    /// actually travels. The bar scales what it is over by a fixed ~1.23×
+    /// (measured at 14pt and at 18pt: same ratio both times), which is
+    /// Apple's number and not settable. Bigger type does not magnify by more
+    /// *proportionally*; it just moves further doing it.
+    private static let titleFont = UIFont.systemFont(ofSize: 13.5, weight: .semibold)
+
+    /// A word drawn as a template image, so the bar tints it — selected,
+    /// unselected and under the lens — exactly as it tints a glyph.
+    private static func wordImage(_ text: String) -> UIImage? {
+        guard !text.isEmpty else { return nil }
+        let attributes: [NSAttributedString.Key: Any] = [.font: titleFont]
+        let measured = (text as NSString).size(withAttributes: attributes)
+        let size = CGSize(width: ceil(measured.width), height: ceil(measured.height))
+        guard size.width > 0, size.height > 0 else { return nil }
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            (text as NSString).draw(at: .zero, withAttributes: attributes)
+        }
+        return image.withRenderingMode(.alwaysTemplate)
+    }
+
+    private let bar = UITabBar()
+    private var ids: [String] = []
+    private var titles: [String] = []
+    /// Where the bar has to sit for its platter to land on the page's box.
+    /// Derived from a real layout pass rather than hard-coded, then reused —
+    /// it does not change while the app runs, and re-deriving every layout
+    /// would mean laying the bar out twice a frame.
+    private var seat: Seat?
+    private struct Seat { var top: CGFloat; var left: CGFloat; var bottom: CGFloat; var right: CGFloat }
+    /// UIKit echoes a selection back through the delegate when we write one.
+    private var programmaticDepth = 0
+
+    var onTap: ((String) -> Void)?
+
+    /// The bar animates its own lens and we never write a transform on it, so
+    /// there is no window where a pushed frame would land badly.
+    var isLiquidActive: Bool { false }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        bar.delegate = self
+        // The glyph colour on the platter. The lens magnifies what is under
+        // it rather than recolouring it, so this is the selected label's
+        // colour too.
+        bar.tintColor = .label
+        bar.unselectedItemTintColor = UIColor.label.withAlphaComponent(0.5)
+        // The platter is what you see; the bar around it is only a frame to
+        // hang it in, and it reaches outside this view's box.
+        clipsToBounds = false
+        addSubview(bar)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The platter — the capsule you actually see. Found by shape rather than
+    /// by class name: it is the biggest subview that isn't the bar's own box.
+    private var platterView: UIView? {
+        bar.subviews
+            .filter { $0.frame.width > 1 && $0.frame.height > 1 && !bar.bounds.equalTo($0.frame) }
+            .max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        if let seat {
+            bar.frame = barFrame(for: seat)
+            return
+        }
+        // Solved, not assumed. The platter is inset inside the bar by numbers
+        // that are not ours, so each pass lays the bar out for real, reads
+        // where the platter actually landed, and folds the error back into
+        // the insets. 21pt a side is only the opening guess — the navbar's
+        // number, which is not this bar's.
+        //
+        // The box is what decides how tight the control is: squeezing the bar
+        // squeezes the platter, which is how the padding around the words
+        // comes off. There is a floor — pushed far enough under what the lens
+        // needs, its corner radius no longer fits its height and it stops
+        // being a capsule, rendering as a leaf: two arcs meeting in a point.
+        // The centring pass below is what keeps that honest, by taking
+        // whatever size it actually settled at.
+        var solved = Seat(top: 21, left: 21, bottom: 21, right: 21)
+        for _ in 0..<3 {
+            bar.frame = barFrame(for: solved)
+            bar.layoutIfNeeded()
+            guard let rect = platterRect else { return }
+            solved.top += rect.minY - bounds.minY
+            solved.left += rect.minX - bounds.minX
+            solved.bottom += bounds.maxY - rect.maxY
+            solved.right += bounds.maxX - rect.maxX
+        }
+        // Whatever size it settled at, centre *that* on the box — the same
+        // bargain `GlassButtonLayer.fit` strikes for a pill: the page keeps
+        // the position, the control keeps its size.
+        bar.frame = barFrame(for: solved)
+        bar.layoutIfNeeded()
+        if let rect = platterRect {
+            let dx = bounds.midX - rect.midX
+            let dy = bounds.midY - rect.midY
+            solved.left -= dx
+            solved.right += dx
+            solved.top -= dy
+            solved.bottom += dy
+        }
+        seat = solved
+        bar.frame = barFrame(for: solved)
+    }
+
+    private var platterRect: CGRect? {
+        guard let platter = platterView else { return nil }
+        return platter.convert(platter.bounds, to: self)
+    }
+
+    private func barFrame(for seat: Seat) -> CGRect {
+        CGRect(
+            x: bounds.minX - seat.left,
+            y: bounds.minY - seat.top,
+            width: bounds.width + seat.left + seat.right,
+            height: bounds.height + seat.top + seat.bottom
+        )
+    }
+
+    func apply(_ spec: GlassButtonSpec) {
+        let incomingIds = spec.segments.map(\.id)
+        let incomingTitles = spec.segments.map(\.title)
+        if incomingIds != ids || incomingTitles != titles {
+            ids = incomingIds
+            titles = incomingTitles
+            bar.items = spec.segments.enumerated().map { index, segment in
+                // The word *is* the image, and the item has no title.
+                //
+                // A tab bar stacks title under image and keeps the room for an
+                // image whether or not there is one, so a title-only item is a
+                // label sitting low in a band of nothing — and
+                // `titlePositionAdjustment`, the knob for exactly that, is
+                // ignored by the iOS 26 bar. Handing the word in as the image
+                // sidesteps the whole argument: an item with an image and no
+                // title centres it, the lens magnifies it the way it magnifies
+                // any icon, and the type is the page's rather than the bar's.
+                // The navbar already draws its own tab images this way.
+                let item = UITabBarItem(title: nil, image: Self.wordImage(segment.title), tag: index)
+                item.accessibilityLabel = segment.label
+                return item
+            }
+            // Item widths changed, so the platter did too.
+            seat = nil
+            setNeedsLayout()
+        }
+        guard let items = bar.items else { return }
+        let active = spec.segments.firstIndex(where: { $0.active }) ?? 0
+        guard active < items.count, bar.selectedItem !== items[active] else { return }
+        // Writing the selection makes UIKit call the delegate back as if a
+        // finger had done it; without the guard, the page's own state would
+        // arrive here and bounce straight back out as a tap.
+        programmaticDepth += 1
+        bar.selectedItem = items[active]
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.programmaticDepth = max(0, self.programmaticDepth - 1)
+        }
+    }
+
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        guard programmaticDepth == 0, item.tag >= 0, item.tag < ids.count else { return }
+        onTap?(ids[item.tag])
+    }
+}
+
+/// Several independent actions sharing one capsule of glass — Discover's
+/// Messages and Circle, the restaurant page's Save and Share.
+///
+/// One `UIGlassEffect` surface with the regions laid across its
+/// `contentView`, rather than a row of separate glass circles: that is the
+/// rule the tab bar's lens taught and that `GlassSurface` enforces on the web
+/// side — one floating layer of glass, never a row of them.
+///
+/// The material is *interactive*, and that single flag is the whole
+/// behaviour. Press it and the system inflates and brightens the capsule
+/// under the finger, leans it as the finger moves, and settles it on release
+/// — the same physics every other Liquid Glass control has, none of it
+/// written here. It was off, on the reasoning that a surface is not a control
+/// and lighting the whole slab for a touch anywhere on it was the tab bar's
+/// bug. That reasoning does not survive contact with the system's own
+/// controls: a two-button capsule *is* one control, and Apple lights the
+/// whole of it. On the bar — five destinations across the screen's width —
+/// it was still wrong, which is why the bar keeps its `false`.
+///
+/// The regions keep their own touch handling — unlike the selector's, which
+/// give theirs up so the selection can be dragged — because here the two
+/// destinations are separate and a tap has to land on the one it was aimed
+/// at. The material sees the touch anyway and responds around them.
+final class GlassActionGroupView: UIView {
+    private let glass = UIVisualEffectView(effect: GlassActionGroupView.makeEffect())
     private var buttons: [UIButton] = []
     private var badges: [BadgeLabel] = []
     private var ids: [String] = []
-    /// The flat selection pill behind the active segment — see
-    /// `GlassSegmentSpec.active`. Created lazily; a group of plain icon
-    /// actions never has one.
-    private var selection: UIView?
-    private var activeIndex: Int?
-    /// A selector (the Lists page's Restaurants | Recipes) rather than a row
-    /// of independent actions. Selectors are dragged; action rows are tapped.
-    private var isSelector = false
-    private var drag: UILongPressGestureRecognizer?
-    private var dragIndex: Int?
-    private var dragOrigin: CGPoint = .zero
-    private var hasDragged = false
-    private var lastHighlight: Int?
 
     var onTap: ((String) -> Void)?
-    /// True only mid-drag, so the layer leaves the geometry alone while the
-    /// finger is on it.
-    var isLiquidActive: Bool { dragIndex != nil }
+
+    /// True while a finger is on one of the regions. The layer pushes a
+    /// measured frame on every sample; one that lands mid-press writes a frame
+    /// under the live press transform, which is undefined — and the settle
+    /// would then return the capsule to the wrong home.
+    var isLiquidActive: Bool { buttons.contains { $0.isTracking || $0.isHighlighted } }
 
     private static func makeEffect() -> UIVisualEffect {
         if #available(iOS 26.0, *) {
             let effect = UIGlassEffect()
-            // The capsule is a surface, not a control — a press anywhere on it
-            // lighting the whole thing is the bug the tab bar had.
-            effect.isInteractive = false
+            effect.isInteractive = true
             return effect
         }
         return UIBlurEffect(style: .systemChromeMaterial)
@@ -1212,6 +1428,8 @@ final class GlassGroupView: UIView {
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = false
         if #available(iOS 26.0, *) {
+            // The press swells the capsule past its own bounds; clipping would
+            // shear the very animation this exists for.
             glass.clipsToBounds = false
             glass.cornerConfiguration = .capsule()
         } else {
@@ -1224,91 +1442,9 @@ final class GlassGroupView: UIView {
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
             glass.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        // Installed lazily in `apply`, and only for selectors — see `handleDrag`.
-        let drag = UILongPressGestureRecognizer(target: self, action: #selector(handleDrag(_:)))
-        drag.minimumPressDuration = 0
-        drag.isEnabled = false
-        addGestureRecognizer(drag)
-        self.drag = drag
-    }
-
-    /// Drag the selection along the bar, the way the tab bar's lens is dragged.
-    ///
-    /// Only selectors get this. A row of independent actions (Messages and
-    /// Circle sharing a capsule) is two separate destinations, so dragging
-    /// between them would mean nothing; there, the buttons keep their own
-    /// touch handling and the material presses the way every other glass
-    /// button does.
-    @objc private func handleDrag(_ gesture: UILongPressGestureRecognizer) {
-        guard isSelector, !buttons.isEmpty else { return }
-        let point = gesture.location(in: self)
-        let width = bounds.width / CGFloat(buttons.count)
-        let index = max(0, min(buttons.count - 1, Int(point.x / width)))
-        switch gesture.state {
-        case .began:
-            // Nothing moves on touch-down. A tap is a tap; the pill only
-            // starts following once the finger has actually travelled.
-            dragOrigin = point
-            hasDragged = false
-        case .changed:
-            if !hasDragged {
-                guard abs(point.x - dragOrigin.x) > 8 else { break }
-                hasDragged = true
-                dragIndex = index
-            }
-            dragIndex = index
-            movePill(toward: point.x, animated: false)
-            if index != lastHighlight {
-                lastHighlight = index
-                highlight(index: index)
-            }
-        case .ended, .cancelled, .failed:
-            let wasDrag = hasDragged
-            dragIndex = nil
-            hasDragged = false
-            lastHighlight = nil
-            guard gesture.state == .ended, index < ids.count else {
-                if let activeIndex { setSelection(index: activeIndex, animated: true) }
-                return
-            }
-            // A drag settles where the finger is; a plain tap commits the
-            // region it landed in. Same outcome, different travel.
-            setSelection(index: index, animated: true)
-            highlight(index: index)
-            if wasDrag || index != activeIndex { onTap?(ids[index]) }
-        default:
-            break
-        }
-    }
-
-    /// Centre the pill on `x`, clamped so it never leaves the capsule.
-    private func movePill(toward x: CGFloat, animated: Bool) {
-        guard let pill = selection, !buttons.isEmpty else { return }
-        let width = bounds.width / CGFloat(buttons.count)
-        let half = width / 2
-        let clamped = max(half, min(bounds.width - half, x))
-        var frame = pill.frame
-        frame.origin.x = clamped - frame.width / 2
-        guard animated, !glassReduceMotion else {
-            pill.frame = frame
-            return
-        }
-        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            pill.frame = frame
-        }
-    }
-
-    /// Light the label under the pill while it is being dragged, so the
-    /// selection reads as continuous rather than snapping at the end.
-    private func highlight(index: Int) {
-        for (i, button) in buttons.enumerated() {
-            guard let title = button.attributedTitle(for: .normal), title.length > 0 else { continue }
-            let text = title.string
-            button.setAttributedTitle(NSAttributedString(string: text, attributes: [
-                .font: UIFont.systemFont(ofSize: 13.5, weight: i == index ? .semibold : .medium),
-                .foregroundColor: i == index ? UIColor.label : UIColor.label.withAlphaComponent(0.5),
-            ]), for: .normal)
-        }
+        // The capsule grows outside its box while pressed, so the box must not
+        // be what decides where a touch counts.
+        clipsToBounds = false
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -1318,21 +1454,13 @@ final class GlassGroupView: UIView {
         if #available(iOS 26.0, *) {} else {
             glass.layer.cornerRadius = min(bounds.width, bounds.height) / 2
         }
+        // A layout can run on any frame; one that runs mid-press moves the
+        // regions out from under the material that is animating around them.
+        guard !isLiquidActive else { return }
         // Equal regions across the capsule. The page lays its own fallback out
         // the same way, so the glyphs land where the invisible buttons are.
         let count = max(1, buttons.count)
         let width = bounds.width / CGFloat(count)
-        if let activeIndex, selection?.isHidden == false, dragIndex == nil {
-            // Layout passes must not fight the spring mid-flight, and must not
-            // touch the pill at all while a finger is dragging it: a layout can
-            // run on any frame, and this snapped the pill back to the selected
-            // region between every drag update — which is the pill "moving in
-            // weird ways" rather than following the finger.
-            if selection?.layer.animationKeys()?.isEmpty ?? true {
-                selection?.frame = selectionFrame(for: activeIndex)
-                selection?.layer.cornerRadius = selectionFrame(for: activeIndex).height / 2
-            }
-        }
         for (index, button) in buttons.enumerated() {
             button.frame = CGRect(x: width * CGFloat(index), y: 0, width: width, height: bounds.height)
             if index < badges.count {
@@ -1362,9 +1490,21 @@ final class GlassGroupView: UIView {
             badges = []
             ids = incoming
             for segment in spec.segments {
-                let button = UIButton(type: .system)
+                // `.custom`, not `.system`: a system button washes its glyph
+                // out for as long as the touch lasts, and here the touch lasts
+                // as long as the finger is down. Held, that reads as disabled
+                // rather than pressed — and it is redundant besides, because
+                // the material is already answering the press. The system's
+                // own glass controls keep their glyph at full strength while
+                // the glass moves around it.
+                let button = UIButton(type: .custom)
                 button.accessibilityLabel = segment.label
                 button.addTarget(self, action: #selector(handleSegmentTap(_:)), for: .touchUpInside)
+                // Inside `contentView`, which is where subviews of a visual
+                // effect view go — and where hit-testing resolves to them,
+                // because they are genuinely on top of the material rather
+                // than under it. The material still sees the touch and
+                // responds around them.
                 glass.contentView.addSubview(button)
                 buttons.append(button)
 
@@ -1382,25 +1522,14 @@ final class GlassGroupView: UIView {
         }
         let point = max(15, min(22, spec.frame.height * 0.44))
         let config = UIImage.SymbolConfiguration(pointSize: point, weight: .regular)
-        let newActive = spec.segments.firstIndex(where: { $0.active })
-        // A group with a selected region is a selector: the gesture owns the
-        // touches so the pill can be dragged. Everything else is a row of
-        // independent buttons that keep their own.
-        isSelector = newActive != nil
-        drag?.isEnabled = isSelector
-        buttons.forEach { $0.isUserInteractionEnabled = !isSelector }
         for (index, segment) in spec.segments.enumerated() where index < buttons.count {
             let button = buttons[index]
-            if segment.title.isEmpty {
-                button.setImage(UIImage(systemName: segment.symbol, withConfiguration: config), for: .normal)
-                button.setAttributedTitle(nil, for: .normal)
-            } else {
-                button.setImage(nil, for: .normal)
-                button.setAttributedTitle(NSAttributedString(string: segment.title, attributes: [
-                    .font: UIFont.systemFont(ofSize: 13.5, weight: segment.active ? .semibold : .medium),
-                    .foregroundColor: segment.active ? segment.tint : UIColor.label.withAlphaComponent(0.5),
-                ]), for: .normal)
-            }
+            // Template explicitly: a `.custom` button leaves an `.automatic`
+            // image alone, and a bookmark that ignores its tint is the saved
+            // state failing to show.
+            let image = UIImage(systemName: segment.symbol, withConfiguration: config)?
+                .withRenderingMode(.alwaysTemplate)
+            button.setImage(image, for: .normal)
             button.tintColor = segment.tint
             let badge = badges[index]
             if let text = segment.badge, !text.isEmpty {
@@ -1412,61 +1541,13 @@ final class GlassGroupView: UIView {
                 badge.isHidden = true
             }
         }
-        setSelection(index: newActive, animated: activeIndex != nil && newActive != activeIndex)
         setNeedsLayout()
     }
 
     @objc private func handleSegmentTap(_ sender: UIButton) {
-        guard let index = buttons.firstIndex(of: sender), index < ids.count else { return }
+        guard let index = buttons.firstIndex(where: { $0 === sender }), index < ids.count else { return }
         onTap?(ids[index])
     }
-
-    /// The moving selection pill. A flat fill sliding between regions, with
-    /// the system's tab-bar reasoning: the capsule is the one piece of glass,
-    /// the marker on it hides what is behind it rather than lensing it twice.
-    private func setSelection(index: Int?, animated: Bool) {
-        activeIndex = index
-        guard let index, index < buttons.count else {
-            selection?.isHidden = true
-            return
-        }
-        let pill: UIView
-        if let existing = selection {
-            pill = existing
-        } else {
-            let view = UIView()
-            view.isUserInteractionEnabled = false
-            view.backgroundColor = UIColor { traits in
-                traits.userInterfaceStyle == .dark
-                    ? UIColor.white.withAlphaComponent(0.16)
-                    : UIColor.white.withAlphaComponent(0.88)
-            }
-            view.layer.cornerCurve = .continuous
-            // Under the labels, above the material.
-            glass.contentView.insertSubview(view, at: 0)
-            selection = view
-            pill = view
-        }
-        pill.isHidden = false
-        let target = selectionFrame(for: index)
-        pill.layer.cornerRadius = target.height / 2
-        guard animated, !glassReduceMotion else {
-            pill.frame = target
-            return
-        }
-        UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8,
-                       initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            pill.frame = target
-        }
-    }
-
-    private func selectionFrame(for index: Int) -> CGRect {
-        let count = max(1, buttons.count)
-        let width = bounds.width / CGFloat(count)
-        return CGRect(x: width * CGFloat(index), y: 0, width: width, height: bounds.height)
-            .insetBy(dx: 3, dy: 3)
-    }
-
 }
 
 final class GlassButtonView: UIButton {
@@ -1633,12 +1714,25 @@ final class GlassButtonLayer {
     /// page can turn a pair into a group and back without the layer caring.
     private enum Chrome {
         case button(GlassButtonView)
-        case group(GlassGroupView)
+        case actions(GlassActionGroupView)
+        case selector(GlassSelectorBarView)
 
         var view: UIView {
             switch self {
             case .button(let v): return v
-            case .group(let v): return v
+            case .actions(let v): return v
+            case .selector(let v): return v
+            }
+        }
+
+        /// Whether this view is still the right *kind* for the spec. A pair
+        /// that collapses to a single button when Circle hides on its own
+        /// page has to be rebuilt, not reused.
+        func fits(_ spec: GlassButtonSpec) -> Bool {
+            switch self {
+            case .button: return spec.segments.isEmpty
+            case .actions: return !spec.segments.isEmpty && spec.kind == .actions
+            case .selector: return !spec.segments.isEmpty && spec.kind == .selector
             }
         }
     }
@@ -1659,27 +1753,25 @@ final class GlassButtonLayer {
         var live = Set<String>()
         for spec in specs {
             live.insert(spec.id)
-            let wantsGroup = !spec.segments.isEmpty
-            // A spec that changed kind (a pair collapsing to a single button
-            // when Circle hides on its own page) has to be rebuilt, not reused.
-            if let existing = views[spec.id] {
-                switch (existing, wantsGroup) {
-                case (.button, true), (.group, false):
-                    existing.view.removeFromSuperview()
-                    views.removeValue(forKey: spec.id)
-                default:
-                    break
-                }
+            if let existing = views[spec.id], !existing.fits(spec) {
+                existing.view.removeFromSuperview()
+                views.removeValue(forKey: spec.id)
             }
             let chrome: Chrome
             if let existing = views[spec.id] {
                 chrome = existing
-            } else if wantsGroup {
-                let view = GlassGroupView(frame: spec.frame)
+            } else if !spec.segments.isEmpty, spec.kind == .actions {
+                let view = GlassActionGroupView(frame: spec.frame)
                 view.onTap = { [weak self] id in self?.onTap?(id) }
-                views[spec.id] = .group(view)
+                views[spec.id] = .actions(view)
                 host.addSubview(view)
-                chrome = .group(view)
+                chrome = .actions(view)
+            } else if !spec.segments.isEmpty {
+                let view = GlassSelectorBarView(frame: spec.frame)
+                view.onTap = { [weak self] id in self?.onTap?(id) }
+                views[spec.id] = .selector(view)
+                host.addSubview(view)
+                chrome = .selector(view)
             } else {
                 let view = GlassButtonView()
                 view.frame = spec.frame
@@ -1705,7 +1797,10 @@ final class GlassButtonLayer {
             case .button(let button):
                 button.frame = Self.fit(spec, in: host, view: button)
                 button.apply(spec)
-            case .group(let group):
+            case .actions(let group):
+                if !group.isLiquidActive { group.frame = spec.frame }
+                group.apply(spec)
+            case .selector(let group):
                 if !group.isLiquidActive { group.frame = spec.frame }
                 group.apply(spec)
             }

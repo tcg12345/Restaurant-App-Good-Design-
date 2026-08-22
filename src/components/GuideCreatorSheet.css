@@ -147,7 +147,7 @@
   height: 100%;
   background: var(--gcx-accent);
   border-radius: 999px;
-  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 0.45s var(--ease-out-strong);
 }
 
 /* ── Body ───────────────────────────────────────────────────────── */
@@ -374,7 +374,7 @@
 
 .gcx-more-chev {
   color: var(--gcx-faint);
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.2s var(--ease-out-strong);
 }
 
 .gcx-more-btn.is-open .gcx-more-chev { transform: rotate(90deg); }
@@ -393,7 +393,7 @@
   border-radius: 14px;
   display: grid;
   gap: 20px;
-  animation: gcxStepIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxStepIn 0.3s var(--ease-out-strong) both;
 }
 
 /* ── City autocomplete ──────────────────────────────────────────── */
@@ -510,7 +510,7 @@
   padding: 13px 2px;
   text-align: left;
   border-bottom: 1px solid var(--gcx-hairline);
-  animation: gcxRowIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxRowIn 0.26s var(--ease-out-strong) both;
   transition: background 0.12s ease;
 }
 
@@ -598,7 +598,7 @@
   border: 1px solid var(--gcx-hairline-strong);
   border-radius: 14px;
   margin-bottom: 10px;
-  animation: gcxRowIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxRowIn 0.26s var(--ease-out-strong) both;
   transition: border-color 0.18s ease;
 }
 
@@ -763,7 +763,7 @@
   border-radius: 999px;
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(29, 26, 22, 0.25);
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.2s var(--ease-out-strong);
 }
 
 .gcx-switch.is-on .gcx-switch-knob { transform: translateX(18px); }
@@ -776,7 +776,7 @@
   background: var(--gcx-card);
   border: 1px solid var(--gcx-hairline-strong);
   border-radius: 14px;
-  animation: gcxRowIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxRowIn 0.26s var(--ease-out-strong) both;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -886,7 +886,7 @@
   padding: 16px 14px;
   display: grid;
   gap: 18px;
-  animation: gcxStepIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxStepIn 0.26s var(--ease-out-strong) both;
 }
 
 .gcx-expand-grid {
@@ -1037,7 +1037,7 @@
   /* Ride above the native keyboard — the body already pads its scroll area
      by --kb-height, but the CTA footer itself was left behind the keys. */
   bottom: var(--kb-height, 0px);
-  transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: bottom 0.25s var(--ease-out-strong);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1118,7 +1118,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 10px;
-  animation: gcxPop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: gcxPop 0.45s var(--ease-out-strong) both;
 }
 
 .gcx-published-check {
@@ -1132,7 +1132,7 @@
   font-size: 27px;
   font-weight: 650;
   color: var(--gcx-ink);
-  animation: gcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+  animation: gcxStepIn 0.4s var(--ease-out-strong) 0.1s both;
 }
 
 .gcx-published-sub {
@@ -1140,7 +1140,7 @@
   line-height: 1.55;
   color: var(--gcx-secondary);
   max-width: 300px;
-  animation: gcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
+  animation: gcxStepIn 0.4s var(--ease-out-strong) 0.18s both;
 }
 
 .gcx-published-actions {
@@ -1150,7 +1150,7 @@
   width: 100%;
   max-width: 300px;
   margin-top: 14px;
-  animation: gcxStepIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.26s both;
+  animation: gcxStepIn 0.4s var(--ease-out-strong) 0.26s both;
 }
 
 .gcx-published-view {
@@ -1202,7 +1202,21 @@
 .gcx-row:nth-child(6), .gcx-card:nth-child(6), .gcx-list-card:nth-child(6) { animation-delay: 0.17s; }
 
 @media (prefers-reduced-motion: reduce) {
-  .gcx *, .gcx { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* Reduced motion is not "no motion" — a change that simply teleports is
+     harder to follow, not easier. Movement goes; opacity and colour stay and
+     do the explaining. Transforms are deliberately NOT blanket-reset: this
+     sheet centres elements with translate, and `transform: none` would drop
+     them out of position. */
+  .gcx .gcx-card,
+  .gcx [class*="gcxStepIn"],
+  .gcx [class*="gcxRowIn"] {
+    animation: none;
+  }
+  .gcx *,
+  .gcx {
+    transition-property: opacity, color, background-color, border-color, box-shadow;
+    transition-duration: 0.16s;
+  }
 }
 
 /* ── Entry detail page (phone) ──────────────────────────────────────
@@ -1395,7 +1409,7 @@
   /* Same keyboard lift as .gcx-foot — the entry-detail "Done" button sat
      under the keys while editing author notes / scores. */
   bottom: var(--kb-height, 0px);
-  transition: bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: bottom 0.25s var(--ease-out-strong);
   padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(to top, var(--gcx-bg) 62%, rgba(250, 249, 247, 0));
   pointer-events: none;

@@ -41,6 +41,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { Collapse } from '../components/Collapse';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
  *  old "Search this list" pill that hijacked the (since removed) global
@@ -1250,7 +1251,7 @@ const RestaurantGridCard: React.FC<{
                           exit={{ opacity: 0, y: -4, scale: 0.98 }}
                           transition={{ duration: 0.12, ease: 'easeOut' }}
                           role="menu"
-                          className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
+                          className="absolute bottom-full right-0 origin-bottom-right z-30 mb-1.5 min-w-[140px] overflow-hidden rounded-xl border border-on-surface/[0.08] bg-white py-1 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)]"
                         >
                           <button
                             role="menuitem"
@@ -2073,9 +2074,7 @@ const ListDetailView: React.FC<{
       )}
 
       {/* Delete list confirmation */}
-      <AnimatePresence>
-        {confirmDeleteList && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
+      <Collapse open={confirmDeleteList} className="mb-3">
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-3">
               <p className="text-xs text-red-600 font-medium">Delete "{list.name}" list?</p>
               <div className="flex gap-2 flex-shrink-0">
@@ -2083,9 +2082,7 @@ const ListDetailView: React.FC<{
                 <button onClick={() => { deleteList(list.id); onBack(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
 
       {/* ── Phone-only filter pill row ─────────────────────────────────
           Same chrome as the All Rated phone view: Filters / City /
@@ -5310,7 +5307,7 @@ const AnchoredPopover: React.FC<{
           exit={{ opacity: 0, scale: 0.97, y: -4 }}
           transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
           className={cn(
-            'absolute top-full left-0 mt-2 z-50 bg-surface rounded-2xl',
+            'absolute top-full left-0 origin-top-left mt-2 z-50 bg-surface rounded-2xl',
             'shadow-[0_18px_48px_-12px_rgba(0,0,0,0.22)] ring-1 ring-on-surface/[0.06]',
             'overflow-hidden',
             width,
@@ -6120,7 +6117,7 @@ export const Pantry: React.FC = () => {
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.97, y: -4 }}
                     transition={{ duration: 0.14, ease: 'easeOut' }}
-                    className="absolute left-0 top-full mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
+                    className="absolute left-0 top-full origin-top-left mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
                   >
                     {activeDesktopTab === 'restaurants' ? (
                       <>
@@ -6204,7 +6201,7 @@ export const Pantry: React.FC = () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9, y: -4 }}
                   transition={{ type: 'spring', damping: 24, stiffness: 400, mass: 0.5 }}
-                  className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
+                  className="absolute right-0 top-full origin-top-right mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
                 >
                   <button onClick={() => handleExport('csv')}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">

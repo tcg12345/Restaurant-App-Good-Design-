@@ -1195,7 +1195,7 @@ export const Profile: React.FC = () => {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.97 }}
                 transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="absolute left-0 top-[calc(100%+0.25rem)] w-52 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                className="absolute left-0 top-[calc(100%+0.25rem)] origin-top-left w-52 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
               >
                 <button
                   type="button"

@@ -18,6 +18,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareRestaurantPicker } from '../components/messages/ShareRestaurantPicker';
 import { ShareRecipePicker } from '../components/messages/ShareRecipePicker';
+import { Collapse } from '../components/Collapse';
 
 /* ── Shared display helpers (used by both panes) ── */
 
@@ -943,9 +944,7 @@ const ChatView: React.FC<{
       </div>
 
       {/* Delete confirmation */}
-      <AnimatePresence>
-        {confirmDelete && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden flex-shrink-0">
+      <Collapse open={confirmDelete} className="flex-shrink-0">
             <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-between">
               <p className="text-xs text-red-600 font-medium">Delete this conversation?</p>
               <div className="flex gap-2">
@@ -953,19 +952,10 @@ const ChatView: React.FC<{
                 <button onClick={() => { if (convId) deleteConversation(convId); onBack(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg">Delete</button>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
 
       {/* Group-chat naming banner (unnamed group chats only) */}
-      <AnimatePresence>
-        {isUnnamedGroup && !bannerDismissed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden flex-shrink-0"
-          >
+      <Collapse open={!!(isUnnamedGroup && !bannerDismissed)}>
             <div className="bg-primary/[0.04] border-b border-primary/15 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -999,9 +989,7 @@ const ChatView: React.FC<{
                 )}
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-3">
@@ -1109,15 +1097,7 @@ const ChatView: React.FC<{
       </div>
 
       {/* Pending share preview */}
-      <AnimatePresence>
-        {pendingShare && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden flex-shrink-0 border-t border-on-surface/6 bg-on-surface/[0.02]"
-          >
+      <Collapse open={pendingShare}>
             <div className="px-4 pt-3 pb-2 flex items-start gap-3">
               <div className="flex-1 min-w-0 flex items-start gap-2.5 bg-white rounded-xl border border-on-surface/10 p-2.5 shadow-sm">
                 {pendingShare.image && (
@@ -1144,9 +1124,7 @@ const ChatView: React.FC<{
                 <X size={14} />
               </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
 
       {/* Composer */}
       {phoneMode ? (

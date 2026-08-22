@@ -472,7 +472,7 @@
   margin-bottom: 24px;
   background: var(--bg-2);
   border: 1px solid var(--border);
-  transition: height .5s cubic-bezier(.22,1,.36,1), box-shadow .18s;
+  transition: height .5s var(--ease-out-strong), box-shadow .18s;
 }
 .location-page-root .minimap.is-expanded { height: 590px; }
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
@@ -508,7 +508,7 @@
      here so the controls' higher z-indexes win cleanly even though all
      children are positioned. */
   z-index: 1;
-  transition: top .5s cubic-bezier(.22,1,.36,1);
+  transition: top .5s var(--ease-out-strong);
 }
 .location-page-root .minimap.is-expanded .minimap-canvas {
   top: 0;
@@ -522,7 +522,7 @@
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-left,
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-right {
   bottom: 175px;
-  transition: bottom .5s cubic-bezier(.22,1,.36,1);
+  transition: bottom .5s var(--ease-out-strong);
 }
 .location-page-root .minimap.is-expanded .minimap-canvas .mapboxgl-ctrl-bottom-left,
 .location-page-root .minimap.is-expanded .minimap-canvas .mapboxgl-ctrl-bottom-right {
@@ -675,7 +675,7 @@
     0 12px 28px -8px rgba(28, 24, 22, 0.35),
     0 0 0 1px rgba(28, 24, 22, 0.07);
   overflow: hidden;
-  animation: lp-island-in .22s cubic-bezier(.22,1,.36,1);
+  animation: lp-island-in .22s var(--ease-out-strong);
 }
 .location-page-root .minimap-island-body {
   flex: 1;
@@ -891,7 +891,7 @@
   border: 1px solid var(--border);
   color: var(--ink-2);
   flex-shrink: 0;
-  transition: transform .25s cubic-bezier(.22,1,.36,1), border-color .15s, color .15s;
+  transition: transform .25s var(--ease-out-strong), border-color .15s, color .15s;
 }
 .location-page-root .loc-section-chev svg { width: 14px; height: 14px; }
 .location-page-root .loc-section-chev.is-open { transform: rotate(180deg); }
@@ -925,7 +925,7 @@
 
 .location-page-root .collapsible-section .collapsible-body {
   overflow: hidden;
-  transition: opacity .25s ease, max-height .35s cubic-bezier(.22,1,.36,1), margin-top .35s ease;
+  transition: opacity .25s ease, max-height .35s var(--ease-out-strong), margin-top .35s ease;
 }
 .location-page-root .collapsible-section.is-closed .collapsible-body {
   max-height: 0;
@@ -1366,8 +1366,8 @@
   text-decoration: none;
   color: inherit;
   transition:
-    box-shadow .18s var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)),
-    transform .18s var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)),
+    box-shadow .18s var(--ease-standard, var(--ease-out-strong)),
+    transform .18s var(--ease-standard, var(--ease-out-strong)),
     border-color .18s ease;
 }
 .location-page-root .r-list-item:hover {
@@ -1810,7 +1810,7 @@
      keyboard's own animation time makes the composer glide up with the
      keyboard instead of teleporting. */
   padding-bottom: var(--kb-height, 0px);
-  transition: padding-bottom 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: padding-bottom 0.25s var(--ease-out-strong);
 }
 /* While the keyboard is up the home indicator is covered, so the
    composer's safe-area cushion would just be a dead gap between the

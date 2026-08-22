@@ -19,6 +19,7 @@ import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel
 import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { addScrollSettleListener } from '../lib/scroll-settle';
+import { Collapse } from '../components/Collapse';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -665,20 +666,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           )}
         </div>
 
-        <AnimatePresence initial={false}>
-          {infoOpen && hasCollapsibleContent && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              // The collapse toggle is the CAPTION BLOCK itself, not the
-              // whole lower slide.
-              className="overflow-hidden pointer-events-auto cursor-pointer"
-              onClick={() => setInfoOpen(false)}
-              role="button"
-              aria-label="Collapse details"
-            >
+        <Collapse open={!!(infoOpen && hasCollapsibleContent)}>
               {reel.caption && (
                 <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
                   {reel.caption}
@@ -696,9 +684,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
                   <RecipeCard reel={reel} onClick={onCardClick} />
                 )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </Collapse>
 
         {/* Collapsed state keeps a small explicit affordance — the old
             expand-by-tapping-anywhere is gone (those taps pause now). */}

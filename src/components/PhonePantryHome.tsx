@@ -5,6 +5,7 @@ import { useGlassSegments } from '../lib/glass-buttons';
 import { scoreBadgeBg, scoreColor } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { motion, useReducedMotion } from 'motion/react';
 
 /**
  * Pantry landing — used on phone and desktop. Two top-level tabs:
@@ -87,6 +88,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   onCreateRecipeList,
 }) => {
   const { darkMode, phoneMode } = useSettings();
+  const reduceMotion = useReducedMotion();
   // Native Liquid Glass over both states of the tab selector. The in-flow
   // track and the condensed capsule register as segmented glass controls —
   // one capsule of real material with a flat selection pill sliding on it —
@@ -163,7 +165,9 @@ export const PhonePantryHome: React.FC<Props> = ({
                   aria-hidden={miniSeg.active || undefined}
                   tabIndex={miniSeg.active ? -1 : undefined}
                   className={cn(
-                    'inline-flex items-center gap-1.5 h-8 pl-3 pr-3.5 rounded-full text-[12.5px] font-bold transition-colors',
+                    // The box is the room the page reserves for the native
+                    // control, so its height is the control's, not the text's.
+                    'inline-flex items-center gap-1.5 h-[44px] pl-3 pr-3.5 rounded-full text-[13.5px] font-bold transition-colors',
                     // Layout only while the native control draws on top.
                     miniSeg.active ? 'opacity-0'
                       : active
@@ -183,7 +187,7 @@ export const PhonePantryHome: React.FC<Props> = ({
         </div>
         {/* Clearance for the floating capsule: the safe area it sits under,
             its own height, and the gap beneath it — no more. */}
-        <div aria-hidden style={{ height: 'calc(max(0.75rem, env(safe-area-inset-top, 0px)) + 46px)' }} />
+        <div aria-hidden style={{ height: 'calc(max(0.75rem, env(safe-area-inset-top, 0px)) + 58px)' }} />
         </>
       ) : (
         /* Desktop keeps the full-width track: there is no scroll hand-off to
@@ -203,7 +207,7 @@ export const PhonePantryHome: React.FC<Props> = ({
               aria-hidden={trackSeg.active || undefined}
               tabIndex={trackSeg.active ? -1 : undefined}
               className={cn(
-                'flex-1 py-2 rounded-full text-sm font-semibold transition-all',
+                'flex-1 h-[42px] rounded-full text-sm font-semibold transition-all',
                 trackSeg.active ? 'opacity-0'
                   : tab === t
                     ? darkMode
@@ -220,6 +224,18 @@ export const PhonePantryHome: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Keyed on the tab, so switching mounts a fresh panel that fades in
+          where the old one was. No exit animation on purpose: a tab is a
+          high-frequency control, and waiting out an exit before the entrance
+          doubles the time before the new content is simply there. The x offset
+          matches the direction the selector's lens just travelled, so the two
+          read as one movement instead of two. */}
+      <motion.div
+        key={tab}
+        initial={{ opacity: 0, x: reduceMotion ? 0 : (tab === 'restaurants' ? -10 : 10) }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      >
       {tab === 'restaurants' ? (
         <>
           {/* Recommendations entry — a quiet hairline row, deliberately
@@ -254,6 +270,7 @@ export const PhonePantryHome: React.FC<Props> = ({
           onCreateRecipeList={onCreateRecipeList}
         />
       )}
+      </motion.div>
     </div>
   );
 };

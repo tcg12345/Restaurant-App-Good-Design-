@@ -74,8 +74,7 @@
 }
 /* Hardcoded light surfaces that don't ride a token — flip explicitly. */
 .dark .recipe-detail-page .rd-nav { background: rgba(19, 19, 20, 0.85); }
-.dark .recipe-detail-page .rdm-nav { background: rgba(19, 19, 20, 0.92); }
-.dark .recipe-detail-page .rd-equipment-card { background: var(--surface); }
+.dark .dark .recipe-detail-page .rd-equipment-card { background: var(--surface); }
 .dark .recipe-detail-page .ph-fallback { color: rgba(255, 255, 255, 0.18); }
 
 /* ============ TOP NAV (sticky, slim) ============ */
@@ -393,20 +392,6 @@
   box-shadow: none;
 }
 .recipe-detail-page .rd-action-divider { flex: 1; }
-.recipe-detail-page .rd-tags {
-  display: flex; gap: 6px; flex-wrap: wrap;
-}
-.recipe-detail-page .rd-tag {
-  display: inline-flex;
-  height: 26px; padding: 0 10px;
-  align-items: center;
-  border-radius: 999px;
-  background: var(--bg-2);
-  font-size: 11.5px; font-weight: 500;
-  color: var(--ink-2);
-}
-
-
 /* ============ MAIN GRID (ingredients + directions) ============ */
 .recipe-detail-page .rd-body {
   max-width: 1320px;
@@ -729,18 +714,26 @@
   flex-wrap: wrap;
 }
 .recipe-detail-page .rd-step-timer {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 14px 6px 12px;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  /* A quiet chip inside the step card, not a bordered button competing with
+     it: a tint of the ink, no outline, and the accent kept for the number
+     the card is actually about. */
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-top: 10px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
   font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink);
-  transition: background .15s, transform .12s;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transition: opacity .18s;
 }
-.recipe-detail-page .rd-step-timer:hover { background: var(--bg-2); }
-.recipe-detail-page .rd-step-timer svg { width: 13px; height: 13px; color: var(--accent); }
+.recipe-detail-page .rd-step-timer:active { opacity: 0.6; }
+.recipe-detail-page .rd-step-timer svg { width: 11px; height: 11px; color: var(--accent); }
 .recipe-detail-page .rd-step-timer .play { font-weight: 600; color: var(--accent); margin-left: 4px; }
 .recipe-detail-page .rd-step-tip {
   margin-top: 14px;
@@ -2135,7 +2128,7 @@
   box-shadow: 0 30px 80px -20px rgba(0,0,0,0.45);
   display: flex; flex-direction: column;
   overflow: hidden;
-  animation: rd-modal-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: rd-modal-slide-in 0.22s var(--ease-lens);
   border: 1px solid var(--border);
 }
 @keyframes rd-modal-slide-in {
@@ -2287,25 +2280,6 @@
 .recipe-detail-page .rd-modal-foot-hint strong { color: var(--ink); font-weight: 600; }
 .recipe-detail-page .rd-modal-foot-actions { display: flex; gap: 8px; }
 
-/* ============ TOAST ============ */
-.recipe-detail-page .rd-toast {
-  position: fixed;
-  bottom: 28px; left: 50%; transform: translateX(-50%);
-  z-index: 80;
-  display: inline-flex; align-items: center; gap: 10px;
-  padding: 12px 20px 12px 16px;
-  background: var(--ink);
-  color: var(--bg);
-  border-radius: 999px;
-  font-size: 13.5px; font-weight: 500;
-  box-shadow: 0 12px 30px -8px rgba(0,0,0,0.4);
-  animation: rd-toast-in 0.25s ease-out;
-}
-.recipe-detail-page .rd-toast svg { width: 15px; height: 15px; color: var(--green); }
-@keyframes rd-toast-in {
-  from { opacity: 0; transform: translate(-50%, 10px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
 
 /* ============ LOADING / NOT FOUND ============ */
 .recipe-detail-page .rd-state {
@@ -2380,7 +2354,6 @@
   .recipe-detail-page .rd-action-btn { height: 38px; padding: 0 14px; font-size: 12.5px; }
   .recipe-detail-page .rd-action-btn.primary { padding: 0 18px; }
   .recipe-detail-page .rd-action-divider { display: none; }
-  .recipe-detail-page .rd-tags { width: 100%; margin-top: 6px; }
   .recipe-detail-page .rd-body { padding: 0 16px 48px; gap: 28px; }
   .recipe-detail-page .rd-ingredients { padding: 22px 22px 24px; border-radius: var(--radius-lg); }
   .recipe-detail-page .rd-section-title { font-size: 26px; }
@@ -2420,52 +2393,6 @@
   min-height: 100vh;
 }
 
-/* ---- STICKY HEADER ---- */
-.recipe-detail-page .rdm-nav {
-  position: sticky; top: 0;
-  z-index: 30;
-  padding-top: env(safe-area-inset-top, 0px);
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: saturate(160%) blur(14px);
-  -webkit-backdrop-filter: saturate(160%) blur(14px);
-  border-bottom: 1px solid var(--border);
-}
-.recipe-detail-page .rdm-nav-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px;
-}
-.recipe-detail-page .rdm-back {
-  width: 36px; height: 36px;
-  border-radius: 11px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  display: grid; place-items: center;
-  color: var(--ink);
-  flex-shrink: 0;
-}
-.recipe-detail-page .rdm-back svg { width: 17px; height: 17px; }
-.recipe-detail-page .rdm-nav-title {
-  flex: 1;
-  font-family: var(--serif);
-  font-size: 15px; font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  text-align: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  opacity: 0; transition: opacity .25s;
-}
-.recipe-detail-page .rdm-nav.scrolled .rdm-nav-title { opacity: 1; }
-.recipe-detail-page .rdm-nav-icon {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  display: grid; place-items: center;
-  color: var(--ink);
-  flex-shrink: 0;
-}
-.recipe-detail-page .rdm-nav-icon svg { width: 16px; height: 16px; }
-.recipe-detail-page .rdm-nav-icon.saved { color: var(--accent); }
-.recipe-detail-page .rdm-nav-icon.saved svg { fill: var(--accent); }
-
 /* ---- HERO IMAGE ---- */
 .recipe-detail-page .rdm-hero-img {
   position: relative;
@@ -2499,8 +2426,38 @@
 .recipe-detail-page .rdm-hero-img .badge svg { width: 11px; height: 11px; }
 
 /* ---- TITLE BLOCK ---- */
+/* ── Phone recipe: editorial ─────────────────────────────────────────
+   No cards. Everything sits directly on the page — the separation is done
+   by hairlines between items and a 2px rule opening each section, the way a
+   printed recipe does it. Nothing is enclosed and nothing floats, so there
+   is no second surface competing with the photograph. */
+.recipe-detail-page .rdm-page {
+  background: var(--bg);
+}
+.recipe-detail-page .rdm-stats,
+.recipe-detail-page .rdm-ingr-group,
+.recipe-detail-page .rdm-step {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .recipe-detail-page .rdm-title-block {
-  padding: 22px 18px 18px;
+  /* Flush to the photo. The lip belonged to the card design; here the
+     photograph is full-bleed and the type simply begins under it. */
+  position: relative;
+  z-index: 1;
+  margin-top: 0;
+  border-radius: 0;
+  background: var(--bg);
+  padding: 18px 22px 0;
+}
+/* No hero, no lip — the controls float over plain page instead. */
+.recipe-detail-page .rdm-page > div[aria-hidden] + .rdm-title-block {
+  margin-top: 0;
+  border-radius: 0;
+  padding-top: 4px;
 }
 .recipe-detail-page .rdm-eyebrow {
   font-size: 10.5px; font-weight: 700;
@@ -2591,35 +2548,37 @@
 
 /* ---- STATS GRID (3 cols × 2 rows) ---- */
 .recipe-detail-page .rdm-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 18px 0;
-  margin: 4px 0 0;
-  row-gap: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+  margin: 24px 0 0;
 }
+/* A fixed label column so the values line up down the page — the thing a
+   grid of tiles could never do. */
 .recipe-detail-page .rdm-stat {
-  display: flex; flex-direction: column; gap: 3px;
-  padding: 0 10px;
-  border-left: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 16px;
 }
-.recipe-detail-page .rdm-stat:first-child,
-.recipe-detail-page .rdm-stat:nth-child(4) { border-left: 0; padding-left: 0; }
+.recipe-detail-page .rdm-stat + .rdm-stat { box-shadow: none; }
 .recipe-detail-page .rdm-stat .l {
-  font-size: 10px; font-weight: 700;
+  flex: none;
+  width: 66px;
+  font-size: 11px; font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--muted);
+  line-height: 1.2;
 }
 .recipe-detail-page .rdm-stat .v {
-  font-family: var(--serif);
-  font-size: 19px;
+  font-family: var(--sans);
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: -0.018em;
+  letter-spacing: 0;
   color: var(--ink);
-  line-height: 1.1;
+  line-height: 1.3;
 }
+.recipe-detail-page .rdm-stat .v .detail {
+  font-weight: 400;
+  color: var(--muted);
+}
+.recipe-detail-page .rdm-stat .v .detail::before { content: ' · '; }
 .recipe-detail-page .rdm-stat .v .unit {
   font-family: var(--sans); font-size: 11px;
   font-weight: 500; color: var(--muted);
@@ -2657,50 +2616,50 @@
 .recipe-detail-page .rdm-act.cooked-state { color: var(--green); border-color: var(--green); }
 
 /* ---- TAGS ---- */
-.recipe-detail-page .rdm-tags {
-  display: flex; gap: 5px; flex-wrap: wrap;
-  padding: 0 18px 18px;
-}
-.recipe-detail-page .rdm-tag {
-  height: 24px; padding: 0 10px;
-  display: inline-flex; align-items: center;
-  border-radius: 999px;
-  background: var(--bg-2);
-  font-size: 11px; font-weight: 500;
-  color: var(--ink-2);
-}
-
-
 /* ---- SECTIONS ---- */
 .recipe-detail-page .rdm-section {
-  padding: 28px 18px;
+  padding: 0 22px 4px;
+  margin-top: 30px;
+  /* The rule that opens a section. A hairline, not a 2px bar in the ink
+     colour — at full width and full strength that read as a table border
+     ruled across the page, and there is one every few hundred pixels. */
   border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+/* A continuation of the section above it, so no rule of its own. */
+.recipe-detail-page .rdm-section-tight {
+  margin-top: 4px;
+  border-top: 0;
+  padding-top: 0;
 }
 .recipe-detail-page .rdm-section-title {
   font-family: var(--serif);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.022em;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ink);
   line-height: 1;
-  margin: 0 0 14px;
-  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 16px 0 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
 }
 .recipe-detail-page .rdm-section-title .count {
   font-family: var(--sans);
-  font-size: 12px; font-weight: 500;
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted);
-  letter-spacing: 0;
 }
 
 /* ---- SERVINGS STEPPER ---- */
 .recipe-detail-page .rdm-servings {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  margin-bottom: 16px;
+  padding: 0 0 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin-bottom: 0;
 }
 .recipe-detail-page .rdm-servings .lbl {
   font-size: 10px; font-weight: 700;
@@ -2714,33 +2673,36 @@
 }
 .recipe-detail-page .rdm-stepper {
   display: inline-flex; align-items: center;
-  border: 1px solid var(--border-strong);
+  border: 1px solid rgba(31, 26, 23, 0.07);
   border-radius: 999px;
-  height: 36px;
-  background: var(--bg);
+  height: 38px;
+  padding: 3px;
+  background: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(24, 20, 18, 0.05);
 }
 .recipe-detail-page .rdm-stepper button {
-  width: 32px; height: 36px;
+  width: 30px; height: 30px;
+  border-radius: 999px;
   display: grid; place-items: center;
   color: var(--ink);
-  font-size: 16px;
+  font-size: 17px;
+  transition: background .16s;
 }
-.recipe-detail-page .rdm-stepper button:disabled { color: var(--muted-2); }
+.recipe-detail-page .rdm-stepper button:active { background: rgba(31,26,23,.08); }
+.recipe-detail-page .rdm-stepper button:disabled { color: var(--muted-2); background: transparent; }
+/* The count is read, not pressed — no cell borders boxing it in. */
 .recipe-detail-page .rdm-stepper .v {
-  min-width: 40px;
+  min-width: 32px;
   text-align: center;
   font-family: var(--serif);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  border-left: 1px solid var(--border-strong);
-  border-right: 1px solid var(--border-strong);
-  height: 100%;
   display: grid; place-items: center;
 }
 
 /* ---- INGREDIENT GROUP / ITEM ---- */
-.recipe-detail-page .rdm-ingr-group { margin-top: 18px; }
-.recipe-detail-page .rdm-ingr-group:first-of-type { margin-top: 4px; }
+.recipe-detail-page .rdm-ingr-group { margin-top: 18px; padding: 0; }
+.recipe-detail-page .rdm-ingr-group:first-of-type { margin-top: 0; }
 .recipe-detail-page .rdm-ingr-group-title {
   font-size: 10.5px; font-weight: 700;
   text-transform: uppercase;
@@ -2771,11 +2733,13 @@
 }
 .recipe-detail-page .rdm-ingr-item:last-child { border-bottom: 0; }
 .recipe-detail-page .rdm-ingr-item .check {
-  width: 20px; height: 20px;
-  border: 1.6px solid var(--border-strong);
-  border-radius: 6px;
+  width: 21px; height: 21px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 7px;
   display: grid; place-items: center;
   margin-top: 1px;
+  background: transparent;
+  transition: background .18s, border-color .18s;
 }
 .recipe-detail-page .rdm-ingr-item .check svg {
   width: 13px; height: 13px;
@@ -2784,8 +2748,8 @@
   transition: opacity .12s;
 }
 .recipe-detail-page .rdm-ingr-item.checked .check {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .recipe-detail-page .rdm-ingr-item.checked .check svg { opacity: 1; }
 .recipe-detail-page .rdm-ingr-item.checked .text {
@@ -2812,40 +2776,44 @@
 /* ---- STEPS ---- */
 .recipe-detail-page .rdm-step {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 21px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
   padding: 20px 0;
-  border-top: 1px solid var(--border);
 }
-.recipe-detail-page .rdm-step:first-child { border-top: 0; padding-top: 8px; }
-.recipe-detail-page .rdm-step.done .rdm-step-num { background: var(--muted-2); }
+.recipe-detail-page .rdm-step + .rdm-step { border-top: 1px solid var(--border); }
+.recipe-detail-page .rdm-step.done .rdm-step-num { color: var(--muted-2); }
 .recipe-detail-page .rdm-step.done .rdm-step-title,
 .recipe-detail-page .rdm-step.done .rdm-step-body { color: var(--muted); }
-.recipe-detail-page .rdm-step-num-wrap {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 10px;
+/* "STEP 01" sits above the title as its own tracked label, the way a
+   printed method numbers itself. */
+.recipe-detail-page .rdm-step-head {
+  display: block;
+  margin-bottom: 6px;
 }
 .recipe-detail-page .rdm-step-num {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: var(--ink);
-  color: var(--bg);
-  display: grid; place-items: center;
-  font-family: var(--serif);
-  font-size: 14px;
-  font-weight: 600;
+  display: block;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
 }
 .recipe-detail-page .rdm-step-check {
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
+  width: 21px; height: 21px;
+  margin-top: 2px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(31, 26, 23, 0.22);
   display: grid; place-items: center;
   color: transparent;
-  background: var(--surface);
+  background: transparent;
+  transition: background .18s, border-color .18s;
 }
 .recipe-detail-page .rdm-step.done .rdm-step-check {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 .recipe-detail-page .rdm-step-check svg { width: 12px; height: 12px; }
@@ -2884,8 +2852,14 @@
 /* ---- COOK MODE FAB ---- */
 .recipe-detail-page .rdm-cookmode-fab {
   position: fixed;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  right: 16px;
+  /* Stacked above the global assistant button, not beside it. That FAB is
+     56px tall sitting at `36px + safe-area` from the bottom and 24px from
+     the right (`.lp-chat-fab`), so anything on the same baseline lands
+     underneath it — which is exactly what was happening. Clearing its top
+     edge (36 + 56) plus a 12px gap puts this in a clean column with it, and
+     matching its 24px right edge is what makes the column read as one. */
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  right: 24px;
   z-index: 25;
   display: inline-flex; align-items: center; gap: 8px;
   height: 48px; padding: 0 20px 0 16px;
@@ -3187,22 +3161,76 @@
 }
 .recipe-detail-page .rdm-related-meta .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--muted-2); }
 
+/* ---- RATE & COMMENT ---- */
+.recipe-detail-page .rdm-rate-stars {
+  display: flex; gap: 6px;
+  margin: 2px 0 16px;
+}
+.recipe-detail-page .rdm-rate-star {
+  padding: 0;
+  line-height: 0;
+  background: transparent;
+  color: rgba(31, 26, 23, 0.16);
+  transition: color .18s ease, transform .16s ease;
+}
+.recipe-detail-page .rdm-rate-stars + * { margin-top: 4px; }
+.recipe-detail-page .rdm-rate-star.on { color: var(--accent); }
+.recipe-detail-page .rdm-rate-star:active { transform: scale(0.9); }
+.recipe-detail-page .rdm-rate-star svg { width: 30px; height: 30px; }
+
+/* The comment field is one pill with the send button living inside it,
+   rather than a field with a button parked outside its right edge. */
+.recipe-detail-page .rdm-comment-form {
+  display: flex; align-items: center; gap: 8px;
+  border-radius: 999px;
+  background: #FFFFFF;
+  box-shadow: 0 2px 10px rgba(24, 20, 18, 0.05);
+  padding: 5px 6px 5px 16px;
+}
+.recipe-detail-page .rdm-comment-form input {
+  flex: 1; min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 9px 0;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+.recipe-detail-page .rdm-comment-form input:focus { outline: none; }
+.recipe-detail-page .rdm-comment-form button {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  background: rgba(31, 26, 23, 0.06);
+  display: grid; place-items: center;
+  color: var(--muted);
+  transition: background .18s ease, color .18s ease;
+}
+.recipe-detail-page .rdm-comment-form button:not(:disabled) { color: var(--accent); }
+.recipe-detail-page .rdm-comment-form button svg { width: 16px; height: 16px; }
+
 /* ---- COOK MODE (mobile fullscreen overlay) ---- */
 .recipe-detail-page .rdm-cookmode {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: #1F1A17;
+  /* A pool of light at the top rather than a flat slab — it lifts the step
+     you are reading off the ground without a border doing the work. */
+  background: radial-gradient(120% 60% at 50% 0%, #2B2523 0%, #1A1614 62%);
   color: #F4EFE4;
   display: flex; flex-direction: column;
   font-family: var(--serif);
 }
 .recipe-detail-page .rdm-cm-nav {
   display: flex; align-items: center; justify-content: space-between;
-  padding: calc(14px + env(safe-area-inset-top, 0px)) 18px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 4px;
 }
 .recipe-detail-page .rdm-cm-title {
+  /* A quiet counter chip, not a centred page title — in cook mode the step
+     you are on is the only heading that matters. */
+  flex: none;
+  background: rgba(255,255,255,0.07);
+  border-radius: 999px;
+  padding: 9px 13px;
   font-size: 11px;
   font-family: var(--sans);
   font-weight: 600;
@@ -3216,25 +3244,32 @@
   text-align: center;
 }
 .recipe-detail-page .rdm-cm-close {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.1);
+  width: 40px; height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(246,243,241,0.12);
+  background: rgba(246,243,241,0.09);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
   display: grid; place-items: center;
   color: #fff;
   flex-shrink: 0;
 }
 .recipe-detail-page .rdm-cm-close svg { width: 14px; height: 14px; }
 .recipe-detail-page .rdm-cm-progress {
-  display: flex; gap: 4px;
-  padding: 12px 18px;
+  display: flex; gap: 6px;
+  padding: 20px 20px 0;
 }
 .recipe-detail-page .rdm-cm-dot {
-  flex: 1; height: 3px;
-  border-radius: 2px;
-  background: rgba(255,255,255,0.14);
+  flex: 1; height: 4px;
+  border-radius: 999px;
+  background: rgba(246,243,241,0.16);
+  transition: background .3s ease;
 }
-.recipe-detail-page .rdm-cm-dot.done { background: var(--green); }
-.recipe-detail-page .rdm-cm-dot.current { background: var(--gold); }
+/* One colour for progress, not a traffic light. `--accent-2` rather than
+   `--accent`: the deep rust that reads right on white goes muddy on a dark
+   ground, and this is the same lighter rust the tab bar switches to. */
+.recipe-detail-page .rdm-cm-dot.done,
+.recipe-detail-page .rdm-cm-dot.current { background: var(--accent-2); }
 .recipe-detail-page .rdm-cm-body {
   flex: 1;
   padding: 24px 22px;
@@ -3250,14 +3285,20 @@
   margin-bottom: 16px;
 }
 .recipe-detail-page .rdm-cm-num {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 120px;
-  font-weight: 600;
-  letter-spacing: -0.04em;
-  line-height: 0.9;
-  color: var(--accent);
-  margin-bottom: 14px;
+  /* Was a 120px italic numeral that ate half the screen before you could
+     read the step. Now a chip: present, countable, out of the way. */
+  display: inline-flex;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: #FF8A70;
+  background: rgba(255, 86, 60, 0.14);
+  border-radius: 999px;
+  padding: 9px 13px;
+  margin-bottom: 16px;
 }
 .recipe-detail-page .rdm-cm-step-title {
   font-family: var(--serif);
@@ -3294,27 +3335,6 @@
 .recipe-detail-page .rdm-cm-btn:disabled { opacity: 0.4; }
 .recipe-detail-page .rdm-cm-btn svg { width: 14px; height: 14px; }
 
-/* ---- TOAST (mobile) ---- */
-.recipe-detail-page .rdm-toast {
-  position: fixed;
-  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
-  left: 50%; transform: translateX(-50%);
-  z-index: 80;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 16px 10px 12px;
-  background: var(--ink);
-  color: var(--bg);
-  border-radius: 999px;
-  font-size: 12.5px; font-weight: 500;
-  box-shadow: 0 12px 30px -8px rgba(0,0,0,0.4);
-  white-space: nowrap;
-  animation: rdm-toast-in 0.25s ease-out;
-}
-.recipe-detail-page .rdm-toast svg { width: 13px; height: 13px; color: var(--green); }
-@keyframes rdm-toast-in {
-  from { opacity: 0; transform: translate(-50%, 10px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
 
 /* ════════════════════════════════════════════════════════════════
    PRINT — clean, paper-only recipe

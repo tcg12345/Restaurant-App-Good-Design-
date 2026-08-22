@@ -5,6 +5,7 @@ import { ChevronDown, NotebookPen, ArrowRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import type { CommunityRating, CommunityPhoto } from '../../lib/supabase-community';
+import { Collapse } from '../Collapse';
 
 interface Props {
   rating: CommunityRating;
@@ -74,15 +75,7 @@ export const ProfileRestaurantRow: React.FC<Props> = ({ rating, photos, expanded
         </div>
       </button>
 
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
+      <Collapse open={expanded}>
             <div className="pl-2 md:pl-10 pr-2 pb-6">
               {rating.notes && (
                 <p className="font-serif italic text-[16.5px] leading-relaxed text-on-surface pl-3.5 border-l-2 border-primary mb-5 max-w-3xl">
@@ -125,9 +118,7 @@ export const ProfileRestaurantRow: React.FC<Props> = ({ rating, photos, expanded
                 </Link>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </Collapse>
     </li>
   );
 };
