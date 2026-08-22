@@ -5,14 +5,13 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
-  Car, Footprints, Award, Images, Plus, Utensils,
+  Car, Footprints, Award, Images, Plus, Utensils, Lock,
 } from 'lucide-react';
 import { cn, parseVisitDate } from '../lib/utils';
 import { Collapse } from '../components/Collapse';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { FriendReviewSheet, FriendAvatar } from '../components/FriendReviewSheet';
-import { tierOfScore } from '../lib/settleScores';
-import { TIER_LABELS } from '../lib/headToHeadRating';
+import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
 import { scoreColor, scoreChipBg, scoreTint } from '../lib/score';
@@ -747,7 +746,13 @@ export const RestaurantDetailMobile: React.FC = () => {
             .map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos }))
             .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
           // The facts under the score, joined rather than stacked.
-          const facts = [dateLabel && `Visited ${dateLabel}`, myRating?.price, companions.length ? `with ${companions.join(', ')}` : null].filter(Boolean);
+          const facts = [
+            dateLabel && `Visited ${dateLabel}`,
+            myRating?.price,
+            companions.length ? `with ${companions.join(', ')}` : null,
+            !scoresUnlocked && myRating ? `score unlocks at ${SCORE_UNLOCK_THRESHOLD} places` : null,
+          ].filter(Boolean);
+          const factLine = facts.join(' · ');
           const myPhotos = myRating?.photos || [];
           const mineSummary = [
             myPhotos.length ? `${myPhotos.length} ${myPhotos.length === 1 ? 'photo' : 'photos'}` : null,
@@ -773,16 +778,25 @@ export const RestaurantDetailMobile: React.FC = () => {
                   {/* The score follows the heading up when the section is
                       folded, so closing it never hides the answer. */}
                   {myRating && !myRatingOpen && (
-                    <span
-                      /* Tier-tinted, not accent-tinted: this is the same
-                         number the expanded section shows in the tier
-                         colour, and one score should not change colour
-                         because a section folded. */
-                      className={cn('flex-none rounded-full px-2.5 py-1.5', scoreTint(myRating.score))}
-                      style={{ fontSize: '12.5px', fontWeight: 700 }}
-                    >
-                      {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
-                    </span>
+                    scoresUnlocked ? (
+                      <span
+                        /* Tier-tinted, not accent-tinted: this is the same
+                           number the expanded section shows in the tier
+                           colour, and one score should not change colour
+                           because a section folded. */
+                        className={cn('flex-none rounded-full px-2.5 py-1.5', scoreTint(myRating.score))}
+                        style={{ fontSize: '12.5px', fontWeight: 700 }}
+                      >
+                        {myRating.score.toFixed(1)}
+                      </span>
+                    ) : (
+                      <span
+                        className="flex-none w-7 h-7 rounded-full bg-on-surface/[0.07] text-on-surface/45 flex items-center justify-center"
+                        aria-label={`Score hidden until you have rated ${SCORE_UNLOCK_THRESHOLD} places`}
+                      >
+                        <Lock size={13} />
+                      </span>
+                    )
                   )}
                   <ChevronDown size={16} className={cn('flex-none text-on-surface/40 transition-transform duration-200', myRatingOpen && 'rotate-180')} />
                 </button>
@@ -813,13 +827,31 @@ export const RestaurantDetailMobile: React.FC = () => {
                   <>
                     <div className="pt-[18px]">
                       <button onClick={() => openAt('main')} className="flex items-baseline gap-2 text-left active:opacity-70 transition-opacity">
-                        <span className={scoreColor(myRating.score)} style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
-                          {scoresUnlocked ? myRating.score.toFixed(1) : TIER_LABELS[tierOfScore(myRating.score)]}
-                        </span>
-                        {scoresUnlocked && <span className="text-on-surface/45" style={{ fontSize: '15px' }}>/ 10</span>}
+                        {scoresUnlocked ? (
+                          <>
+                            <span className={scoreColor(myRating.score)} style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
+                              {myRating.score.toFixed(1)}
+                            </span>
+                            <span className="text-on-surface/45" style={{ fontSize: '15px' }}>/ 10</span>
+                          </>
+                        ) : (
+                          /* Nothing to reveal yet, so reveal nothing. The
+                             slot used to carry the tier label, and "Loved
+                             it" set at 40px reads as the verdict itself —
+                             which is not what it is. It is a stand-in for a
+                             number you have not unlocked. A lock says that
+                             and says nothing else; the line under it says
+                             when it opens. */
+                          <span
+                            className="w-14 h-14 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center"
+                            aria-label={`Score hidden until you have rated ${SCORE_UNLOCK_THRESHOLD} places`}
+                          >
+                            <Lock size={22} />
+                          </span>
+                        )}
                       </button>
-                      {facts.length > 0 && (
-                        <p className="mt-3 text-on-surface/50" style={{ fontSize: '13.5px' }}>{facts.join(' · ')}</p>
+                      {factLine && (
+                        <p className="mt-3 text-on-surface/50" style={{ fontSize: '13.5px' }}>{factLine}</p>
                       )}
                     </div>
 

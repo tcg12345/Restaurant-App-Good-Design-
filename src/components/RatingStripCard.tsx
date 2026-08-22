@@ -32,8 +32,8 @@ import { scoreTint, scoreChipBg } from '../lib/score';
  *  row of height instead of three. */
 export const ratingStripGridClass = (phoneMode: boolean): string => cn(
   'grid grid-flow-col gap-2.5 snap-x scroll-px-5 overflow-x-auto no-scrollbar',
-  'auto-cols-[224px]',
-  !phoneMode && 'sm:auto-cols-[224px]',
+  'auto-cols-[236px]',
+  !phoneMode && 'sm:auto-cols-[236px]',
 );
 
 export interface RatingStripCardProps {
@@ -73,7 +73,8 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
         type="button"
         onClick={onOpen}
         className={cn(
-          'relative block w-full h-[164px] overflow-hidden rounded-[24px] text-left active:opacity-80 transition-opacity',
+          'relative block w-full overflow-hidden rounded-[24px] text-left active:opacity-80 transition-opacity',
+          hasPhoto ? 'h-[164px]' : 'h-[136px]',
           !hasPhoto && scoreTint(score),
         )}
         aria-label={`Open ${place}`}
@@ -104,18 +105,18 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
             hasPhoto ? 'bg-black/45 backdrop-blur-md text-white' : 'bg-on-surface/[0.08] text-on-surface',
           )}
         >
-          <span className={cn('w-[19px] h-[19px] rounded-full flex items-center justify-center', avatarBg)}>
-            <span className={cn('leading-none', avatarText)} style={{ fontSize: '9.5px', fontWeight: 700 }}>{initial}</span>
+          <span className={cn('w-[21px] h-[21px] rounded-full flex items-center justify-center', avatarBg)}>
+            <span className={cn('leading-none', avatarText)} style={{ fontSize: '10.5px', fontWeight: 700 }}>{initial}</span>
           </span>
-          <span className="max-w-[92px] truncate" style={{ fontSize: '11px', fontWeight: 600 }}>{name}</span>
+          <span className="max-w-[96px] truncate" style={{ fontSize: '12px', fontWeight: 600 }}>{name}</span>
         </span>
 
         <span
           className={cn(
-            'absolute top-[11px] right-[11px] rounded-full px-2.5 py-[7px] tabular-nums',
+            'absolute top-[11px] right-[11px] rounded-full px-[11px] py-2 tabular-nums',
             hasPhoto ? cn(scoreChipBg(score), 'text-white') : 'bg-surface/70 text-on-surface',
           )}
-          style={{ fontSize: '12.5px', fontWeight: 700 }}
+          style={{ fontSize: '14px', fontWeight: 700 }}
         >
           {score.toFixed(1)}
         </span>
@@ -123,14 +124,14 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
         <span className="absolute left-3.5 right-3.5 bottom-3">
           <span
             className={cn('block line-clamp-2', hasPhoto ? 'text-white' : 'text-on-surface')}
-            style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.03em' }}
+            style={{ fontSize: '17.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.03em' }}
           >
             {place}
           </span>
           {meta && (
             <span
               className={cn('mt-1.5 block truncate', hasPhoto ? 'text-white/75' : 'text-on-surface/50')}
-              style={{ fontSize: '11.5px', lineHeight: 1.2 }}
+              style={{ fontSize: '12.5px', lineHeight: 1.2 }}
             >
               {meta}
             </span>
@@ -147,7 +148,7 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
             'inline-flex items-center gap-1.5 rounded-full px-[11px] py-[7px] active:opacity-75 transition-opacity',
             liked ? 'bg-primary/[0.12] text-primary' : 'bg-on-surface/[0.06] text-on-surface',
           )}
-          style={{ fontSize: '11.5px', fontWeight: 700 }}
+          style={{ fontSize: '12px', fontWeight: 700 }}
         >
           <Heart size={13} className={liked ? 'fill-primary' : ''} />
           <span className="tabular-nums">{likeCount}</span>
@@ -157,13 +158,13 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
           onClick={onComment}
           aria-label={`Comments on ${place}`}
           className="inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] text-on-surface px-[11px] py-[7px] active:opacity-75 transition-opacity"
-          style={{ fontSize: '11.5px', fontWeight: 700 }}
+          style={{ fontSize: '12px', fontWeight: 700 }}
         >
           <MessageSquare size={13} />
           <span className="tabular-nums">{commentCount}</span>
         </button>
         <span className="flex-1" />
-        <span className="flex-none text-on-surface/35" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{when}</span>
+        <span className="flex-none text-on-surface/35" style={{ fontSize: '12px', lineHeight: 1.2 }}>{when}</span>
       </div>
     </div>
   );
