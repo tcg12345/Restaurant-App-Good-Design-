@@ -448,26 +448,39 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   /* ── Header ── */
   const locationChip = (
+    /* Where you're being recommended things is the page's subject, not one
+       of its controls — a 12.5px chip in a row of other 12.5px chips made
+       the city the least prominent thing on a screen entirely about it. */
     <button
       type="button"
       onClick={() => setPickerOpen(true)}
       className={cn(
-        'inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-on-surface/[0.08] bg-on-surface/[0.04] px-3 py-1.5 text-left transition-colors hover:bg-on-surface/[0.08]',
+        'inline-flex max-w-full min-w-0 items-center gap-2 text-left active:opacity-70 transition-opacity',
         isMobile && 'flex-1',
       )}
       aria-label="Change location"
     >
-      <MapPin size={12} className="flex-shrink-0 text-on-surface/55" />
-      <span className="truncate text-[12.5px] font-bold leading-none text-on-surface">
+      <MapPin size={14} strokeWidth={2.1} className="flex-shrink-0 text-primary" />
+      <span
+        className="truncate text-on-surface"
+        style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}
+      >
         {target ? target.label.split(',').slice(0, 2).join(',') : 'Choose a location'}
       </span>
-      <ChevronDown size={12} className={cn('flex-shrink-0 text-on-surface/45', isMobile && 'ml-auto')} />
+      {target && visible.length > 0 && (
+        <span className="flex-shrink-0 text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1 }}>
+          {visible.length} picked
+        </span>
+      )}
+      <ChevronDown size={13} strokeWidth={2.2} className="flex-shrink-0 text-on-surface/45" />
     </button>
   );
 
   /* ── Controls ── */
   const sortSegment = (
-    <div className={cn('flex items-center gap-0.5 rounded-full bg-on-surface/[0.045] p-0.5', isMobile && 'w-full')}>
+    /* Pills, like every other control on the page. A grey segmented
+       trough was the one thing here that belonged to a different design. */
+    <div className={cn('flex items-center gap-[7px]', isMobile && 'w-full overflow-x-auto no-scrollbar')}>
       {SORTS.map(({ key, label }) => (
         <button
           key={key}
@@ -475,10 +488,12 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           onClick={() => setSortBy(key)}
           aria-pressed={sortBy === key}
           className={cn(
-            'rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors whitespace-nowrap',
-            isMobile && 'flex-1 text-center',
-            sortBy === key ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface/50 hover:text-on-surface',
+            'flex-none rounded-full border px-[13px] py-[9px] whitespace-nowrap active:opacity-80 transition-colors',
+            sortBy === key
+              ? 'bg-on-surface border-on-surface text-cream'
+              : 'bg-transparent border-on-surface/20 text-on-surface',
           )}
+          style={{ fontSize: '12px', fontWeight: 700 }}
         >
           {label}
         </button>
@@ -492,11 +507,12 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       onClick={() => setOpenNowOnly((v) => !v)}
       aria-pressed={openNowOnly}
       className={cn(
-        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors whitespace-nowrap',
+        'inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border px-[13px] py-[9px] whitespace-nowrap active:opacity-80 transition-colors',
         openNowOnly
           ? 'border-primary/30 bg-primary/10 text-primary'
-          : 'border-on-surface/12 text-on-surface/60 hover:border-on-surface/30',
+          : 'border-on-surface/20 text-on-surface',
       )}
+      style={{ fontSize: '12px', fontWeight: 700 }}
     >
       <Clock size={12} />
       Open now
@@ -733,30 +749,26 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
               type="button"
               onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
               className={cn(
-                'grid place-items-center rounded-full bg-on-surface/[0.05] transition-colors hover:bg-on-surface/[0.1]',
-                isMobile ? 'h-7 w-7' : 'h-8 w-8',
-                wishlisted ? 'text-primary' : 'text-on-surface/60',
+                'grid h-[34px] w-[34px] place-items-center rounded-full border active:opacity-80 transition-colors',
+                wishlisted ? 'border-primary/35 bg-primary/10 text-primary' : 'border-on-surface/20 text-on-surface',
               )}
               aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
             >
-              <Bookmark size={isMobile ? 13 : 14} className={wishlisted ? 'fill-current' : ''} />
+              <Bookmark size={14} className={wishlisted ? 'fill-current' : ''} />
             </button>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); if (!isPage) onClose(); openAddRestaurantModal(meta); }}
-              className={cn(
-                'grid place-items-center rounded-full bg-on-surface/[0.05] text-on-surface/60 transition-colors hover:bg-on-surface/[0.1]',
-                isMobile ? 'h-7 w-7' : 'h-8 w-8',
-              )}
+              className="grid h-[34px] w-[34px] place-items-center rounded-full border border-on-surface/20 text-on-surface active:opacity-80 transition-colors"
               aria-label="Rate"
             >
-              <Plus size={isMobile ? 14 : 15} />
+              <Plus size={15} />
             </button>
           </div>
           {typeof p.predicted === 'number' && (
             <div className="flex flex-col items-center">
-              <ScoreRing score={p.predicted} size={isMobile ? 40 : 44} />
-              <p className={cn('mt-0.5 font-bold uppercase tracking-[0.12em] text-on-surface/35', isMobile ? 'text-[8px]' : 'text-[8.5px]')}>for you</p>
+              <ScoreRing score={p.predicted} size={44} />
+              <p className="mt-1 text-on-surface/35" style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>For you</p>
             </div>
           )}
         </div>

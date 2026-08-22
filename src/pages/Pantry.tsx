@@ -2109,21 +2109,21 @@ const ListDetailView: React.FC<{
       {phoneMode && (
         <div className="mb-4">
           <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, cuisine, location..."
-              className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+              className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 grid h-[22px] w-[22px] place-items-center rounded-full bg-on-surface/[0.12] text-on-surface transition-opacity active:opacity-70"
               >
-                <X size={14} />
+                <X size={11} strokeWidth={2.6} />
               </button>
             )}
           </div>
@@ -4571,21 +4571,21 @@ const HomeCookingTab: React.FC<{
               list view on phone. */}
           <div className="mb-4">
             <div className="relative">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by name, cuisine, location..."
-                className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
                   aria-label="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 grid h-[22px] w-[22px] place-items-center rounded-full bg-on-surface/[0.12] text-on-surface transition-opacity active:opacity-70"
                 >
-                  <X size={14} />
+                  <X size={11} strokeWidth={2.6} />
                 </button>
               )}
             </div>
@@ -5312,20 +5312,30 @@ const FilterPill: React.FC<{
   badge?: number;
   onClear?: () => void;
 }> = ({ onClick, label, active = false, icon, badge, onClear }) => (
+  /* Outlined, not filled. A row of grey slabs reads as five disabled
+     buttons; an outline says "control" and leaves the ink for the one
+     that's actually on, which fills solid. */
   <button
     type="button"
     onClick={onClick}
     className={cn(
-      'hit-44-y inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      'hit-44-y inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] flex-shrink-0 active:opacity-80 transition-colors',
       active
-        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-        : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
+        ? 'bg-on-surface border-on-surface text-cream'
+        : 'bg-transparent border-on-surface/20 text-on-surface',
     )}
+    style={{ fontSize: '12px', fontWeight: 700 }}
   >
     {icon}
     <span>{label}</span>
     {badge !== undefined && (
-      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">
+      <span
+        className={cn(
+          'inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full',
+          active ? 'bg-cream text-on-surface' : 'bg-primary text-white',
+        )}
+        style={{ fontSize: '9.5px', fontWeight: 700 }}
+      >
         {badge}
       </span>
     )}
@@ -5336,12 +5346,12 @@ const FilterPill: React.FC<{
         onClick={(e) => { e.stopPropagation(); onClear(); }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
         aria-label="Clear"
-        className="ml-0.5 p-2 -m-1.5 text-current/70 hover:text-current"
+        className="ml-0.5 p-2 -m-1.5 opacity-70"
       >
         <X size={10} />
       </span>
     ) : (
-      <ChevronDown size={10} className="opacity-60" />
+      <ChevronDown size={11} className="opacity-55" />
     )}
   </button>
 );
@@ -6447,13 +6457,13 @@ export const Pantry: React.FC = () => {
 
                 <div className="mb-4">
                   <div className="relative">
-                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
                     <input
                       type="text"
                       value={mainSearchQuery}
                       onChange={(e) => setMainSearchQuery(e.target.value)}
                       placeholder="Search by name, cuisine, location..."
-                      className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                      className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
                     />
                     {mainSearchQuery && (
                       <button
