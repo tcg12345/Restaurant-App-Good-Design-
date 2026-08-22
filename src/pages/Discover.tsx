@@ -3943,14 +3943,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // the phone scroll-driven overlay.
   const mobileHeaderNode = (
     <>
-      {/* Brand flush left with the wordmark beside it, actions on the
-          right — compose, then the messages/circle capsule. The logo used
-          to be pinned dead centre with Create alone on the left, which
-          made the app's own name the one thing in the bar that wasn't a
-          control. */}
+      {/* Logo pinned centre, Create on the left, messages/circle on the
+          right — the same bar Profile carries, so the two tab roots don't
+          each introduce their own header. */}
       <TopBar
-        centerLogo={false}
-        rightAction={
+        title="Home"
+        centerLogo={phoneMode}
+        leftAction={phoneMode ? (
           <GlassButton
             id="discover-create"
             symbol="plus"
@@ -3960,7 +3959,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           >
             <Plus size={20} />
           </GlassButton>
-        }
+        ) : undefined}
       />
       <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-4 pb-1" : "px-6 pt-2 pb-3")}>
         <button
