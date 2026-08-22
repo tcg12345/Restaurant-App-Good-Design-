@@ -716,6 +716,12 @@ const RestaurantRow: React.FC<{
   const revealWidth = actionCount * 76;
 
   const metaLoc = [location, distanceLabel].filter(Boolean).join('  ·  ');
+  // Two lines, not four. The row used to stack the name, cuisine+price,
+  // city+distance and an open/closed line — four typographic weights for
+  // one restaurant, which made a list of thirty of them a wall. Everything
+  // under the name is one sentence now, and whether it is open is the dot.
+  const rowStatus = getOpenStatus(meta?.hours);
+  const rowMeta = [mich.cuisine, mich.price, location, distanceLabel].filter(Boolean).join(' · ');
 
   // ── Pointer-event swipe (mobile). Capture only once the gesture is clearly
   //    horizontal so vertical scrolling (touch-action: pan-y) is never hijacked,
@@ -813,24 +819,36 @@ const RestaurantRow: React.FC<{
             to={`/restaurant/${restaurantId}`}
             onClick={onForegroundClick}
             draggable={false}
-            className="flex items-start gap-[15px] px-1 py-[18px]"
+            className="flex items-center gap-3 py-3.5"
           >
+            {rank != null && (
+              /* The rank is the place's position in your WHOLE list, so it
+                 keeps meaning something while the list is filtered. */
+              <span className="flex-none w-[26px] text-on-surface/40 tabular-nums" style={{ fontSize: '12.5px', fontWeight: 700 }}>
+                {rank}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
-              <h3 className="truncate font-serif text-[20px] font-bold leading-[1.15] tracking-[-0.01em]">
-                {rank != null && <span className="text-[16px] text-on-surface/40">{rank}. </span>}{name}
-              </h3>
-              {metaTop && (
-                <p className="mt-[5px] text-[13px] font-semibold leading-[1.3] text-on-surface/70">
-                  {metaTop}
-                  {showMichelin && mich.michelin && (
-                    <span className="ml-1.5 inline-flex items-center align-middle"><MichelinMark michelin={mich.michelin} size={12} /></span>
-                  )}
-                </p>
+              <div className="flex items-center gap-[7px]">
+                <span className="truncate text-on-surface" style={{ fontSize: '15.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.028em' }}>
+                  {name}
+                </span>
+                {rowStatus.label && (
+                  <span
+                    className="flex-none w-1.5 h-1.5 rounded-full"
+                    style={{ background: rowStatus.open ? 'var(--color-score-high)' : 'var(--color-score-low)' }}
+                    title={rowStatus.schedule ? `${rowStatus.label} · ${rowStatus.schedule}` : rowStatus.label}
+                  />
+                )}
+                {showMichelin && mich.michelin && (
+                  <span className="flex-none inline-flex items-center"><MichelinMark michelin={mich.michelin} size={12} /></span>
+                )}
+              </div>
+              {rowMeta && (
+                <p className="mt-1.5 truncate text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.2 }}>{rowMeta}</p>
               )}
-              {metaLoc && <p className="mt-[3px] truncate text-[12.5px] font-medium leading-[1.3] text-on-surface/40">{metaLoc}</p>}
-              <StatusLine hours={meta?.hours} className="mt-[9px]" />
             </div>
-            <ScoreRing score={score} size={46} locked={!scoresUnlocked} className="mt-0.5" />
+            <ScoreRing score={score} size={46} locked={!scoresUnlocked} />
           </Link>
         </div>
         {confirmDelete && (
@@ -924,47 +942,44 @@ const WishlistRow: React.FC<{
   // Distance from the user's anchor location.
   const distanceLabel = useDistanceFromHome(wlMeta?.lat, wlMeta?.lng);
 
+  // Same two-line shape as a rated row, minus the score it doesn't have.
+  // A saved place had four lines and a 56px thumbnail, and the thumbnail
+  // only appeared when a photo happened to exist — so a wishlist was a
+  // ragged column of some-indented, some-not rows.
+  const wlStatus = getOpenStatus(wlMeta?.hours);
+  const wlMetaLine = [mich.cuisine, mich.price, location, distanceLabel].filter(Boolean).join(' · ');
+
   return (
-    <div className="flex items-start gap-3 py-3 group">
-      {/* Image thumbnail — only when an actual photo exists. The
-          monogram tile that used to render with no image is gone so the
-          row stays clean and the location can read as its own line. */}
-      {image && (
-        <Link
-          to={`/restaurant/${restaurantId}`}
-          className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block"
-        >
-          <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-        </Link>
-      )}
-      <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
-        <div>
-          <Link to={`/restaurant/${restaurantId}`}>
-            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
-          </Link>
-          <p className="text-[12.5px] text-on-surface/55 font-medium mt-0.5">
-            {mich.cuisine}{mich.price ? ` · ${mich.price}` : ''}
-          </p>
-          {location && (
-            <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
-              {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
-            </p>
+    <div className="group flex items-center gap-3 py-3.5">
+      <Link to={`/restaurant/${restaurantId}`} className="min-w-0 flex-1">
+        <span className="flex items-center gap-[7px]">
+          <span className="truncate text-on-surface" style={{ fontSize: '15.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.028em' }}>
+            {name}
+          </span>
+          {wlStatus.label && (
+            <span
+              className="flex-none w-1.5 h-1.5 rounded-full"
+              style={{ background: wlStatus.open ? 'var(--color-score-high)' : 'var(--color-score-low)' }}
+              title={wlStatus.schedule ? `${wlStatus.label} · ${wlStatus.schedule}` : wlStatus.label}
+            />
           )}
-          {notes && (
-            <p className="text-[11px] text-on-surface/45 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
-          )}
-        </div>
-        {onRemove && (
-          <div className="flex justify-end mt-1.5">
-            <button
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-              className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
-            >
-              Remove
-            </button>
-          </div>
+        </span>
+        {wlMetaLine && (
+          <span className="mt-1.5 block truncate text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.2 }}>{wlMetaLine}</span>
         )}
-      </div>
+        {notes && (
+          <span className="mt-1.5 block truncate text-on-surface/35" style={{ fontSize: '12px', lineHeight: 1.2 }}>&ldquo;{notes}&rdquo;</span>
+        )}
+      </Link>
+      {onRemove && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+          aria-label={`Remove ${name} from your wishlist`}
+          className="flex-none w-9 h-9 rounded-full border border-on-surface/20 text-primary flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
+        >
+          <Bookmark size={15} className="fill-current" />
+        </button>
+      )}
     </div>
   );
 };

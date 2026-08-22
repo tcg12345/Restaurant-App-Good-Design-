@@ -666,6 +666,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     const metaLine = [entry.cuisineLabel, priceText, Number.isFinite(entry.distanceMi) ? fmtMiles(entry.distanceMi) : '']
       .filter(Boolean)
       .join(' · ');
+    const topReason = (p as { reasons?: string[] }).reasons?.[0] || '';
     const meta = {
       id: p.id,
       name: p.name,
@@ -700,25 +701,27 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           {rank}
         </span>
 
-        {/* Name · meta. The engine's "why" chips are intentionally NOT
-            rendered — the card stays factual (name, cuisine, price,
-            distance, stars); the ranking itself is the recommendation. */}
+        {/* Name, the facts, and — new — the reason. The engine has always
+            produced a ranked "why" for every place and the row threw it
+            away, which left a numbered list with no argument for its own
+            order. The strongest factor is one quiet line. */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <h4 className="min-w-0 truncate font-serif text-[15.5px] font-semibold leading-[1.2] tracking-[-0.01em] text-on-surface group-hover:text-primary transition-colors">
+          <div className="flex items-center gap-[7px]">
+            <span className="min-w-0 truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.028em' }}>
               {p.name}
-            </h4>
+            </span>
             {p.michelin && (
-              <MichelinMark michelin={p.michelin as MichelinInfo} size={11} className="flex-shrink-0 self-center" />
+              <MichelinMark michelin={p.michelin as MichelinInfo} size={11} className="flex-shrink-0" />
             )}
             {p.rating > 0 && (
-              <span className="inline-flex flex-shrink-0 items-center gap-0.5 text-[11.5px] font-semibold text-on-surface/50">
+              <span className="inline-flex flex-shrink-0 items-center gap-0.5 text-on-surface/45" style={{ fontSize: '11.5px', fontWeight: 600 }}>
                 <Star size={10.5} className="fill-amber-400 text-amber-400" />
                 {p.rating.toFixed(1)}
               </span>
             )}
           </div>
-          {metaLine && <p className="mt-0.5 truncate text-[12px] font-medium text-on-surface/55">{metaLine}</p>}
+          {metaLine && <p className="mt-1.5 truncate text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1.2 }}>{metaLine}</p>}
+          {topReason && <p className="mt-1.5 truncate text-on-surface/35" style={{ fontSize: '11.5px', lineHeight: 1.3 }}>{topReason}</p>}
         </div>
 
         {/* Actions + prediction — one horizontal cluster on BOTH layouts:

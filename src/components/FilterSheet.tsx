@@ -81,7 +81,9 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   children,
 }) => {
   const { phoneMode } = useSettings();
-  const { dragProps, startDrag } = useBottomSheet(open, onClose);
+  // dragProps still supplies the body-scroll lock; the handle is gone —
+  // a full page is not a sheet, so it closes with the ×.
+  const { dragProps } = useBottomSheet(open, onClose);
   const handleApply = onApply ?? onClose;
 
   // ── Drill sub-page state ──
@@ -110,7 +112,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className="fs-overlay"
+          className={cn('fs-overlay', phoneMode && 'is-phone')}
           style={{ zIndex }}
           onClick={onClose}
         >
@@ -132,17 +134,6 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
             className={cn('fs-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
           >
-            {phoneMode && (
-              <div
-                className="fs-drag-handle"
-                onPointerDown={startDrag}
-                style={{ touchAction: 'none' }}
-                aria-hidden="true"
-              >
-                <span />
-              </div>
-            )}
-
             <div className="fs-head">
               {page ? (
                 <div className="fs-head-main">
@@ -174,10 +165,14 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
 
             <FilterSheetNavContext.Provider value={nav}>
               <div className="fs-body-zone">
+                {/* An iOS push: the page you came from slides back and
+                    shrinks a little as the new one covers it, so the stack
+                    reads as depth rather than as a swap. */}
                 <motion.div
                   className="fs-body"
-                  animate={{ x: page ? -28 : 0, opacity: page ? 0.25 : 1 }}
-                  transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
+                  animate={page ? { x: '-22%', scale: 0.97, opacity: 0.5 } : { x: '0%', scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                  style={{ transformOrigin: 'center left' }}
                   aria-hidden={!!page || undefined}
                 >
                   {children}
@@ -190,7 +185,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                       initial={{ x: '100%' }}
                       animate={{ x: 0 }}
                       exit={{ x: '100%' }}
-                      transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                      transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
                     >
                       <div ref={setSubContainer} className="fs-subpage-scroll" />
                     </motion.div>
