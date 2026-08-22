@@ -57,8 +57,17 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
     }
   };
 
+  // The wordmark's serif is set directly rather than through the
+  // `font-serif` utility: pages that scope themselves to a different family
+  // (Home and the restaurant flow are set in Archivo) override that utility
+  // wholesale, and the brand mark was coming out in the page's font instead
+  // of its own. The mark is the one thing that must look identical on every
+  // screen.
   const logo = (
-    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-xl">
+    <div
+      className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white italic text-xl"
+      style={{ fontFamily: 'var(--font-serif)' }}
+    >
       G
     </div>
   );
