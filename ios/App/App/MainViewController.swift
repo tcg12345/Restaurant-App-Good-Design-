@@ -1663,13 +1663,12 @@ final class GlassChipRowView: UIView {
         scroll.alwaysBounceHorizontal = true
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.clipsToBounds = true
-        // The web row's own horizontal padding, so the first chip lines up
-        // with the search field's leading edge above it. With inset
-        // adjustment off, the rest offset is NOT derived from the inset —
-        // unseeded, the row rendered 14pt left of home and clipped its
-        // first chip at the screen edge.
-        scroll.contentInset = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
-        scroll.contentOffset = CGPoint(x: -14, y: 0)
+        // No contentInset: the row's side margins are baked into the content
+        // itself (the first chip starts at x=14 and the contentSize carries
+        // the trailing margin). An inset needs the rest offset seeded to its
+        // negative and UIKit re-clamps that at moments of its own choosing —
+        // the row kept arriving 14–40pt left of home with its first chip
+        // clipped at the screen edge. Content geometry cannot drift.
         addSubview(scroll)
     }
 
@@ -1750,13 +1749,14 @@ final class GlassChipRowView: UIView {
         let offset = scroll.contentOffset
         scroll.frame = bounds
         let height: CGFloat = min(38, bounds.height)
-        var x: CGFloat = 0
+        // Side margins live in the content — see the note in init.
+        var x: CGFloat = 14
         for button in buttons {
             let width = ceil(button.intrinsicContentSize.width)
             button.frame = CGRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
             x += width + 10
         }
-        scroll.contentSize = CGSize(width: max(0, x - 10), height: bounds.height)
+        scroll.contentSize = CGSize(width: max(0, x - 10 + 14), height: bounds.height)
         scroll.contentOffset = offset
     }
 
