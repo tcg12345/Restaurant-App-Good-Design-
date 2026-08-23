@@ -675,8 +675,11 @@ export function useGlassField(options: {
    *  born editable inside an opening overlay, where there is no read-only →
    *  editable transition to carry the focus. */
   autoFocus?: boolean;
+  /** The leading SF Symbol. The search fields wear the magnifier (default);
+   *  the location field wears the compass arrow. */
+  symbol?: string;
 }): { ref: (el: HTMLElement | null) => void; active: boolean } {
-  const { id, value, placeholder, editable, label, onChange, onSubmit, onPress, autoFocus } = options;
+  const { id, value, placeholder, editable, label, onChange, onSubmit, onPress, autoFocus, symbol } = options;
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass && !!id;
   const key = `${id ?? 'field'}#${useId()}`;
@@ -744,7 +747,7 @@ export function useGlassField(options: {
     }
     registry.set(key, {
       el,
-      symbol: 'magnifyingglass',
+      symbol: symbol ?? 'magnifyingglass',
       title: placeholder,
       titleStyle: 'field',
       label: label ?? placeholder,
@@ -756,7 +759,7 @@ export function useGlassField(options: {
       registry.delete(key);
       wake();
     };
-  }, [active, key, placeholder, label]);
+  }, [active, key, placeholder, label, symbol]);
 
   const ref = useCallback((el: HTMLElement | null) => { elRef.current = el; }, []);
   return { ref, active };

@@ -1848,6 +1848,7 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     /// with the page's generation 0 and moves only on a real transition.
     private var appliedTextGen = -1
     private var appliedFocusGen = 0
+    private var appliedSymbol = "magnifyingglass"
 
     var onTap: (() -> Void)?
     var onChange: ((String) -> Void)?
@@ -1906,6 +1907,16 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     }
 
     func apply(_ spec: GlassButtonSpec) {
+        // The leading glyph is the page's to choose — the location field
+        // wears the compass arrow, the search field the magnifier.
+        let symbol = spec.symbol.isEmpty ? "magnifyingglass" : spec.symbol
+        if symbol != appliedSymbol {
+            appliedSymbol = symbol
+            let symbolConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            magnifier.image = UIImage(systemName: symbol, withConfiguration: symbolConfig)?
+                .withRenderingMode(.alwaysTemplate)
+            setNeedsLayout()
+        }
         if field.placeholder != spec.title {
             field.attributedPlaceholder = NSAttributedString(
                 string: spec.title,

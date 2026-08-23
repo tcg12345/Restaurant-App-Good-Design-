@@ -53,10 +53,15 @@ export const SearchField: React.FC<{
   glassId?: string;
   /** A touch taller — the map chrome's primary field. */
   tall?: boolean;
+  /** SF Symbol for the native field's leading glyph (default magnifier). */
+  glassSymbol?: string;
+  /** Web leading icon to match `glassSymbol` (default the magnifier). */
+  leadingIcon?: React.ReactNode;
 }> = ({
   value, onChange, placeholder = 'Search',
   variant = 'plain', autoFocus, inputRef, onSubmit, onFocus, onBlur,
   className, 'aria-label': ariaLabel, readOnly, onPress, glassId, tall,
+  glassSymbol, leadingIcon,
 }) => {
   const glass = useGlassField({
     id: glassId,
@@ -68,6 +73,7 @@ export const SearchField: React.FC<{
     onSubmit,
     onPress,
     autoFocus,
+    symbol: glassSymbol,
   });
   const native = glass.active;
   return (
@@ -88,7 +94,11 @@ export const SearchField: React.FC<{
     >
       {/* Heavier than lucide's default hairline so it reads at SF Symbols
           weight beside 17px text. */}
-      <Search className={cn('ios-search-icon', native && 'opacity-0')} size={17} strokeWidth={2.4} aria-hidden />
+      {leadingIcon ? (
+        <span className={cn('ios-search-icon', native && 'opacity-0')} aria-hidden>{leadingIcon}</span>
+      ) : (
+        <Search className={cn('ios-search-icon', native && 'opacity-0')} size={17} strokeWidth={2.4} aria-hidden />
+      )}
       <input
         ref={inputRef}
         type="text"

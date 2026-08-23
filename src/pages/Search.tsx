@@ -80,6 +80,7 @@ const PhoneSearch: React.FC = () => {
   }, [locOpen, locQuery]);
   const glassActive = useGlassButtonsActive();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const locInputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
 
   // Full screen while searching: the tab bar hides (BottomNav reads this
@@ -102,11 +103,13 @@ const PhoneSearch: React.FC = () => {
   // restores the pre-search places.
   const closeSearch = () => {
     if (!query.trim()) mapSearchRef.current?.('');
+    setLocOpen(false);
     setSearching(false);
   };
   const submitToMap = () => {
     if (!query.trim()) return;
     mapSearchRef.current?.(query);
+    setLocOpen(false);
     setSearching(false);
   };
 
@@ -229,36 +232,38 @@ const PhoneSearch: React.FC = () => {
           >
             <X size={18} />
           </GlassButton>
-          <div className="relative min-w-0">
-            <GlassButton
-              id="search-location"
-              symbol="location"
-              title={cityLabel}
-              titleStyle="chip"
-              label={`Searching near ${cityLabel} — change location`}
-              onClick={() => { setLocOpen((v) => !v); setLocQuery(''); }}
-              className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface max-w-[200px]"
-            >
-              <MapPin size={13} strokeWidth={2.4} />
-              <span className="truncate">{cityLabel}</span>
-            </GlassButton>
+          {/* Where the search is anchored. The same construction as the
+              main field: ONE glass field that is a chip while read-only —
+              compass glyph, city name, hugging the right edge — and
+              expands in place into an editable field when tapped, results
+              card underneath. No dropdown-on-a-button, no second element;
+              the capsule you tapped is the field you type in. */}
+          <div
+            className={cn(
+              'relative min-w-0 flex-1 ml-auto transition-[max-width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+              locOpen ? 'max-w-full' : 'max-w-[200px]',
+            )}
+          >
+            <SearchField
+              glassId="location-field"
+              glassSymbol="location"
+              leadingIcon={<Navigation size={14} strokeWidth={2.2} />}
+              readOnly={!locOpen}
+              onPress={() => {
+                setLocQuery('');
+                setLocOpen(true);
+                if (!glassActive) requestAnimationFrame(() => locInputRef.current?.focus());
+              }}
+              value={locOpen ? locQuery : cityLabel}
+              onChange={setLocQuery}
+              inputRef={locInputRef}
+              placeholder="City or neighborhood"
+              aria-label={locOpen ? 'Search for a location' : `Searching near ${cityLabel} — change location`}
+            />
             {locOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setLocOpen(false)} aria-hidden />
-                {/* Dropped past the field row: the native glass field draws
-                    above every web layer, and a panel tucked under the chip
-                    put its own input behind the glass. */}
-                <div className="absolute right-0 top-full mt-[74px] z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
-                  <input
-                    type="text"
-                    value={locQuery}
-                    onChange={(e) => setLocQuery(e.target.value)}
-                    placeholder="City or neighborhood"
-                    autoFocus
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    className="w-full bg-transparent border-b border-on-surface/[0.08] px-4 py-3 text-[14px] text-on-surface placeholder:text-on-surface/40 outline-none"
-                  />
+                <div className="absolute inset-x-0 top-full mt-2.5 z-20 rounded-2xl bg-paper border border-on-surface/[0.08] shadow-[0_18px_50px_-12px_rgba(0,0,0,0.45)] overflow-hidden">
                   <button
                     type="button"
                     onClick={() => {
@@ -266,33 +271,48 @@ const PhoneSearch: React.FC = () => {
                       setCityLabel('Current location');
                       setLocOpen(false);
                     }}
-                    className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-on-surface/[0.05] transition-colors"
                   >
-                    <Navigation size={13} className="text-primary flex-shrink-0" />
-                    <span className="text-[13px] font-semibold text-on-surface">Current location</span>
+                    <span className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                      <Navigation size={14} strokeWidth={2.2} />
+                    </span>
+                    <span className="text-[14px] font-semibold text-on-surface">Current location</span>
                   </button>
                   {(locLoading || locResults.length > 0) && (
-                    <div className="border-t border-on-surface/[0.06] max-h-56 overflow-y-auto no-scrollbar">
+                    <div className="border-t border-on-surface/[0.06] max-h-[290px] overflow-y-auto no-scrollbar">
                       {locLoading && locResults.length === 0 ? (
-                        <div className="flex items-center justify-center py-4">
+                        <div className="flex items-center justify-center py-5">
                           <Loader2 size={15} className="text-primary animate-spin" />
                         </div>
                       ) : (
-                        locResults.map((r) => (
-                          <button
-                            key={r.id}
-                            type="button"
-                            onClick={() => {
-                              locationBridgeRef.current?.select(r.name, r.lat, r.lng);
-                              setCityLabel((r.name.split(',')[0] || r.name).trim());
-                              setLocOpen(false);
-                            }}
-                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
-                          >
-                            <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
-                            <span className="text-[12.5px] text-on-surface/75 truncate">{r.name}</span>
-                          </button>
-                        ))
+                        locResults.map((r, i) => {
+                          const comma = r.name.indexOf(',');
+                          const primary = comma > 0 ? r.name.slice(0, comma) : r.name;
+                          const secondary = comma > 0 ? r.name.slice(comma + 1).trim() : '';
+                          return (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => {
+                                locationBridgeRef.current?.select(r.name, r.lat, r.lng);
+                                setCityLabel(primary.trim());
+                                setLocOpen(false);
+                              }}
+                              className={cn(
+                                'w-full flex items-center gap-3 px-4 py-3 text-left active:bg-on-surface/[0.05] transition-colors',
+                                i > 0 && 'border-t border-on-surface/[0.05]',
+                              )}
+                            >
+                              <span className="w-8 h-8 rounded-full bg-on-surface/[0.05] text-on-surface/45 flex items-center justify-center flex-shrink-0">
+                                <MapPin size={14} strokeWidth={2} />
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-[14px] font-semibold text-on-surface truncate">{primary}</span>
+                                {secondary && <span className="block mt-0.5 text-[11.5px] text-on-surface/45 truncate">{secondary}</span>}
+                              </span>
+                            </button>
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -305,9 +325,13 @@ const PhoneSearch: React.FC = () => {
 
       {/* THE field — the one element both states share. */}
       <div
-        className={cn('absolute inset-x-0 z-50 px-3.5', tab !== 'discover' && 'invisible')}
+        className={cn(
+          'absolute inset-x-0 z-50 px-3.5 transition-opacity duration-200',
+          tab !== 'discover' && 'invisible',
+          locOpen && 'opacity-0 pointer-events-none',
+        )}
         style={{ top: 'calc(env(safe-area-inset-top) + 76px)' }}
-        aria-hidden={tab !== 'discover' || undefined}
+        aria-hidden={tab !== 'discover' || locOpen || undefined}
       >
         <SearchField
           glassId="search-field"
