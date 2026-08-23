@@ -1046,6 +1046,66 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
     dragLastRef.current = { y: clientY, t: performance.now() };
     isDraggingRef.current = true;
   };
+  /* ── The list hands the gesture to the sheet ──────────────────────────
+     The platform sheet rule: with the list at its top, dragging DOWN
+     anywhere on it moves the sheet, not the list — and dragging UP while
+     the sheet is below full raises the sheet before the list scrolls.
+     Decided once per gesture after ~6px of travel; a gesture the list
+     keeps is never interfered with. Native listeners rather than React's,
+     because taking the gesture over means preventDefault on touchmove and
+     React registers that listener passively. The handlers close over the
+     freshest drag machinery through a ref, so a data re-render mid-gesture
+     cannot re-base the drag under the finger. */
+  const panelListRef = useRef<HTMLDivElement | null>(null);
+  const listDragRef = useRef({ begin: beginSheetDrag, apply: applySheetDrag, end: endSheetDrag, state: sheetState });
+  listDragRef.current = { begin: beginSheetDrag, apply: applySheetDrag, end: endSheetDrag, state: sheetState };
+  useEffect(() => {
+    if (!searchTab) return;
+    const el = panelListRef.current;
+    if (!el) return;
+    let startY = 0;
+    let gesture: 'idle' | 'sheet' | 'scroll' = 'idle';
+    const onStart = (e: TouchEvent) => {
+      startY = e.touches[0].clientY;
+      gesture = 'idle';
+    };
+    const onMove = (e: TouchEvent) => {
+      const y = e.touches[0].clientY;
+      if (gesture === 'idle') {
+        const dy = y - startY;
+        if (Math.abs(dy) < 6) return;
+        const d = listDragRef.current;
+        if (dy > 0 && el.scrollTop <= 0) {
+          gesture = 'sheet';
+          d.begin(y);
+        } else if (dy < 0 && d.state !== 'full') {
+          gesture = 'sheet';
+          d.begin(y);
+        } else {
+          gesture = 'scroll';
+        }
+      }
+      if (gesture === 'sheet') {
+        e.preventDefault();
+        listDragRef.current.apply(y);
+      }
+    };
+    const onEnd = () => {
+      if (gesture === 'sheet') listDragRef.current.end();
+      gesture = 'idle';
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [searchTab]);
+
   const sheetDrag = {
     onTouchStart: (e: React.TouchEvent) => beginSheetDrag(e.touches[0].clientY),
     onTouchMove: (e: React.TouchEvent) => applySheetDrag(e.touches[0].clientY),
@@ -5515,7 +5575,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         </div>
 
         {/* Results List */}
-        <div className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
+        <div ref={panelListRef} className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", searchTab && "overscroll-y-contain", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
             <div className="divide-y divide-on-surface/[0.06]">
@@ -5662,6 +5722,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
                       </div>
                     ) : (
                       <>
+                        {/* The Search tab's sheet header already carries the
+                            count, so a second "Results · N found" line under
+                            it was the same fact twice. */}
+                        {!searchTab && (
                         <div className="flex items-center justify-between pt-2">
                           <h2 className="text-sm font-serif font-bold">Results</h2>
                           <span className="flex items-center gap-1.5 text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">
@@ -5669,6 +5733,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
                             {places.length} found
                           </span>
                         </div>
+                        )}
                         <div className={cn('divide-y divide-on-surface/[0.06] transition-opacity', isSearching && 'opacity-50')}>
                           {displayPlaces.map((place) => renderPlaceCard(place))}
                         </div>
@@ -5686,11 +5751,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
                       <span className="ml-2 text-sm text-on-surface/50 font-medium">Finding nearby...</span>
                     </div>
                   ) : places.length > 0 ? (
-                    <section className="mt-5">
+                    <section className={searchTab ? 'mt-1' : 'mt-5'}>
+                      {!searchTab && (
                       <div className="flex items-center justify-between mb-3">
                         <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
                         <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                       </div>
+                      )}
                       <div className="divide-y divide-on-surface/[0.06]">
                         {displayPlaces.map((place) => renderPlaceCard(place))}
                       </div>
@@ -5705,35 +5772,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         )}
       </motion.div>
       )}
-
-      {/* The way back from the full-height list to the map — the reference's
-          floating Map pill, in real glass. Above the sheet (z-50 beats its
-          z-40) and above the tab bar's floating platter. */}
-      <AnimatePresence>
-        {searchTab && sheetState === 'full' && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.86, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.86, y: 8 }}
-            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
-            className="absolute left-1/2 -translate-x-1/2 z-50"
-            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 96px)' }}
-          >
-            <GlassButton
-              id="map-return"
-              symbol="map"
-              title="Map"
-              titleStyle="chip"
-              label="Show the map"
-              onClick={() => setSheetState('half')}
-              className="h-11 px-5 rounded-full flex items-center gap-2 text-[13px] font-bold text-on-surface"
-            >
-              <MapIcon size={15} strokeWidth={2.1} />
-              Map
-            </GlassButton>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       </div>{/* inner map-area wrapper (contents on mobile, flex-1 on desktop) */}
 
