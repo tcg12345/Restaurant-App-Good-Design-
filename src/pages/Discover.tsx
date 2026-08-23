@@ -8,7 +8,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
-import { GlassButton, GlassGroup } from '../lib/glass-buttons';
+import { GlassButton, GlassGroup, useGlassButtonsActive } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreHex, scoreTintStyle } from '../lib/score';
@@ -254,6 +254,64 @@ async function fetchMapboxLeg(
     return null;
   }
 }
+
+/**
+ * A filter chip floating on the map — real interactive Liquid Glass.
+ *
+ * This row is the one place in the app where controls sit directly on a
+ * moving map, which is exactly where a real lens earns its keep and where
+ * CSS glass gives itself away: `backdrop-filter` blurs the streets behind
+ * the chip, but it cannot bend them, and beside the native search field
+ * above it the difference was immediate. So each chip is a native capsule,
+ * and the system's press physics — swell under the finger, lean with it,
+ * settle on release — come with the material rather than being imitated.
+ *
+ * One capsule per chip, not a `GlassGroup`: these are independent toggles
+ * that scroll horizontally, and a group is one control with regions.
+ *
+ * Selection is the interesting part. Glass has no fill to darken, so a
+ * chosen chip cannot simply be recoloured — it switches to the system's
+ * PROMINENT glass, a tinted lens that still refracts the map beneath it.
+ * The web element keeps the layout, the hit area and the CSS fallback.
+ */
+const MapChip: React.FC<{
+  id: string;
+  /** SF Symbol for the native capsule. Cuisine chips are text alone. */
+  symbol?: string;
+  label: string;
+  /** Chosen — prominent glass, the app's ink. */
+  on?: boolean;
+  /** Chosen AND carrying the accent (an active filter count). */
+  accent?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ id, symbol = '', label, on, accent, onClick, children }) => {
+  const native = useGlassButtonsActive();
+  return (
+    <GlassButton
+      id={id}
+      role="chip"
+      symbol={symbol}
+      title={label}
+      titleStyle="chip"
+      prominent={!!(on || accent)}
+      tint={accent ? 'primary' : 'label'}
+      label={label}
+      pressed={on || accent}
+      onClick={onClick}
+      // While native draws it, the web element keeps only the box — the
+      // glass samples the page through itself, and a CSS capsule left
+      // under it reads as a smudge inside the lens.
+      className={cn(
+        native ? 'map-chip-box' : 'map-chip',
+        !native && on && 'is-on',
+        !native && accent && 'is-accent',
+      )}
+    >
+      {children}
+    </GlassButton>
+  );
+};
 
 interface DiscoverProps {
   mode?: 'home' | 'map';
@@ -4262,56 +4320,60 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             aria-label="Search"
           />
           <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1">
-            <button
-              type="button"
+            <MapChip
+              id="chip-filters"
+              symbol="line.3.horizontal.decrease"
+              label={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+              accent={activeFilterCount > 0}
               onClick={() => setFilterSheetOpen(true)}
-              className={cn('map-chip', activeFilterCount > 0 && 'is-accent')}
             >
               <SlidersHorizontal size={13} strokeWidth={2.2} />
               Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </button>
-            <button
-              type="button"
+            </MapChip>
+            <MapChip
+              id="chip-open-now"
+              symbol="clock"
+              label="Open now"
+              on={hoursFilter.openNow}
               onClick={() => {
                 setHoursFilter({ ...hoursFilter, openNow: !hoursFilter.openNow });
                 if (mapMode === 'discover') fetchNearby(selectedCuisines);
               }}
-              className={cn('map-chip', hoursFilter.openNow && 'is-on')}
-              aria-pressed={hoursFilter.openNow}
             >
               <Clock size={13} strokeWidth={2.2} />
               Open now
-            </button>
+            </MapChip>
             {mapMode === 'discover' && (
-              <button
-                type="button"
+              <MapChip
+                id="chip-top-rated"
+                symbol="star"
+                label="Top rated"
+                on={sortBy === 'rating'}
                 onClick={() => {
                   setSortBy(sortBy === 'rating' ? 'recommended' : 'rating');
                   fetchNearby(selectedCuisines);
                 }}
-                className={cn('map-chip', sortBy === 'rating' && 'is-on')}
-                aria-pressed={sortBy === 'rating'}
               >
                 <Star size={13} strokeWidth={2.2} />
                 Top rated
-              </button>
+              </MapChip>
             )}
             {mapMode === 'discover' && ['Italian', 'Japanese', 'Mexican'].map((c) => {
               const on = selectedCuisines.includes(c);
               return (
-                <button
+                <MapChip
                   key={c}
-                  type="button"
+                  id={`chip-cuisine-${c.toLowerCase()}`}
+                  label={c}
+                  on={on}
                   onClick={() => {
                     const next = on ? selectedCuisines.filter((x) => x !== c) : [...selectedCuisines, c];
                     setSelectedCuisines(next);
                     fetchNearby(next);
                   }}
-                  className={cn('map-chip', on && 'is-on')}
-                  aria-pressed={on}
                 >
                   {c}
-                </button>
+                </MapChip>
               );
             })}
           </div>

@@ -422,12 +422,14 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                     title: entry["title"] as? String ?? "",
                     titleStyle: entry["titleStyle"] as? String ?? "chip",
                     role: entry["role"] as? String ?? "button",
+                    prominent: entry["prominent"] as? Bool ?? false,
                     fieldText: entry["fieldText"] as? String ?? "",
                     fieldTextGen: (entry["fieldTextGen"] as? NSNumber)?.intValue ?? 0,
                     fieldFocused: entry["fieldFocused"] as? Bool ?? false,
                     fieldFocusGen: (entry["fieldFocusGen"] as? NSNumber)?.intValue ?? 0,
                     fieldEditable: entry["fieldEditable"] as? Bool ?? false,
                     tint: Self.color(named: entry["tint"] as? String),
+                    tintName: entry["tint"] as? String ?? "label",
                     alpha: CGFloat(entry["alpha"] as? Double ?? 1),
                     badge: badge,
                     badgeTone: entry["badgeTone"] as? String ?? "primary",
@@ -1194,10 +1196,16 @@ struct GlassButtonSpec {
     /// the capsule reads as somewhere you type rather than as a button whose
     /// label happens to be long.
     let titleStyle: String
-    /// `button` unless the page says `field` — a field is a real
-    /// `UITextField` riding the glass rather than a glyph or a label. See
-    /// `GlassSearchFieldView` for why typing moves native with it.
+    /// `button` unless the page says otherwise. `field` is a real
+    /// `UITextField` riding the glass rather than a glyph or a label (see
+    /// `GlassSearchFieldView`); `chip` is a filter capsule in a scrolling
+    /// row, which differs from a plain pill only in how it is measured and
+    /// how it grows when its text overflows.
     let role: String
+    /// Selected. A lens has no fill to darken, so a chosen chip cannot say
+    /// so in plain glass — it switches to the system's PROMINENT glass, the
+    /// tinted variant, which is still a live refracting lens.
+    let prominent: Bool
     /// The page's text for a field, applied only when `fieldTextGen`
     /// advances past what was last applied — the generation rule that keeps
     /// an echo of native typing from eating a keystroke.
@@ -1210,6 +1218,10 @@ struct GlassButtonSpec {
     let fieldFocusGen: Int
     let fieldEditable: Bool
     let tint: UIColor
+    /// The tint's NAME, kept beside the resolved colour: a prominent
+    /// capsule has to pick a legible foreground for its fill, and comparing
+    /// `UIColor`s for that is a good way to get it subtly wrong.
+    let tintName: String
     let alpha: CGFloat
     let badge: String?
     let badgeTone: String
@@ -1736,6 +1748,10 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
 final class GlassButtonView: UIButton {
     private let icon = UIImageView()
     private let badge = BadgeLabel()
+    /// Which base configuration is currently installed. Swapping between
+    /// plain and prominent glass means rebuilding it, and rebuilding one
+    /// every frame would throw away the press animation mid-gesture.
+    private var appliedProminent: Bool?
 
     var onTap: (() -> Void)?
 
@@ -1819,9 +1835,29 @@ final class GlassButtonView: UIButton {
     }
 
     func apply(_ spec: GlassButtonSpec) {
+        // Selection is a different MATERIAL, not a colour swapped into the
+        // same one: `.prominentGlass()` is the system's tinted lens, so a
+        // chosen chip keeps refracting the map under it instead of going
+        // flat. Rebuilt only on the transition — the configuration system
+        // re-runs its own press animation from scratch each time.
+        if appliedProminent != spec.prominent {
+            appliedProminent = spec.prominent
+            var base: UIButton.Configuration
+            if #available(iOS 26.0, *) {
+                base = spec.prominent ? .prominentGlass() : .glass()
+            } else {
+                base = spec.prominent ? .filled() : .gray()
+            }
+            base.cornerStyle = .capsule
+            base.contentInsets = .zero
+            configuration = base
+        }
         // Sized off the button rather than fixed, so the same spec works for
-        // the 44pt header buttons and anything smaller.
-        let point = max(15, min(22, spec.frame.height * 0.44))
+        // the 44pt header buttons and anything smaller. A chip's glyph is
+        // fixed instead: it has to agree with the 13px icon the page
+        // reserved room for, not with the capsule's height.
+        let isChip = spec.role == "chip"
+        let point = isChip ? 13 : max(15, min(22, spec.frame.height * 0.44))
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: point, weight: .regular)
         let image = UIImage(systemName: spec.symbol, withConfiguration: symbolConfig)
 
@@ -1838,6 +1874,9 @@ final class GlassButtonView: UIButton {
                 config.title = nil
                 config.image = nil
                 config.contentInsets = .zero
+                if spec.prominent {
+                    config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
+                }
                 configuration = config
             }
         } else {
@@ -1860,17 +1899,31 @@ final class GlassButtonView: UIButton {
             // body-sized and both it and the glyph sit at the leading edge,
             // with the rest of the capsule empty and waiting.
             container.font = .systemFont(ofSize: isField ? 17 : 12.5, weight: isField ? .regular : .semibold)
-            container.foregroundColor = spec.tint
+            // A prominent capsule is filled, so its label has to be the fill's
+            // opposite rather than the tint it was drawn from.
+            let foreground: UIColor = spec.prominent
+                ? (spec.tintName == "primary" ? .white : .systemBackground)
+                : spec.tint
+            container.foregroundColor = foreground
             if isField {
                 config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
                 config.imagePadding = 6
                 config.titleAlignment = .leading
                 contentHorizontalAlignment = .leading
+            } else if isChip {
+                // Matched to the page's own chip box, so the capsule lands on
+                // the room the layout reserved for it rather than near it.
+                config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
+                config.imagePadding = 6
+                contentHorizontalAlignment = .center
             } else {
                 contentHorizontalAlignment = .center
             }
+            if spec.prominent {
+                config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
+            }
             config.attributedTitle = AttributedString(spec.title, attributes: container)
-            config.baseForegroundColor = spec.tint
+            config.baseForegroundColor = foreground
             config.titleLineBreakMode = .byClipping
             configuration = config
         }
@@ -2047,6 +2100,14 @@ final class GlassButtonLayer {
         guard needed > spec.frame.width else { return spec.frame }
         var frame = spec.frame
         frame.size.width = needed
+        // A chip lives in a scrolling row with its neighbours, so it cannot
+        // anchor to an edge of the screen the way a lone header pill does —
+        // it grows symmetrically into the gap instead, which is where the few
+        // points of difference between the page's font and the system's go.
+        if spec.role == "chip" {
+            frame.origin.x = spec.frame.midX - needed / 2
+            return frame
+        }
         if spec.frame.midX > host.bounds.midX {
             frame.origin.x = spec.frame.maxX - needed
         }

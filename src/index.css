@@ -936,7 +936,8 @@ input[type="range"].accent-primary::-moz-range-thumb {
    pills would fight the native layer's width-fitting rule. The active state
    is deliberately NOT glass — the reference inverts a chosen chip to a
    solid, because glass cannot say "selected" without a fill. */
-.map-chip {
+.map-chip,
+.map-chip-box {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -946,8 +947,19 @@ input[type="range"].accent-primary::-moz-range-thumb {
   padding: 0 13px;
   height: 38px;
   font-size: 12.5px;
-  font-weight: 700;
   letter-spacing: -0.01em;
+}
+/* What the native capsule is measured from. It paints nothing — UIKit draws
+   the chip over this box — but it must reserve the width the SYSTEM font
+   needs, not the width the app's font needs, or the capsule grows past the
+   room the row set aside for it. Hence the system stack and the 600 weight
+   the native side sets. */
+.map-chip-box {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-weight: 600;
+}
+.map-chip {
+  font-weight: 700;
   color: var(--color-on-surface);
   background-color: rgba(252, 251, 250, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.82);

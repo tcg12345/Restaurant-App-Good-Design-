@@ -42,6 +42,16 @@ export interface GlassButtonSpec {
    *  aligned, so the capsule reads as something you type into rather than
    *  as a button whose label happens to be long. */
   titleStyle?: 'chip' | 'field';
+  /** `chip` is a filter capsule in a scrolling row: it takes its glyph size
+   *  and insets from the page's chip box rather than from the capsule's
+   *  height, and it grows from its centre when the system's font sets its
+   *  label wider than the page's did. */
+  role?: 'button' | 'chip';
+  /** Selected. Glass has no fill to darken, so a chosen capsule switches to
+   *  the system's PROMINENT glass — the tinted lens — rather than being
+   *  painted over. `tint` picks the fill: `primary` for the accent, `label`
+   *  for the app's ink. */
+  prominent?: boolean;
   /** Read by VoiceOver on the native control. */
   label: string;
   tint?: GlassTint;
@@ -192,10 +202,13 @@ function sample(): void {
         badge: seg.badge ?? '',
         badgeTone: seg.badgeTone ?? 'primary',
       })),
+      role: reg.role ?? 'button',
+      prominent: reg.prominent ?? false,
       tint: reg.tint ?? 'label',
       alpha: Math.round(alpha * 100) / 100,
       badge: reg.badge ?? '',
       badgeTone: reg.badgeTone ?? 'primary',
+      // Last, so a field's role wins over the default above.
       ...(reg.field ? {
         role: 'field',
         fieldText: reg.field.text,
@@ -323,8 +336,11 @@ export const GlassButton: React.FC<{
   id: string;
   onClick: () => void;
   className?: string;
+  /** Mirrored to `aria-pressed` on the web element — a toggle has to say so
+   *  in the fallback, where there is no native control to announce it. */
+  pressed?: boolean;
   children: React.ReactNode;
-} & GlassButtonSpec> = ({ id, onClick, className, style, children, symbol, title, titleStyle, label, tint, badge, badgeTone, disabled }) => {
+} & GlassButtonSpec> = ({ id, onClick, className, style, pressed, children, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled }) => {
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass;
   // Stable for the life of this element, unique across every other one.
@@ -342,6 +358,8 @@ export const GlassButton: React.FC<{
       symbol,
       title,
       titleStyle,
+      role,
+      prominent,
       label,
       tint,
       badge,
@@ -354,7 +372,7 @@ export const GlassButton: React.FC<{
       registry.delete(key);
       wake();
     };
-  }, [active, key, symbol, title, titleStyle, label, tint, badge, badgeTone, disabled]);
+  }, [active, key, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled]);
 
   const handle = useCallback(() => onClickRef.current(), []);
 
@@ -364,6 +382,7 @@ export const GlassButton: React.FC<{
       type="button"
       onClick={handle}
       aria-label={label}
+      aria-pressed={pressed}
       // `aria-hidden` while native owns it: the UIKit control carries the
       // accessibility label, and two buttons for one action is worse than
       // either alone.
