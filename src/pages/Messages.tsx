@@ -782,6 +782,12 @@ const ChatView: React.FC<{
   const [recipePickerOpen, setRecipePickerOpen] = useState(false); // share-a-recipe picker
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingShare, setPendingShare] = useState<SharedRestaurant | null>(null);
+  // Collapse keeps its children mounted even while closed, so the preview
+  // renders from the last non-null share — clearing pendingShare animates
+  // the box shut without blanking the card (or dereferencing null).
+  const lastShareRef = useRef<SharedRestaurant | null>(null);
+  if (pendingShare) lastShareRef.current = pendingShare;
+  const shownShare = pendingShare ?? lastShareRef.current;
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1097,33 +1103,35 @@ const ChatView: React.FC<{
       </div>
 
       {/* Pending share preview */}
-      <Collapse open={pendingShare}>
-            <div className="px-4 pt-3 pb-2 flex items-start gap-3">
-              <div className="flex-1 min-w-0 flex items-start gap-2.5 bg-white rounded-xl border border-on-surface/10 p-2.5 shadow-sm">
-                {pendingShare.image && (
-                  <img src={pendingShare.image} alt={pendingShare.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-on-surface/80 truncate">{pendingShare.name}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {pendingShare.cuisine && <span className="text-[10px] text-on-surface/40">{pendingShare.cuisine}</span>}
-                    {pendingShare.price && <span className="text-[10px] text-on-surface/30">{pendingShare.price}</span>}
-                    {pendingShare.isReview && pendingShare.score !== undefined && (
-                      <span className={cn("text-[10px] font-bold", scoreColor(pendingShare.score))}>
-                        {pendingShare.score.toFixed(1)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[9px] font-semibold text-primary mt-0.5 inline-block">
-                    {pendingShare.isReview ? 'Review' : 'Details'}
-                  </span>
+      <Collapse open={!!pendingShare}>
+        {shownShare && (
+          <div className="px-4 pt-3 pb-2 flex items-start gap-3">
+            <div className="flex-1 min-w-0 flex items-start gap-2.5 bg-white rounded-xl border border-on-surface/10 p-2.5 shadow-sm">
+              {shownShare.image && (
+                <img src={shownShare.image} alt={shownShare.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-on-surface/80 truncate">{shownShare.name}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  {shownShare.cuisine && <span className="text-[10px] text-on-surface/40">{shownShare.cuisine}</span>}
+                  {shownShare.price && <span className="text-[10px] text-on-surface/30">{shownShare.price}</span>}
+                  {shownShare.isReview && shownShare.score !== undefined && (
+                    <span className={cn("text-[10px] font-bold", scoreColor(shownShare.score))}>
+                      {shownShare.score.toFixed(1)}
+                    </span>
+                  )}
                 </div>
+                <span className="text-[9px] font-semibold text-primary mt-0.5 inline-block">
+                  {shownShare.isReview ? 'Review' : 'Details'}
+                </span>
               </div>
-              <button onClick={() => setPendingShare(null)}
-                className="p-1.5 text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/5 rounded-full transition-colors flex-shrink-0 mt-1">
-                <X size={14} />
-              </button>
             </div>
+            <button onClick={() => setPendingShare(null)}
+              className="p-1.5 text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/5 rounded-full transition-colors flex-shrink-0 mt-1">
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </Collapse>
 
       {/* Composer */}
