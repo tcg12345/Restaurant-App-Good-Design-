@@ -295,10 +295,12 @@ const MapChip: React.FC<{
       title={label}
       titleStyle="chip"
       prominent={!!(on || accent)}
-      // Selection is the brand's rust everywhere else in the app — the
-      // Search tab's pill, the list filter pills — so a chosen chip says it
-      // the same way rather than inventing an ink-filled variant of its own.
-      tint="primary"
+      // `tint` means two different things depending on prominence: the FILL
+      // of a chosen capsule, and the INK of an unchosen one. Selection is
+      // the brand's rust everywhere else in the app — the Search tab's
+      // pill, the list filter pills — so a chosen chip fills with that and
+      // an unchosen one just writes in the label colour.
+      tint={on || accent ? 'primary' : 'label'}
       label={label}
       pressed={on || accent}
       onClick={onClick}
