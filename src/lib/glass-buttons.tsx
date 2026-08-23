@@ -246,6 +246,15 @@ function wake(): void {
   if (!frame && supported) frame = requestAnimationFrame(tick);
 }
 
+/** A keep-alive route flip hides a whole layer by toggling `visibility` in
+ *  render — no transition, no scroll, no registry change, so none of the
+ *  bound listeners fire and the layer's buttons would keep their last
+ *  sampled frame, floating over the new page. The router calls this on
+ *  every location change instead. */
+export function wakeGlassButtons(): void {
+  wake();
+}
+
 function bindListeners(): void {
   if (listenersBound) return;
   listenersBound = true;

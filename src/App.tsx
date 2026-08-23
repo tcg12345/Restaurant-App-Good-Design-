@@ -75,6 +75,7 @@ import { AppAssistant } from './components/AppAssistant';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { SignInModalProvider } from './contexts/SignInModalContext';
 import { RequireAuthRoute } from './components/RequireAuthRoute';
+import { wakeGlassButtons } from './lib/glass-buttons';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -211,6 +212,12 @@ const AppContent: React.FC = () => {
   React.useEffect(() => {
     recordNavEntry(historyIdx ?? 0, { pathname: location.pathname, search: location.search }, navType);
   }, [location, historyIdx, navType]);
+  // A route change moves whole layers (keep-alive flips visibility with no
+  // event the sampler listens for) — re-arm it so native glass from the
+  // hidden layer stands down instead of floating over the new page.
+  React.useEffect(() => {
+    wakeGlassButtons();
+  }, [location.pathname]);
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
