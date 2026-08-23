@@ -757,14 +757,6 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             >
               <Bookmark size={14} className={wishlisted ? 'fill-current' : ''} />
             </button>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); if (!isPage) onClose(); openAddRestaurantModal(meta); }}
-              className="grid h-[34px] w-[34px] place-items-center rounded-full border border-on-surface/20 text-on-surface active:opacity-80 transition-colors"
-              aria-label="Rate"
-            >
-              <Plus size={15} />
-            </button>
           </div>
           {typeof p.predicted === 'number' && (
             <div className="flex flex-col items-center">
@@ -1104,20 +1096,30 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   if (isPage) {
     if (!open) return null;
     return (
-      /* Arriving from the list's "For you" chip. The route push used to
-         land the whole ranking in place on one frame, which read as the
-         page having been replaced rather than as having gone somewhere.
-         The header settles first and the rows rise under it — the same
-         drawer curve every other transition in the app uses. */
-      <motion.div
-        initial={{ opacity: 0, y: 18, scale: 0.985 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
-        style={{ transformOrigin: 'center top' }}
-        className="type-archivo relative flex h-[100dvh] flex-col bg-surface"
-      >
-        {mobileLayout}
-      </motion.div>
+      /* Arriving from the list's "For you" chip.
+     
+         In the design this isn't a page at all — it's the same screen in
+         another mode, so the header never moves and only the list beneath
+         it changes. A route is the right thing here (swipe-back works,
+         detail pages push on top), but it should FEEL like that swap. So
+         the chrome renders flat — it already matches the header you came
+         from, near enough that a still frame reads as continuous — and
+         only the body crosses over, on a short curve with barely any
+         travel. Moving the whole page announced a navigation the design
+         never has. */
+      <div className="type-archivo relative flex h-[100dvh] flex-col bg-surface">
+        {mobileChrome}
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.26, ease: [0.32, 0.72, 0, 1] }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          {mobileScroll}
+        </motion.div>
+        {picker}
+        {mobileFilterSheet}
+      </div>
     );
   }
 
