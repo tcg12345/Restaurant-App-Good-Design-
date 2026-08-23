@@ -386,7 +386,7 @@ const RestaurantsTab: React.FC<{
                       className="flex items-center justify-center rounded-full font-serif font-bold tabular-nums border-[1.5px] border-surface"
                       style={{ width: 32, height: 32, fontSize: 10.5, marginLeft: i === 0 ? 0 : -8, background: t.background, color: t.color, boxShadow: `inset 0 0 0 1px ${t.ring}` }}
                     >
-                      {s.toFixed(1)}
+                      {s >= 10 ? '10' : s.toFixed(1)}
                     </span>
                   );
                 })}
