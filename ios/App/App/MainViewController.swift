@@ -2056,8 +2056,17 @@ final class GlassButtonLayer {
             // push after release trues it up.
             switch chrome {
             case .button(let button):
-                button.frame = Self.fit(spec, in: host, view: button)
+                // Content BEFORE measurement. `fit` asks the button how wide
+                // it needs to be, and a button answers for the content it is
+                // currently carrying — so measuring first sized every pill
+                // against the previous spec's title, or against no title at
+                // all on the frame it was created. The payload only pushes on
+                // change, so nothing came along afterwards to correct it: a
+                // chip simply stayed at whatever width the stale answer gave
+                // and clipped its own label.
+                button.frame = spec.frame
                 button.apply(spec)
+                button.frame = Self.fit(spec, in: host, view: button)
             case .field(let search):
                 // The web box exactly — a field's width is the page's to
                 // decide, unlike a pill's, whose label can outgrow it.
