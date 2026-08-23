@@ -683,7 +683,12 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     const metaLine = [entry.cuisineLabel, priceText, Number.isFinite(entry.distanceMi) ? fmtMiles(entry.distanceMi) : '']
       .filter(Boolean)
       .join(' · ');
-    const topReason = (p as { reasons?: string[] }).reasons?.[0] || '';
+    // The strongest reason that isn't Google's. "4.9★ from 327 reviews" is
+    // a fact about a website, and on a page whose whole argument is
+    // "because of what YOU rated" it was the one line with nothing to do
+    // with the reader.
+    const topReason = ((p as { reasons?: string[] }).reasons || [])
+      .find((r) => !/reviews?\b|★/i.test(r)) || '';
     const meta = {
       id: p.id,
       name: p.name,
@@ -729,12 +734,6 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             </span>
             {p.michelin && (
               <MichelinMark michelin={p.michelin as MichelinInfo} size={11} className="flex-shrink-0" />
-            )}
-            {p.rating > 0 && (
-              <span className="inline-flex flex-shrink-0 items-center gap-0.5 text-on-surface/45" style={{ fontSize: '11.5px', fontWeight: 600 }}>
-                <Star size={10.5} className="fill-amber-400 text-amber-400" />
-                {p.rating.toFixed(1)}
-              </span>
             )}
           </div>
           {metaLine && <p className="mt-1.5 truncate text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1.2 }}>{metaLine}</p>}
