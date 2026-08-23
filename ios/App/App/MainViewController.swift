@@ -1653,8 +1653,12 @@ final class GlassChipRowView: UIView {
         scroll.contentInsetAdjustmentBehavior = .never
         scroll.clipsToBounds = true
         // The web row's own horizontal padding, so the first chip lines up
-        // with the search field's leading edge above it.
+        // with the search field's leading edge above it. With inset
+        // adjustment off, the rest offset is NOT derived from the inset —
+        // unseeded, the row rendered 14pt left of home and clipped its
+        // first chip at the screen edge.
         scroll.contentInset = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+        scroll.contentOffset = CGPoint(x: -14, y: 0)
         addSubview(scroll)
     }
 
