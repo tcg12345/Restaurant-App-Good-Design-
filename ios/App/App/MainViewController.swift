@@ -1223,11 +1223,6 @@ enum GlassGroupKind: String {
     /// of glass; unlike `selector`, more than one can be chosen and the row
     /// scrolls. See `GlassChipRowView`.
     case chips
-    /// A selector as a clear-glass capsule with a sliding thumb — for the
-    /// one place a selector has to match the clear-glass chrome around it.
-    /// The `selector` kind's UITabBar platter is the single material the
-    /// system will not let match the rest. See `GlassSegmentPillView`.
-    case pill
 }
 
 struct GlassButtonSpec {
@@ -1346,6 +1341,15 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         // colour too. The chrome ink, not the system label — see glassInk.
         bar.tintColor = GlassTabBar.glassInk
         bar.unselectedItemTintColor = GlassTabBar.glassInk.withAlphaComponent(0.55)
+        // The platter joins the chrome's material family — the same tint the
+        // chips and the field wear, laid over the bar's own material rather
+        // than replacing it, so the lens, its magnification and the drag that
+        // carries it are all still the system's.
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundColor = GlassTabBar.glassTint
+        bar.standardAppearance = appearance
+        bar.scrollEdgeAppearance = appearance
         // The platter is what you see; the bar around it is only a frame to
         // hang it in, and it reaches outside this view's box.
         clipsToBounds = false
@@ -1367,6 +1371,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         guard bounds.width > 1, bounds.height > 1 else { return }
         if let seat {
             bar.frame = barFrame(for: seat)
+            applyRim()
             return
         }
         // Solved, not assumed. The platter is inset inside the bar by numbers
@@ -1407,11 +1412,28 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         }
         seat = solved
         bar.frame = barFrame(for: solved)
+        applyRim()
     }
 
     private var platterRect: CGRect? {
         guard let platter = platterView else { return nil }
         return platter.convert(platter.bounds, to: self)
+    }
+
+    /// The same hairline every other capsule wears. Drawn on the platter's
+    /// own layer so it follows the capsule the bar actually laid out — the
+    /// platter is inset inside the bar by numbers that are not ours.
+    private func applyRim() {
+        guard let platter = platterView else { return }
+        platter.layer.borderColor = GlassTabBar.glassRim.resolvedColor(with: traitCollection).cgColor
+        platter.layer.borderWidth = 1
+        platter.layer.cornerRadius = platter.bounds.height / 2
+        platter.layer.masksToBounds = false
+    }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        applyRim()
     }
 
     private func barFrame(for seat: Seat) -> CGRect {
@@ -1661,118 +1683,6 @@ final class GlassActionGroupView: UIView {
 /// would eat the keystroke. Focus rides a generation for a different reason:
 /// a payload re-asserting `focused` must not re-summon a keyboard the user
 /// dismissed.
-/// A selector worn as clear glass — the Search page's Discover | Following.
-///
-/// Not the UITabBar the Lists page uses: the bar's platter is drawn from a
-/// material of the system's choosing, and beside a strip of clear-glass
-/// capsules it reads as a different object entirely. This is the same
-/// construction as every other capsule in that strip — a disabled button
-/// carrying the clear-glass configuration as the ground — with two plain
-/// labels across it and a soft thumb that slides to the chosen one.
-final class GlassSegmentPillView: UIView {
-    private let bg = UIButton(type: .custom)
-    private let thumb = UIView()
-    private var buttons: [UIButton] = []
-    private var ids: [String] = []
-    private var titles: [String] = []
-    private var activeIndex = 0
-
-    var onTap: ((String) -> Void)?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        var config: UIButton.Configuration
-        if #available(iOS 26.0, *) {
-            config = .clearGlass()
-        } else {
-            config = .gray()
-        }
-        config.cornerStyle = .capsule
-        config.baseBackgroundColor = GlassTabBar.glassTint
-        config.background.strokeColor = GlassTabBar.glassRim
-        config.background.strokeWidth = 1
-        bg.configuration = config
-        // The ground, not a control — the segment buttons take the touches.
-        bg.isUserInteractionEnabled = false
-        addSubview(bg)
-
-        thumb.backgroundColor = UIColor { trait in
-            trait.userInterfaceStyle == .dark
-                ? UIColor(white: 1.0, alpha: 0.16)
-                : UIColor(white: 1.0, alpha: 0.95)
-        }
-        thumb.layer.shadowColor = UIColor.black.cgColor
-        thumb.layer.shadowOpacity = 0.08
-        thumb.layer.shadowRadius = 6
-        thumb.layer.shadowOffset = CGSize(width: 0, height: 2)
-        addSubview(thumb)
-        clipsToBounds = false
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func apply(_ spec: GlassButtonSpec) {
-        let incomingIds = spec.segments.map(\.id)
-        let incomingTitles = spec.segments.map(\.title)
-        if incomingIds != ids || incomingTitles != titles {
-            buttons.forEach { $0.removeFromSuperview() }
-            buttons = spec.segments.map { seg in
-                let button = UIButton(type: .custom)
-                button.setTitle(seg.title, for: .normal)
-                button.titleLabel?.font = .systemFont(ofSize: 13.5, weight: .semibold)
-                button.addTarget(self, action: #selector(segmentTapped(_:)), for: .touchUpInside)
-                addSubview(button)
-                return button
-            }
-            ids = incomingIds
-            titles = incomingTitles
-            setNeedsLayout()
-        }
-        let nextActive = spec.segments.firstIndex(where: { $0.active }) ?? 0
-        for (index, button) in buttons.enumerated() {
-            button.setTitleColor(
-                index == nextActive ? .label : GlassTabBar.glassInk.withAlphaComponent(0.85),
-                for: .normal
-            )
-        }
-        if nextActive != activeIndex {
-            activeIndex = nextActive
-            setNeedsLayout()
-            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4) {
-                self.layoutIfNeeded()
-            }
-        }
-        accessibilityLabel = spec.label
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        bg.frame = bounds
-        guard !buttons.isEmpty else { return }
-        // Split by each word's appetite, the way the web pill does.
-        let widths = buttons.map { max(64, ceil($0.intrinsicContentSize.width) + 32) }
-        let total = widths.reduce(0, +)
-        let scale = total > 0 ? bounds.width / total : 1
-        var x: CGFloat = 0
-        for (index, button) in buttons.enumerated() {
-            let w = widths[index] * scale
-            button.frame = CGRect(x: x, y: 0, width: w, height: bounds.height)
-            if index == activeIndex {
-                thumb.frame = button.frame.insetBy(dx: 3, dy: 3)
-                thumb.layer.cornerRadius = thumb.frame.height / 2
-            }
-            x += w
-        }
-        bringSubviewToFront(thumb)
-        buttons.forEach { bringSubviewToFront($0) }
-    }
-
-    @objc private func segmentTapped(_ sender: UIButton) {
-        guard let index = buttons.firstIndex(where: { $0 === sender }), index < ids.count else { return }
-        onTap?(ids[index])
-    }
-}
-
 /// The map chrome's filter chips — one native, horizontally scrolling row.
 ///
 /// The first version mirrored each chip onto its own web box, the way the
@@ -2287,7 +2197,6 @@ final class GlassButtonLayer {
         case actions(GlassActionGroupView)
         case selector(GlassSelectorBarView)
         case chips(GlassChipRowView)
-        case pill(GlassSegmentPillView)
 
         var view: UIView {
             switch self {
@@ -2296,7 +2205,6 @@ final class GlassButtonLayer {
             case .actions(let v): return v
             case .selector(let v): return v
             case .chips(let v): return v
-            case .pill(let v): return v
             }
         }
 
@@ -2310,7 +2218,6 @@ final class GlassButtonLayer {
             case .actions: return !spec.segments.isEmpty && spec.kind == .actions
             case .selector: return !spec.segments.isEmpty && spec.kind == .selector
             case .chips: return !spec.segments.isEmpty && spec.kind == .chips
-            case .pill: return !spec.segments.isEmpty && spec.kind == .pill
             }
         }
     }
@@ -2340,13 +2247,7 @@ final class GlassButtonLayer {
             let chrome: Chrome
             if let existing = views[spec.id] {
                 chrome = existing
-            } else if !spec.segments.isEmpty, spec.kind == .pill {
-                let view = GlassSegmentPillView(frame: spec.frame)
-                view.onTap = { [weak self] id in self?.onTap?(id) }
-                views[spec.id] = .pill(view)
-                host.addSubview(view)
-                chrome = .pill(view)
-            } else if !spec.segments.isEmpty, spec.kind == .chips {
+                        } else if !spec.segments.isEmpty, spec.kind == .chips {
                 let view = GlassChipRowView(frame: spec.frame)
                 view.onTap = { [weak self] id in self?.onTap?(id) }
                 views[spec.id] = .chips(view)
@@ -2424,9 +2325,6 @@ final class GlassButtonLayer {
             case .chips(let row):
                 row.frame = spec.frame
                 row.apply(spec)
-            case .pill(let pill):
-                pill.frame = spec.frame
-                pill.apply(spec)
             }
             view.layoutIfNeeded()
         }

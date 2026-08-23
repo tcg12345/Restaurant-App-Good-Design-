@@ -68,7 +68,7 @@ export interface GlassButtonSpec {
  *  kinds are different controls with opposite touch handling — an action row's
  *  regions are pressed one at a time, a selector's choice is dragged along the
  *  bar. */
-type GlassGroupKind = 'actions' | 'selector' | 'chips' | 'pill';
+type GlassGroupKind = 'actions' | 'selector' | 'chips';
 
 /** The live state of a native search field. One mutable object per field,
  *  read by the sampler every frame — mutated in place rather than
@@ -599,15 +599,9 @@ export const GlassChipRow: React.FC<{
  */
 export function useGlassSegments(options: {
   id: string;
-  /** `selector` (default) is the UITabBar with the system's lens — the
-   *  Lists page's control. `pill` is a clear-glass capsule with a sliding
-   *  thumb, for a selector that has to match the clear-glass chrome around
-   *  it: the tab bar's platter is the one material the system won't let
-   *  match the rest. */
-  variant?: 'selector' | 'pill';
   items: Array<GlassButtonSpec & { id: string; active?: boolean; onClick: () => void }>;
 }): { ref: (el: HTMLElement | null) => void; active: boolean } {
-  const { id, variant = 'selector', items } = options;
+  const { id, items } = options;
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass;
   const key = `${id}#${useId()}`;
@@ -626,7 +620,7 @@ export function useGlassSegments(options: {
       el,
       symbol: '',
       label: '',
-      kind: variant,
+      kind: 'selector',
       onTap: () => {},
       segments: itemsRef.current.map((item) => ({
         ...item,
@@ -641,7 +635,7 @@ export function useGlassSegments(options: {
       registry.delete(key);
       wake();
     };
-  }, [active, key, shape, variant]);
+  }, [active, key, shape]);
 
   const ref = useCallback((el: HTMLElement | null) => { elRef.current = el; }, []);
   return { ref, active };

@@ -112,10 +112,6 @@ const PhoneSearch: React.FC = () => {
 
   const seg = useGlassSegments({
     id: 'search-tabs',
-    // The clear-glass pill, not the UITabBar selector: this strip's other
-    // occupants are all clear glass, and the tab bar's platter is the one
-    // material the system will not let match them.
-    variant: 'pill',
     items: TABS.map(([key, label]) => ({
       id: key,
       symbol: '',
