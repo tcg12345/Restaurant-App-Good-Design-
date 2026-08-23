@@ -1622,7 +1622,21 @@ final class GlassActionGroupView: UIView {
                 buttons.append(button)
 
                 let badge = BadgeLabel()
-                badge.font = .systemFont(ofSize: 11, weight: .bold)
+                pillStack.axis = .horizontal
+        pillStack.alignment = .center
+        pillStack.spacing = 6
+        pillStack.isUserInteractionEnabled = false
+        pillStack.isHidden = true
+        pillStack.translatesAutoresizingMaskIntoConstraints = false
+        pillStack.addArrangedSubview(pillIcon)
+        pillStack.addArrangedSubview(pillLabel)
+        addSubview(pillStack)
+        NSLayoutConstraint.activate([
+            pillStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            pillStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
+        badge.font = .systemFont(ofSize: 11, weight: .bold)
                 badge.textColor = .white
                 badge.textAlignment = .center
                 badge.clipsToBounds = true
@@ -1958,6 +1972,16 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
 final class GlassButtonView: UIButton {
     private let icon = UIImageView()
     private let badge = BadgeLabel()
+    /// A pill's content — glyph + word in a stack pinned to the centre.
+    /// The same lesson the lone glyph taught, learned a second time: content
+    /// handed to the configuration kept resolving against margins of the
+    /// system's choosing and sat high in the capsule (the Search chip, the
+    /// filter sheet's Clear all, the location chip — all top-heavy). The
+    /// configuration draws only the glass now; the content is ours, and a
+    /// centre constraint cannot drift.
+    private let pillStack = UIStackView()
+    private let pillIcon = UIImageView()
+    private let pillLabel = UILabel()
     /// Which base configuration is currently installed. Swapping between
     /// plain and prominent glass means rebuilding it, and rebuilding one
     /// every frame would throw away the press animation mid-gesture.
@@ -2016,6 +2040,20 @@ final class GlassButtonView: UIButton {
         // Outside the configuration system, deliberately: a count badge read
         // through the material is a washed-out smudge, and it is meant to be
         // the loudest thing on the control.
+        pillStack.axis = .horizontal
+        pillStack.alignment = .center
+        pillStack.spacing = 6
+        pillStack.isUserInteractionEnabled = false
+        pillStack.isHidden = true
+        pillStack.translatesAutoresizingMaskIntoConstraints = false
+        pillStack.addArrangedSubview(pillIcon)
+        pillStack.addArrangedSubview(pillLabel)
+        addSubview(pillStack)
+        NSLayoutConstraint.activate([
+            pillStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            pillStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+
         badge.font = .systemFont(ofSize: 11, weight: .bold)
         badge.textColor = .white
         badge.textAlignment = .center
@@ -2039,9 +2077,15 @@ final class GlassButtonView: UIButton {
         super.layoutSubviews()
         badge.layer.cornerRadius = badge.bounds.height / 2
         // The configuration system re-sorts subviews when it rebuilds — keep
-        // the glyph above the glass and the badge above everything.
+        // the content above the glass and the badge above everything.
         bringSubviewToFront(icon)
+        bringSubviewToFront(pillStack)
         bringSubviewToFront(badge)
+    }
+
+    /// What a pill actually needs: its centred stack plus even margins.
+    func pillNeededWidth() -> CGFloat {
+        pillStack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width + 30
     }
 
     func apply(_ spec: GlassButtonSpec) {
@@ -2091,6 +2135,7 @@ final class GlassButtonView: UIButton {
             // (its layout resolves against margins the zeroed contentInsets did
             // not remove). A centred image view has neither problem, and with
             // interaction off it cannot shadow the button's touch handling.
+            pillStack.isHidden = true
             icon.image = image
             icon.tintColor = spec.tint
             icon.isHidden = false
@@ -2104,66 +2149,29 @@ final class GlassButtonView: UIButton {
                 configuration = config
             }
         } else {
-            // A pill. Here the configuration *has* to do the layout — there is
-            // no centring a glyph and a word by hand that survives Dynamic
-            // Type — so the glyph goes back into it, where the off-centre
-            // problem doesn't arise because the content is no longer a lone
-            // image being centred against stale margins.
+            // A pill. The configuration draws ONLY the glass — see pillStack.
             icon.isHidden = true
-            guard var config = configuration else { return }
-            config.image = image?.withRenderingMode(.alwaysTemplate)
-            config.imagePlacement = .leading
-            // Even margins and real space between glyph and word — 10/13
-            // with a 3pt gap sat the pair left of centre and crowded them.
-            config.imagePadding = 6
-            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 15, bottom: 0, trailing: 15)
-            // Through an attributed title rather than `baseForegroundColor`,
-            // which the glass configuration resolves for itself.
-            var container = AttributeContainer()
-            let isField = spec.titleStyle == "field"
-            // A search bar is not a chip with a long label: the placeholder is
-            // body-sized and both it and the glyph sit at the leading edge,
-            // with the rest of the capsule empty and waiting.
-            container.font = .systemFont(ofSize: isField ? 17 : 13, weight: isField ? .regular : .semibold)
-            // A prominent capsule is filled, so its label has to be the fill's
-            // opposite rather than the tint it was drawn from.
+            pillStack.isHidden = false
+            if var config = configuration {
+                config.title = nil
+                config.attributedTitle = nil
+                config.image = nil
+                config.contentInsets = .zero
+                config.titleTextAttributesTransformer = nil
+                if spec.prominent {
+                    config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
+                }
+                configuration = config
+            }
             let foreground: UIColor = spec.prominent
                 ? (spec.tintName == "primary" ? .white : .systemBackground)
                 : spec.tint
-            container.foregroundColor = foreground
-            if isField {
-                config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
-                config.imagePadding = 6
-                config.titleAlignment = .leading
-                contentHorizontalAlignment = .leading
-            } else if isChip {
-                // Matched to the page's own chip box, so the capsule lands on
-                // the room the layout reserved for it rather than near it.
-                config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 13, bottom: 0, trailing: 13)
-                config.imagePadding = 6
-                contentHorizontalAlignment = .center
-            } else {
-                contentHorizontalAlignment = .center
-            }
-            if spec.prominent {
-                config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
-            }
-            config.attributedTitle = AttributedString(spec.title, attributes: container)
-            config.baseForegroundColor = foreground
-            // The last word on the label's colour. A prominent configuration
-            // resolves a foreground of its own from the fill it was given,
-            // and that resolution runs after — and over — the attributed
-            // string's, which is how a chosen chip ended up white on white.
-            // The transformer is the one hook that runs afterwards.
-            let titleFont = container.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
-            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-                var out = incoming
-                out.foregroundColor = foreground
-                out.font = titleFont
-                return out
-            }
-            config.titleLineBreakMode = .byClipping
-            configuration = config
+            pillIcon.image = image?.withRenderingMode(.alwaysTemplate)
+            pillIcon.tintColor = foreground
+            pillIcon.isHidden = spec.symbol.isEmpty || image == nil
+            pillLabel.text = spec.title
+            pillLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+            pillLabel.textColor = foreground
         }
         accessibilityLabel = spec.label
 
@@ -2359,7 +2367,7 @@ final class GlassButtonLayer {
     /// grows leftwards, so neither walks off its margin.
     private static func fit(_ spec: GlassButtonSpec, in host: UIView, view: GlassButtonView) -> CGRect {
         guard !spec.title.isEmpty else { return spec.frame }
-        let needed = view.intrinsicContentSize.width
+        let needed = view.pillNeededWidth()
         guard needed > spec.frame.width else { return spec.frame }
         var frame = spec.frame
         frame.size.width = needed
