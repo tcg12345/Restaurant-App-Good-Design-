@@ -1135,6 +1135,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
      grabber reading as one page. Lowering plays it backwards — the
      backdrop thins and the map re-emerges. */
   const backdropOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [1, 0]);
+  // The grabber melts away over the same stretch: fully raised, the sheet
+  // meets the chrome with the header first — no bar, no blank strip.
+  const handleHeight = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 34]);
+  const handleOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 1]);
   useEffect(() => {
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
     return () => controls.stop();
@@ -4856,9 +4860,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             the Search tab keeps it, because its full state is still the
             sheet and drags back down) */}
         {(sheetState !== 'full' || searchTab) && (
-        <div
-          className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0"
-          style={{ touchAction: 'none' }}
+        <motion.div
+          className={cn(
+            'w-full flex flex-col items-center cursor-grab active:cursor-grabbing flex-shrink-0',
+            searchTab ? 'justify-center overflow-hidden' : 'pt-4 pb-4',
+          )}
+          style={searchTab ? { touchAction: 'none', height: handleHeight, opacity: handleOpacity } : { touchAction: 'none' }}
           onClick={() => {
             if (Math.abs(dragCurrentYRef.current) < 5) {
               // Search tab cycles through all three snaps, like the
@@ -4879,7 +4886,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
           ) : (
             <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
           )}
-        </div>
+        </motion.div>
         )}
 
         {/* ══════ FULL STATE — full-screen discover page (Home) ══════ */}
@@ -5286,7 +5293,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         {(sheetState !== 'full' || searchTab) && (
         <>
         {/* Search Bar & Filters — only on discover tab */}
-        <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
+        <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", searchTab && "pt-2", phoneMode ? "px-3" : "px-6")}>
           {/* Sheet title. On the Search tab it is the reference's header —
               count as the title, context underneath, sort on the right —
               and it drags the sheet, because a title bar you can't grab is
