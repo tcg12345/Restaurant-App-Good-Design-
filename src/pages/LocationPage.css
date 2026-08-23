@@ -1717,6 +1717,11 @@
     0 0 0 1px rgba(28, 24, 22, 0.08);
   transition: transform .15s, background .15s, box-shadow .15s;
 }
+/* On the search takeover the FAB has to ride ABOVE the takeover's wash
+   (z-70) — its usual 45 sits above the nav but under overlays. */
+.lp-chat-fab.is-over-takeover {
+  z-index: 75;
+}
 .lp-chat-fab:hover {
   transform: translateY(-2px);
   background: var(--accent);

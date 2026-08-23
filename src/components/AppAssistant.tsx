@@ -15,7 +15,7 @@
 // page, focused reels, and inside other full-screen flows where a FAB
 // would clash (controlled by the visibleByRoute check below).
 
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LocationChat, type ActionResult, type AssistantUser, type AssistantCircleRating, type CommunityRecipeHit } from './LocationChat';
 import { useAuth } from '../contexts/AuthContext';
@@ -53,6 +53,7 @@ import {
 import type { HomeMeal } from '../contexts/ListsContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import type { ChatFilters, UserContext } from '../lib/location-chat-client';
+import { isSearchTakeoverOpen, subscribeSearchTakeover } from '../lib/search-takeover';
 
 /* ── Route gating ─────────────────────────────────────────────────
    Pages where mounting the assistant FAB would clash with the
@@ -365,8 +366,17 @@ export const AppAssistant: React.FC = () => {
   const homeLoc = homeLocation?.location || null;
   const { pageContext } = useAssistantContext();
 
+  // The Search tab is the map now, and the FAB sat on the results sheet's
+  // corner there. It stands down on the map and steps back in when the
+  // search takeover opens — the one part of that page with room for it.
+  const [takeoverOpen, setTakeoverOpen] = useState(isSearchTakeoverOpen());
+  useEffect(() => subscribeSearchTakeover(setTakeoverOpen), []);
+  const onSearchMap = settings.phoneMode && location.pathname === '/search';
+
   // Gate by route + auth — assistant lives only inside the signed-in app.
-  const hidden = !auth.isSignedIn || !auth.profileComplete || shouldHideAssistant(location.pathname, settings.phoneMode);
+  const hidden = !auth.isSignedIn || !auth.profileComplete
+    || shouldHideAssistant(location.pathname, settings.phoneMode)
+    || (onSearchMap && !takeoverOpen);
 
   /* ── Build the fallback user context for the system prompt (pages
        can publish a richer one — see below) ─────────────────────── */
@@ -947,6 +957,7 @@ export const AppAssistant: React.FC = () => {
   return (
     <LocationChat
       fabAboveBottomNav={fabAboveBottomNav}
+      fabOverTakeover={onSearchMap && takeoverOpen}
       fabHidden={fabHidden}
       visible={visible}
       restaurantMeta={restaurantMeta}

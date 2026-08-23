@@ -267,6 +267,8 @@ interface LocationChatProps {
    *  false, which keeps the original low-and-tight placement that
    *  works well on /location and on desktop. */
   fabAboveBottomNav?: boolean;
+  /** The search takeover is above the page at z-70; the FAB rides on it. */
+  fabOverTakeover?: boolean;
   /** When true the FAB animates down + fades out (Twitter / Instagram
    *  scroll-hide). AppAssistant flips this on mobile while the user
    *  scrolls DOWN and flips it back off when they scroll UP. Always
@@ -851,6 +853,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   homeMeals,
   onPublishHomeMeal,
   fabAboveBottomNav,
+  fabOverTakeover,
   fabHidden,
 }) => {
   const navigate = useNavigate();
@@ -2440,7 +2443,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.button
             key="fab"
             type="button"
-            className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav')}
+            className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav', fabOverTakeover && 'is-over-takeover')}
             onClick={() => setOpen(true)}
             initial={{ opacity: 0, scale: 0.85, y: 8 }}
             // Scroll-hide on mobile: while `fabHidden` is true the

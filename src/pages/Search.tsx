@@ -9,6 +9,7 @@ import { Discover } from './Discover';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
+import { setSearchTakeoverOpen } from '../lib/search-takeover';
 
 type SearchTab = 'discover' | 'following';
 
@@ -47,6 +48,12 @@ const PhoneSearch: React.FC = () => {
     setHideBottomNav(searching);
     return () => setHideBottomNav(false);
   }, [searching, setHideBottomNav]);
+  // The assistant FAB stands down on the map — it sat on the sheet's
+  // corner — and steps back in on the takeover, where there is room.
+  useEffect(() => {
+    setSearchTakeoverOpen(searching);
+    return () => setSearchTakeoverOpen(false);
+  }, [searching]);
 
   const openSearch = () => {
     setSearching(true);
