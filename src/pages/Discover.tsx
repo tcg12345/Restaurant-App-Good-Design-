@@ -295,7 +295,10 @@ const MapChip: React.FC<{
       title={label}
       titleStyle="chip"
       prominent={!!(on || accent)}
-      tint={accent ? 'primary' : 'label'}
+      // Selection is the brand's rust everywhere else in the app — the
+      // Search tab's pill, the list filter pills — so a chosen chip says it
+      // the same way rather than inventing an ink-filled variant of its own.
+      tint="primary"
       label={label}
       pressed={on || accent}
       onClick={onClick}

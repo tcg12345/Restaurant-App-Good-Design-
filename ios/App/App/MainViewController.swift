@@ -1924,6 +1924,18 @@ final class GlassButtonView: UIButton {
             }
             config.attributedTitle = AttributedString(spec.title, attributes: container)
             config.baseForegroundColor = foreground
+            // The last word on the label's colour. A prominent configuration
+            // resolves a foreground of its own from the fill it was given,
+            // and that resolution runs after — and over — the attributed
+            // string's, which is how a chosen chip ended up white on white.
+            // The transformer is the one hook that runs afterwards.
+            let titleFont = container.font ?? .systemFont(ofSize: 12.5, weight: .semibold)
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var out = incoming
+                out.foregroundColor = foreground
+                out.font = titleFont
+                return out
+            }
             config.titleLineBreakMode = .byClipping
             configuration = config
         }
@@ -2066,6 +2078,10 @@ final class GlassButtonLayer {
                 // and clipped its own label.
                 button.frame = spec.frame
                 button.apply(spec)
+                // A configuration resolves lazily. Measuring before it has
+                // settled is measuring the last one — the same stale-answer
+                // trap as the ordering above, one step further in.
+                button.layoutIfNeeded()
                 button.frame = Self.fit(spec, in: host, view: button)
             case .field(let search):
                 // The web box exactly — a field's width is the page's to
