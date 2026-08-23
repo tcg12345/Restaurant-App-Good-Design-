@@ -610,8 +610,8 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// the box.
     static let glassRim = UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(white: 1.0, alpha: 0.30)
-            : UIColor(white: 0.44, alpha: 0.30)
+            ? UIColor(white: 1.0, alpha: 0.16)
+            : UIColor(white: 0.44, alpha: 0.24)
     }
 
     static let glassTint = UIColor { trait in

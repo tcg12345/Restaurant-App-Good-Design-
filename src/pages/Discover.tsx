@@ -977,7 +977,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // one page without the sheet's body ever sliding through the chrome.
       if (state === 'full') return CHROME_BOTTOM;
       if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
-      return FULL_HEIGHT - PEEK_HEIGHT - 52;
+      return FULL_HEIGHT - PEEK_HEIGHT - 36;
     }
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
     // Hard cap on the map page: the sheet top can never rise above its 'half'
@@ -3575,6 +3575,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const onSave = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
     const onAdd = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(restData); };
     const tint = score != null && score > 0 ? scoreTintStyle(score) : null;
+    // One line of facts under the name: what it is, what it costs, how far —
+    // the city only when distance has nothing to say. Everything else the
+    // old row carried (the FOR YOU caption, the second context line, the
+    // filled action circles) was hierarchy fighting itself.
+    const facts = [metaText || null, dist || city || null].filter(Boolean).join('  ·  ');
     return (
       <div
         key={key}
@@ -3583,76 +3588,52 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
         className={cn(
-          'flex items-center gap-3 py-[15px] cursor-pointer outline-none transition-colors active:bg-on-surface/[0.03]',
-          // Mobile sheet supplies its own px-3; the desktop sidebar panel has
-          // none, so the row carries its own horizontal padding there.
+          'flex items-center gap-3.5 py-[14px] cursor-pointer outline-none transition-colors active:bg-on-surface/[0.03]',
           phoneMode ? '' : 'px-4 hover:bg-on-surface/[0.025]',
           selected && 'bg-primary/[0.05]',
         )}
       >
-        <div className="flex flex-col items-center gap-1 flex-shrink-0 w-[44px]">
-          {tint ? (
-            <span
-              className="grid place-items-center rounded-full font-serif font-bold tabular-nums"
-              style={{
-                width: 42, height: 42, fontSize: 14, letterSpacing: '-0.02em',
-                color: tint.color, background: tint.background, border: `1.5px solid ${tint.ring}`,
-              }}
-              aria-label={`Score ${score!.toFixed(1)}`}
-            >
-              {score!.toFixed(1)}
-            </span>
-          ) : (
-            <span className="grid place-items-center rounded-full border-[1.5px] border-on-surface/[0.14] text-on-surface/30" style={{ width: 42, height: 42 }} aria-hidden>
-              <UtensilsCrossed size={16} />
-            </span>
-          )}
-          {scoreLabel && (
-            <span className="text-[8.5px] font-bold uppercase tracking-[0.08em] text-on-surface/40 leading-none">{scoreLabel}</span>
-          )}
-        </div>
+        {tint ? (
+          <span
+            className="grid place-items-center rounded-full font-serif font-bold tabular-nums flex-shrink-0"
+            style={{
+              width: 40, height: 40, fontSize: 14, letterSpacing: '-0.02em',
+              color: tint.color, background: tint.background, border: `1.5px solid ${tint.ring}`,
+            }}
+            aria-label={`Score ${score!.toFixed(1)}`}
+          >
+            {score!.toFixed(1)}
+          </span>
+        ) : (
+          <span className="grid place-items-center rounded-full border-[1.5px] border-on-surface/[0.12] text-on-surface/25 flex-shrink-0" style={{ width: 40, height: 40 }} aria-hidden>
+            <UtensilsCrossed size={15} />
+          </span>
+        )}
         <div className="min-w-0 flex-1">
-          <h3 className="font-serif text-[15.5px] font-bold leading-[1.2] tracking-[-0.01em] text-on-surface truncate">{name}</h3>
-          {(metaText || city || michHit) && (
-            <div className="mt-[5px] flex items-center gap-1.5 text-[12px] font-medium text-on-surface/60">
-              <span className="truncate">{[metaText, city].filter(Boolean).join('  ·  ')}</span>
+          <h3 className="font-serif text-[16px] font-bold leading-[1.22] tracking-[-0.012em] text-on-surface truncate">{name}</h3>
+          {(facts || michHit || extra) && (
+            <div className="mt-[4px] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] font-medium text-on-surface/55">
+              {facts && <span className="truncate">{facts}</span>}
               {michHit && <MichelinMark michelin={michHit} size={11} />}
-            </div>
-          )}
-          {(dist || extra) && (
-            <div className="mt-[4px] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-on-surface/45">
-              {dist && <span>{dist}</span>}
               {extra}
             </div>
           )}
         </div>
-        {hasImage ? (
-          <div className="relative h-[64px] w-[64px] flex-shrink-0 overflow-hidden rounded-[14px] bg-on-surface/[0.05]">
+        {hasImage && (
+          <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-[12px] bg-on-surface/[0.05]">
             <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-            <div className="absolute left-1 top-1 flex gap-1">
-              <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
-                className="grid h-[26px] w-[26px] place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Bookmark size={12} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
-              </button>
-              <button type="button" onClick={onAdd} aria-label="Add to list"
-                className="grid h-[26px] w-[26px] place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Plus size={13} className="text-on-surface/75" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-shrink-0 items-center gap-1.5">
-            <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
-              className={cn('grid h-8 w-8 place-items-center rounded-full transition-colors active:scale-90',
-                fav ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/70')}>
-              <Bookmark size={14} className={fav ? 'fill-current' : ''} />
-            </button>
-            <button type="button" onClick={onAdd} aria-label="Add to list"
-              className="grid h-8 w-8 place-items-center rounded-full bg-on-surface/[0.06] text-on-surface/70 transition-colors active:scale-90">
-              <Plus size={15} />
-            </button>
           </div>
         )}
+        <div className="flex flex-shrink-0 items-center gap-0.5">
+          <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+            className="grid h-9 w-9 place-items-center rounded-full text-on-surface/45 transition-colors active:bg-on-surface/[0.06] active:scale-95">
+            <Bookmark size={16} className={fav ? 'fill-primary text-primary' : ''} />
+          </button>
+          <button type="button" onClick={onAdd} aria-label="Add to list"
+            className="grid h-9 w-9 place-items-center rounded-full text-on-surface/45 transition-colors active:bg-on-surface/[0.06] active:scale-95">
+            <Plus size={17} />
+          </button>
+        </div>
       </div>
     );
   };
@@ -3718,7 +3699,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       image: p.photoUrl || undefined, name: p.name,
       cuisine, price, city, lat: p.lat, lng: p.lng,
       score: disp ? disp.score : p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
-      scoreLabel: disp?.forYou ? 'For you' : undefined,
       extra, restData, michHit,
     });
   };
@@ -4884,7 +4864,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           Below the sheet in z; the chrome floats above both. */}
       {searchTab && (
         <motion.div
-          className="absolute inset-0 z-[35] bg-surface pointer-events-none"
+          className="absolute inset-0 z-[35] bg-surface/[0.92] backdrop-blur-2xl pointer-events-none"
           style={{ opacity: backdropOpacity }}
           aria-hidden
         />
@@ -5429,20 +5409,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                     </>
                   )}
                 </div>
-                {mapMode === 'discover' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = sortBy === 'recommended' ? 'rating' : sortBy === 'rating' ? 'popularity' : 'recommended';
-                      setSortBy(next as SortOption);
-                      fetchNearby(selectedCuisines);
-                    }}
-                    className="flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
-                  >
-                    <ArrowUpDown size={12} strokeWidth={2.4} />
-                    {sortBy === 'recommended' ? 'Best match' : sortBy === 'rating' ? 'Top rated' : 'Popular'}
-                  </button>
-                )}
+                {/* Sorting lives in the filter sheet's SORT BY — a second
+                    control for the same value was one pill too many. */}
               </div>
             </div>
           ) : (
