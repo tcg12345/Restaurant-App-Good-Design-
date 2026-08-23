@@ -591,8 +591,18 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// same on light.
     static let glassInk = UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(white: 0.80, alpha: 1.0)
+            ? UIColor(white: 0.85, alpha: 1.0)
             : UIColor(white: 0.34, alpha: 1.0)
+    }
+
+    /// The tint the floating glass wears. Bare lens glass over a dark map
+    /// reads as a faint outline; the reference's capsules carry a visible
+    /// slate fill that still refracts. Tinting the glass — not replacing
+    /// it — is the system's own mechanism for exactly that.
+    static let glassTint = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.16, green: 0.17, blue: 0.21, alpha: 0.55)
+            : UIColor(white: 1.0, alpha: 0.45)
     }
 
     /// The same rust lifted until it reads against the charcoal the platter
@@ -1688,7 +1698,7 @@ final class GlassChipRowView: UIView {
         }
         config.cornerStyle = .capsule
         if !seg.symbol.isEmpty {
-            let symbolConfig = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
             config.image = UIImage(systemName: seg.symbol, withConfiguration: symbolConfig)?
                 .withRenderingMode(.alwaysTemplate)
             config.imagePlacement = .leading
@@ -1697,15 +1707,15 @@ final class GlassChipRowView: UIView {
         }
         // An icon-only chip takes wider insets: a lone 12pt glyph inside the
         // text insets came out as a pinched upright oval rather than a pill.
-        let side: CGFloat = seg.title.isEmpty ? 24 : 15
+        let side: CGFloat = seg.title.isEmpty ? 24 : 17
         config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: side, bottom: 0, trailing: side)
         // Chosen: white on the chip's fill (the brand rust, or ink). Not
-        // chosen: the chrome ink on plain glass.
+        // chosen: the chrome ink on the tinted glass.
         let foreground: UIColor = seg.active ? .white : GlassTabBar.glassInk
-        if seg.active { config.baseBackgroundColor = seg.tint }
+        config.baseBackgroundColor = seg.active ? seg.tint : GlassTabBar.glassTint
         config.baseForegroundColor = foreground
         var container = AttributeContainer()
-        container.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        container.font = .systemFont(ofSize: 14, weight: .semibold)
         container.foregroundColor = foreground
         config.attributedTitle = seg.title.isEmpty ? nil : AttributedString(seg.title, attributes: container)
         config.titleLineBreakMode = .byClipping
@@ -1715,7 +1725,7 @@ final class GlassChipRowView: UIView {
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var out = incoming
             out.foregroundColor = foreground
-            out.font = .systemFont(ofSize: 12.5, weight: .semibold)
+            out.font = .systemFont(ofSize: 14, weight: .semibold)
             return out
         }
         button.configuration = config
@@ -1754,11 +1764,11 @@ final class GlassChipRowView: UIView {
         // because a chip's label changed under a toggle.
         let offset = scroll.contentOffset
         scroll.frame = bounds
-        let height: CGFloat = min(38, bounds.height)
+        let height: CGFloat = min(42, bounds.height)
         // Side margins live in the content — see the note in init.
         var x: CGFloat = 14
         for (index, button) in buttons.enumerated() {
-            let floor: CGFloat = index < iconOnly.count && iconOnly[index] ? 58 : 44
+            let floor: CGFloat = index < iconOnly.count && iconOnly[index] ? 62 : 48
             let width = max(ceil(button.intrinsicContentSize.width), floor)
             button.frame = CGRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
             x += width + 10
@@ -1778,6 +1788,9 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         if #available(iOS 26.0, *) {
             let effect = UIGlassEffect()
             effect.isInteractive = true
+            // The visible-fill slate the reference's field wears — tinted
+            // glass, still a lens. See GlassTabBar.glassTint.
+            effect.tintColor = GlassTabBar.glassTint
             return effect
         }
         return UIBlurEffect(style: .systemChromeMaterial)
@@ -1818,7 +1831,7 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         ])
         clipsToBounds = false
 
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         magnifier.image = UIImage(systemName: "magnifyingglass", withConfiguration: symbolConfig)?
             .withRenderingMode(.alwaysTemplate)
         magnifier.tintColor = GlassTabBar.glassInk.withAlphaComponent(0.8)
@@ -2008,6 +2021,10 @@ final class GlassButtonView: UIButton {
             }
             base.cornerStyle = .capsule
             base.contentInsets = .zero
+            // Plain glass carries the chrome's slate tint — the same fill
+            // the chips and the field wear, so the set reads as one
+            // material. Prominent capsules set their own fill in apply.
+            if !spec.prominent { base.baseBackgroundColor = GlassTabBar.glassTint }
             configuration = base
         }
         // Sized off the button rather than fixed, so the same spec works for

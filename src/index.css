@@ -943,9 +943,9 @@ input[type="range"].accent-primary::-moz-range-thumb {
   gap: 6px;
   white-space: nowrap;
   border-radius: 999px;
-  padding: 0 13px;
-  height: 38px;
-  font-size: 12.5px;
+  padding: 0 15px;
+  height: 42px;
+  font-size: 14px;
   letter-spacing: -0.01em;
   font-weight: 700;
   color: var(--color-on-surface);
