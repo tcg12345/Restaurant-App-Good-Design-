@@ -559,8 +559,12 @@ export function useGlassField(options: {
   onSubmit?: () => void;
   /** The read-only state's tap — a field that is really a button. */
   onPress?: () => void;
+  /** Raise the keyboard as soon as the native field exists — for a field
+   *  born editable inside an opening overlay, where there is no read-only →
+   *  editable transition to carry the focus. */
+  autoFocus?: boolean;
 }): { ref: (el: HTMLElement | null) => void; active: boolean } {
-  const { id, value, placeholder, editable, label, onChange, onSubmit, onPress } = options;
+  const { id, value, placeholder, editable, label, onChange, onSubmit, onPress, autoFocus } = options;
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass && !!id;
   const key = `${id ?? 'field'}#${useId()}`;
@@ -616,10 +620,16 @@ export function useGlassField(options: {
     wake();
   }, [editable]);
 
+  const didAutoFocus = useRef(false);
   useEffect(() => {
     const el = elRef.current;
     const field = state.current;
     if (!active || !el || !field) return;
+    if (autoFocus && field.editable && !didAutoFocus.current) {
+      didAutoFocus.current = true;
+      field.focused = true;
+      field.focusGen += 1;
+    }
     registry.set(key, {
       el,
       symbol: 'magnifyingglass',

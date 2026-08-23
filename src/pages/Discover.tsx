@@ -11,7 +11,7 @@ import { cn, safeImage } from '../lib/utils';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor, scoreHex } from '../lib/score';
+import { scoreColor, scoreHex, scoreTintStyle } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
@@ -257,6 +257,26 @@ async function fetchMapboxLeg(
 
 interface DiscoverProps {
   mode?: 'home' | 'map';
+  /** `searchTab` turns the map page into the Search tab's Discover view —
+   *  "the map is the search page". The floating chrome moves ON TO the map
+   *  (glass search field and filter chips, sized for the tab-pill header the
+   *  Search page renders above them), the sheet gains a real `full` snap
+   *  with a floating Map pill to come back, and the back button goes away
+   *  because a tab root has nowhere to go back to. */
+  variant?: 'searchTab';
+  /** searchTab only: the search field is a button; this is its press. */
+  onOpenSearch?: () => void;
+  /** searchTab only: the host fills this with nothing and reads nothing —
+   *  Discover assigns a function that runs a map search for a query ('' to
+   *  clear), so the search takeover can hand its query to the map without
+   *  the two pages sharing state. */
+  searchHandlerRef?: React.MutableRefObject<((q: string) => void) | null>;
+  /** searchTab only: fade the floating chrome (the takeover is above it —
+   *  its wash is translucent, and chips ghosting through it read as dirt). */
+  dimChrome?: boolean;
+  /** searchTab only: reports when the sheet reaches / leaves `full`, so the
+   *  host can fade the tab pill in step with the chrome. */
+  onSheetFullChange?: (full: boolean) => void;
 }
 
 /** Quiet "See all / Browse all" text link for section headers — label +
@@ -330,7 +350,8 @@ const IntentPair: React.FC<{
   </div>
 );
 
-export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
+export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOpenSearch, searchHandlerRef, dimChrome = false, onSheetFullChange }) => {
+  const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode, darkMode } = useSettings();
@@ -779,7 +800,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // gone everywhere for the rest of the session. The route check is the other
   // half: a layer that isn't the page you're on must not speak for the tab bar
   // at all.
-  const ownsRoute = location.pathname === '/' || location.pathname === '/map';
+  const ownsRoute = location.pathname === '/' || location.pathname === '/map' || (searchTab && location.pathname === '/search');
   useEffect(() => {
     if (!ownsRoute) return;
     setHideBottomNav(filterSheetOpen);
@@ -893,7 +914,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
   // Home mode forces 'full' (no map); Map mode opens at 'peek' (map-forward,
   // with the redesigned header + first results peeking) and cannot reach 'full'.
-  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>(mode === 'map' ? 'peek' : 'full');
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>(mode === 'map' ? (variant === 'searchTab' ? 'half' : 'peek') : 'full');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
@@ -926,6 +947,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTop + 12);
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
+    // The Search tab's sheet has three REAL snap points, like the reference:
+    // a peek that clears the floating tab bar, a half that splits the screen
+    // with the map, and a full that turns the sheet into the list page (the
+    // map chrome fades and a Map pill floats up to come back).
+    if (searchTab) {
+      if (state === 'full') return Math.max(safeTop + 6, 6);
+      if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
+      return FULL_HEIGHT - PEEK_HEIGHT - 76;
+    }
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
     // Hard cap on the map page: the sheet top can never rise above its 'half'
     // position (≈88%, below the safe area), so the map stays visible and the
@@ -939,6 +969,93 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // marker selection, drag-release snap-back, programmatic opens — a smooth
   // spring with no instant jumps.
   const SHEET_SPRING = { type: 'spring' as const, damping: 32, stiffness: 300, mass: 0.8 };
+  const onSheetFullChangeRef = useRef(onSheetFullChange);
+  onSheetFullChangeRef.current = onSheetFullChange;
+  useEffect(() => {
+    onSheetFullChangeRef.current?.(sheetState === 'full');
+  }, [sheetState]);
+
+  /* ── Sheet drag, shared between the grab handle and (on the Search tab)
+     the whole header block — a bigger handle is most of what "smooth"
+     means on a sheet. Two other things the shared version adds: velocity
+     decides the snap when the finger is moving (a flick travels one state
+     in its direction however short the drag), and positions past the end
+     states move at quarter speed — the platform's rubber band — instead
+     of hitting a wall. */
+  const dragVelRef = useRef(0);
+  const dragLastRef = useRef({ y: 0, t: 0 });
+  const sheetMinY = () => (mode === 'map' ? getSheetY(searchTab ? 'full' : 'half') : 0);
+  const sheetMaxY = () => FULL_HEIGHT - PEEK_HEIGHT;
+  const applySheetDrag = (clientY: number) => {
+    if (!isDraggingRef.current) return;
+    const now = performance.now();
+    const last = dragLastRef.current;
+    if (now > last.t) dragVelRef.current = (clientY - last.y) / (now - last.t);
+    dragLastRef.current = { y: clientY, t: now };
+    const delta = clientY - dragStartYRef.current;
+    dragCurrentYRef.current = delta;
+    let y = getSheetY(sheetState) + delta;
+    const minY = sheetMinY();
+    const maxY = sheetMaxY();
+    if (y < minY) y = minY - (minY - y) * 0.25;
+    else if (y > maxY) y = maxY + (y - maxY) * 0.25;
+    sheetY.set(y);
+  };
+  const endSheetDrag = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    const delta = dragCurrentYRef.current;
+    const vel = dragVelRef.current;
+    let next = sheetState;
+    if (searchTab) {
+      const order = ['full', 'half', 'peek'] as const; // top → bottom
+      if (Math.abs(vel) > 0.5 && Math.abs(delta) > 24) {
+        const i = order.indexOf(sheetState);
+        next = vel > 0 ? order[Math.min(order.length - 1, i + 1)] : order[Math.max(0, i - 1)];
+      } else {
+        const yNow = Math.max(sheetMinY(), Math.min(sheetMaxY(), getSheetY(sheetState) + delta));
+        let bd = Infinity;
+        order.forEach((k) => {
+          const d = Math.abs(getSheetY(k) - yNow);
+          if (d < bd) { bd = d; next = k; }
+        });
+      }
+    } else if (sheetState === 'half') {
+      if (delta > 60) next = 'peek';
+      else if (delta < -60 && mode !== 'map') {
+        if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
+        next = 'full';
+      }
+    } else {
+      if (delta < -50) next = 'half';
+    }
+    setSheetState(next);
+    animate(sheetY, getSheetY(next), SHEET_SPRING);
+  };
+  const beginSheetDrag = (clientY: number) => {
+    dragStartYRef.current = clientY;
+    dragCurrentYRef.current = 0;
+    dragVelRef.current = 0;
+    dragLastRef.current = { y: clientY, t: performance.now() };
+    isDraggingRef.current = true;
+  };
+  const sheetDrag = {
+    onTouchStart: (e: React.TouchEvent) => beginSheetDrag(e.touches[0].clientY),
+    onTouchMove: (e: React.TouchEvent) => applySheetDrag(e.touches[0].clientY),
+    onTouchEnd: endSheetDrag,
+    onMouseDown: (e: React.MouseEvent) => {
+      e.preventDefault();
+      beginSheetDrag(e.clientY);
+      const onMouseMove = (ev: MouseEvent) => applySheetDrag(ev.clientY);
+      const onMouseUp = () => {
+        endSheetDrag();
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+  };
   const sheetY = useMotionValue(getSheetY(mode === 'map' ? 'peek' : 'full'));
   useEffect(() => {
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
@@ -2667,6 +2784,28 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
   }, [searchQuery, mapMode, discoverSearchActive, showSearchInput]);
 
+  // The search takeover's hand-off. Assigned every render so the closure is
+  // always fresh; the host only ever calls it. An empty query is the clear:
+  // the non-empty → empty transition effect above restores the pre-search
+  // places on its own.
+  useEffect(() => {
+    if (!searchHandlerRef) return;
+    searchHandlerRef.current = (q: string) => {
+      const trimmed = q.trim();
+      if (!trimmed) {
+        setSearchQuery('');
+        return;
+      }
+      if (!discoverSearchActive) preSearchPlacesRef.current = places;
+      if (mapMode !== 'discover') { setMapMode('discover'); setSelectedListId(null); }
+      setDiscoverSearchActive(true);
+      // The debounced auto-search effect runs the actual query.
+      setSearchQuery(trimmed);
+      setSheetState('half');
+    };
+    return () => { searchHandlerRef.current = null; };
+  });
+
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
     isMarkerSelectedRef.current = true;
@@ -3269,25 +3408,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Solid tier-coloured score disc (green ≥8 / amber 5–7 / red <5) — the
   // bolder score treatment used on the mobile map list rows per the design
   // reference. White score, filled circle.
-  const mapScoreCircle = (s?: number) => {
-    if (s == null || s <= 0) return null;
-    const bg = scoreHex(s);
-    return (
-      <div
-        className="grid flex-shrink-0 place-items-center rounded-full font-serif font-bold tabular-nums text-white"
-        style={{ width: 38, height: 38, background: bg, fontSize: 14 }}
-        aria-label={`Score ${s.toFixed(1)}`}
-      >
-        {s.toFixed(1)}
-      </div>
-    );
-  };
-
-  // Map list row (design reference) — used on both the mobile bottom sheet
-  // and the desktop sidebar. When the place has a photo it shows a rounded
-  // thumbnail with the heart / ＋ overlaid on it; otherwise there's no
-  // thumbnail and the heart / ＋ sit inline as outlined circles before the
-  // score. A solid score disc always sits on the right.
+  // Map list row — used on the mobile bottom sheet and the desktop
+  // sidebar alike. The reference's anatomy: the tier score disc LEADS the
+  // row (ink on tint inside a tier ring — the same recipe as the list
+  // pages, so a score reads identically everywhere), the text stacks
+  // name / facts / context beside it, and the photo — when there is a real
+  // one — sits at the trailing edge the way the reference video's rows
+  // carry theirs. Rows divide with hairlines; nothing is boxed.
   const renderMapRow = (opts: {
     key: string;
     onClick: () => void;
@@ -3318,6 +3445,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const infoText = [dist, city].filter(Boolean).join('  ·  ');
     const onSave = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(restData); };
     const onAdd = (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(restData); };
+    const tint = score != null && score > 0 ? scoreTintStyle(score) : null;
     return (
       <div
         key={key}
@@ -3326,62 +3454,76 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
         className={cn(
-          'flex items-center gap-3.5 py-4 cursor-pointer outline-none transition-colors active:bg-on-surface/[0.03]',
+          'flex items-center gap-3 py-[15px] cursor-pointer outline-none transition-colors active:bg-on-surface/[0.03]',
           // Mobile sheet supplies its own px-3; the desktop sidebar panel has
           // none, so the row carries its own horizontal padding there.
           phoneMode ? '' : 'px-4 hover:bg-on-surface/[0.025]',
           selected && 'bg-primary/[0.05]',
         )}
       >
-        {hasImage && (
-          <div className="relative h-[84px] w-[84px] flex-shrink-0 overflow-hidden rounded-2xl bg-on-surface/[0.05]">
-            <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-            <div className="absolute left-1.5 top-1.5 flex gap-1">
-              <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
-                className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Bookmark size={13} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
-              </button>
-              <button type="button" onClick={onAdd} aria-label="Add to list"
-                className="grid h-7 w-7 place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
-                <Plus size={14} className="text-on-surface/75" />
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="flex flex-col items-center gap-1 flex-shrink-0 w-[44px]">
+          {tint ? (
+            <span
+              className="grid place-items-center rounded-full font-serif font-bold tabular-nums"
+              style={{
+                width: 42, height: 42, fontSize: 14, letterSpacing: '-0.02em',
+                color: tint.color, background: tint.background, border: `1.5px solid ${tint.ring}`,
+              }}
+              aria-label={`Score ${score!.toFixed(1)}`}
+            >
+              {score!.toFixed(1)}
+            </span>
+          ) : (
+            <span className="grid place-items-center rounded-full border-[1.5px] border-on-surface/[0.14] text-on-surface/30" style={{ width: 42, height: 42 }} aria-hidden>
+              <UtensilsCrossed size={16} />
+            </span>
+          )}
+          {scoreLabel && (
+            <span className="text-[8.5px] font-bold uppercase tracking-[0.08em] text-on-surface/40 leading-none">{scoreLabel}</span>
+          )}
+        </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-serif text-[17px] font-bold leading-[1.18] tracking-tight text-on-surface">{name}</h3>
-          {(metaText || michHit) && (
-            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-on-surface/45">
-              {metaText && <span className="truncate">{metaText}</span>}
+          <h3 className="font-serif text-[15.5px] font-bold leading-[1.2] tracking-[-0.01em] text-on-surface truncate">{name}</h3>
+          {(metaText || city || michHit) && (
+            <div className="mt-[5px] flex items-center gap-1.5 text-[12px] font-medium text-on-surface/60">
+              <span className="truncate">{[metaText, city].filter(Boolean).join('  ·  ')}</span>
               {michHit && <MichelinMark michelin={michHit} size={11} />}
             </div>
           )}
-          {(infoText || extra) && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] font-medium text-on-surface/55">
-              {dist && <MapPin size={12} className="flex-shrink-0 text-on-surface/40" />}
-              {infoText && <span className="truncate">{infoText}</span>}
+          {(dist || extra) && (
+            <div className="mt-[4px] flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-on-surface/45">
+              {dist && <span>{dist}</span>}
               {extra}
             </div>
           )}
         </div>
-        {!hasImage && (
+        {hasImage ? (
+          <div className="relative h-[64px] w-[64px] flex-shrink-0 overflow-hidden rounded-[14px] bg-on-surface/[0.05]">
+            <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+            <div className="absolute left-1 top-1 flex gap-1">
+              <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
+                className="grid h-[26px] w-[26px] place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
+                <Bookmark size={12} className={fav ? 'fill-primary text-primary' : 'text-on-surface/75'} />
+              </button>
+              <button type="button" onClick={onAdd} aria-label="Add to list"
+                className="grid h-[26px] w-[26px] place-items-center rounded-full bg-white/95 shadow-sm backdrop-blur-sm transition-transform active:scale-90">
+                <Plus size={13} className="text-on-surface/75" />
+              </button>
+            </div>
+          </div>
+        ) : (
           <div className="flex flex-shrink-0 items-center gap-1.5">
             <button type="button" onClick={onSave} aria-label={fav ? 'In wishlist' : 'Add to wishlist'}
-              className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
-              <Bookmark size={15} className={fav ? 'fill-primary text-primary' : 'text-on-surface/70'} />
+              className={cn('grid h-8 w-8 place-items-center rounded-full transition-colors active:scale-90',
+                fav ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/70')}>
+              <Bookmark size={14} className={fav ? 'fill-current' : ''} />
             </button>
             <button type="button" onClick={onAdd} aria-label="Add to list"
-              className="grid h-8 w-8 place-items-center rounded-full border border-on-surface/15 transition-colors active:bg-on-surface/[0.05]">
-              <Plus size={16} className="text-on-surface/70" />
+              className="grid h-8 w-8 place-items-center rounded-full bg-on-surface/[0.06] text-on-surface/70 transition-colors active:scale-90">
+              <Plus size={15} />
             </button>
           </div>
         )}
-        {score != null && score > 0 && scoreLabel ? (
-          <div className="flex flex-col items-center gap-1 flex-shrink-0">
-            {mapScoreCircle(score)}
-            <span className="text-[8.5px] font-bold uppercase tracking-[0.08em] text-on-surface/40 leading-none">{scoreLabel}</span>
-          </div>
-        ) : mapScoreCircle(score)}
       </div>
     );
   };
@@ -4079,7 +4221,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       {/* Map page (mobile): no top bar, no nav bar — just a back arrow on
           the left, vertically aligned with the centered "Search this area"
           pill. Clears the iPhone status-bar safe area. */}
-      {mode === 'map' && !usingDesktopHeader && (
+      {mode === 'map' && !usingDesktopHeader && !searchTab && (
         <button
           type="button"
           onClick={() => navigate(-1)}
@@ -4090,16 +4232,105 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </button>
       )}
 
+      {/* ── Search-tab chrome: the glass field and filter chips floating ON
+          the map, under the Search page's tab pill. The field is the native
+          Liquid Glass search field (see useGlassField) worn as a button —
+          tapping it opens the search takeover. The chips are the filters
+          that used to hide inside the sheet, surfaced the way the reference
+          surfaces them; CSS glass here, because over a live map a backdrop
+          blur genuinely has something to refract. Everything fades when the
+          sheet reaches full or the takeover is above it. */}
+      {searchTab && (
+        <div
+          className="absolute inset-x-0 top-0 z-30 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            paddingTop: 'calc(env(safe-area-inset-top) + 66px)',
+            opacity: sheetState === 'full' || dimChrome ? 0 : 1,
+            transform: sheetState === 'full' || dimChrome ? 'translateY(-14px)' : 'none',
+            pointerEvents: sheetState === 'full' || dimChrome ? 'none' : 'auto',
+          }}
+          aria-hidden={sheetState === 'full' || dimChrome || undefined}
+        >
+          <SearchField
+            glassId="map-search"
+            variant="floating"
+            readOnly
+            onPress={onOpenSearch}
+            value={searchQuery}
+            onChange={() => {}}
+            placeholder="Restaurants, cuisines, lists"
+            aria-label="Search"
+          />
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1">
+            <button
+              type="button"
+              onClick={() => setFilterSheetOpen(true)}
+              className={cn('map-chip', activeFilterCount > 0 && 'is-accent')}
+            >
+              <SlidersHorizontal size={13} strokeWidth={2.2} />
+              Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setHoursFilter({ ...hoursFilter, openNow: !hoursFilter.openNow });
+                if (mapMode === 'discover') fetchNearby(selectedCuisines);
+              }}
+              className={cn('map-chip', hoursFilter.openNow && 'is-on')}
+              aria-pressed={hoursFilter.openNow}
+            >
+              <Clock size={13} strokeWidth={2.2} />
+              Open now
+            </button>
+            {mapMode === 'discover' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSortBy(sortBy === 'rating' ? 'recommended' : 'rating');
+                  fetchNearby(selectedCuisines);
+                }}
+                className={cn('map-chip', sortBy === 'rating' && 'is-on')}
+                aria-pressed={sortBy === 'rating'}
+              >
+                <Star size={13} strokeWidth={2.2} />
+                Top rated
+              </button>
+            )}
+            {mapMode === 'discover' && ['Italian', 'Japanese', 'Mexican'].map((c) => {
+              const on = selectedCuisines.includes(c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => {
+                    const next = on ? selectedCuisines.filter((x) => x !== c) : [...selectedCuisines, c];
+                    setSelectedCuisines(next);
+                    fetchNearby(next);
+                  }}
+                  className={cn('map-chip', on && 'is-on')}
+                  aria-pressed={on}
+                >
+                  {c}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Search this area button — floating pill, appears instantly on pan-end */}
       <AnimatePresence>
-        {showSearchHere && mapMode === 'discover' && (
+        {showSearchHere && mapMode === 'discover' && !(searchTab && dimChrome) && (
           <motion.button
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
             onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
-            className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow"
+            className={cn(
+              "absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow",
+              searchTab ? "top-[calc(env(safe-area-inset-top)+12rem)]" : "top-[calc(env(safe-area-inset-top)+0.625rem)]",
+            )}
           >
             <Search size={15} className="text-primary" />
             Search this area
@@ -4111,7 +4342,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           Positioned to clear the iOS status-bar / Dynamic Island safe area
           and sit just below the back-arrow / search-this-area row. */}
       {mode !== 'home' && (
-      <div className="absolute right-6 top-[calc(env(safe-area-inset-top)+4rem)] flex flex-col gap-3 z-30 items-end">
+      <div className={cn("absolute right-6 flex flex-col gap-3 z-30 items-end", searchTab ? "top-[calc(env(safe-area-inset-top)+12rem)]" : "top-[calc(env(safe-area-inset-top)+4rem)]", searchTab && "transition-opacity duration-300", searchTab && (dimChrome || sheetState === 'full') && "opacity-0 pointer-events-none")}>
         {/* Location Search */}
         <AnimatePresence>
           {locationSearchOpen ? (
@@ -4515,90 +4746,29 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           // hover-expanded flyout. Phone keeps z-40 — there the sheet must
           // beat the BottomNav when expanded.
           usingDesktopHeader ? "z-[29]" : "z-40",
-          sheetState === 'full'
+          searchTab && "transition-opacity duration-300",
+          searchTab && dimChrome && "opacity-0 pointer-events-none",
+          sheetState === 'full' && !searchTab
             ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
             : "glass rounded-t-[3rem] border-t border-white/40"
         )}
       >
-        {/* Handle — only this area is draggable (hidden in full state) */}
-        {sheetState !== 'full' && (
+        {/* Handle — only this area is draggable (hidden in full state;
+            the Search tab keeps it, because its full state is still the
+            sheet and drags back down) */}
+        {(sheetState !== 'full' || searchTab) && (
         <div
           className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0"
           style={{ touchAction: 'none' }}
           onClick={() => {
             if (Math.abs(dragCurrentYRef.current) < 5) {
-              // In map mode the sheet is always half or peek (never full)
-              setSheetState(sheetState === 'peek' ? 'half' : 'peek');
+              // Search tab cycles through all three snaps, like the
+              // reference; the plain map page stays a two-state toggle.
+              if (searchTab) setSheetState(sheetState === 'peek' ? 'half' : sheetState === 'half' ? 'full' : 'peek');
+              else setSheetState(sheetState === 'peek' ? 'half' : 'peek');
             }
           }}
-          onTouchStart={(e) => {
-            dragStartYRef.current = e.touches[0].clientY;
-            dragCurrentYRef.current = 0;
-            isDraggingRef.current = true;
-          }}
-          onTouchMove={(e) => {
-            if (!isDraggingRef.current) return;
-            const delta = e.touches[0].clientY - dragStartYRef.current;
-            dragCurrentYRef.current = delta;
-            const baseY = getSheetY(sheetState);
-            const minY = mode === 'map' ? getSheetY('half') : 0;
-            const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
-            sheetY.set(clamped);
-          }}
-          onTouchEnd={() => {
-            if (!isDraggingRef.current) return;
-            isDraggingRef.current = false;
-            const delta = dragCurrentYRef.current;
-            let next = sheetState;
-            if (sheetState === 'half') {
-              if (delta > 60) next = 'peek';
-              else if (delta < -60 && mode !== 'map') {
-                if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
-                next = 'full';
-              }
-            } else {
-              if (delta < -50) next = 'half';
-            }
-            setSheetState(next);
-            // Spring from the dragged position to the resolved snap (also covers
-            // the "no state change" case, which the state effect wouldn't fire).
-            animate(sheetY, getSheetY(next), SHEET_SPRING);
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            dragStartYRef.current = e.clientY;
-            dragCurrentYRef.current = 0;
-            isDraggingRef.current = true;
-            const onMouseMove = (ev: MouseEvent) => {
-              if (!isDraggingRef.current) return;
-              const delta = ev.clientY - dragStartYRef.current;
-              dragCurrentYRef.current = delta;
-              const baseY = getSheetY(sheetState);
-              const minY = mode === 'map' ? getSheetY('half') : 0;
-              const clamped = Math.max(minY, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
-              sheetY.set(clamped);
-            };
-            const onMouseUp = () => {
-              isDraggingRef.current = false;
-              const delta = dragCurrentYRef.current;
-              let next = sheetState;
-              if (sheetState === 'half') {
-                if (delta > 60) next = 'peek';
-                else if (delta < -60 && mode !== 'map') {
-                  if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
-                  next = 'full';
-                }
-              } else {
-                if (delta < -50) next = 'half';
-              }
-              setSheetState(next);
-              animate(sheetY, getSheetY(next), SHEET_SPRING);
-              window.removeEventListener('mousemove', onMouseMove);
-              window.removeEventListener('mouseup', onMouseUp);
-            };
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp);
-          }}
+          {...sheetDrag}
         >
           {sheetState === 'half' && mode !== 'map' ? (
             <button
@@ -4614,7 +4784,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         )}
 
         {/* ══════ FULL STATE — full-screen discover page (Home) ══════ */}
-        {sheetState === 'full' && (
+        {sheetState === 'full' && !searchTab && (
           <div className="flex-1 flex flex-col overflow-hidden relative">
             {/* Header. On desktop the global DesktopHeader owns it. On narrow
                 non-phone it sits statically in flow. On phone it becomes a
@@ -5012,16 +5182,52 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           </div>
         )}
 
-        {/* ══════ HALF STATE — filter bar + results ══════ */}
-        {sheetState !== 'full' && (
+        {/* ══════ HALF STATE — filter bar + results (the Search tab keeps
+            this content at `full` too: its full state IS the list page) ══════ */}
+        {(sheetState !== 'full' || searchTab) && (
         <>
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
-          {/* Sheet title — "Discover / N results", matching the reference. */}
+          {/* Sheet title. On the Search tab it is the reference's header —
+              count as the title, context underneath, sort on the right —
+              and it drags the sheet, because a title bar you can't grab is
+              most of what makes a sheet feel stiff. Elsewhere the original
+              title row stays. */}
+          {searchTab ? (
+            <div
+              className="flex items-end justify-between gap-3 pb-3 px-1 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              {...sheetDrag}
+            >
+              <div className="min-w-0">
+                <div className="font-serif font-bold text-[19px] leading-[1.1] tracking-[-0.02em] text-on-surface">
+                  {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}{mapMode === 'discover' && !discoverSearchActive ? ' nearby' : ''}
+                </div>
+                <div className="mt-1.5 text-[12px] text-on-surface/55 truncate">
+                  {discoverSearchActive && searchQuery.trim() ? `“${searchQuery.trim()}” · ` : ''}{panelTitle}
+                </div>
+              </div>
+              {mapMode === 'discover' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = sortBy === 'recommended' ? 'rating' : sortBy === 'rating' ? 'popularity' : 'recommended';
+                    setSortBy(next as SortOption);
+                    fetchNearby(selectedCuisines);
+                  }}
+                  className="flex-none flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
+                >
+                  <ArrowUpDown size={12} strokeWidth={2.4} />
+                  {sortBy === 'recommended' ? 'Best match' : sortBy === 'rating' ? 'Top rated' : 'Popular'}
+                </button>
+              )}
+            </div>
+          ) : (
           <div className="flex items-baseline gap-2.5 pb-3">
             <h2 className="font-serif font-bold text-[26px] leading-none tracking-tight">{panelTitle}</h2>
             <span className="text-[13px] font-semibold text-on-surface/45">{panelResultCount} result{panelResultCount === 1 ? '' : 's'}</span>
           </div>
+          )}
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -5075,6 +5281,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 transition={{ duration: 0.2 }}
                 className="flex items-center gap-3 overflow-x-auto scrollbar-hide"
               >
+                {!searchTab && (
                 <button
                   onClick={() => {
                     preSearchPlacesRef.current = places;
@@ -5087,6 +5294,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 >
                   <Search size={20} className="text-on-surface/70" />
                 </button>
+                )}
+                {!searchTab && (
                 <button
                   onClick={() => setFilterSheetOpen(true)}
                   className={cn(
@@ -5107,6 +5316,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </span>
                   )}
                 </button>
+                )}
                 {/* Map mode toggle buttons — active state is a filled pill so
                     the selected tab is obvious against the map background. The
                     first is a dropdown: pick My Ratings, any restaurant list,
@@ -5415,6 +5625,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         )}
       </motion.div>
       )}
+
+      {/* The way back from the full-height list to the map — the reference's
+          floating Map pill, in real glass. Above the sheet (z-50 beats its
+          z-40) and above the tab bar's floating platter. */}
+      <AnimatePresence>
+        {searchTab && sheetState === 'full' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.86, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.86, y: 8 }}
+            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+            className="absolute left-1/2 -translate-x-1/2 z-50"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom) + 96px)' }}
+          >
+            <GlassButton
+              id="map-return"
+              symbol="map"
+              title="Map"
+              titleStyle="chip"
+              label="Show the map"
+              onClick={() => setSheetState('half')}
+              className="h-11 px-5 rounded-full flex items-center gap-2 text-[13px] font-bold text-on-surface"
+            >
+              <MapIcon size={15} strokeWidth={2.1} />
+              Map
+            </GlassButton>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       </div>{/* inner map-area wrapper (contents on mobile, flex-1 on desktop) */}
 

@@ -5,6 +5,6 @@
  * scroll). Shared by App (which renders them) and ScrollRestoration (which
  * skips them).
  */
-export const KEEP_ALIVE_PATHS = ['/', '/search/main', '/pantry', '/profile'];
+export const KEEP_ALIVE_PATHS = ['/', '/search', '/search/main', '/pantry', '/profile'];
 
 export const isKeepAlivePath = (path: string): boolean => KEEP_ALIVE_PATHS.includes(path);

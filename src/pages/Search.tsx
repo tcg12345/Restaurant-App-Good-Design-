@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Map as MapIcon, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Map as MapIcon, ChevronRight, ChevronLeft, X, Search as SearchIcon } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useGlassSegments, useGlassButtonsActive, GlassButton } from '../lib/glass-buttons';
 import { SearchMain } from './SearchMain';
+import { Discover } from './Discover';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
@@ -16,24 +17,213 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
   ['following', 'Following'],
 ];
 
-export const Search: React.FC = () => {
-  const navigate = useNavigate();
+/* ── The map is the search page ──────────────────────────────────────────
+   Search used to be an empty screen: a field, and one row that navigated to
+   the map as if it were a side feature. Now the Discover tab IS the map —
+   the same engine the /map page runs (pins, the tri-snap results sheet, the
+   filter sheet), worn as a tab root. The chrome floats on the map in glass:
+   the Discover/Following pill up top, the native-glass search field under
+   it, the filter chips under that. Tapping the field lifts a full-screen
+   search takeover over the map — recents, live results — and submitting
+   hands the query BACK to the map, which is the part that makes search and
+   map one page rather than two.
 
-  /* ── Searching happens HERE ────────────────────────────────────────
-     It used to be a route: tapping the field pushed /search/main, which
-     tore this page down and built another one whose field happened to
-     look similar. Every trick for smoothing that over — a shared-element
-     morph, a FLIP from the old rect — is an attempt to disguise a
-     teardown, and it reads as one however well it is tuned.
+   Following stays exactly what it was: the feed, now simply layered over
+   the (hidden) map with the same pill switching between them. */
 
-     So nothing is torn down. The field below is a single element that is
-     read-only until you tap it and editable afterwards; it never
-     unmounts, never moves, and never animates, because it never has
-     anywhere to go. What changes is what sits under it. */
+const PhoneSearch: React.FC = () => {
+  const [tab, setTab] = useState<SearchTab>('discover');
   const [searching, setSearching] = useState(false);
-  // Full screen while searching: the tab bar underneath is a way OUT of
-  // the thing you just opened, and OpenTable's — the reference here —
-  // hides it for exactly that reason.
+  const [query, setQuery] = useState('');
+  const [sheetFull, setSheetFull] = useState(false);
+  const mapSearchRef = useRef<((q: string) => void) | null>(null);
+  const glassActive = useGlassButtonsActive();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const reduceMotion = useReducedMotion();
+
+  // Full screen while searching: the tab bar underneath is a way OUT of the
+  // thing you just opened, and the reference hides it for exactly that reason.
+  const { setHideBottomNav } = useSettings();
+  useEffect(() => {
+    setHideBottomNav(searching);
+    return () => setHideBottomNav(false);
+  }, [searching, setHideBottomNav]);
+
+  const openSearch = () => {
+    setSearching(true);
+    // The native glass field raises its own keyboard (autoFocus through the
+    // registry); the web fallback needs the nudge.
+    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  // Closing with an empty draft is the clear: the map drops its query and
+  // restores the pre-search places.
+  const closeSearch = () => {
+    if (!query.trim()) mapSearchRef.current?.('');
+    setSearching(false);
+  };
+  const submitToMap = () => {
+    if (!query.trim()) return;
+    mapSearchRef.current?.(query);
+    setSearching(false);
+  };
+
+  const seg = useGlassSegments({
+    id: 'search-tabs',
+    items: TABS.map(([key, label]) => ({
+      id: key,
+      symbol: '',
+      title: label,
+      label,
+      tint: 'label' as const,
+      active: tab === key,
+      onClick: () => setTab(key),
+    })),
+  });
+
+  const pillHidden = searching || (tab === 'discover' && sheetFull);
+
+  return (
+    <div className="relative bg-surface overflow-hidden" style={{ height: '100dvh' }}>
+      {/* The map experience. Stays mounted behind Following — a Mapbox
+          instance is too expensive to rebuild per pill flick — and hides
+          with visibility, which also stands its native glass down. */}
+      <div className={cn('absolute inset-0', tab !== 'discover' && 'invisible')} aria-hidden={tab !== 'discover' || undefined}>
+        <Discover
+          mode="map"
+          variant="searchTab"
+          onOpenSearch={openSearch}
+          searchHandlerRef={mapSearchRef}
+          dimChrome={searching}
+          onSheetFullChange={setSheetFull}
+        />
+      </div>
+
+      {/* Following — the same feed it always was, layered over the map. */}
+      {tab === 'following' && (
+        <div
+          className="absolute inset-0 z-20 bg-surface overflow-y-auto no-scrollbar"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 66px)' }}
+        >
+          <div className="px-4 pb-32">
+            <FollowingFeed />
+          </div>
+        </div>
+      )}
+
+      {/* Discover | Following — the one piece of chrome both tabs share.
+          Fades with the rest of the map chrome when the sheet goes full,
+          and under the takeover. */}
+      <div
+        className="absolute inset-x-0 z-30 flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        style={{
+          top: 'calc(env(safe-area-inset-top) + 10px)',
+          opacity: pillHidden ? 0 : 1,
+          transform: pillHidden ? 'translateY(-14px)' : 'none',
+          pointerEvents: pillHidden ? 'none' : 'auto',
+        }}
+        aria-hidden={pillHidden || undefined}
+      >
+        <div
+          ref={seg.ref}
+          className={cn(
+            'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
+            !seg.active && 'glass-control',
+          )}
+        >
+          {TABS.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              aria-pressed={tab === key}
+              aria-hidden={seg.active || undefined}
+              tabIndex={seg.active ? -1 : undefined}
+              className={cn(
+                'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
+                seg.active ? 'opacity-0'
+                  : tab === key
+                    ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                    : 'text-on-surface/50 active:text-on-surface/80',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── The search takeover ─────────────────────────────────────────
+          Everything rises together off the map — a glass wash, the close
+          circle and Search pill, the editable native-glass field with the
+          keyboard already coming up — rather than the page being torn down
+          and rebuilt. Submitting hands the query to the map underneath. */}
+      <AnimatePresence>
+        {searching && (
+          <motion.div
+            key="takeover"
+            className="fixed inset-0 z-[70] flex flex-col"
+            initial={{ opacity: 0, y: reduceMotion ? 0 : 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: reduceMotion ? 0 : 22 }}
+            transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+          >
+            <div className="absolute inset-0 bg-surface/[0.93] backdrop-blur-2xl" aria-hidden />
+            <div
+              className="relative flex-none flex items-center justify-between gap-3 px-4"
+              style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)' }}
+            >
+              <GlassButton
+                id="search-close"
+                symbol="xmark"
+                label="Close search"
+                onClick={closeSearch}
+                className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+              >
+                <X size={18} />
+              </GlassButton>
+              <GlassButton
+                id="search-go"
+                symbol="magnifyingglass"
+                title="Search"
+                titleStyle="chip"
+                label="Search the map"
+                disabled={!query.trim()}
+                onClick={submitToMap}
+                className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface disabled:opacity-40"
+              >
+                <SearchIcon size={14} strokeWidth={2.4} />
+                Search
+              </GlassButton>
+            </div>
+            <div className="relative flex-none px-4 pt-3">
+              <SearchField
+                glassId="takeover-search"
+                value={query}
+                onChange={setQuery}
+                onSubmit={submitToMap}
+                autoFocus
+                inputRef={inputRef}
+                placeholder="Restaurants, cuisines, lists"
+                aria-label="Search"
+              />
+            </div>
+            <div className="relative flex-1 overflow-y-auto no-scrollbar px-4 pt-2 pb-10">
+              <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={glassActive ? undefined : inputRef} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+/* ── Desktop keeps the panel layout ──────────────────────────────────────
+   The map-first experience is a phone posture; on a wide viewport the old
+   page — field, map entry, embedded results — still fits the shape of the
+   screen better than a full-bleed map behind floating chips would. */
+const ClassicSearch: React.FC = () => {
+  const navigate = useNavigate();
+  const [searching, setSearching] = useState(false);
   const { setHideBottomNav } = useSettings();
   useEffect(() => {
     setHideBottomNav(searching);
@@ -41,15 +231,9 @@ export const Search: React.FC = () => {
   }, [searching, setHideBottomNav]);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
-  // On iOS 26 the field is a real UITextField on real glass (see
-  // useGlassField); focus is driven through the native registry by the
-  // read-only flip, and touching the web input here would raise a second,
-  // WebView keyboard under the native one.
   const glassActive = useGlassButtonsActive();
   const openSearch = () => {
     setSearching(true);
-    // After the field stops being read-only, so the caret lands in a field
-    // that will accept it.
     if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
   };
   const closeSearch = () => {
@@ -59,14 +243,8 @@ export const Search: React.FC = () => {
   };
   const [tab, setTab] = useState<SearchTab>('discover');
   const reduceMotion = useReducedMotion();
-  // Which way the lens just travelled, so the incoming panel enters from the
-  // side it came from. The selector's lens slides; the content under it used
-  // to hard-cut, which read as two unrelated things happening at once.
   const direction = tab === 'discover' ? -1 : 1;
 
-  // The same segmented glass the Lists page wears: on iOS 26 the native side
-  // draws a real tab bar over this box, lens and all, and this markup becomes
-  // the layout it is measured from plus the fallback everywhere else.
   const seg = useGlassSegments({
     id: 'search-tabs',
     items: TABS.map(([key, label]) => ({
@@ -82,12 +260,6 @@ export const Search: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-
-      {/* Tab switcher — centred, because the control is a capsule now rather
-          than a pair of underlined words hugging the left margin. */}
-      {/* The safe-area inset lives on the page, not on the pill — collapsing
-          the pill used to take the top padding with it and jam the field
-          under the status bar. */}
       <div className="pt-safe-3" />
       <div
         className="px-4 flex justify-center overflow-hidden transition-[max-height,opacity,margin] duration-[400ms] ease-[var(--ease-drawer)]"
@@ -110,8 +282,6 @@ export const Search: React.FC = () => {
               aria-hidden={seg.active || undefined}
               tabIndex={seg.active ? -1 : undefined}
               className={cn(
-                // The box is the room the page reserves for the native
-                // control, so its height is the control's, not the text's.
                 'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
                 seg.active ? 'opacity-0'
                   : tab === key
@@ -126,11 +296,6 @@ export const Search: React.FC = () => {
       </div>
 
       <main className={cn('px-4', searching ? 'pt-1' : 'pt-4')}>
-        {/* Keyed on the tab, so switching mounts a fresh panel that fades in
-            over the outgoing one's place. No exit animation on purpose: a tab
-            is a high-frequency control, and waiting for an exit before the
-            entrance doubles the time you feel before the new content is
-            there. */}
         <motion.div
           key={tab}
           initial={{ opacity: 0, x: reduceMotion ? 0 : direction * 10 }}
@@ -139,9 +304,6 @@ export const Search: React.FC = () => {
         >
         {tab === 'discover' ? (
           <div className="space-y-3">
-            {/* One field, two states. Back slides in beside it when search
-                opens; the field itself does not move, because a control
-                that stays put cannot glitch on the way anywhere. */}
             <div className="flex items-center gap-3">
               <div
                 className="overflow-hidden transition-[width,opacity] duration-300 ease-[var(--ease-drawer)]"
@@ -171,10 +333,6 @@ export const Search: React.FC = () => {
               />
             </div>
 
-            {/* Keyed like the tab panels and for the same reason: what sits
-                under the field dissolves in rather than hard-cutting, so the
-                one thing that visibly persists through the open is the field
-                itself. */}
             <motion.div
               key={searching ? 'results' : 'browse'}
               initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
@@ -185,7 +343,6 @@ export const Search: React.FC = () => {
               <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={glassActive ? undefined : inputRef} />
             ) : (
             <>
-            {/* Prominent map entry — replaces the old navbar split. */}
             <button
               type="button"
               onClick={() => navigate('/map')}
@@ -211,4 +368,9 @@ export const Search: React.FC = () => {
       </main>
     </div>
   );
+};
+
+export const Search: React.FC = () => {
+  const { phoneMode } = useSettings();
+  return phoneMode ? <PhoneSearch /> : <ClassicSearch />;
 };

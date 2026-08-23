@@ -138,6 +138,7 @@ function useIsDesktop(): boolean {
 const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
   switch (path) {
     case '/': return <Discover mode="home" />;
+    case '/search': return <Search />;
     case '/search/main': return <SearchMain />;
     case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists" redirect={active}><Pantry /></RequireAuthRoute>;
     case '/profile': return <RequireAuthRoute reason="Sign in to view your profile" redirect={active}><Profile /></RequireAuthRoute>;
@@ -564,7 +565,7 @@ const AppContent: React.FC = () => {
   // (reels/map panning, the messages thread, the create overlay, onboarding).
   const allowPullToRefresh =
     !isReelsPage && !isFocusedReel && !isMapPage &&
-    !['/messages', '/create', '/onboarding', '/location/map'].includes(location.pathname);
+    !['/messages', '/create', '/onboarding', '/location/map', '/search'].includes(location.pathname);
   // Edge swipe-back is allowed wherever a back destination exists, except on
   // routes that own horizontal/vertical gestures. Pure bottom-nav tab roots
   // are NOT swipeable (you never swipe between tabs), but tab *sub-views*
@@ -585,7 +586,7 @@ const AppContent: React.FC = () => {
         enabled={allowSwipeBack}
         navKey={historyIdx ?? 0}
         locationKey={location.key}
-        snapshotable={!isMapPage && !isReelsPage && !isFocusedReel}
+        snapshotable={!isMapPage && !isReelsPage && !isFocusedReel && location.pathname !== '/search'}
         revealSnapshotKey={backTarget?.kind === 'pop' ? (historyIdx ?? 0) - 1 : null}
         backIsPop={backTarget?.kind === 'pop'}
         onBack={() => {

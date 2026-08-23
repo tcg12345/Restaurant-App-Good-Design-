@@ -65,6 +65,7 @@ export const SearchField: React.FC<{
     onChange,
     onSubmit,
     onPress,
+    autoFocus,
   });
   const native = glass.active;
   return (
