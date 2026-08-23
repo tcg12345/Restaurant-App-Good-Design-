@@ -601,8 +601,8 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// it — is the system's own mechanism for exactly that.
     static let glassTint = UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.16, green: 0.17, blue: 0.21, alpha: 0.55)
-            : UIColor(white: 1.0, alpha: 0.45)
+            ? UIColor(red: 0.17, green: 0.18, blue: 0.22, alpha: 0.32)
+            : UIColor(white: 1.0, alpha: 0.32)
     }
 
     /// The same rust lifted until it reads against the charcoal the platter

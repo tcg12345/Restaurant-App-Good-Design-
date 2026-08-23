@@ -979,7 +979,7 @@ input[type="range"].accent-primary::-moz-range-thumb {
 
 /* The map chrome's field (and the takeover's) runs a touch taller than the
    in-list fields — it is the page's primary control there. */
-.ios-search.is-tall { min-height: 48px; }
+.ios-search.is-tall { min-height: 44px; }
 
 .ios-search.is-button { cursor: pointer; }
 .ios-search.is-button .ios-search-input { cursor: pointer; }

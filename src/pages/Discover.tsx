@@ -958,7 +958,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   // Where the floating chrome ends — safe area, tab pill, search field,
   // chip row. The Search tab's sheet never rises past this line.
-  const CHROME_BOTTOM = safeTop + 184;
+  const CHROME_BOTTOM = safeTop + 180;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
@@ -4354,7 +4354,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         <div
           className="absolute inset-x-0 top-0 z-50 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
-            paddingTop: 'calc(env(safe-area-inset-top) + 134px)',
+            paddingTop: 'calc(env(safe-area-inset-top) + 130px)',
             opacity: dimChrome ? 0 : 1,
             transform: dimChrome ? 'translateY(-14px)' : 'none',
             pointerEvents: dimChrome ? 'none' : 'auto',
