@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Compass, Search, User, ListPlus, Film } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { activeTabPath, useNativeGlassNav } from '../lib/native-glass';
+import { isSearchTakeoverOpen, subscribeSearchTakeover } from '../lib/search-takeover';
 
 const navItems = [
   { icon: Compass, label: 'Home', path: '/' },
@@ -35,6 +36,14 @@ const navItems = [
  */
 export const BottomNav: React.FC = () => {
   const { hideBottomNav, keyboardOpen } = useSettings();
+  // The search takeover is its own reason to hide, composed HERE rather
+  // than written through setHideBottomNav: that flag is one boolean with
+  // many writers, and the assistant FAB mounting inside the takeover
+  // (its own hide-on-open effect runs setHideBottomNav(false) on mount)
+  // stomped the takeover's `true` the moment it appeared. Reasons that
+  // are ORed at the read site cannot stomp each other.
+  const [takeoverOpen, setTakeoverOpen] = useState(isSearchTakeoverOpen());
+  useEffect(() => subscribeSearchTakeover(setTakeoverOpen), []);
   const location = useLocation();
   const navigate = useNavigate();
   // Hide whenever any consumer asked us to OR the on-screen keyboard is up.
@@ -42,7 +51,7 @@ export const BottomNav: React.FC = () => {
   // (Keyboard resize:"none" — the app pads itself with --kb-height), so
   // without this the bar would sit uselessly behind the keyboard while
   // still intercepting taps.
-  const navHidden = hideBottomNav || keyboardOpen;
+  const navHidden = hideBottomNav || keyboardOpen || takeoverOpen;
 
   // App.tsx only mounts this component on routes that should show a tab bar,
   // so being mounted at all is the "enabled" signal for the native one.

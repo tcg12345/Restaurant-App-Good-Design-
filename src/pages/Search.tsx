@@ -41,15 +41,10 @@ const PhoneSearch: React.FC = () => {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
 
-  // Full screen while searching: the tab bar underneath is a way OUT of the
-  // thing you just opened, and the reference hides it for exactly that reason.
-  const { setHideBottomNav } = useSettings();
-  useEffect(() => {
-    setHideBottomNav(searching);
-    return () => setHideBottomNav(false);
-  }, [searching, setHideBottomNav]);
-  // The assistant FAB stands down on the map — it sat on the sheet's
-  // corner — and steps back in on the takeover, where there is room.
+  // Full screen while searching: the tab bar hides (BottomNav reads this
+  // signal directly — a reason ORed at the read site, so other writers of
+  // the shared hide flag can't stomp it) and the assistant FAB, hidden on
+  // the map, steps in — the one part of this page with room for it.
   useEffect(() => {
     setSearchTakeoverOpen(searching);
     return () => setSearchTakeoverOpen(false);
