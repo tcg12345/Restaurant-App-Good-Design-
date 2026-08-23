@@ -949,19 +949,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
   // plus a small gap. Home has no map underneath, so it keeps the 85% partial.
   const MAP_TOP_INSET = Math.max(FULL_HEIGHT * 0.12, safeTop + 12);
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
+  // Where the floating chrome ends — safe area, tab pill, search field,
+  // chip row. The Search tab's sheet never rises past this line.
+  const CHROME_BOTTOM = safeTop + 172;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
-    // with the map, and a full that turns the sheet into the list page (the
-    // map chrome fades and a Map pill floats up to come back).
+    // with the map, and a full that turns the sheet into the list page.
     if (searchTab) {
-      // Full is the very top: the sheet becomes the page and the floating
-      // chrome sits on it, the way the reference's list state carries its
-      // search bar. The content is padded down past the chrome (see
-      // `chromePad`), so nothing ends up underneath the glass but ground.
-      if (state === 'full') return 0;
+      // Full stops at the chrome's lower edge — the sheet is only ever the
+      // region below the grabber. The band above it is not sheet: a
+      // same-colour backdrop fades in over the map as the sheet rises (see
+      // `backdropOpacity`), which is what makes the raised state read as
+      // one page without the sheet's body ever sliding through the chrome.
+      if (state === 'full') return CHROME_BOTTOM;
       if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
-      return FULL_HEIGHT - PEEK_HEIGHT - 76;
+      return FULL_HEIGHT - PEEK_HEIGHT - 52;
     }
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
     // Hard cap on the map page: the sheet top can never rise above its 'half'
@@ -1125,16 +1128,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
   };
   const sheetY = useMotionValue(getSheetY(mode === 'map' ? 'peek' : 'full'));
   /* ── The morph into a full page ────────────────────────────────────────
-     Both of these ride the sheet's position directly, so the morph is the
-     drag itself rather than a state flip at the end of it. The corners
-     flatten as the sheet approaches the top — a slight curve everywhere
-     else, a straight edge as it becomes the page. And the content is
-     padded down by however much of the floating chrome the sheet has
-     climbed behind, so the list always starts below the chips while the
-     sheet's own ground slides up beneath the glass. */
-  const CHROME_BOTTOM = safeTop + 172;
-  const sheetRadius = useTransform(sheetY, [0, 90], [0, 18]);
-  const chromePad = useTransform(sheetY, (y: number) => Math.max(0, CHROME_BOTTOM - y));
+     Rides the sheet's position directly, so the morph is the drag itself
+     rather than a state flip at the end of it: as the sheet climbs its
+     last stretch toward the chrome, a same-colour backdrop fades in over
+     the map behind the chrome band, and the two surfaces meet at the
+     grabber reading as one page. Lowering plays it backwards — the
+     backdrop thins and the map re-emerges. */
+  const backdropOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [1, 0]);
   useEffect(() => {
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
     return () => controls.stop();
@@ -4804,6 +4804,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         )}
       </AnimatePresence>
 
+      {/* The raised state's ground. Not part of the sheet: the band above
+          the grabber is the map with this fading over it, so raising the
+          sheet melts the map away to the page colour and lowering brings
+          it back — the sheet's own body never slides through the chrome.
+          Below the sheet in z; the chrome floats above both. */}
+      {searchTab && (
+        <motion.div
+          className="absolute inset-0 z-[35] bg-surface pointer-events-none"
+          style={{ opacity: backdropOpacity }}
+          aria-hidden
+        />
+      )}
+
       {/* Bottom Sheet — tri-state: peek / half / full. Desktop map mode
           replaces this with the left-side panel rendered above; on every
           other surface (home page on any width, map page on phone / phone
@@ -4811,9 +4824,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        style={searchTab
-          ? { y: sheetY, height: FULL_HEIGHT, borderTopLeftRadius: sheetRadius, borderTopRightRadius: sheetRadius }
-          : { y: sheetY, height: FULL_HEIGHT }}
+        style={{ y: sheetY, height: FULL_HEIGHT }}
         className={cn(
           // NB: the white top hairline (frosted-glass edge) is applied only to
           // the glass sheet states below — NOT the home full state. On the home
@@ -4835,14 +4846,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
           // becomes the page); the frosted translucency read as unfinished
           // over a busy map. The other surfaces keep their glass.
           searchTab
-            ? "bg-surface"
+            ? "bg-surface rounded-t-[18px]"
             : sheetState === 'full'
               ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
               : "glass rounded-t-[3rem] border-t border-white/40"
         )}
       >
-        {/* Room for the chrome the sheet has climbed behind. */}
-        {searchTab && <motion.div className="flex-shrink-0" style={{ height: chromePad }} aria-hidden />}
         {/* Handle — only this area is draggable (hidden in full state;
             the Search tab keeps it, because its full state is still the
             sheet and drags back down) */}
