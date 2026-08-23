@@ -782,6 +782,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    // Standard follows the theme through its config — no style reload, so
+    // markers and camera never blink, and the scene crossfades day/night.
+    if (searchTab) {
+      try { map.setConfigProperty('basemap', 'lightPreset', darkMode ? 'night' : 'day'); } catch { /* best-effort */ }
+      return;
+    }
     const cur = activeStyleRef.current;
     if (cur !== 'light' && cur !== 'dark') return;
     const targetId = darkMode ? 'dark' : 'light';
@@ -2538,12 +2544,29 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
-      // Match the app theme on first load (dark app → dark map).
-      style: darkModeRef.current ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11',
+      // The Search tab rides Mapbox Standard — a map with colour in it
+      // (parks green, water blue, sand sand) whose whole scene shifts
+      // between day and night through a config knob, so dark mode darkens
+      // the streets without draining the landscape to monochrome. The
+      // standalone map page keeps the flat light/dark styles it had.
+      style: searchTab
+        ? 'mapbox://styles/mapbox/standard'
+        : darkModeRef.current ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11',
       center: initialCenter,
       zoom: initialZoom,
       attributionControl: false,
     });
+    if (searchTab) {
+      // On every style (re)load: the theme's light preset, and no POI or
+      // transit labels — the score pins are this map's points of interest.
+      map.on('style.load', () => {
+        try {
+          map.setConfigProperty('basemap', 'lightPreset', darkModeRef.current ? 'night' : 'day');
+          map.setConfigProperty('basemap', 'showPointOfInterestLabels', false);
+          map.setConfigProperty('basemap', 'showTransitLabels', false);
+        } catch { /* style without config schema — leave it be */ }
+      });
+    }
     // Compact attribution — required by Mapbox ToS on every map.
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
