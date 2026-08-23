@@ -1622,21 +1622,7 @@ final class GlassActionGroupView: UIView {
                 buttons.append(button)
 
                 let badge = BadgeLabel()
-                pillStack.axis = .horizontal
-        pillStack.alignment = .center
-        pillStack.spacing = 6
-        pillStack.isUserInteractionEnabled = false
-        pillStack.isHidden = true
-        pillStack.translatesAutoresizingMaskIntoConstraints = false
-        pillStack.addArrangedSubview(pillIcon)
-        pillStack.addArrangedSubview(pillLabel)
-        addSubview(pillStack)
-        NSLayoutConstraint.activate([
-            pillStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            pillStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        badge.font = .systemFont(ofSize: 11, weight: .bold)
+                badge.font = .systemFont(ofSize: 11, weight: .bold)
                 badge.textColor = .white
                 badge.textAlignment = .center
                 badge.clipsToBounds = true
