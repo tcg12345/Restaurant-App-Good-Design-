@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
+import { Search, Star, Plus, Navigation, RotateCw, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -958,7 +958,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   // Where the floating chrome ends — safe area, tab pill, search field,
   // chip row. The Search tab's sheet never rises past this line.
-  const CHROME_BOTTOM = safeTop + 180;
+  const CHROME_BOTTOM = safeTop + 176;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
@@ -4423,26 +4423,31 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       <AnimatePresence>
         {showSearchHere && mapMode === 'discover' && !(searchTab && dimChrome) && (
           searchTab ? (
+            sheetState !== 'full' && (
             <motion.div
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-              className="absolute left-3.5 z-30 top-[calc(env(safe-area-inset-top)+13rem)]"
+              // In the top strip, left of the centred tab pill — the strip's
+              // left half is empty, and mid-map is the one place a control
+              // should never float.
+              className="absolute left-3.5 z-50 top-[calc(env(safe-area-inset-top)+15px)]"
             >
               <GlassButton
                 id="search-area"
                 symbol="arrow.clockwise"
-                title="Search this area"
+                title="Search"
                 titleStyle="chip"
                 label="Search this area"
                 onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
-                className="h-9 px-3.5 rounded-full flex items-center gap-1.5 text-[12px] font-bold text-on-surface"
+                className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface"
               >
-                <RefreshCw size={12} strokeWidth={2.4} />
-                Search this area
+                <RotateCw size={13} strokeWidth={2.4} />
+                Search
               </GlassButton>
             </motion.div>
+            )
           ) : (
           <motion.button
             initial={{ opacity: 0, y: -8 }}

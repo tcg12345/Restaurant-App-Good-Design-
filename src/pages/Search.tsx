@@ -163,16 +163,19 @@ const PhoneSearch: React.FC = () => {
           nothing is torn down. */}
       <div className="absolute inset-x-0 z-50" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
         {/* Discover | Following — fades out as search opens. */}
+        {/* pointer-events: none on the strip, auto on the pill itself —
+            the full-width wrapper otherwise eats taps aimed at the
+            Search-this-area chip floating in its empty left half. */}
         <div
-          className="flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          className="flex justify-center pointer-events-none transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
             opacity: searching ? 0 : 1,
             transform: searching ? 'translateY(-10px)' : 'none',
-            pointerEvents: searching ? 'none' : 'auto',
           }}
           aria-hidden={searching || undefined}
         >
           <div
+            style={{ pointerEvents: searching ? 'none' : 'auto' }}
             ref={seg.ref}
             className={cn(
               'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
