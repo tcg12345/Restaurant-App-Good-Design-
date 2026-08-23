@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, useReducedMotion } from 'motion/react';
-import { useGlassSegments, GlassButton } from '../lib/glass-buttons';
+import { useGlassSegments, useGlassButtonsActive, GlassButton } from '../lib/glass-buttons';
 import { SearchMain } from './SearchMain';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
@@ -41,16 +41,21 @@ export const Search: React.FC = () => {
   }, [searching, setHideBottomNav]);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // On iOS 26 the field is a real UITextField on real glass (see
+  // useGlassField); focus is driven through the native registry by the
+  // read-only flip, and touching the web input here would raise a second,
+  // WebView keyboard under the native one.
+  const glassActive = useGlassButtonsActive();
   const openSearch = () => {
     setSearching(true);
     // After the field stops being read-only, so the caret lands in a field
     // that will accept it.
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
   };
   const closeSearch = () => {
     setSearching(false);
     setQuery('');
-    inputRef.current?.blur();
+    if (!glassActive) inputRef.current?.blur();
   };
   const [tab, setTab] = useState<SearchTab>('discover');
   const reduceMotion = useReducedMotion();
@@ -155,6 +160,7 @@ export const Search: React.FC = () => {
               </div>
               <SearchField
                 className="flex-1 min-w-0"
+                glassId="search-field"
                 readOnly={!searching}
                 onPress={searching ? undefined : openSearch}
                 value={query}
@@ -165,8 +171,18 @@ export const Search: React.FC = () => {
               />
             </div>
 
+            {/* Keyed like the tab panels and for the same reason: what sits
+                under the field dissolves in rather than hard-cutting, so the
+                one thing that visibly persists through the open is the field
+                itself. */}
+            <motion.div
+              key={searching ? 'results' : 'browse'}
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.26, ease: [0.32, 0.72, 0, 1] }}
+            >
             {searching ? (
-              <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={inputRef} />
+              <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={glassActive ? undefined : inputRef} />
             ) : (
             <>
             {/* Prominent map entry — replaces the old navbar split. */}
@@ -186,6 +202,7 @@ export const Search: React.FC = () => {
             </button>
             </>
             )}
+            </motion.div>
           </div>
         ) : (
           <FollowingFeed />

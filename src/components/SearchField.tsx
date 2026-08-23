@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useGlassField } from '../lib/glass-buttons';
 
 /**
  * The app's search field.
@@ -22,6 +23,12 @@ import { cn } from '../lib/utils';
  *    a satellite tile, so the material carries its own near-opaque base.
  *
  * 17px is not a style choice: under 16px iOS zooms the viewport on focus.
+ *
+ * With a `glassId`, on iOS 26 the field stops being CSS at all: the native
+ * layer draws a real `UIGlassEffect` capsule with a real `UITextField` on it
+ * over this element's box, and this markup becomes the layout it is measured
+ * from plus the fallback everywhere else — the same handover every glass
+ * button makes, extended to typing. See `useGlassField`.
  */
 export const SearchField: React.FC<{
   value: string;
@@ -42,51 +49,82 @@ export const SearchField: React.FC<{
    *  same object across the transition. */
   readOnly?: boolean;
   onPress?: () => void;
+  /** Set to let the native glass layer take the field over on iOS 26. */
+  glassId?: string;
 }> = ({
   value, onChange, placeholder = 'Search',
   variant = 'plain', autoFocus, inputRef, onSubmit, onFocus, onBlur,
-  className, 'aria-label': ariaLabel, readOnly, onPress,
-}) => (
-  <label
-    className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', className)}
-    onClick={readOnly ? onPress : undefined}
-  >
-    {/* Heavier than lucide's default hairline so it reads at SF Symbols
-        weight beside 17px text. */}
-    <Search className="ios-search-icon" size={17} strokeWidth={2.4} aria-hidden />
-    <input
-      ref={inputRef}
-      type="text"
-      inputMode="search"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      readOnly={readOnly}
-      // Blur before navigating so the keyboard never flashes up on the
-      // page you are leaving.
-      onFocus={readOnly ? (e) => { e.currentTarget.blur(); onPress?.(); } : onFocus}
-      onBlur={onBlur}
-      onKeyDown={(e) => { if (e.key === 'Enter' && onSubmit) { e.preventDefault(); onSubmit(); } }}
-      placeholder={placeholder}
-      aria-label={ariaLabel || placeholder}
-      autoFocus={autoFocus}
-      autoCapitalize="off"
-      autoCorrect="off"
-      autoComplete="off"
-      spellCheck={false}
-      className="ios-search-input"
-    />
-    {value && !readOnly && (
-      /* Filled, not outlined — the system's clear glyph is a solid disc,
-         and an outlined × at this size reads as a close button for the
-         thing behind the field. */
-      <button
-        type="button"
-        onClick={() => onChange('')}
-        aria-label="Clear search"
-        className="ios-search-clear"
-      >
-        <X size={11} strokeWidth={3} />
-      </button>
-    )}
-  </label>
-);
+  className, 'aria-label': ariaLabel, readOnly, onPress, glassId,
+}) => {
+  const glass = useGlassField({
+    id: glassId,
+    value,
+    placeholder,
+    editable: !readOnly,
+    label: ariaLabel || placeholder,
+    onChange,
+    onSubmit,
+    onPress,
+  });
+  const native = glass.active;
+  return (
+    <label
+      ref={glass.ref}
+      className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', className)}
+      onClick={readOnly && !native ? onPress : undefined}
+      // While native owns the field, the CSS material must go — the glass
+      // samples the page through itself, and a translucent grey fill left
+      // under it reads as a smudge inside the lens. The box stays: it is
+      // what the native mirror measures.
+      style={native ? {
+        backgroundColor: 'transparent',
+        boxShadow: 'none',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+      } : undefined}
+    >
+      {/* Heavier than lucide's default hairline so it reads at SF Symbols
+          weight beside 17px text. */}
+      <Search className={cn('ios-search-icon', native && 'opacity-0')} size={17} strokeWidth={2.4} aria-hidden />
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        // Read-only while native owns it too: the UIKit field above takes
+        // every touch, but if a focus ever lands here anyway it must not
+        // raise a second, WebView keyboard under the native one.
+        readOnly={readOnly || native}
+        // Blur before navigating so the keyboard never flashes up on the
+        // page you are leaving.
+        onFocus={readOnly && !native ? (e) => { e.currentTarget.blur(); onPress?.(); } : onFocus}
+        onBlur={onBlur}
+        onKeyDown={(e) => { if (e.key === 'Enter' && onSubmit) { e.preventDefault(); onSubmit(); } }}
+        placeholder={placeholder}
+        aria-label={ariaLabel || placeholder}
+        aria-hidden={native || undefined}
+        tabIndex={native ? -1 : undefined}
+        autoFocus={autoFocus && !native}
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        className={cn('ios-search-input', native && 'opacity-0')}
+      />
+      {value && !readOnly && !native && (
+        /* Filled, not outlined — the system's clear glyph is a solid disc,
+           and an outlined × at this size reads as a close button for the
+           thing behind the field. The native field draws the system's own. */
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+          className="ios-search-clear"
+        >
+          <X size={11} strokeWidth={3} />
+        </button>
+      )}
+    </label>
+  );
+};

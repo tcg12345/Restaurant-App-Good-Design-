@@ -88,6 +88,14 @@ interface LiquidGlassPlugin {
     event: 'glassButtonTapped',
     fn: (data: { id: string }) => void,
   ): Promise<PluginListenerHandle>;
+  addListener(
+    event: 'glassFieldChanged',
+    fn: (data: { id: string; text: string }) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    event: 'glassFieldSubmitted',
+    fn: (data: { id: string }) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 const noopListener = async (): Promise<PluginListenerHandle> => ({ remove: async () => {} });

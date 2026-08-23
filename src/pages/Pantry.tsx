@@ -6526,6 +6526,7 @@ export const Pantry: React.FC = () => {
 
                 <div className="mb-4">
                   <SearchField
+                    glassId="list-search"
                     value={mainSearchQuery}
                     onChange={setMainSearchQuery}
                     placeholder="Name, cuisine, city"

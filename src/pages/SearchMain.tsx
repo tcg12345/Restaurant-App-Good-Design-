@@ -877,6 +877,7 @@ export const SearchMain: React.FC<{
                 animating a fake one into place. */}
             <div className="max-w-2xl">
               <SearchField
+                glassId="searchmain-field"
                 value={searchQuery}
                 onChange={setSearchQuery}
                 onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}
@@ -1084,6 +1085,7 @@ export const SearchMain: React.FC<{
           </button>
           <div className="flex-1 min-w-0">
             <SearchField
+              glassId="searchmain-field"
               value={searchQuery}
               onChange={setSearchQuery}
               onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}

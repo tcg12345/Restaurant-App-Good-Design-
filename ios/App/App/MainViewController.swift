@@ -421,6 +421,12 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                     symbol: symbol,
                     title: entry["title"] as? String ?? "",
                     titleStyle: entry["titleStyle"] as? String ?? "chip",
+                    role: entry["role"] as? String ?? "button",
+                    fieldText: entry["fieldText"] as? String ?? "",
+                    fieldTextGen: (entry["fieldTextGen"] as? NSNumber)?.intValue ?? 0,
+                    fieldFocused: entry["fieldFocused"] as? Bool ?? false,
+                    fieldFocusGen: (entry["fieldFocusGen"] as? NSNumber)?.intValue ?? 0,
+                    fieldEditable: entry["fieldEditable"] as? Bool ?? false,
                     tint: Self.color(named: entry["tint"] as? String),
                     alpha: CGFloat(entry["alpha"] as? Double ?? 1),
                     badge: badge,
@@ -433,6 +439,12 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
             self.buttonLayer.setHost(self.bridge?.viewController?.view)
             self.buttonLayer.onTap = { [weak self] id in
                 self?.notifyListeners("glassButtonTapped", data: ["id": id])
+            }
+            self.buttonLayer.onFieldChange = { [weak self] id, text in
+                self?.notifyListeners("glassFieldChanged", data: ["id": id, "text": text])
+            }
+            self.buttonLayer.onFieldSubmit = { [weak self] id in
+                self?.notifyListeners("glassFieldSubmitted", data: ["id": id])
             }
             self.buttonLayer.apply(specs)
             call.resolve()
@@ -1182,6 +1194,21 @@ struct GlassButtonSpec {
     /// the capsule reads as somewhere you type rather than as a button whose
     /// label happens to be long.
     let titleStyle: String
+    /// `button` unless the page says `field` — a field is a real
+    /// `UITextField` riding the glass rather than a glyph or a label. See
+    /// `GlassSearchFieldView` for why typing moves native with it.
+    let role: String
+    /// The page's text for a field, applied only when `fieldTextGen`
+    /// advances past what was last applied — the generation rule that keeps
+    /// an echo of native typing from eating a keystroke.
+    let fieldText: String
+    let fieldTextGen: Int
+    /// Focus rides a generation too, for a different reason: a payload
+    /// re-asserting `focused` must not re-summon a keyboard the user
+    /// dismissed with a drag.
+    let fieldFocused: Bool
+    let fieldFocusGen: Int
+    let fieldEditable: Bool
     let tint: UIColor
     let alpha: CGFloat
     let badge: String?
@@ -1556,6 +1583,149 @@ final class GlassActionGroupView: UIView {
     }
 }
 
+/// The search field — a real text editor on real glass.
+///
+/// The page's field was the last piece of CSS chrome: every control beside it
+/// is `UIGlassEffect` and refracts, while `backdrop-filter` can only blur and
+/// tint, and the eye catches the difference immediately — the same probe
+/// that moved the buttons native. A field cannot take the buttons' route
+/// (`UIButton.Configuration.glass()` draws titles, not editors), so this is
+/// the action group's construction — an interactive glass capsule with
+/// content laid across its `contentView` — where the content is a
+/// `UITextField`.
+///
+/// Typing therefore happens natively and is *reported* to the page, which
+/// reverses the usual direction of ownership and needs one rule to be safe:
+/// the page's text is applied only when its generation advances. The page
+/// bumps the generation when *it* decides the text — clearing on close, a
+/// suggestion tapped — and everything else it sends is this view's own
+/// report coming back around, possibly stale by a keystroke, and applying it
+/// would eat the keystroke. Focus rides a generation for a different reason:
+/// a payload re-asserting `focused` must not re-summon a keyboard the user
+/// dismissed.
+final class GlassSearchFieldView: UIView, UITextFieldDelegate {
+    private static func makeEffect() -> UIVisualEffect {
+        if #available(iOS 26.0, *) {
+            let effect = UIGlassEffect()
+            effect.isInteractive = true
+            return effect
+        }
+        return UIBlurEffect(style: .systemChromeMaterial)
+    }
+
+    private let glass = UIVisualEffectView(effect: GlassSearchFieldView.makeEffect())
+    private let magnifier = UIImageView()
+    private let field = UITextField()
+    /// The closed state's press — the field starts life as a button that
+    /// opens search, and only then becomes an editor.
+    private let tap = UITapGestureRecognizer()
+    /// -1 so the first payload seeds the text; focus starts in agreement
+    /// with the page's generation 0 and moves only on a real transition.
+    private var appliedTextGen = -1
+    private var appliedFocusGen = 0
+
+    var onTap: (() -> Void)?
+    var onChange: ((String) -> Void)?
+    var onSubmit: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 26.0, *) {
+            // The press swells the capsule past its own bounds; clipping
+            // would shear the very animation this exists for.
+            glass.clipsToBounds = false
+            glass.cornerConfiguration = .capsule()
+        } else {
+            glass.clipsToBounds = true
+        }
+        addSubview(glass)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: topAnchor),
+            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        clipsToBounds = false
+
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        magnifier.image = UIImage(systemName: "magnifyingglass", withConfiguration: symbolConfig)?
+            .withRenderingMode(.alwaysTemplate)
+        magnifier.tintColor = .secondaryLabel
+        magnifier.contentMode = .center
+        magnifier.isUserInteractionEnabled = false
+        glass.contentView.addSubview(magnifier)
+
+        field.font = .systemFont(ofSize: 17)
+        field.textColor = .label
+        // The caret in the brand colour, matching every other tinted control.
+        field.tintColor = GlassTabBar.primary
+        field.clearButtonMode = .whileEditing
+        field.returnKeyType = .search
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.spellCheckingType = .no
+        field.delegate = self
+        field.addTarget(self, action: #selector(edited), for: .editingChanged)
+        glass.contentView.addSubview(field)
+
+        tap.addTarget(self, action: #selector(pressed))
+        addGestureRecognizer(tap)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if #available(iOS 26.0, *) {} else {
+            glass.layer.cornerRadius = min(bounds.width, bounds.height) / 2
+        }
+        let iconWidth = magnifier.image?.size.width ?? 17
+        magnifier.frame = CGRect(x: 16, y: 0, width: iconWidth, height: bounds.height)
+        let fieldX = magnifier.frame.maxX + 7
+        field.frame = CGRect(x: fieldX, y: 0, width: bounds.width - fieldX - 10, height: bounds.height)
+    }
+
+    func apply(_ spec: GlassButtonSpec) {
+        if field.placeholder != spec.title {
+            field.attributedPlaceholder = NSAttributedString(
+                string: spec.title,
+                attributes: [.foregroundColor: UIColor.secondaryLabel]
+            )
+        }
+        field.isUserInteractionEnabled = spec.fieldEditable
+        tap.isEnabled = !spec.fieldEditable
+        if spec.fieldTextGen != appliedTextGen {
+            appliedTextGen = spec.fieldTextGen
+            if field.text != spec.fieldText { field.text = spec.fieldText }
+        }
+        if spec.fieldFocusGen != appliedFocusGen {
+            appliedFocusGen = spec.fieldFocusGen
+            if spec.fieldFocused, spec.fieldEditable {
+                if !field.isFirstResponder { field.becomeFirstResponder() }
+            } else if !spec.fieldFocused, field.isFirstResponder {
+                field.resignFirstResponder()
+            }
+        }
+        // Standing down — a sheet above it, a navigation away — has to take
+        // the keyboard along: nothing else will, now that the editor is not
+        // the WebView's.
+        if spec.alpha <= 0.05, field.isFirstResponder {
+            field.resignFirstResponder()
+        }
+        accessibilityLabel = spec.label
+    }
+
+    @objc private func edited() { onChange?(field.text ?? "") }
+    @objc private func pressed() { onTap?() }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        onSubmit?()
+        return true
+    }
+}
+
 final class GlassButtonView: UIButton {
     private let icon = UIImageView()
     private let badge = BadgeLabel()
@@ -1732,12 +1902,14 @@ final class GlassButtonLayer {
     /// page can turn a pair into a group and back without the layer caring.
     private enum Chrome {
         case button(GlassButtonView)
+        case field(GlassSearchFieldView)
         case actions(GlassActionGroupView)
         case selector(GlassSelectorBarView)
 
         var view: UIView {
             switch self {
             case .button(let v): return v
+            case .field(let v): return v
             case .actions(let v): return v
             case .selector(let v): return v
             }
@@ -1748,7 +1920,8 @@ final class GlassButtonLayer {
         /// page has to be rebuilt, not reused.
         func fits(_ spec: GlassButtonSpec) -> Bool {
             switch self {
-            case .button: return spec.segments.isEmpty
+            case .button: return spec.segments.isEmpty && spec.role != "field"
+            case .field: return spec.segments.isEmpty && spec.role == "field"
             case .actions: return !spec.segments.isEmpty && spec.kind == .actions
             case .selector: return !spec.segments.isEmpty && spec.kind == .selector
             }
@@ -1758,6 +1931,8 @@ final class GlassButtonLayer {
     private var views: [String: Chrome] = [:]
     private weak var host: UIView?
     var onTap: ((String) -> Void)?
+    var onFieldChange: ((String, String) -> Void)?
+    var onFieldSubmit: ((String) -> Void)?
 
     func setHost(_ host: UIView?) { self.host = host }
 
@@ -1790,6 +1965,14 @@ final class GlassButtonLayer {
                 views[spec.id] = .selector(view)
                 host.addSubview(view)
                 chrome = .selector(view)
+            } else if spec.role == "field" {
+                let view = GlassSearchFieldView(frame: spec.frame)
+                view.onTap = { [weak self] in self?.onTap?(spec.id) }
+                view.onChange = { [weak self] text in self?.onFieldChange?(spec.id, text) }
+                view.onSubmit = { [weak self] in self?.onFieldSubmit?(spec.id) }
+                views[spec.id] = .field(view)
+                host.addSubview(view)
+                chrome = .field(view)
             } else {
                 let view = GlassButtonView()
                 view.frame = spec.frame
@@ -1815,6 +1998,11 @@ final class GlassButtonLayer {
             case .button(let button):
                 button.frame = Self.fit(spec, in: host, view: button)
                 button.apply(spec)
+            case .field(let search):
+                // The web box exactly — a field's width is the page's to
+                // decide, unlike a pill's, whose label can outgrow it.
+                search.frame = spec.frame
+                search.apply(spec)
             case .actions(let group):
                 if !group.isLiquidActive { group.frame = spec.frame }
                 group.apply(spec)

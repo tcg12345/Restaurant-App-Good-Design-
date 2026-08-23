@@ -59,9 +59,32 @@ export interface GlassButtonSpec {
  *  bar. */
 type GlassGroupKind = 'actions' | 'selector';
 
+/** The live state of a native search field. One mutable object per field,
+ *  read by the sampler every frame — mutated in place rather than
+ *  re-registered, because a keystroke must not tear the native editor down.
+ *
+ *  Text and focus each carry a *generation*, and the native side applies
+ *  them only when the generation advances. Without that, the round trip
+ *  eats keystrokes: the user types "pizza", the page's state catches up to
+ *  "piz", the next payload pushes "piz" back, and the field loses two
+ *  letters. The page bumps the generation only when it decides the value
+ *  itself — clearing on close, a suggestion tapped — so an echo of native
+ *  typing is never re-applied. */
+interface GlassFieldState {
+  text: string;
+  textGen: number;
+  focused: boolean;
+  focusGen: number;
+  editable: boolean;
+  onChangeText: (text: string) => void;
+  onSubmit: () => void;
+}
+
 interface Registration extends GlassButtonSpec {
   el: HTMLElement;
   onTap: () => void;
+  /** Set for a search field — see `useGlassField`. */
+  field?: GlassFieldState;
   /** Set for a shared capsule — see `GlassGroup`. Each entry gets its own
    *  region, glyph, badge and handler; the glass belongs to the capsule. */
   segments?: Array<GlassButtonSpec & { id: string; onTap: () => void; active?: boolean }>;
@@ -173,6 +196,14 @@ function sample(): void {
       alpha: Math.round(alpha * 100) / 100,
       badge: reg.badge ?? '',
       badgeTone: reg.badgeTone ?? 'primary',
+      ...(reg.field ? {
+        role: 'field',
+        fieldText: reg.field.text,
+        fieldTextGen: reg.field.textGen,
+        fieldFocused: reg.field.focused,
+        fieldFocusGen: reg.field.focusGen,
+        fieldEditable: reg.field.editable,
+      } : {}),
     });
   }
   const payload = JSON.stringify(buttons);
@@ -233,6 +264,12 @@ function ensureStarted(): void {
   void LiquidGlass.addListener('glassButtonTapped', ({ id }) => {
     tapById(id);
   }).catch(() => { /* older shell without glass buttons — stay on CSS */ });
+  void LiquidGlass.addListener('glassFieldChanged', ({ id, text }) => {
+    registry.get(id)?.field?.onChangeText(text);
+  }).catch(() => { /* older shell without glass fields — stay on CSS */ });
+  void LiquidGlass.addListener('glassFieldSubmitted', ({ id }) => {
+    registry.get(id)?.field?.onSubmit();
+  }).catch(() => { /* older shell without glass fields — stay on CSS */ });
 }
 
 let started = false;
@@ -487,6 +524,117 @@ export function useGlassSegments(options: {
       wake();
     };
   }, [active, key, shape]);
+
+  const ref = useCallback((el: HTMLElement | null) => { elRef.current = el; }, []);
+  return { ref, active };
+}
+
+/**
+ * Register a web search field as a *native* one — a real `UITextField` on a
+ * real `UIGlassEffect` capsule, drawn over the web element's box.
+ *
+ * The buttons moved native because CSS cannot refract; the field beside them
+ * was the last CSS imposter, and against a genuine lens the difference shows.
+ * A field is more entangled than a button — it has text, focus and a keyboard
+ * — so ownership reverses while native is active: typing happens in UIKit and
+ * is reported here, and the page's own value is only *applied* when the page
+ * genuinely decides it (clearing on close, a suggestion tapped). That
+ * decision is what the generations in `GlassFieldState` encode.
+ *
+ * Focus follows editability: a field that just stopped being read-only is a
+ * field being opened, so the keyboard rises without the caller having to say
+ * so twice — and a field going read-only takes the keyboard down with it.
+ * Everywhere the native layer is inactive the caller's CSS field renders
+ * untouched, exactly like `GlassButton`.
+ */
+export function useGlassField(options: {
+  /** Omit to keep the field CSS everywhere — the hook still runs (rules of
+   *  hooks) but registers nothing. */
+  id?: string;
+  value: string;
+  placeholder: string;
+  editable: boolean;
+  label?: string;
+  onChange: (v: string) => void;
+  onSubmit?: () => void;
+  /** The read-only state's tap — a field that is really a button. */
+  onPress?: () => void;
+}): { ref: (el: HTMLElement | null) => void; active: boolean } {
+  const { id, value, placeholder, editable, label, onChange, onSubmit, onPress } = options;
+  const onGlass = useContext(OnGlass);
+  const active = useGlassButtonsActive() && !onGlass && !!id;
+  const key = `${id ?? 'field'}#${useId()}`;
+  const elRef = useRef<HTMLElement | null>(null);
+  // Latest handlers without re-registering — same pattern as GlassButton.
+  const handlers = useRef({ onChange, onSubmit, onPress });
+  handlers.current = { onChange, onSubmit, onPress };
+
+  // What the native side last reported. Comparing the incoming `value`
+  // against this is how a deliberate page-side set is told apart from the
+  // echo of native typing.
+  const lastNative = useRef(value);
+  // One object for the field's whole life; the sampler reads it each frame.
+  const state = useRef<GlassFieldState | null>(null);
+  if (state.current === null) {
+    state.current = {
+      text: value,
+      textGen: 0,
+      focused: false,
+      focusGen: 0,
+      editable,
+      onChangeText: (text) => {
+        lastNative.current = text;
+        handlers.current.onChange(text);
+      },
+      onSubmit: () => handlers.current.onSubmit?.(),
+    };
+  }
+
+  useEffect(() => {
+    const s = state.current;
+    if (!s || s.text === value) return;
+    s.text = value;
+    if (value !== lastNative.current) {
+      // The page decided this value itself — advance the generation so the
+      // native side applies it.
+      s.textGen += 1;
+      lastNative.current = value;
+    }
+    wake();
+  }, [value]);
+
+  const prevEditable = useRef(editable);
+  useEffect(() => {
+    const s = state.current;
+    if (!s) return;
+    s.editable = editable;
+    if (prevEditable.current !== editable) {
+      prevEditable.current = editable;
+      s.focused = editable;
+      s.focusGen += 1;
+    }
+    wake();
+  }, [editable]);
+
+  useEffect(() => {
+    const el = elRef.current;
+    const field = state.current;
+    if (!active || !el || !field) return;
+    registry.set(key, {
+      el,
+      symbol: 'magnifyingglass',
+      title: placeholder,
+      titleStyle: 'field',
+      label: label ?? placeholder,
+      onTap: () => handlers.current.onPress?.(),
+      field,
+    });
+    wake();
+    return () => {
+      registry.delete(key);
+      wake();
+    };
+  }, [active, key, placeholder, label]);
 
   const ref = useCallback((el: HTMLElement | null) => { elRef.current = el; }, []);
   return { ref, active };
