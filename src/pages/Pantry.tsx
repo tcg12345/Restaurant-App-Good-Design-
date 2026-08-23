@@ -1432,6 +1432,11 @@ const ListDetailView: React.FC<{
   // Lives on ListView (not the global page) so the sheet's selections
   // reset cleanly when the user closes the view.
   const [wishlistFilterOpen, setWishlistFilterOpen] = useState(false);
+  const [wlFiltersInitialPage, setWlFiltersInitialPage] = useState<{ id: string; title: string } | null>(null);
+  const openWlFiltersOn = (page: { id: string; title: string } | null) => {
+    setWlFiltersInitialPage(page);
+    setWishlistFilterOpen(true);
+  };
   const [wishlistSort, setWishlistSort] = useState<WishlistSort>('recent');
   const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
@@ -2124,28 +2129,33 @@ const ListDetailView: React.FC<{
           branch below. */}
       {phoneMode && !isHomeCooking && totalCount > 0 && (
         <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          {/* Same rule as the rated list: a chip opens the page its own
+              filter owns, so the bar and Filters are one control rather
+              than two spellings of it. Every chip landed on the sheet's
+              top before, which meant Michelin was three taps from a chip
+              labelled Michelin. */}
+          <FilterPill onClick={() => openWlFiltersOn(null)}
             icon={<SlidersHorizontal size={12} />} label="Filters"
             active={wishlistActiveFilterCount > 0}
             badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined} />
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          <FilterPill onClick={() => openWlFiltersOn({ id: 'city', title: 'City / Location' })}
             icon={<MapPin size={11} />}
             label={wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City'}
             active={wishlistCityFilter.length > 0}
             onClear={wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined} />
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          <FilterPill onClick={() => openWlFiltersOn({ id: 'cuisine', title: 'Cuisine' })}
             label={wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine'}
             active={wishlistCuisineFilter.length > 0}
             onClear={wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined} />
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          <FilterPill onClick={() => openWlFiltersOn(null)}
             label={wishlistPriceFilter || 'Price'}
             active={!!wishlistPriceFilter}
             onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined} />
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          <FilterPill onClick={() => openWlFiltersOn({ id: 'michelin', title: 'Michelin' })}
             label={wishlistMichelinFilter.length > 0 ? `Michelin (${wishlistMichelinFilter.length})` : 'Michelin'}
             active={wishlistMichelinFilter.length > 0}
             onClear={wishlistMichelinFilter.length > 0 ? () => setWishlistMichelinFilter([]) : undefined} />
-          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+          <FilterPill onClick={() => openWlFiltersOn(null)}
             icon={<ArrowUpDown size={11} />}
             label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
             active={wishlistSort !== 'recent'}
@@ -2412,6 +2422,7 @@ const ListDetailView: React.FC<{
           allCuisines={wishlistAllCuisines}
           allCities={wishlistAllCities}
           counts={{ cuisine: cuisineCounts, city: cityCounts }}
+          initialPage={wlFiltersInitialPage}
           onReset={resetWishlistFilters}
           activeCount={wishlistActiveFilterCount}
         />
@@ -2466,10 +2477,12 @@ const FilterSheet: React.FC<{
   allCuisines: string[];
   /** Per-option counts for the Cuisine / City pages. */
   counts?: { cuisine: Record<string, number>; city: Record<string, number> };
+  /** Open straight onto one filter's own page (from a chip in the bar). */
+  initialPage?: { id: string; title: string } | null;
   onReset: () => void;
-}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, counts, onReset }) => {
+}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, counts, initialPage, onReset }) => {
   return (
-    <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset}>
+    <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset} initialPage={initialPage}>
       <FilterSection label="Sort by">
         <PillRow>
           {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
@@ -2552,9 +2565,11 @@ const WishlistFilterSheet: React.FC<{
   allCities: string[];
   /** Per-option counts for the Cuisine / City pages. */
   counts?: { cuisine: Record<string, number>; city: Record<string, number> };
+  /** Open straight onto one filter's own page (from a chip in the bar). */
+  initialPage?: { id: string; title: string } | null;
   onReset: () => void;
   activeCount: number;
-}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, counts, onReset, activeCount }) => {
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCuisines, allCities, counts, initialPage, onReset, activeCount }) => {
   return (
     <FilterSheetShell
       open={open}
@@ -2565,6 +2580,7 @@ const WishlistFilterSheet: React.FC<{
       onReset={onReset}
       applyLabel={activeCount > 0 ? 'Show results' : 'Done'}
       zIndex={120}
+      initialPage={initialPage}
     >
       <FilterSection label="Sort by">
         <PillRow>
@@ -5607,6 +5623,13 @@ export const Pantry: React.FC = () => {
     setMichelinFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
   const michelinReady = useMichelinIndexReady();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Which page Filters should land on. A chip in the bar opens the page
+  // that chip's filter owns; the Filters chip itself opens the top.
+  const [filtersInitialPage, setFiltersInitialPage] = useState<{ id: string; title: string } | null>(null);
+  const openFiltersOn = (page: { id: string; title: string } | null) => {
+    setFiltersInitialPage(page);
+    setFiltersOpen(true);
+  };
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
   const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added' | 'custom'>('highest');
@@ -6451,22 +6474,30 @@ export const Pantry: React.FC = () => {
                 </div>
 
                 <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  <FilterPill onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
+                  {/* Every chip opens the SAME page its filter owns inside
+                      Filters. They used to drop four different little
+                      dropdowns, so choosing a city from the bar and
+                      choosing one from Filters were two different controls
+                      over the same value — different type, different
+                      widths, one with counts and one without. City and
+                      Cuisine push straight to their page; Price and Sort
+                      live on the Filters page itself, so they open that. */}
+                  <FilterPill onClick={() => { openFiltersOn(null); closeAllDropdowns(); }}
                     icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
                     badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
-                  <FilterPill onClick={() => setCityDropdownOpen(true)}
+                  <FilterPill onClick={() => openFiltersOn({ id: 'city', title: 'City / Location' })}
                     icon={<MapPin size={11} />}
                     label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
                     active={cityFilter.length > 0}
                     onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
-                  <FilterPill onClick={() => setCuisineDropdownOpen(true)}
+                  <FilterPill onClick={() => openFiltersOn({ id: 'cuisine', title: 'Cuisine' })}
                     label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
                     active={cuisineFilter.length > 0}
                     onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
-                  <FilterPill onClick={() => setPriceDropdownOpen(true)}
+                  <FilterPill onClick={() => openFiltersOn(null)}
                     label={priceFilter || 'Price'} active={!!priceFilter}
                     onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
-                  <FilterPill onClick={() => setSortDropdownOpen(true)}
+                  <FilterPill onClick={() => openFiltersOn(null)}
                     icon={<ArrowUpDown size={11} />}
                     label={isNonDefaultSort ? sortLabels[sortBy] : 'Sort'}
                     active={isNonDefaultSort}
@@ -6783,6 +6814,7 @@ export const Pantry: React.FC = () => {
         allCities={allCities}
         allCuisines={allCuisines}
         counts={rootFilterCounts}
+        initialPage={filtersInitialPage}
         onReset={handleResetFilters}
       />
 
