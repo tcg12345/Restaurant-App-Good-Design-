@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { Bookmark, ChefHat, ChevronRight, Plus, UtensilsCrossed } from 'lucide-react';
+import { Bookmark, ChefHat, ChevronRight, Clock, Plus, Sparkles, Star, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useGlassSegments } from '../lib/glass-buttons';
-import { scoreBadgeBg, scoreColor } from '../lib/score';
+import { scoreTintStyle } from '../lib/score';
 import { DEFAULT_WANT_TO_COOK_ID, type CustomList, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { motion, useReducedMotion } from 'motion/react';
@@ -40,12 +40,18 @@ interface Props {
   onOpenWishlist: () => void;
   onOpenRated: () => void;
   onCreateRestaurantList: () => void;
-  /** Opens the ranked recommendations browser. Renders the "Recommended for
-   *  you" banner on the Restaurants tab when provided. */
+  /** Opens the ranked recommendations browser. Renders the "For you"
+   *  banner on the Restaurants tab when provided. */
   onOpenRecommendations?: () => void;
+  /** The user's most-rated cuisines, for the "Your cuisines" rail. */
+  topCuisines?: Array<{ name: string; count: number; avg: number }>;
+  /** Open the rated list pre-filtered to one cuisine. */
+  onOpenCuisine?: (cuisine: string) => void;
   // Recipe tab handlers
   onOpenAllRecipes: () => void;
   onCreateRecipeList: () => void;
+  /** Open one recipe directly (the "Quick tonight" rail). */
+  onOpenMeal?: (meal: HomeMeal) => void;
 }
 
 export type PantryTab = 'restaurants' | 'recipes';
@@ -84,8 +90,11 @@ export const PhonePantryHome: React.FC<Props> = ({
   onOpenRated,
   onCreateRestaurantList,
   onOpenRecommendations,
+  topCuisines,
+  onOpenCuisine,
   onOpenAllRecipes,
   onCreateRecipeList,
+  onOpenMeal,
 }) => {
   const { darkMode, phoneMode } = useSettings();
   const reduceMotion = useReducedMotion();
@@ -237,30 +246,19 @@ export const PhonePantryHome: React.FC<Props> = ({
         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       >
       {tab === 'restaurants' ? (
-        <>
-          {/* Recommendations entry — a quiet hairline row, deliberately
-              subordinate to the card grid below it. */}
-          {onOpenRecommendations && (
-            <button
-              type="button"
-              onClick={onOpenRecommendations}
-              className="mt-5 flex w-full items-center justify-between rounded-2xl border border-on-surface/[0.08] px-4 py-2.5 text-left transition-colors active:bg-on-surface/[0.04]"
-            >
-              <span className="text-[13px] font-semibold text-on-surface/65">Recommended for you</span>
-              <ChevronRight size={15} className="flex-shrink-0 text-on-surface/35" />
-            </button>
-          )}
-          <RestaurantsTab
-            lists={restaurantLists}
-            ratedCount={ratedCount}
-            ratedTopScores={ratedTopScores}
-            wishlistCount={wishlistCount}
-            onOpenList={onOpenList}
-            onOpenWishlist={onOpenWishlist}
-            onOpenRated={onOpenRated}
-            onCreateRestaurantList={onCreateRestaurantList}
-          />
-        </>
+        <RestaurantsTab
+          lists={restaurantLists}
+          ratedCount={ratedCount}
+          ratedTopScores={ratedTopScores}
+          wishlistCount={wishlistCount}
+          topCuisines={topCuisines}
+          onOpenList={onOpenList}
+          onOpenWishlist={onOpenWishlist}
+          onOpenRated={onOpenRated}
+          onOpenCuisine={onOpenCuisine}
+          onCreateRestaurantList={onCreateRestaurantList}
+          onOpenRecommendations={onOpenRecommendations}
+        />
       ) : (
         <RecipesTab
           lists={recipeLists}
@@ -268,12 +266,64 @@ export const PhonePantryHome: React.FC<Props> = ({
           onOpenAllRecipes={onOpenAllRecipes}
           onOpenList={onOpenList}
           onCreateRecipeList={onCreateRecipeList}
+          onOpenMeal={onOpenMeal}
         />
       )}
       </motion.div>
     </div>
   );
 };
+
+/* ─────────────── Shared furniture ───────────────
+   The landing stopped being a grid of gradient squares: every list is a
+   ROW that says what it holds, sections divide with hairlines, and the
+   serif carries the titles — the same editorial language as the rest of
+   the redesign. */
+
+const SectionHead: React.FC<{ title: string; action?: { label: string; onClick: () => void } }> = ({ title, action }) => (
+  <div className="flex items-center justify-between">
+    <h2 className="font-serif text-[19px] font-bold tracking-[-0.02em] text-on-surface">{title}</h2>
+    {action && (
+      <button
+        type="button"
+        onClick={action.onClick}
+        className="flex items-center gap-1 rounded-full bg-on-surface/[0.05] px-3 h-8 text-[12px] font-bold text-on-surface/70 active:bg-on-surface/[0.1] transition-colors"
+      >
+        <Plus size={12} strokeWidth={2.6} />
+        {action.label}
+      </button>
+    )}
+  </div>
+);
+
+const Rule: React.FC = () => <div className="mt-6 border-t border-on-surface/[0.1]" aria-hidden />;
+
+/** A landing row: leading visual, title + fact line, trailing slot, chevron. */
+const HomeRow: React.FC<{
+  onClick: () => void;
+  leading: React.ReactNode;
+  title: string;
+  meta: string;
+  trailing?: React.ReactNode;
+  first?: boolean;
+}> = ({ onClick, leading, title, meta, trailing, first }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      'w-full flex items-center gap-3.5 py-[13px] text-left active:opacity-60 transition-opacity',
+      !first && 'border-t border-on-surface/[0.06]',
+    )}
+  >
+    {leading}
+    <span className="flex-1 min-w-0 block">
+      <span className="block font-serif text-[16.5px] font-bold leading-[1.15] tracking-[-0.02em] text-on-surface truncate">{title}</span>
+      <span className="block mt-[5px] text-[12.5px] leading-tight text-on-surface/50 truncate">{meta}</span>
+    </span>
+    {trailing}
+    <ChevronRight size={15} className="flex-shrink-0 text-on-surface/25" />
+  </button>
+);
 
 /* ─────────────── Restaurants tab ─────────────── */
 
@@ -282,30 +332,135 @@ const RestaurantsTab: React.FC<{
   ratedCount: number;
   ratedTopScores: number[];
   wishlistCount: number;
+  topCuisines?: Array<{ name: string; count: number; avg: number }>;
   onOpenList: (l: CustomList) => void;
   onOpenWishlist: () => void;
   onOpenRated: () => void;
+  onOpenCuisine?: (cuisine: string) => void;
   onCreateRestaurantList: () => void;
-}> = ({ lists, ratedCount, ratedTopScores, wishlistCount, onOpenList, onOpenWishlist, onOpenRated, onCreateRestaurantList }) => {
+  onOpenRecommendations?: () => void;
+}> = ({ lists, ratedCount, ratedTopScores, wishlistCount, topCuisines, onOpenList, onOpenWishlist, onOpenRated, onOpenCuisine, onCreateRestaurantList, onOpenRecommendations }) => {
+  const cuisines = (topCuisines || []).filter((c) => c.count >= 2).slice(0, 6);
   return (
     <>
-      {/* ── Section: Essentials ── */}
+      {/* For you — the one accent moment on the page. */}
+      {onOpenRecommendations && (
+        <button
+          type="button"
+          onClick={onOpenRecommendations}
+          className="mt-5 w-full flex items-center gap-3 rounded-2xl bg-primary/[0.08] px-3.5 py-3 text-left active:bg-primary/[0.14] transition-colors"
+        >
+          <span className="flex-none w-8 h-8 rounded-full bg-primary/15 text-primary flex items-center justify-center">
+            <Sparkles size={14} strokeWidth={2.2} />
+          </span>
+          <span className="flex-1 min-w-0 block">
+            <span className="block text-[13.5px] font-bold tracking-[-0.01em] text-primary">Recommended for you</span>
+            <span className="block mt-[3px] text-[11.5px] text-on-surface/55 truncate">
+              {ratedCount > 0 ? `Ranked from your ${ratedCount} rating${ratedCount === 1 ? '' : 's'}` : 'Places picked for your taste'}
+            </span>
+          </span>
+          <ChevronRight size={14} className="flex-shrink-0 text-primary/70" />
+        </button>
+      )}
+
       <div className="mt-6">
-        <SectionLabel>Essentials</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <RatedCard count={ratedCount} topScores={ratedTopScores} onClick={onOpenRated} />
-          <WishlistCard count={wishlistCount} onClick={onOpenWishlist} />
+        <SectionHead title="Essentials" />
+        <div className="mt-1">
+          <HomeRow
+            first
+            onClick={onOpenRated}
+            leading={
+              <span className="flex-none w-11 h-11 rounded-full bg-primary/[0.1] text-primary flex items-center justify-center">
+                <Star size={18} strokeWidth={2.1} />
+              </span>
+            }
+            title="Your canvas"
+            meta={ratedCount > 0 ? `${ratedCount} place${ratedCount === 1 ? '' : 's'} rated` : 'Rate your first place'}
+            trailing={ratedTopScores.length > 0 ? (
+              <span className="flex-none flex items-center">
+                {ratedTopScores.slice(0, 3).map((s, i) => {
+                  const t = scoreTintStyle(s);
+                  return (
+                    <span
+                      key={i}
+                      className="flex items-center justify-center rounded-full font-serif font-bold tabular-nums border-[1.5px] border-surface"
+                      style={{ width: 32, height: 32, fontSize: 10.5, marginLeft: i === 0 ? 0 : -8, background: t.background, color: t.color, boxShadow: `inset 0 0 0 1px ${t.ring}` }}
+                    >
+                      {s.toFixed(1)}
+                    </span>
+                  );
+                })}
+              </span>
+            ) : undefined}
+          />
+          <HomeRow
+            onClick={onOpenWishlist}
+            leading={
+              <span className="flex-none w-11 h-11 rounded-full bg-tile-wish/[0.16] text-tile-wish-deep flex items-center justify-center">
+                <Bookmark size={17} strokeWidth={2.1} />
+              </span>
+            }
+            title="Want to try"
+            meta={wishlistCount > 0 ? `${wishlistCount} saved for later` : 'Nothing saved yet'}
+            trailing={wishlistCount > 0 ? (
+              <span className="flex-none rounded-full bg-on-surface/[0.06] px-2.5 py-1.5 text-[11.5px] font-bold text-on-surface/65 tabular-nums">{wishlistCount}</span>
+            ) : undefined}
+          />
         </div>
       </div>
 
-      {/* ── Section: Collections ── */}
-      <div className="mt-7">
-        <SectionLabel>Collections</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <NewListCard label="New list" onClick={onCreateRestaurantList} />
-          {lists.map((list) => (
-            <CustomListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
-          ))}
+      {/* Your cuisines — the taste profile the ratings already contain. */}
+      {cuisines.length >= 2 && onOpenCuisine && (
+        <>
+          <Rule />
+          <div className="mt-5">
+            <SectionHead title="Your cuisines" />
+            <div className="mt-3 flex gap-2.5 overflow-x-auto scrollbar-hide -mx-4 px-4 scroll-px-4 snap-x">
+              {cuisines.map((c) => {
+                const t = scoreTintStyle(c.avg);
+                return (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => onOpenCuisine(c.name)}
+                    className="flex-none snap-start flex items-center gap-2.5 rounded-2xl border border-on-surface/[0.08] pl-2 pr-3.5 py-2 active:bg-on-surface/[0.04] transition-colors"
+                  >
+                    <span
+                      className="flex items-center justify-center rounded-full font-serif font-bold tabular-nums"
+                      style={{ width: 34, height: 34, fontSize: 11.5, background: t.background, color: t.color, border: `1.5px solid ${t.ring}` }}
+                    >
+                      {c.avg.toFixed(1)}
+                    </span>
+                    <span className="text-left">
+                      <span className="block text-[13px] font-bold tracking-[-0.01em] text-on-surface whitespace-nowrap">{c.name}</span>
+                      <span className="block mt-[1px] text-[10.5px] text-on-surface/45">{c.count} places</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      <Rule />
+      <div className="mt-5">
+        <SectionHead title="Collections" action={{ label: 'New', onClick: onCreateRestaurantList }} />
+        <div className="mt-1">
+          {lists.length === 0 ? (
+            <EmptyLine text="Group places into lists — date spots, pizza tour, home town." action="Create a list" onAction={onCreateRestaurantList} />
+          ) : (
+            lists.map((list, i) => (
+              <HomeRow
+                key={list.id}
+                first={i === 0}
+                onClick={() => onOpenList(list)}
+                leading={<ListTile id={list.id} emoji={list.emoji} />}
+                title={list.name}
+                meta={(() => { const n = list.restaurantIds.length + (list.wishlistIds?.length || 0); return `${n} place${n === 1 ? '' : 's'}`; })()}
+              />
+            ))
+          )}
         </div>
       </div>
     </>
@@ -320,15 +475,12 @@ const RecipesTab: React.FC<{
   onOpenAllRecipes: () => void;
   onOpenList: (l: CustomList) => void;
   onCreateRecipeList: () => void;
-}> = ({ lists, homeMeals, onOpenAllRecipes, onOpenList, onCreateRecipeList }) => {
+  onOpenMeal?: (meal: HomeMeal) => void;
+}> = ({ lists, homeMeals, onOpenAllRecipes, onOpenList, onCreateRecipeList, onOpenMeal }) => {
   const sortedMeals = useMemo(
     () => [...homeMeals].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [homeMeals],
   );
-
-  // Pull the built-in "Want to Cook" list out so it gets its own
-  // essentials card (parallel to the restaurant Wishlist card on the
-  // other tab). The remaining recipe lists fall through to the grid.
   const wantToCook = useMemo(
     () => lists.find((l) => l.id === DEFAULT_WANT_TO_COOK_ID) || null,
     [lists],
@@ -337,228 +489,145 @@ const RecipesTab: React.FC<{
     () => lists.filter((l) => l.id !== DEFAULT_WANT_TO_COOK_ID),
     [lists],
   );
+  // Under-35-minute recipes, newest first — the weeknight answer.
+  const quickMeals = useMemo(
+    () => sortedMeals.filter((m) => {
+      const total = (m.prepTime || 0) + (m.cookTime || 0);
+      return total > 0 && total <= 35;
+    }).slice(0, 8),
+    [sortedMeals],
+  );
+  const latestCover = sortedMeals[0]?.coverPhoto || sortedMeals[0]?.photos?.[0]?.url || '';
 
   return (
     <>
-      {/* ── Section: Essentials ── */}
       <div className="mt-6">
-        <SectionLabel>Essentials</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <AllRecipesCard count={homeMeals.length} topMeal={sortedMeals[0]} onClick={onOpenAllRecipes} />
+        <SectionHead title="Essentials" />
+        <div className="mt-1">
+          <HomeRow
+            first
+            onClick={onOpenAllRecipes}
+            leading={latestCover ? (
+              <span className="flex-none w-11 h-11 rounded-[14px] overflow-hidden bg-tile-recipes/20">
+                <img src={latestCover} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              </span>
+            ) : (
+              <span className="flex-none w-11 h-11 rounded-full bg-tile-recipes/[0.16] text-tile-recipes-deep flex items-center justify-center">
+                <ChefHat size={18} strokeWidth={2.1} />
+              </span>
+            )}
+            title="Cookbook"
+            meta={homeMeals.length > 0 ? `${homeMeals.length} recipe${homeMeals.length === 1 ? '' : 's'}` : 'Log your first recipe'}
+          />
           {wantToCook && (
-            <WantToCookCard
-              count={wantToCook.recipes?.length || 0}
+            <HomeRow
               onClick={() => onOpenList(wantToCook)}
+              leading={
+                <span className="flex-none w-11 h-11 rounded-full bg-tile-cook/[0.18] text-tile-cook-deep flex items-center justify-center">
+                  <Bookmark size={17} strokeWidth={2.1} />
+                </span>
+              }
+              title="Want to cook"
+              meta={(() => { const n = wantToCook.recipes?.length || 0; return n > 0 ? `${n} saved` : 'Nothing saved yet'; })()}
+              trailing={(wantToCook.recipes?.length || 0) > 0 ? (
+                <span className="flex-none rounded-full bg-on-surface/[0.06] px-2.5 py-1.5 text-[11.5px] font-bold text-on-surface/65 tabular-nums">{wantToCook.recipes?.length}</span>
+              ) : undefined}
             />
           )}
         </div>
       </div>
 
-      {/* ── Section: Recipe lists ── */}
-      <div className="mt-7">
-        <SectionLabel>Recipe lists</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          <NewListCard label="New recipe list" onClick={onCreateRecipeList} />
-          {otherRecipeLists.map((list) => (
-            <RecipeListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
-          ))}
+      {/* Quick tonight — recipes that fit a weeknight. */}
+      {quickMeals.length >= 2 && onOpenMeal && (
+        <>
+          <Rule />
+          <div className="mt-5">
+            <SectionHead title="Quick tonight" />
+            <div className="mt-3 flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 scroll-px-4 snap-x">
+              {quickMeals.map((meal) => {
+                const cover = meal.coverPhoto || meal.photos?.[0]?.url || '';
+                const total = (meal.prepTime || 0) + (meal.cookTime || 0);
+                return (
+                  <button
+                    key={meal.id}
+                    type="button"
+                    onClick={() => onOpenMeal(meal)}
+                    className="flex-none snap-start w-[132px] text-left active:opacity-70 transition-opacity"
+                  >
+                    <span className="block h-[88px] rounded-2xl overflow-hidden bg-tile-recipes/[0.14]">
+                      {cover ? (
+                        <img src={cover} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="w-full h-full flex items-center justify-center text-tile-recipes-deep/50">
+                          <ChefHat size={22} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-2 block font-serif text-[13.5px] font-bold leading-[1.2] tracking-[-0.01em] text-on-surface line-clamp-2">{meal.name || 'Untitled'}</span>
+                    <span className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-semibold text-on-surface/45">
+                      <Clock size={10} strokeWidth={2.4} />
+                      {formatDuration(total)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      <Rule />
+      <div className="mt-5">
+        <SectionHead title="Recipe lists" action={{ label: 'New', onClick: onCreateRecipeList }} />
+        <div className="mt-1">
+          {otherRecipeLists.length === 0 ? (
+            <EmptyLine text="Group recipes into lists — weeknight rotation, baking, holiday table." action="Create a list" onAction={onCreateRecipeList} />
+          ) : (
+            otherRecipeLists.map((list, i) => (
+              <HomeRow
+                key={list.id}
+                first={i === 0}
+                onClick={() => onOpenList(list)}
+                leading={<ListTile id={list.id} emoji={list.emoji} />}
+                title={list.name}
+                meta={(() => { const n = list.recipes?.length || 0; return `${n} recipe${n === 1 ? '' : 's'}`; })()}
+              />
+            ))
+          )}
         </div>
       </div>
     </>
   );
 };
 
-/* ─────────────── Sub-components ─────────────── */
+/* ─────────────── Bits ─────────────── */
 
-// Single-line modern section label — replaces the previous overline + big
-// serif title combo. Uppercase, tight tracking, low contrast so the cards
-// underneath carry the visual weight.
-const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-on-surface/45">{children}</p>
-);
-
-// Score-chip layout for the "Your canvas" card. Up to 3 chips, slightly
-// overlapping. Falls back to a tasteful empty state when the user has no
-// ratings yet.
-const RatedCard: React.FC<{ count: number; topScores: number[]; onClick: () => void }> = ({ count, topScores, onClick }) => {
-  const hasRatings = count > 0;
+/** A list's small identity tile — the old grid's gradient, shrunk to a
+ *  44pt square with the emoji as the mark. */
+const ListTile: React.FC<{ id: string; emoji?: string }> = ({ id, emoji }) => {
+  const color = colorForId(id);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-rated to-tile-rated-deep active:scale-[0.98] transition-transform"
-    >
-      <div className="flex items-start justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55 bg-white/10 px-2 py-0.5 rounded-full">
-          Rated
-        </span>
-        {hasRatings && (
-          <div className="flex -space-x-2">
-            {topScores.slice(0, 3).map((s, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'w-9 h-9 rounded-full border ring-2 ring-tile-rated flex items-center justify-center font-bold text-[12px] tabular-nums',
-                  scoreBadgeBg(s),
-                  scoreColor(s),
-                )}
-              >
-                {s.toFixed(1)}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div>
-        <p className="text-white font-serif font-bold text-[20px] leading-tight">Your canvas</p>
-        <p className="text-white/55 text-xs mt-0.5">
-          {hasRatings ? `${count} place${count === 1 ? '' : 's'}` : 'No ratings yet'}
-        </p>
-      </div>
-    </button>
-  );
-};
-
-const WishlistCard: React.FC<{ count: number; onClick: () => void }> = ({ count, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-wish to-tile-wish-deep active:scale-[0.98] transition-transform"
-  >
-    <div className="flex items-start justify-between">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">
-        Wishlist
-      </span>
-      <Bookmark size={20} className="text-white fill-white" />
-    </div>
-    <div>
-      <p className="text-white font-serif font-bold text-[20px] leading-tight">Want to try</p>
-      <p className="text-white/75 text-xs mt-0.5">
-        {count > 0 ? `${count} saved` : 'Nothing saved yet'}
-      </p>
-    </div>
-  </button>
-);
-
-// "All Recipes" essential card on the Recipes tab. Contains every meal the
-// user has logged, regardless of which recipe list they live in. Optionally
-// shows a small preview of the most recent meal's cover image.
-const AllRecipesCard: React.FC<{ count: number; topMeal?: HomeMeal; onClick: () => void }> = ({ count, topMeal, onClick }) => {
-  const cover = topMeal?.coverPhoto || topMeal?.photos?.[0]?.url || '';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-recipes to-tile-recipes-deep active:scale-[0.98] transition-transform"
-    >
-      {cover && (
-        <>
-          <img
-            src={cover}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover opacity-50"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-tile-recipes-deep/95 via-tile-recipes-deep/55 to-tile-recipes-deep/30" />
-        </>
-      )}
-      <div className="relative flex items-start justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/75 bg-white/10 px-2 py-0.5 rounded-full">
-          All Recipes
-        </span>
-        <ChefHat size={20} className="text-white/85" />
-      </div>
-      <div className="relative">
-        <p className="text-white font-serif font-bold text-[20px] leading-tight">Cookbook</p>
-        <p className="text-white/65 text-xs mt-0.5">
-          {count > 0 ? `${count} recipe${count === 1 ? '' : 's'}` : 'No recipes yet'}
-        </p>
-      </div>
-    </button>
-  );
-};
-
-// "Want to Cook" essential card — recipe-side counterpart to the
-// restaurant Wishlist card. Saffron gradient evokes a dog-eared
-// cookbook page so the user can immediately tell it from All Recipes
-// (deep green) and the other tab's Wishlist (orange-red).
-const WantToCookCard: React.FC<{ count: number; onClick: () => void }> = ({ count, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-tile-cook to-tile-cook-deep active:scale-[0.98] transition-transform"
-  >
-    <div className="flex items-start justify-between">
-      <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 bg-white/15 px-2 py-0.5 rounded-full">
-        Saved
-      </span>
-      <Bookmark size={20} className="text-white fill-white" />
-    </div>
-    <div>
-      <p className="text-white font-serif font-bold text-[20px] leading-tight">Want to cook</p>
-      <p className="text-white/75 text-xs mt-0.5">
-        {count > 0 ? `${count} saved` : 'Nothing saved yet'}
-      </p>
-    </div>
-  </button>
-);
-
-const NewListCard: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="aspect-square rounded-3xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center text-on-surface/45 hover:border-on-surface/25 hover:text-on-surface/65 active:scale-[0.98] transition-all"
-  >
-    <Plus size={26} strokeWidth={1.6} className="mb-1.5" />
-    <span className="text-xs font-semibold">{label}</span>
-  </button>
-);
-
-const CustomListCard: React.FC<{ list: CustomList; onClick: () => void }> = ({ list, onClick }) => {
-  const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
-  const color = colorForId(list.id);
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between active:scale-[0.98] transition-transform"
+    <span
+      className="flex-none w-11 h-11 rounded-[14px] flex items-center justify-center text-[19px]"
       style={{ backgroundImage: `linear-gradient(135deg, ${color.from}, ${color.to})` }}
     >
-      <span className="text-2xl">{list.emoji}</span>
-      <div>
-        <p className="text-white font-serif font-bold text-[18px] leading-tight line-clamp-2">{list.name}</p>
-        <p className="text-white/75 text-xs mt-0.5">
-          {total} {total === 1 ? 'place' : 'places'}
-        </p>
-      </div>
-    </button>
+      {emoji || '•'}
+    </span>
   );
 };
 
-const RecipeListCard: React.FC<{ list: CustomList; onClick: () => void }> = ({ list, onClick }) => {
-  const total = list.recipes?.length || 0;
-  const color = colorForId(list.id);
-  return (
+const EmptyLine: React.FC<{ text: string; action: string; onAction: () => void }> = ({ text, action, onAction }) => (
+  <div className="py-4">
+    <p className="text-[13px] leading-relaxed text-on-surface/50 max-w-[280px]">{text}</p>
     <button
       type="button"
-      onClick={onClick}
-      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between active:scale-[0.98] transition-transform"
-      style={{ backgroundImage: `linear-gradient(135deg, ${color.from}, ${color.to})` }}
+      onClick={onAction}
+      className="mt-3 rounded-full border border-on-surface/[0.16] px-4 h-9 text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.05] transition-colors"
     >
-      <div className="flex items-start justify-between">
-        <span className="text-2xl">{list.emoji}</span>
-        <UtensilsCrossed size={18} className="text-white/70" />
-      </div>
-      <div>
-        <p className="text-white font-serif font-bold text-[18px] leading-tight line-clamp-2">{list.name}</p>
-        <p className="text-white/75 text-xs mt-0.5">
-          {total} {total === 1 ? 'recipe' : 'recipes'}
-        </p>
-      </div>
+      {action}
     </button>
-  );
-};
-
+  </div>
+);
 
 function formatDuration(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);

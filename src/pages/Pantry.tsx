@@ -6369,6 +6369,29 @@ export const Pantry: React.FC = () => {
               .map((r) => r.score)
               .sort((a, b) => b - a)
               .slice(0, 3)}
+            topCuisines={(() => {
+              const byCuisine = new Map<string, { count: number; sum: number }>();
+              for (const r of ratings) {
+                const c = (r.cuisine || '').trim();
+                if (!c) continue;
+                const e = byCuisine.get(c) || { count: 0, sum: 0 };
+                e.count += 1; e.sum += r.score || 0;
+                byCuisine.set(c, e);
+              }
+              return [...byCuisine.entries()]
+                .map(([name, e]) => ({ name, count: e.count, avg: e.sum / e.count }))
+                .sort((a, b) => b.count - a.count || b.avg - a.avg)
+                .slice(0, 6);
+            })()}
+            onOpenCuisine={(cuisine) => {
+              setCuisineFilter([cuisine]);
+              setShowAllRated(true);
+            }}
+            onOpenMeal={(meal) => {
+              setShowHomeCooking(true);
+              setHomeCookingSelectedMealId(meal.id);
+              navigate('/pantry?view=home-cooking');
+            }}
             wishlistCount={regularWishlist.length}
             homeMeals={homeMeals}
             tab={pantryTab}
