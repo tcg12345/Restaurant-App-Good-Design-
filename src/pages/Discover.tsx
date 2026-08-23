@@ -4462,8 +4462,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       {/* Floating Action Buttons + Location Search — only on the Map page.
           Positioned to clear the iOS status-bar / Dynamic Island safe area
           and sit just below the back-arrow / search-this-area row. */}
-      {mode !== 'home' && (
-      <div className={cn("absolute right-6 flex flex-col gap-3 z-30 items-end", searchTab ? "top-[calc(env(safe-area-inset-top)+12rem)]" : "top-[calc(env(safe-area-inset-top)+4rem)]", searchTab && "transition-opacity duration-300", searchTab && (dimChrome || sheetState === 'full') && "opacity-0 pointer-events-none")}>
+      {/* The Search tab runs without the FAB column: location search lives
+          on the takeover's chip, and the geolocate / layers controls were
+          three more circles competing with the chips over the map. */}
+      {mode !== 'home' && !searchTab && (
+      <div className="absolute right-6 flex flex-col gap-3 z-30 items-end top-[calc(env(safe-area-inset-top)+4rem)]">
         {/* Location Search */}
         <AnimatePresence>
           {locationSearchOpen ? (
