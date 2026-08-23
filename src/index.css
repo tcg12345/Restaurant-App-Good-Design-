@@ -909,3 +909,11 @@ input[type="range"].accent-primary::-moz-range-thumb {
     background-color: color-mix(in srgb, var(--color-on-surface) 10%, var(--color-cream-2));
   }
 }
+
+/* A search field that is really a button — the Search tab's trigger. Same
+   material and metrics as the real one it navigates to, so the two read as
+   one object across the transition. */
+.ios-search.is-button { cursor: pointer; }
+.ios-search.is-button .ios-search-input { cursor: pointer; }
+.ios-search.is-button:active { background-color: rgba(118, 118, 128, 0.2); }
+.dark .ios-search.is-button:active { background-color: rgba(118, 118, 128, 0.34); }

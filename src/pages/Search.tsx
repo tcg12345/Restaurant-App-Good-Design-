@@ -5,6 +5,7 @@ import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, useReducedMotion } from 'motion/react';
 import { useGlassSegments } from '../lib/glass-buttons';
 import { cn } from '../lib/utils';
+import { SearchField } from '../components/SearchField';
 
 type SearchTab = 'discover' | 'following';
 
@@ -92,24 +93,14 @@ export const Search: React.FC = () => {
             {/* Real input that transitions into the full search page on focus.
                 readOnly keeps the mobile keyboard from flashing before the
                 route change; the auto-focus on SearchMain brings it up there. */}
-            <div className="w-full relative">
-              <SearchIcon
-                size={18}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
-              />
-              <input
-                type="text"
-                readOnly
-                placeholder="Search restaurants, cuisines, lists..."
-                onFocus={(e) => {
-                  e.currentTarget.blur();
-                  navigate('/search/main');
-                }}
-                onClick={() => navigate('/search/main')}
-                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] rounded-full py-3 pl-11 pr-4 text-base font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none cursor-pointer transition-colors"
-                aria-label="Search"
-              />
-            </div>
+            <SearchField
+              readOnly
+              value=""
+              onChange={() => {}}
+              onPress={() => navigate('/search/main')}
+              placeholder="Restaurants, cuisines, lists"
+              aria-label="Search"
+            />
 
             {/* Prominent map entry — replaces the old navbar split. */}
             <button

@@ -37,12 +37,20 @@ export const SearchField: React.FC<{
   onBlur?: () => void;
   className?: string;
   'aria-label'?: string;
+  /** A field that is really a button: tapping it goes somewhere that has a
+   *  real one. Keeps the material and the metrics so the two read as the
+   *  same object across the transition. */
+  readOnly?: boolean;
+  onPress?: () => void;
 }> = ({
   value, onChange, placeholder = 'Search',
   variant = 'plain', autoFocus, inputRef, onSubmit, onFocus, onBlur,
-  className, 'aria-label': ariaLabel,
+  className, 'aria-label': ariaLabel, readOnly, onPress,
 }) => (
-  <label className={cn('ios-search', variant === 'floating' && 'is-floating', className)}>
+  <label
+    className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', className)}
+    onClick={readOnly ? onPress : undefined}
+  >
     {/* Heavier than lucide's default hairline so it reads at SF Symbols
         weight beside 17px text. */}
     <Search className="ios-search-icon" size={17} strokeWidth={2.4} aria-hidden />
@@ -52,7 +60,10 @@ export const SearchField: React.FC<{
       inputMode="search"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      onFocus={onFocus}
+      readOnly={readOnly}
+      // Blur before navigating so the keyboard never flashes up on the
+      // page you are leaving.
+      onFocus={readOnly ? (e) => { e.currentTarget.blur(); onPress?.(); } : onFocus}
       onBlur={onBlur}
       onKeyDown={(e) => { if (e.key === 'Enter' && onSubmit) { e.preventDefault(); onSubmit(); } }}
       placeholder={placeholder}
@@ -64,7 +75,7 @@ export const SearchField: React.FC<{
       spellCheck={false}
       className="ios-search-input"
     />
-    {value && (
+    {value && !readOnly && (
       /* Filled, not outlined — the system's clear glyph is a solid disc,
          and an outlined × at this size reads as a close button for the
          thing behind the field. */
