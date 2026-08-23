@@ -601,8 +601,8 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// it — is the system's own mechanism for exactly that.
     static let glassTint = UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(red: 0.17, green: 0.18, blue: 0.22, alpha: 0.42)
-            : UIColor(white: 1.0, alpha: 0.42)
+            ? UIColor(red: 0.17, green: 0.18, blue: 0.22, alpha: 0.52)
+            : UIColor(white: 0.99, alpha: 0.72)
     }
 
     /// The same rust lifted until it reads against the charcoal the platter
@@ -1208,6 +1208,11 @@ enum GlassGroupKind: String {
     /// of glass; unlike `selector`, more than one can be chosen and the row
     /// scrolls. See `GlassChipRowView`.
     case chips
+    /// A selector as a clear-glass capsule with a sliding thumb — for the
+    /// one place a selector has to match the clear-glass chrome around it.
+    /// The `selector` kind's UITabBar platter is the single material the
+    /// system will not let match the rest. See `GlassSegmentPillView`.
+    case pill
 }
 
 struct GlassButtonSpec {
@@ -1641,6 +1646,116 @@ final class GlassActionGroupView: UIView {
 /// would eat the keystroke. Focus rides a generation for a different reason:
 /// a payload re-asserting `focused` must not re-summon a keyboard the user
 /// dismissed.
+/// A selector worn as clear glass — the Search page's Discover | Following.
+///
+/// Not the UITabBar the Lists page uses: the bar's platter is drawn from a
+/// material of the system's choosing, and beside a strip of clear-glass
+/// capsules it reads as a different object entirely. This is the same
+/// construction as every other capsule in that strip — a disabled button
+/// carrying the clear-glass configuration as the ground — with two plain
+/// labels across it and a soft thumb that slides to the chosen one.
+final class GlassSegmentPillView: UIView {
+    private let bg = UIButton(type: .custom)
+    private let thumb = UIView()
+    private var buttons: [UIButton] = []
+    private var ids: [String] = []
+    private var titles: [String] = []
+    private var activeIndex = 0
+
+    var onTap: ((String) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        var config: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            config = .clearGlass()
+        } else {
+            config = .gray()
+        }
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = GlassTabBar.glassTint
+        bg.configuration = config
+        // The ground, not a control — the segment buttons take the touches.
+        bg.isUserInteractionEnabled = false
+        addSubview(bg)
+
+        thumb.backgroundColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor(white: 1.0, alpha: 0.16)
+                : UIColor(white: 1.0, alpha: 0.95)
+        }
+        thumb.layer.shadowColor = UIColor.black.cgColor
+        thumb.layer.shadowOpacity = 0.08
+        thumb.layer.shadowRadius = 6
+        thumb.layer.shadowOffset = CGSize(width: 0, height: 2)
+        addSubview(thumb)
+        clipsToBounds = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func apply(_ spec: GlassButtonSpec) {
+        let incomingIds = spec.segments.map(\.id)
+        let incomingTitles = spec.segments.map(\.title)
+        if incomingIds != ids || incomingTitles != titles {
+            buttons.forEach { $0.removeFromSuperview() }
+            buttons = spec.segments.map { seg in
+                let button = UIButton(type: .custom)
+                button.setTitle(seg.title, for: .normal)
+                button.titleLabel?.font = .systemFont(ofSize: 13.5, weight: .semibold)
+                button.addTarget(self, action: #selector(segmentTapped(_:)), for: .touchUpInside)
+                addSubview(button)
+                return button
+            }
+            ids = incomingIds
+            titles = incomingTitles
+            setNeedsLayout()
+        }
+        let nextActive = spec.segments.firstIndex(where: { $0.active }) ?? 0
+        for (index, button) in buttons.enumerated() {
+            button.setTitleColor(
+                index == nextActive ? .label : GlassTabBar.glassInk.withAlphaComponent(0.85),
+                for: .normal
+            )
+        }
+        if nextActive != activeIndex {
+            activeIndex = nextActive
+            setNeedsLayout()
+            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4) {
+                self.layoutIfNeeded()
+            }
+        }
+        accessibilityLabel = spec.label
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        bg.frame = bounds
+        guard !buttons.isEmpty else { return }
+        // Split by each word's appetite, the way the web pill does.
+        let widths = buttons.map { max(64, ceil($0.intrinsicContentSize.width) + 32) }
+        let total = widths.reduce(0, +)
+        let scale = total > 0 ? bounds.width / total : 1
+        var x: CGFloat = 0
+        for (index, button) in buttons.enumerated() {
+            let w = widths[index] * scale
+            button.frame = CGRect(x: x, y: 0, width: w, height: bounds.height)
+            if index == activeIndex {
+                thumb.frame = button.frame.insetBy(dx: 3, dy: 3)
+                thumb.layer.cornerRadius = thumb.frame.height / 2
+            }
+            x += w
+        }
+        bringSubviewToFront(thumb)
+        buttons.forEach { bringSubviewToFront($0) }
+    }
+
+    @objc private func segmentTapped(_ sender: UIButton) {
+        guard let index = buttons.firstIndex(where: { $0 === sender }), index < ids.count else { return }
+        onTap?(ids[index])
+    }
+}
+
 /// The map chrome's filter chips — one native, horizontally scrolling row.
 ///
 /// The first version mirrored each chip onto its own web box, the way the
@@ -1787,24 +1902,17 @@ final class GlassChipRowView: UIView {
 }
 
 final class GlassSearchFieldView: UIView, UITextFieldDelegate {
-    private static func makeEffect() -> UIVisualEffect {
-        if #available(iOS 26.0, *) {
-            // Clear glass — regular's own frost made the field a solid bar
-            // over the map. The tint alone supplies the milkiness.
-            let effect = UIGlassEffect(style: .clear)
-            effect.isInteractive = true
-            effect.tintColor = GlassTabBar.glassTint
-            return effect
-        }
-        return UIBlurEffect(style: .systemChromeMaterial)
-    }
-
-    private let glass = UIVisualEffectView(effect: GlassSearchFieldView.makeEffect())
+    /// The ground is a DISABLED button wearing the same clear-glass
+    /// configuration as every other capsule in the chrome — not a
+    /// `UIGlassEffect` view. The two pipelines tint differently, and the
+    /// field kept reading as a slightly different colour from the buttons
+    /// beside it; drawing every capsule through one pipeline ends that by
+    /// construction. While the field is read-only the ground button is
+    /// live, so the closed state gets the configuration's own press
+    /// physics and the tap that opens search.
+    private let bg = UIButton(type: .custom)
     private let magnifier = UIImageView()
     private let field = UITextField()
-    /// The closed state's press — the field starts life as a button that
-    /// opens search, and only then becomes an editor.
-    private let tap = UITapGestureRecognizer()
     /// -1 so the first payload seeds the text; focus starts in agreement
     /// with the page's generation 0 and moves only on a real transition.
     private var appliedTextGen = -1
@@ -1816,22 +1924,18 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        glass.translatesAutoresizingMaskIntoConstraints = false
+        var config: UIButton.Configuration
         if #available(iOS 26.0, *) {
-            // The press swells the capsule past its own bounds; clipping
-            // would shear the very animation this exists for.
-            glass.clipsToBounds = false
-            glass.cornerConfiguration = .capsule()
+            config = .clearGlass()
         } else {
-            glass.clipsToBounds = true
+            config = .gray()
         }
-        addSubview(glass)
-        NSLayoutConstraint.activate([
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        config.cornerStyle = .capsule
+        config.contentInsets = .zero
+        config.baseBackgroundColor = GlassTabBar.glassTint
+        bg.configuration = config
+        bg.addTarget(self, action: #selector(pressed), for: .touchUpInside)
+        addSubview(bg)
         clipsToBounds = false
 
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
@@ -1840,7 +1944,7 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         magnifier.tintColor = GlassTabBar.glassInk.withAlphaComponent(0.8)
         magnifier.contentMode = .center
         magnifier.isUserInteractionEnabled = false
-        glass.contentView.addSubview(magnifier)
+        addSubview(magnifier)
 
         field.font = .systemFont(ofSize: 17)
         field.textColor = .label
@@ -1853,19 +1957,15 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         field.spellCheckingType = .no
         field.delegate = self
         field.addTarget(self, action: #selector(edited), for: .editingChanged)
-        glass.contentView.addSubview(field)
+        addSubview(field)
 
-        tap.addTarget(self, action: #selector(pressed))
-        addGestureRecognizer(tap)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if #available(iOS 26.0, *) {} else {
-            glass.layer.cornerRadius = min(bounds.width, bounds.height) / 2
-        }
+        bg.frame = bounds
         let iconWidth = magnifier.image?.size.width ?? 17
         magnifier.frame = CGRect(x: 16, y: 0, width: iconWidth, height: bounds.height)
         let fieldX = magnifier.frame.maxX + 7
@@ -1880,7 +1980,10 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
             )
         }
         field.isUserInteractionEnabled = spec.fieldEditable
-        tap.isEnabled = !spec.fieldEditable
+        // Read-only: the ground button is live — the configuration's press
+        // physics and the tap that opens search. Editing: it stands down and
+        // the text field takes the touches.
+        bg.isUserInteractionEnabled = !spec.fieldEditable
         if spec.fieldTextGen != appliedTextGen {
             appliedTextGen = spec.fieldTextGen
             if field.text != spec.fieldText { field.text = spec.fieldText }
@@ -2157,6 +2260,7 @@ final class GlassButtonLayer {
         case actions(GlassActionGroupView)
         case selector(GlassSelectorBarView)
         case chips(GlassChipRowView)
+        case pill(GlassSegmentPillView)
 
         var view: UIView {
             switch self {
@@ -2165,6 +2269,7 @@ final class GlassButtonLayer {
             case .actions(let v): return v
             case .selector(let v): return v
             case .chips(let v): return v
+            case .pill(let v): return v
             }
         }
 
@@ -2178,6 +2283,7 @@ final class GlassButtonLayer {
             case .actions: return !spec.segments.isEmpty && spec.kind == .actions
             case .selector: return !spec.segments.isEmpty && spec.kind == .selector
             case .chips: return !spec.segments.isEmpty && spec.kind == .chips
+            case .pill: return !spec.segments.isEmpty && spec.kind == .pill
             }
         }
     }
@@ -2207,6 +2313,12 @@ final class GlassButtonLayer {
             let chrome: Chrome
             if let existing = views[spec.id] {
                 chrome = existing
+            } else if !spec.segments.isEmpty, spec.kind == .pill {
+                let view = GlassSegmentPillView(frame: spec.frame)
+                view.onTap = { [weak self] id in self?.onTap?(id) }
+                views[spec.id] = .pill(view)
+                host.addSubview(view)
+                chrome = .pill(view)
             } else if !spec.segments.isEmpty, spec.kind == .chips {
                 let view = GlassChipRowView(frame: spec.frame)
                 view.onTap = { [weak self] id in self?.onTap?(id) }
@@ -2285,6 +2397,9 @@ final class GlassButtonLayer {
             case .chips(let row):
                 row.frame = spec.frame
                 row.apply(spec)
+            case .pill(let pill):
+                pill.frame = spec.frame
+                pill.apply(spec)
             }
             view.layoutIfNeeded()
         }

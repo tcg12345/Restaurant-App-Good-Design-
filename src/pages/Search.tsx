@@ -112,6 +112,10 @@ const PhoneSearch: React.FC = () => {
 
   const seg = useGlassSegments({
     id: 'search-tabs',
+    // The clear-glass pill, not the UITabBar selector: this strip's other
+    // occupants are all clear glass, and the tab bar's platter is the one
+    // material the system will not let match them.
+    variant: 'pill',
     items: TABS.map(([key, label]) => ({
       id: key,
       symbol: '',
@@ -161,7 +165,12 @@ const PhoneSearch: React.FC = () => {
           map, and the field just stops being read-only and takes the
           keyboard. Closing plays it all backwards. Nothing jumps, because
           nothing is torn down. */}
-      <div className="absolute inset-x-0 z-50" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
+      {/* pointer-events-none on the strip itself: a hit-testable full-width
+          strip both ate taps aimed at the Search-this-area chip in its empty
+          left half AND made the native occlusion check (elementFromPoint at
+          the chip's centre) believe the chip was covered — hiding its glass
+          entirely. Children opt back in for themselves. */}
+      <div className="absolute inset-x-0 z-50 pointer-events-none" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
         {/* Discover | Following — fades out as search opens. */}
         {/* pointer-events: none on the strip, auto on the pill itself —
             the full-width wrapper otherwise eats taps aimed at the
