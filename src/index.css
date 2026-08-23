@@ -811,3 +811,101 @@ input[type="range"].accent-primary::-moz-range-thumb {
   border: 0;
   background: transparent;
 }
+
+/* ── Search field ─────────────────────────────────────────────────────
+   iOS, not Material: a translucent material layered over what's behind
+   it, with no elevation shadow at all. The fill values are the system's
+   own — 12% of the grey in light, 24% in dark, because the same alpha
+   over a dark ground reads as nothing.
+
+   Unlayered so a page scoped to its own type (`.type-archivo`) doesn't
+   need to know this exists, and so Tailwind utilities on the wrapper
+   can still position it. */
+.ios-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 10px 7px 12px;
+  border-radius: 999px;
+  cursor: text;
+  background-color: rgba(118, 118, 128, 0.12);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  transition:
+    background-color 0.28s cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.dark .ios-search { background-color: rgba(118, 118, 128, 0.24); }
+
+/* Over the map, 12% of anything is illegible against a satellite tile,
+   so this material carries its own near-opaque base. */
+.ios-search.is-floating { background-color: rgba(252, 252, 252, 0.7); }
+.dark .ios-search.is-floating { background-color: rgba(44, 44, 46, 0.74); }
+
+/* Focus brightens the material rather than ringing it. */
+.ios-search:focus-within { background-color: rgba(118, 118, 128, 0.18); }
+.dark .ios-search:focus-within { background-color: rgba(118, 118, 128, 0.32); }
+.ios-search.is-floating:focus-within { background-color: rgba(252, 252, 252, 0.85); }
+.dark .ios-search.is-floating:focus-within { background-color: rgba(58, 58, 60, 0.85); }
+
+/* Keyboard focus still gets a visible ring — brightening a fill is not a
+   focus indicator for someone tabbing. */
+.ios-search:has(.ios-search-input:focus-visible) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.ios-search-icon {
+  flex: none;
+  color: rgba(60, 60, 67, 0.6);
+}
+.dark .ios-search-icon { color: rgba(235, 235, 245, 0.6); }
+
+.ios-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  /* 17px is not a style choice — under 16px iOS zooms the viewport on
+     focus, which throws the whole layout sideways mid-tap. */
+  font-size: 17px;
+  letter-spacing: -0.022em;
+  color: var(--color-on-surface);
+  padding: 0;
+}
+.ios-search-input::placeholder { color: rgba(60, 60, 67, 0.6); }
+.dark .ios-search-input::placeholder { color: rgba(235, 235, 245, 0.6); }
+.ios-search-input::-webkit-search-cancel-button { display: none; }
+
+.ios-search-clear {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(60, 60, 67, 0.3);
+  color: #fff;
+  transition: background-color 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.dark .ios-search-clear { background: rgba(235, 235, 245, 0.35); }
+.ios-search-clear:active { background: rgba(60, 60, 67, 0.45); }
+
+/* A material the reader has asked not to see through becomes a solid
+   fill. Blur alone would just be blur with nothing behind it. */
+@media (prefers-reduced-transparency: reduce) {
+  .ios-search,
+  .ios-search.is-floating {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--color-cream-2);
+  }
+  .dark .ios-search,
+  .dark .ios-search.is-floating { background-color: var(--color-cream-2); }
+  .ios-search:focus-within,
+  .ios-search.is-floating:focus-within {
+    background-color: color-mix(in srgb, var(--color-on-surface) 10%, var(--color-cream-2));
+  }
+}

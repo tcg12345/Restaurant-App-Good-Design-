@@ -7,6 +7,7 @@ import { searchPlacesByText, priceLevelToString, extractCityState, formatLocatio
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
 import { cn } from '../lib/utils';
+import { SearchField } from '../components/SearchField';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
 import { useLists } from '../contexts/ListsContext';
@@ -855,32 +856,15 @@ export const SearchMain: React.FC = () => {
         {/* Sticky search band: hero input + scope tabs */}
         <header ref={headerRef} className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
           <div className="px-8 pt-6">
-            <form
-              className="relative max-w-2xl"
-              onSubmit={(e) => { e.preventDefault(); void runRestaurantSearch(searchQuery.trim()); }}
-            >
-              <SearchIcon size={19} className="absolute left-5 top-1/2 -translate-y-1/2 text-on-surface/40" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search restaurants, recipes, people…"
-                className="w-full h-12 bg-on-surface/[0.04] rounded-2xl pl-12 pr-11 text-[15px] font-medium focus:outline-none focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-primary/25 transition-all"
-                autoCapitalize="off"
-                autoCorrect="off"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => { setSearchQuery(''); inputRef.current?.focus(); }}
-                  className="absolute inset-y-0 right-4 flex items-center text-on-surface/30 hover:text-on-surface/60"
-                  aria-label="Clear search"
-                >
-                  <X size={17} />
-                </button>
-              )}
-            </form>
+            <SearchField
+              className="max-w-2xl"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}
+              inputRef={inputRef}
+              placeholder="Restaurants, recipes, people"
+              aria-label="Search"
+            />
             <div className="flex items-center gap-6 mt-4">
               {scopeTabs.map((t) => (
                 <button

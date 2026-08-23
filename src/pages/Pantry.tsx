@@ -43,6 +43,7 @@ import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { Collapse } from '../components/Collapse';
 import { GlassButton } from '../lib/glass-buttons';
+import { SearchField } from '../components/SearchField';
 import { useHeaderFade } from '../lib/useHeaderFade';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
@@ -6516,25 +6517,12 @@ export const Pantry: React.FC = () => {
                 </div>
 
                 <div className="mb-4">
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
-                    <input
-                      type="text"
-                      value={mainSearchQuery}
-                      onChange={(e) => setMainSearchQuery(e.target.value)}
-                      placeholder="Search by name, cuisine, location..."
-                      className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
-                    />
-                    {mainSearchQuery && (
-                      <button
-                        onClick={() => setMainSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
-                        aria-label="Clear search"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
+                  <SearchField
+                    value={mainSearchQuery}
+                    onChange={setMainSearchQuery}
+                    placeholder="Name, cuisine, city"
+                    aria-label="Search your rated places"
+                  />
                 </div>
 
                 <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>

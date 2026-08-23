@@ -50,6 +50,7 @@ import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
+import { SearchField } from '../components/SearchField';
 import { TopBar } from '../components/TopBar';
 import {
   HomeLocationBar,
@@ -5038,18 +5039,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   }
                 }}
               >
-                <div className="flex-1 relative">
-                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search restaurants..."
-                    autoFocus
-                    className="w-full pl-11 pr-4 py-3 rounded-full border-2 border-on-surface/10 bg-surface text-on-surface text-sm font-medium focus:outline-none focus:border-primary/40 transition-colors"
-                  />
-                </div>
+                <SearchField
+                  className="flex-1"
+                  variant="floating"
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  inputRef={searchInputRef}
+                  autoFocus
+                  placeholder="Restaurants nearby"
+                  aria-label="Search restaurants"
+                />
                 <button
                   type="button"
                   onClick={() => {
