@@ -2076,8 +2076,13 @@ final class GlassButtonView: UIButton {
         // fixed instead: it has to agree with the 13px icon the page
         // reserved room for, not with the capsule's height.
         let isChip = spec.role == "chip"
-        let point = isChip ? 13 : max(15, min(22, spec.frame.height * 0.44))
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: point, weight: .regular)
+        // A pill's glyph is sized against its LABEL, not its capsule: scaled
+        // off the height it came out at 17.6pt beside 13pt text and read as
+        // an icon with a caption. Smaller and bolder holds the line's weight
+        // without out-shouting the word.
+        let isLabelledPill = !spec.title.isEmpty && spec.titleStyle == "chip"
+        let point = isChip ? 13 : isLabelledPill ? 11.5 : max(15, min(22, spec.frame.height * 0.44))
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: point, weight: isLabelledPill ? .bold : .regular)
         let image = UIImage(systemName: spec.symbol, withConfiguration: symbolConfig)
 
         if spec.title.isEmpty {
@@ -2108,8 +2113,10 @@ final class GlassButtonView: UIButton {
             guard var config = configuration else { return }
             config.image = image?.withRenderingMode(.alwaysTemplate)
             config.imagePlacement = .leading
-            config.imagePadding = 3
-            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 13)
+            // Even margins and real space between glyph and word — 10/13
+            // with a 3pt gap sat the pair left of centre and crowded them.
+            config.imagePadding = 6
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 15, bottom: 0, trailing: 15)
             // Through an attributed title rather than `baseForegroundColor`,
             // which the glass configuration resolves for itself.
             var container = AttributeContainer()
