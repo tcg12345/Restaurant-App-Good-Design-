@@ -2,6 +2,7 @@ import React, { createContext, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { GlassButton } from '../lib/glass-buttons';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
 import './filterSheet.css';
@@ -45,6 +46,10 @@ interface FilterSheetProps {
   /** Open directly on a drill sub-page (id must match a FilterDrillSection
    *  in children). Consumed on each closed→open transition. */
   initialPage?: { id: string; title: string } | null;
+  /** The map page's dress: no title — a glass ✕ on the left and a glass
+   *  "Clear all" on the right instead, with Apply owning the whole footer.
+   *  The list pages keep the titled header and the Reset/Apply pair. */
+  glassChrome?: boolean;
   children: React.ReactNode;
 }
 
@@ -86,6 +91,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   onApply,
   zIndex = 60,
   initialPage = null,
+  glassChrome = false,
   children,
 }) => {
   const { phoneMode } = useSettings();
@@ -160,6 +166,16 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                     {page.subtitle && <p className="fs-subtitle">{page.subtitle}</p>}
                   </div>
                 </div>
+              ) : glassChrome ? (
+                <GlassButton
+                  id="filters-close"
+                  symbol="xmark"
+                  label="Close filters"
+                  onClick={onClose}
+                  className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                >
+                  <X size={17} />
+                </GlassButton>
               ) : (
                 <div className="fs-head-main">
                   {titleIcon && <span className="fs-title-icon">{titleIcon}</span>}
@@ -173,6 +189,18 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                 page.onClear ? (
                   <button type="button" onClick={page.onClear} className="fs-clear">Clear</button>
                 ) : null
+              ) : glassChrome ? (
+                <GlassButton
+                  id="filters-clear-all"
+                  symbol=""
+                  title="Clear all"
+                  titleStyle="chip"
+                  label="Clear all filters"
+                  onClick={onReset}
+                  className="h-10 px-4 rounded-full flex items-center text-[13px] font-bold text-on-surface"
+                >
+                  Clear all
+                </GlassButton>
               ) : (
                 <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
                   <X size={16} />
@@ -215,6 +243,10 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
               {page ? (
                 <button type="button" onClick={() => setPage(null)} className="fs-apply">
                   Done
+                </button>
+              ) : glassChrome ? (
+                <button type="button" onClick={handleApply} className="fs-apply">
+                  {applyLabel}
                 </button>
               ) : (
                 <>

@@ -4640,6 +4640,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       <FilterSheetShell
         open={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
+        glassChrome={searchTab}
         title="Filters"
         onReset={() => {
           setHoursFilter(emptyHoursFilter());
