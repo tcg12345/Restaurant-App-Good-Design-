@@ -43,6 +43,7 @@ import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { Collapse } from '../components/Collapse';
 import { GlassButton } from '../lib/glass-buttons';
+import { useHeaderFade } from '../lib/useHeaderFade';
 
 /** Pill-shaped inline search input for the desktop toolbars. Replaces the
  *  old "Search this list" pill that hijacked the (since removed) global
@@ -5623,6 +5624,8 @@ export const Pantry: React.FC = () => {
     setMichelinFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
   const michelinReady = useMichelinIndexReady();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // The list header scrolls away and hands off to a pinned glass cluster.
+  const listFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   // Which page Filters should land on. A chip in the bar opens the page
   // that chip's filter owns; the Filters chip itself opens the top.
   const [filtersInitialPage, setFiltersInitialPage] = useState<{ id: string; title: string } | null>(null);
@@ -6402,6 +6405,67 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
+                {/* ── Scroll-collapsing header ──────────────────────────
+                    Three rows of chrome — the action bar, the search
+                    field, the chip rail — is a lot of furniture to keep
+                    above a list you came here to read. It scrolls away and
+                    fades, and a pinned glass cluster takes over: back,
+                    search, filters, rate. Same handoff Discover and
+                    Profile already use, so the app has one way of doing
+                    this rather than three. */}
+                <div className="sticky top-0 z-30 h-0">
+                  <motion.div
+                    style={listFade.condensedStyle}
+                    className="absolute inset-x-0 top-0 flex items-center gap-2.5 px-5 pt-safe-2 pb-2"
+                  >
+                    <GlassButton
+                      id="rated-mini-back"
+                      symbol="chevron.left"
+                      label="Back"
+                      onClick={() => setShowAllRated(false)}
+                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                    >
+                      <ChevronLeft size={18} strokeWidth={2.1} />
+                    </GlassButton>
+                    <div className="flex-1" />
+                    <GlassButton
+                      id="rated-mini-search"
+                      symbol="magnifyingglass"
+                      label="Search this list"
+                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                    >
+                      <Search size={17} />
+                    </GlassButton>
+                    <GlassButton
+                      id="rated-mini-filters"
+                      symbol="line.3.horizontal.decrease"
+                      label="Filters"
+                      badge={activeFilterCount > 0 ? String(activeFilterCount) : undefined}
+                      onClick={() => { openFiltersOn(null); closeAllDropdowns(); }}
+                      className="hit-44 relative flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                    >
+                      <SlidersHorizontal size={16} />
+                      {activeFilterCount > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 grid h-[15px] min-w-[15px] place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-white">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </GlassButton>
+                    <GlassButton
+                      id="rated-mini-add"
+                      symbol="plus"
+                      tint="primary"
+                      label="Add Rating"
+                      onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
+                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
+                    >
+                      <Plus size={17} strokeWidth={2.4} />
+                    </GlassButton>
+                  </motion.div>
+                </div>
+
+                <motion.div ref={listFade.headerRef} style={listFade.headerStyle}>
                 {/* Back · For you · rate · ⋯ — the design's header. The
                     verb used to be a wide "＋ Add Rating" pill that ate a
                     third of the row and left the two icon buttons beside
@@ -6509,6 +6573,7 @@ export const Pantry: React.FC = () => {
                     </button>
                   )}
                 </div>
+                </motion.div>
 
                 {!scoresUnlocked && regularRatingsCount > 0 && (
                   <div className="mb-3 flex items-center gap-3.5 rounded-2xl bg-primary/[0.05] border border-primary/15 px-4 py-3">
