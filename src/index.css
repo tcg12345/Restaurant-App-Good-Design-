@@ -957,6 +957,14 @@ input[type="range"].accent-primary::-moz-range-thumb {
 .map-chip-box {
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-weight: 600;
+  /* Deliberately roomier than the paint variant. An SF Symbol is wider than
+     it is tall — wider than the 13px lucide glyph standing in for it — so a
+     box measured tight leaves the capsule needing more width than the row
+     reserved, and `fit` grows it out from its centre into its neighbours and
+     off the screen edge. Slack costs a couple of invisible points; a tight
+     box costs alignment. */
+  padding: 0 15px;
+  gap: 9px;
 }
 .map-chip {
   font-weight: 700;
