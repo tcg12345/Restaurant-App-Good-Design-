@@ -1341,15 +1341,12 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         // colour too. The chrome ink, not the system label — see glassInk.
         bar.tintColor = GlassTabBar.glassInk
         bar.unselectedItemTintColor = GlassTabBar.glassInk.withAlphaComponent(0.55)
-        // The platter joins the chrome's material family — the same tint the
-        // chips and the field wear, laid over the bar's own material rather
-        // than replacing it, so the lens, its magnification and the drag that
-        // carries it are all still the system's.
-        let appearance = UITabBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.backgroundColor = GlassTabBar.glassTint
-        bar.standardAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
+        // No UITabBarAppearance background here: that paints the BAR's full
+        // rectangle, and the bar is deliberately bigger than the platter it
+        // seats (the seat insets reach past the page's box), so the tint
+        // came out as a pale slab hanging beyond the capsule — and under
+        // whatever floats beside it. The chrome tint goes on the platter
+        // itself, in applyChrome().
         // The platter is what you see; the bar around it is only a frame to
         // hang it in, and it reaches outside this view's box.
         clipsToBounds = false
@@ -1371,7 +1368,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         guard bounds.width > 1, bounds.height > 1 else { return }
         if let seat {
             bar.frame = barFrame(for: seat)
-            applyRim()
+            applyChrome()
             return
         }
         // Solved, not assumed. The platter is inset inside the bar by numbers
@@ -1412,7 +1409,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         }
         seat = solved
         bar.frame = barFrame(for: solved)
-        applyRim()
+        applyChrome()
     }
 
     private var platterRect: CGRect? {
@@ -1420,11 +1417,14 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         return platter.convert(platter.bounds, to: self)
     }
 
-    /// The same hairline every other capsule wears. Drawn on the platter's
-    /// own layer so it follows the capsule the bar actually laid out — the
-    /// platter is inset inside the bar by numbers that are not ours.
-    private func applyRim() {
+    /// The chrome family's tint and hairline, on the platter's OWN layer so
+    /// they follow the capsule the bar actually laid out — the platter is
+    /// inset inside the bar by numbers that are not ours, and painting the
+    /// bar instead put a pale slab past the capsule's edges. The lens, its
+    /// magnification and the drag stay the system's.
+    private func applyChrome() {
         guard let platter = platterView else { return }
+        platter.backgroundColor = GlassTabBar.glassTint.resolvedColor(with: traitCollection)
         platter.layer.borderColor = GlassTabBar.glassRim.resolvedColor(with: traitCollection).cgColor
         platter.layer.borderWidth = 1
         platter.layer.cornerRadius = platter.bounds.height / 2
@@ -1433,7 +1433,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
 
     override func traitCollectionDidChange(_ previous: UITraitCollection?) {
         super.traitCollectionDidChange(previous)
-        applyRim()
+        applyChrome()
     }
 
     private func barFrame(for seat: Seat) -> CGRect {
