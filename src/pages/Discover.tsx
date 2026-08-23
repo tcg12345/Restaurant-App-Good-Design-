@@ -264,8 +264,6 @@ interface DiscoverProps {
    *  with a floating Map pill to come back, and the back button goes away
    *  because a tab root has nowhere to go back to. */
   variant?: 'searchTab';
-  /** searchTab only: the search field is a button; this is its press. */
-  onOpenSearch?: () => void;
   /** searchTab only: the host fills this with nothing and reads nothing —
    *  Discover assigns a function that runs a map search for a query ('' to
    *  clear), so the search takeover can hand its query to the map without
@@ -359,7 +357,7 @@ const IntentPair: React.FC<{
   </div>
 );
 
-export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOpenSearch, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef }) => {
+export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef }) => {
   const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
   const location = useLocation();
@@ -4340,14 +4338,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         </button>
       )}
 
-      {/* ── Search-tab chrome: the glass field and filter chips floating ON
-          the map, under the Search page's tab pill. The field is the native
-          Liquid Glass search field (see useGlassField) worn as a button —
-          tapping it opens the search takeover. The chips are the filters
-          that used to hide inside the sheet, surfaced the way the reference
-          surfaces them; CSS glass here, because over a live map a backdrop
-          blur genuinely has something to refract. Everything fades when the
-          sheet reaches full or the takeover is above it. */}
+      {/* ── Search-tab chrome: the filter chips floating ON the map. The
+          tab pill and the search field live on the Search page itself now —
+          the field must survive the takeover opening without being torn
+          down or replaced, and only the page is mounted on both sides of
+          that transition. The chips are the filters that used to hide
+          inside the sheet, surfaced the way the reference surfaces them.
+          They fade under the takeover. */}
       {/* Above the sheet (z-50 beats its z-40), because the chrome no longer
           leaves when the sheet rises: dragging to full slides the sheet UP
           UNDER the floating glass, which lands as a page with the search
@@ -4357,24 +4354,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         <div
           className="absolute inset-x-0 top-0 z-50 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
-            paddingTop: 'calc(env(safe-area-inset-top) + 76px)',
+            paddingTop: 'calc(env(safe-area-inset-top) + 134px)',
             opacity: dimChrome ? 0 : 1,
             transform: dimChrome ? 'translateY(-14px)' : 'none',
             pointerEvents: dimChrome ? 'none' : 'auto',
           }}
           aria-hidden={dimChrome || undefined}
         >
-          <SearchField
-            glassId="map-search"
-            variant="floating"
-            tall
-            readOnly
-            onPress={onOpenSearch}
-            value={searchQuery}
-            onChange={() => {}}
-            placeholder="Restaurants, cuisines, lists"
-            aria-label="Search"
-          />
           <GlassChipRow
             id="map-chips"
             className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1"

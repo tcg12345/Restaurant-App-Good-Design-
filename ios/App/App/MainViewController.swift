@@ -584,6 +584,17 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// glyph* only — the lens stays neutral glass, which is what Apple's does.
     static let primary = UIColor(red: 0.624, green: 0.188, blue: 0.071, alpha: 1.0)
 
+    /// The ink the floating glass chrome writes in — the selector's words,
+    /// the chips' glyphs and labels, the field's magnifier and placeholder.
+    /// A step softer than the system label in both appearances: stark white
+    /// on dark glass read as harsh against the map, and true black did the
+    /// same on light.
+    static let glassInk = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(white: 0.80, alpha: 1.0)
+            : UIColor(white: 0.34, alpha: 1.0)
+    }
+
     /// The same rust lifted until it reads against the charcoal the platter
     /// adapts to over a black page. See `setStyle`.
     static let primaryOnDark = UIColor(red: 0.925, green: 0.435, blue: 0.267, alpha: 1.0)
@@ -1302,9 +1313,9 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
         bar.delegate = self
         // The glyph colour on the platter. The lens magnifies what is under
         // it rather than recolouring it, so this is the selected label's
-        // colour too.
-        bar.tintColor = .label
-        bar.unselectedItemTintColor = UIColor.label.withAlphaComponent(0.5)
+        // colour too. The chrome ink, not the system label — see glassInk.
+        bar.tintColor = GlassTabBar.glassInk
+        bar.unselectedItemTintColor = GlassTabBar.glassInk.withAlphaComponent(0.55)
         // The platter is what you see; the bar around it is only a frame to
         // hang it in, and it reaches outside this view's box.
         clipsToBounds = false
@@ -1680,10 +1691,13 @@ final class GlassChipRowView: UIView {
             // No phantom gap on an icon-only chip (Filters).
             config.imagePadding = seg.title.isEmpty ? 0 : 6
         }
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 15, bottom: 0, trailing: 15)
+        // An icon-only chip takes wider insets: a lone 12pt glyph inside the
+        // text insets came out as a pinched upright oval rather than a pill.
+        let side: CGFloat = seg.title.isEmpty ? 24 : 15
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: side, bottom: 0, trailing: side)
         // Chosen: white on the chip's fill (the brand rust, or ink). Not
-        // chosen: the label colour on plain glass.
-        let foreground: UIColor = seg.active ? .white : .label
+        // chosen: the chrome ink on plain glass.
+        let foreground: UIColor = seg.active ? .white : GlassTabBar.glassInk
         if seg.active { config.baseBackgroundColor = seg.tint }
         config.baseForegroundColor = foreground
         var container = AttributeContainer()
@@ -1800,7 +1814,7 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         magnifier.image = UIImage(systemName: "magnifyingglass", withConfiguration: symbolConfig)?
             .withRenderingMode(.alwaysTemplate)
-        magnifier.tintColor = .secondaryLabel
+        magnifier.tintColor = GlassTabBar.glassInk.withAlphaComponent(0.8)
         magnifier.contentMode = .center
         magnifier.isUserInteractionEnabled = false
         glass.contentView.addSubview(magnifier)
@@ -1839,7 +1853,7 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         if field.placeholder != spec.title {
             field.attributedPlaceholder = NSAttributedString(
                 string: spec.title,
-                attributes: [.foregroundColor: UIColor.secondaryLabel]
+                attributes: [.foregroundColor: GlassTabBar.glassInk.withAlphaComponent(0.75)]
             )
         }
         field.isUserInteractionEnabled = spec.fieldEditable

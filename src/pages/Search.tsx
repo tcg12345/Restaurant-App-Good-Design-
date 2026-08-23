@@ -123,9 +123,6 @@ const PhoneSearch: React.FC = () => {
     })),
   });
 
-  // The pill rides above the sheet now — at full it sits on the risen page
-  // the way the reference's chrome does — so only the takeover hides it.
-  const pillHidden = searching;
 
   return (
     <div className="relative bg-surface overflow-hidden" style={{ height: '100dvh' }}>
@@ -136,7 +133,6 @@ const PhoneSearch: React.FC = () => {
         <Discover
           mode="map"
           variant="searchTab"
-          onOpenSearch={openSearch}
           searchHandlerRef={mapSearchRef}
           dimChrome={searching}
           locationBridgeRef={locationBridgeRef}
@@ -155,166 +151,193 @@ const PhoneSearch: React.FC = () => {
         </div>
       )}
 
-      {/* Discover | Following — the one piece of chrome both tabs share.
-          Above the sheet like the rest of the chrome, so the risen page
-          carries it; only the takeover hides it. */}
-      <div
-        className="absolute inset-x-0 z-50 flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
-        style={{
-          top: 'calc(env(safe-area-inset-top) + 10px)',
-          opacity: pillHidden ? 0 : 1,
-          transform: pillHidden ? 'translateY(-14px)' : 'none',
-          pointerEvents: pillHidden ? 'none' : 'auto',
-        }}
-        aria-hidden={pillHidden || undefined}
-      >
+      {/* ── The chrome the page itself owns ──────────────────────────────
+          One search field, mounted once, never moved: the open transition
+          used to swap the map's field for a takeover's field and the cut
+          between two pieces of native glass read as a glitch. Now the
+          field is the constant. Opening search crossfades the strip above
+          it — the tab pill gives way to the close button and the location
+          chip IN PLACE — the chips fade below it, a wash rises over the
+          map, and the field just stops being read-only and takes the
+          keyboard. Closing plays it all backwards. Nothing jumps, because
+          nothing is torn down. */}
+      <div className="absolute inset-x-0 z-50" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
+        {/* Discover | Following — fades out as search opens. */}
         <div
-          ref={seg.ref}
-          className={cn(
-            'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
-            !seg.active && 'glass-control',
-          )}
+          className="flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            opacity: searching ? 0 : 1,
+            transform: searching ? 'translateY(-10px)' : 'none',
+            pointerEvents: searching ? 'none' : 'auto',
+          }}
+          aria-hidden={searching || undefined}
         >
-          {TABS.map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              aria-pressed={tab === key}
-              aria-hidden={seg.active || undefined}
-              tabIndex={seg.active ? -1 : undefined}
-              className={cn(
-                'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
-                seg.active ? 'opacity-0'
-                  : tab === key
-                    ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
-                    : 'text-on-surface/50 active:text-on-surface/80',
-              )}
+          <div
+            ref={seg.ref}
+            className={cn(
+              'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
+              !seg.active && 'glass-control',
+            )}
+          >
+            {TABS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                aria-pressed={tab === key}
+                aria-hidden={seg.active || undefined}
+                tabIndex={seg.active ? -1 : undefined}
+                className={cn(
+                  'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
+                  seg.active ? 'opacity-0'
+                    : tab === key
+                      ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                      : 'text-on-surface/50 active:text-on-surface/80',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Close + the location the search is anchored to — the same strip,
+            fading in as the pill fades out. */}
+        <div
+          className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{
+            opacity: searching ? 1 : 0,
+            transform: searching ? 'none' : 'translateY(10px)',
+            pointerEvents: searching ? 'auto' : 'none',
+          }}
+          aria-hidden={!searching || undefined}
+        >
+          <GlassButton
+            id="search-close"
+            symbol="xmark"
+            label="Close search"
+            onClick={closeSearch}
+            className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+          >
+            <X size={18} />
+          </GlassButton>
+          <div className="relative min-w-0">
+            <GlassButton
+              id="search-location"
+              symbol="location"
+              title={cityLabel}
+              titleStyle="chip"
+              label={`Searching near ${cityLabel} — change location`}
+              onClick={() => { setLocOpen((v) => !v); setLocQuery(''); }}
+              className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface max-w-[200px]"
             >
-              {label}
-            </button>
-          ))}
+              <MapPin size={13} strokeWidth={2.4} />
+              <span className="truncate">{cityLabel}</span>
+            </GlassButton>
+            {locOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setLocOpen(false)} aria-hidden />
+                {/* Dropped past the field row: the native glass field draws
+                    above every web layer, and a panel tucked under the chip
+                    put its own input behind the glass. */}
+                <div className="absolute right-0 top-full mt-[74px] z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
+                  <input
+                    type="text"
+                    value={locQuery}
+                    onChange={(e) => setLocQuery(e.target.value)}
+                    placeholder="City or neighborhood"
+                    autoFocus
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    className="w-full bg-transparent border-b border-on-surface/[0.08] px-4 py-3 text-[14px] text-on-surface placeholder:text-on-surface/40 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      locationBridgeRef.current?.useCurrent();
+                      setCityLabel('Current location');
+                      setLocOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
+                  >
+                    <Navigation size={13} className="text-primary flex-shrink-0" />
+                    <span className="text-[13px] font-semibold text-on-surface">Current location</span>
+                  </button>
+                  {(locLoading || locResults.length > 0) && (
+                    <div className="border-t border-on-surface/[0.06] max-h-56 overflow-y-auto no-scrollbar">
+                      {locLoading && locResults.length === 0 ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 size={15} className="text-primary animate-spin" />
+                        </div>
+                      ) : (
+                        locResults.map((r) => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => {
+                              locationBridgeRef.current?.select(r.name, r.lat, r.lng);
+                              setCityLabel((r.name.split(',')[0] || r.name).trim());
+                              setLocOpen(false);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
+                          >
+                            <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                            <span className="text-[12.5px] text-on-surface/75 truncate">{r.name}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ── The search takeover ─────────────────────────────────────────
-          Everything rises together off the map — a glass wash, the close
-          circle and Search pill, the editable native-glass field with the
-          keyboard already coming up — rather than the page being torn down
-          and rebuilt. Submitting hands the query to the map underneath. */}
+      {/* THE field — the one element both states share. */}
+      <div
+        className={cn('absolute inset-x-0 z-50 px-3.5', tab !== 'discover' && 'invisible')}
+        style={{ top: 'calc(env(safe-area-inset-top) + 76px)' }}
+        aria-hidden={tab !== 'discover' || undefined}
+      >
+        <SearchField
+          glassId="search-field"
+          variant="floating"
+          tall
+          readOnly={!searching}
+          onPress={openSearch}
+          value={query}
+          onChange={setQuery}
+          onSubmit={submitToMap}
+          inputRef={inputRef}
+          placeholder="Restaurants, cuisines, lists"
+          aria-label="Search"
+        />
+      </div>
+
+      {/* The wash — everything the open state needs BELOW the field. */}
       <AnimatePresence>
         {searching && (
           <motion.div
-            key="takeover"
-            className="fixed inset-0 z-[70] flex flex-col"
-            initial={{ opacity: 0, y: reduceMotion ? 0 : 22 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: reduceMotion ? 0 : 22 }}
-            transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+            key="search-wash"
+            className="fixed inset-0 z-40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
-            <div className="absolute inset-0 bg-surface/[0.93] backdrop-blur-2xl" aria-hidden />
-            <div
-              className="relative flex-none flex items-center justify-between gap-3 px-4"
-              style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)' }}
+            <div className="absolute inset-0 bg-surface/[0.96] backdrop-blur-2xl" aria-hidden />
+            <motion.div
+              className="absolute inset-0 overflow-y-auto no-scrollbar px-4 pb-10"
+              style={{ paddingTop: 'calc(env(safe-area-inset-top) + 140px)' }}
+              initial={{ y: reduceMotion ? 0 : 16 }}
+              animate={{ y: 0 }}
+              exit={{ y: reduceMotion ? 0 : 16 }}
+              transition={{ duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
             >
-              <GlassButton
-                id="search-close"
-                symbol="xmark"
-                label="Close search"
-                onClick={closeSearch}
-                className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-              >
-                <X size={18} />
-              </GlassButton>
-              {/* Where the search is anchored — tap to move it. */}
-              <div className="relative min-w-0">
-                <GlassButton
-                  id="search-location"
-                  symbol="location"
-                  title={cityLabel}
-                  titleStyle="chip"
-                  label={`Searching near ${cityLabel} — change location`}
-                  onClick={() => { setLocOpen((v) => !v); setLocQuery(''); }}
-                  className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface max-w-[200px]"
-                >
-                  <MapPin size={13} strokeWidth={2.4} />
-                  <span className="truncate">{cityLabel}</span>
-                </GlassButton>
-                {locOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setLocOpen(false)} aria-hidden />
-                    {/* Dropped past the field row: the native glass field
-                        draws above every web layer, and a panel tucked under
-                        the chip put its own input behind the glass. */}
-                    <div className="absolute right-0 top-full mt-[74px] z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
-                      <input
-                        type="text"
-                        value={locQuery}
-                        onChange={(e) => setLocQuery(e.target.value)}
-                        placeholder="City or neighborhood"
-                        autoFocus
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        className="w-full bg-transparent border-b border-on-surface/[0.08] px-4 py-3 text-[14px] text-on-surface placeholder:text-on-surface/40 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          locationBridgeRef.current?.useCurrent();
-                          setCityLabel('Current location');
-                          setLocOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
-                      >
-                        <Navigation size={13} className="text-primary flex-shrink-0" />
-                        <span className="text-[13px] font-semibold text-on-surface">Current location</span>
-                      </button>
-                      {(locLoading || locResults.length > 0) && (
-                        <div className="border-t border-on-surface/[0.06] max-h-56 overflow-y-auto no-scrollbar">
-                          {locLoading && locResults.length === 0 ? (
-                            <div className="flex items-center justify-center py-4">
-                              <Loader2 size={15} className="text-primary animate-spin" />
-                            </div>
-                          ) : (
-                            locResults.map((r) => (
-                              <button
-                                key={r.id}
-                                type="button"
-                                onClick={() => {
-                                  locationBridgeRef.current?.select(r.name, r.lat, r.lng);
-                                  setCityLabel((r.name.split(',')[0] || r.name).trim());
-                                  setLocOpen(false);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
-                              >
-                                <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
-                                <span className="text-[12.5px] text-on-surface/75 truncate">{r.name}</span>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="relative flex-none px-4 pt-3">
-              <SearchField
-                glassId="takeover-search"
-                tall
-                value={query}
-                onChange={setQuery}
-                onSubmit={submitToMap}
-                autoFocus
-                inputRef={inputRef}
-                placeholder="Restaurants, cuisines, lists"
-                aria-label="Search"
-              />
-            </div>
-            <div className="relative flex-1 overflow-y-auto no-scrollbar px-4 pt-2 pb-10">
               <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={glassActive ? undefined : inputRef} />
-            </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
