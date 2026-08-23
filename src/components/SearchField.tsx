@@ -51,10 +51,12 @@ export const SearchField: React.FC<{
   onPress?: () => void;
   /** Set to let the native glass layer take the field over on iOS 26. */
   glassId?: string;
+  /** A touch taller — the map chrome's primary field. */
+  tall?: boolean;
 }> = ({
   value, onChange, placeholder = 'Search',
   variant = 'plain', autoFocus, inputRef, onSubmit, onFocus, onBlur,
-  className, 'aria-label': ariaLabel, readOnly, onPress, glassId,
+  className, 'aria-label': ariaLabel, readOnly, onPress, glassId, tall,
 }) => {
   const glass = useGlassField({
     id: glassId,
@@ -71,7 +73,7 @@ export const SearchField: React.FC<{
   return (
     <label
       ref={glass.ref}
-      className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', className)}
+      className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', tall && 'is-tall', className)}
       onClick={readOnly && !native ? onPress : undefined}
       // While native owns the field, the CSS material must go — the glass
       // samples the page through itself, and a translucent grey fill left

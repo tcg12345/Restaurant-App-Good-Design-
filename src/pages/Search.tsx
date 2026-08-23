@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Map as MapIcon, ChevronRight, ChevronLeft, X, Search as SearchIcon } from 'lucide-react';
+import { Map as MapIcon, ChevronRight, ChevronLeft, X, MapPin, Navigation, Loader2 } from 'lucide-react';
+import { MAPBOX_TOKEN } from '../lib/keys';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useGlassSegments, useGlassButtonsActive, GlassButton } from '../lib/glass-buttons';
@@ -37,6 +38,46 @@ const PhoneSearch: React.FC = () => {
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
   const mapSearchRef = useRef<((q: string) => void) | null>(null);
+  /* ── Where the search is anchored ─────────────────────────────────────
+     The takeover's top-right chip names the place being searched and
+     changes it. The map owns the truth (its reference location); this
+     page reads a label through the bridge when the takeover opens, and
+     pushes a chosen place — or the device's location — back through it. */
+  const locationBridgeRef = useRef<{
+    label: string;
+    select: (name: string, lat: number, lng: number) => void;
+    useCurrent: () => void;
+  } | null>(null);
+  const [cityLabel, setCityLabel] = useState('Current location');
+  const [locOpen, setLocOpen] = useState(false);
+  const [locQuery, setLocQuery] = useState('');
+  const [locLoading, setLocLoading] = useState(false);
+  const [locResults, setLocResults] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
+
+  // Debounced Mapbox geocode for the chip's panel — the same request the
+  // map page's own location search makes.
+  useEffect(() => {
+    if (!locOpen || !locQuery.trim()) { setLocResults([]); setLocLoading(false); return; }
+    setLocLoading(true);
+    const abort = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`,
+          { signal: abort.signal },
+        );
+        const data = await res.json();
+        if (abort.signal.aborted) return;
+        setLocResults((data.features || []).map((f: { id: string; place_name: string; center: [number, number] }) => ({
+          id: f.id, name: f.place_name, lat: f.center[1], lng: f.center[0],
+        })));
+        setLocLoading(false);
+      } catch {
+        if (!abort.signal.aborted) { setLocResults([]); setLocLoading(false); }
+      }
+    }, 300);
+    return () => { clearTimeout(t); abort.abort(); };
+  }, [locOpen, locQuery]);
   const glassActive = useGlassButtonsActive();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
@@ -52,6 +93,7 @@ const PhoneSearch: React.FC = () => {
 
   const openSearch = () => {
     setSearching(true);
+    setCityLabel(locationBridgeRef.current?.label || 'Current location');
     // The native glass field raises its own keyboard (autoFocus through the
     // registry); the web fallback needs the nudge.
     if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
@@ -97,6 +139,7 @@ const PhoneSearch: React.FC = () => {
           onOpenSearch={openSearch}
           searchHandlerRef={mapSearchRef}
           dimChrome={searching}
+          locationBridgeRef={locationBridgeRef}
         />
       </div>
 
@@ -183,23 +226,80 @@ const PhoneSearch: React.FC = () => {
               >
                 <X size={18} />
               </GlassButton>
-              <GlassButton
-                id="search-go"
-                symbol="magnifyingglass"
-                title="Search"
-                titleStyle="chip"
-                label="Search the map"
-                disabled={!query.trim()}
-                onClick={submitToMap}
-                className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface disabled:opacity-40"
-              >
-                <SearchIcon size={14} strokeWidth={2.4} />
-                Search
-              </GlassButton>
+              {/* Where the search is anchored — tap to move it. */}
+              <div className="relative min-w-0">
+                <GlassButton
+                  id="search-location"
+                  symbol="location"
+                  title={cityLabel}
+                  titleStyle="chip"
+                  label={`Searching near ${cityLabel} — change location`}
+                  onClick={() => { setLocOpen((v) => !v); setLocQuery(''); }}
+                  className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface max-w-[200px]"
+                >
+                  <MapPin size={13} strokeWidth={2.4} />
+                  <span className="truncate">{cityLabel}</span>
+                </GlassButton>
+                {locOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setLocOpen(false)} aria-hidden />
+                    <div className="absolute right-0 top-full mt-2 z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
+                      <input
+                        type="text"
+                        value={locQuery}
+                        onChange={(e) => setLocQuery(e.target.value)}
+                        placeholder="City or neighborhood"
+                        autoFocus
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        className="w-full bg-transparent border-b border-on-surface/[0.08] px-4 py-3 text-[14px] text-on-surface placeholder:text-on-surface/40 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          locationBridgeRef.current?.useCurrent();
+                          setCityLabel('Current location');
+                          setLocOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
+                      >
+                        <Navigation size={13} className="text-primary flex-shrink-0" />
+                        <span className="text-[13px] font-semibold text-on-surface">Current location</span>
+                      </button>
+                      {(locLoading || locResults.length > 0) && (
+                        <div className="border-t border-on-surface/[0.06] max-h-56 overflow-y-auto no-scrollbar">
+                          {locLoading && locResults.length === 0 ? (
+                            <div className="flex items-center justify-center py-4">
+                              <Loader2 size={15} className="text-primary animate-spin" />
+                            </div>
+                          ) : (
+                            locResults.map((r) => (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => {
+                                  locationBridgeRef.current?.select(r.name, r.lat, r.lng);
+                                  setCityLabel((r.name.split(',')[0] || r.name).trim());
+                                  setLocOpen(false);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05] transition-colors"
+                              >
+                                <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                                <span className="text-[12.5px] text-on-surface/75 truncate">{r.name}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             <div className="relative flex-none px-4 pt-3">
               <SearchField
                 glassId="takeover-search"
+                tall
                 value={query}
                 onChange={setQuery}
                 onSubmit={submitToMap}

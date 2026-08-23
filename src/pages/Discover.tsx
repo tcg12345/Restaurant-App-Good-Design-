@@ -274,6 +274,15 @@ interface DiscoverProps {
   /** searchTab only: fade the floating chrome (the takeover is above it —
    *  its wash is translucent, and chips ghosting through it read as dirt). */
   dimChrome?: boolean;
+  /** searchTab only: the takeover's location chip reaches the map's anchor
+   *  through this — read the current label, move the search to a chosen
+   *  place, or fall back to the device's location. Assigned fresh every
+   *  render, like the search handler. */
+  locationBridgeRef?: React.MutableRefObject<{
+    label: string;
+    select: (name: string, lat: number, lng: number) => void;
+    useCurrent: () => void;
+  } | null>;
   /** searchTab only: reports when the sheet reaches / leaves `full`, so the
    *  host can fade the tab pill in step with the chrome. */
   onSheetFullChange?: (full: boolean) => void;
@@ -350,7 +359,7 @@ const IntentPair: React.FC<{
   </div>
 );
 
-export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOpenSearch, searchHandlerRef, dimChrome = false, onSheetFullChange }) => {
+export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOpenSearch, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef }) => {
   const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
   const location = useLocation();
@@ -951,7 +960,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
   const HALF_HEIGHT = mode === 'map' ? (FULL_HEIGHT - MAP_TOP_INSET) : FULL_HEIGHT * 0.85;
   // Where the floating chrome ends — safe area, tab pill, search field,
   // chip row. The Search tab's sheet never rises past this line.
-  const CHROME_BOTTOM = safeTop + 172;
+  const CHROME_BOTTOM = safeTop + 184;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
@@ -2888,6 +2897,23 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
     return () => { searchHandlerRef.current = null; };
   });
 
+  // The takeover's location chip. Same fresh-closure pattern as the search
+  // handler above.
+  useEffect(() => {
+    if (!locationBridgeRef) return;
+    locationBridgeRef.current = {
+      label: assistantShortCity || 'Current location',
+      select: (name: string, lat: number, lng: number) => handleSelectLocation(name, lat, lng),
+      useCurrent: () => {
+        setShowSearchHere(false);
+        setReferenceLocation(null);
+        setSearchLocationBias(null);
+        fetchNearby();
+      },
+    };
+    return () => { locationBridgeRef.current = null; };
+  });
+
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
     isMarkerSelectedRef.current = true;
@@ -4331,7 +4357,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         <div
           className="absolute inset-x-0 top-0 z-50 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
-            paddingTop: 'calc(env(safe-area-inset-top) + 66px)',
+            paddingTop: 'calc(env(safe-area-inset-top) + 76px)',
             opacity: dimChrome ? 0 : 1,
             transform: dimChrome ? 'translateY(-14px)' : 'none',
             pointerEvents: dimChrome ? 'none' : 'auto',
@@ -4341,6 +4367,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
           <SearchField
             glassId="map-search"
             variant="floating"
+            tall
             readOnly
             onPress={onOpenSearch}
             value={searchQuery}
@@ -4353,12 +4380,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1"
             items={[
               {
+                // Icon only — the glyph is the label, and the rust fill says
+                // "active" louder than a count did.
                 id: 'filters',
                 symbol: 'line.3.horizontal.decrease',
-                title: activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters',
+                title: '',
                 prominent: activeFilterCount > 0,
-                label: 'Filters',
-                icon: <SlidersHorizontal size={13} strokeWidth={2.2} />,
+                label: activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters',
+                icon: <SlidersHorizontal size={14} strokeWidth={2.2} />,
                 onClick: () => setFilterSheetOpen(true),
               },
               {
@@ -4402,23 +4431,45 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
         </div>
       )}
 
-      {/* Search this area button — floating pill, appears instantly on pan-end */}
+      {/* Search this area — appears on pan-end. On the Search tab it is a
+          small glass chip tucked to the leading edge under the chip row,
+          out of the map's face; the plain map page keeps its centred card. */}
       <AnimatePresence>
         {showSearchHere && mapMode === 'discover' && !(searchTab && dimChrome) && (
+          searchTab ? (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 380 }}
+              className="absolute left-3.5 z-30 top-[calc(env(safe-area-inset-top)+13rem)]"
+            >
+              <GlassButton
+                id="search-area"
+                symbol="arrow.clockwise"
+                title="Search this area"
+                titleStyle="chip"
+                label="Search this area"
+                onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
+                className="h-9 px-3.5 rounded-full flex items-center gap-1.5 text-[12px] font-bold text-on-surface"
+              >
+                <RefreshCw size={12} strokeWidth={2.4} />
+                Search this area
+              </GlassButton>
+            </motion.div>
+          ) : (
           <motion.button
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
             onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
-            className={cn(
-              "absolute left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow",
-              searchTab ? "top-[calc(env(safe-area-inset-top)+12rem)]" : "top-[calc(env(safe-area-inset-top)+0.625rem)]",
-            )}
+            className="absolute left-1/2 -translate-x-1/2 z-30 top-[calc(env(safe-area-inset-top)+0.625rem)] flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2.5 text-sm font-semibold text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className="text-primary" />
             Search this area
           </motion.button>
+          )
         )}
       </AnimatePresence>
 

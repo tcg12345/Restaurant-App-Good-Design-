@@ -1673,7 +1673,8 @@ final class GlassChipRowView: UIView {
             config.image = UIImage(systemName: seg.symbol, withConfiguration: symbolConfig)?
                 .withRenderingMode(.alwaysTemplate)
             config.imagePlacement = .leading
-            config.imagePadding = 6
+            // No phantom gap on an icon-only chip (Filters).
+            config.imagePadding = seg.title.isEmpty ? 0 : 6
         }
         config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 15, bottom: 0, trailing: 15)
         // Chosen: white on the chip's fill (the brand rust, or ink). Not
@@ -1684,7 +1685,7 @@ final class GlassChipRowView: UIView {
         var container = AttributeContainer()
         container.font = .systemFont(ofSize: 12.5, weight: .semibold)
         container.foregroundColor = foreground
-        config.attributedTitle = AttributedString(seg.title, attributes: container)
+        config.attributedTitle = seg.title.isEmpty ? nil : AttributedString(seg.title, attributes: container)
         config.titleLineBreakMode = .byClipping
         // The prominent configuration resolves a foreground of its own from
         // the fill, after — and over — the attributed string's. The
