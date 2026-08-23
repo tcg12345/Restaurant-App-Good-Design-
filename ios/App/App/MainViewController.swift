@@ -599,6 +599,21 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// reads as a faint outline; the reference's capsules carry a visible
     /// slate fill that still refracts. Tinting the glass — not replacing
     /// it — is the system's own mechanism for exactly that.
+    /// The rim every glass capsule wears.
+    ///
+    /// Clear glass has almost no edge of its own. Over a map that is exactly
+    /// right — the content behind supplies the definition — but over a flat
+    /// ground (the search takeover's wash, the raised sheet's surface) there
+    /// is nothing to refract and the capsule disappears entirely. This is a
+    /// native stroke on the background configuration, so it follows the
+    /// capsule's shape and the press swell; it is not a border drawn around
+    /// the box.
+    static let glassRim = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(white: 1.0, alpha: 0.30)
+            : UIColor(white: 0.44, alpha: 0.30)
+    }
+
     static let glassTint = UIColor { trait in
         trait.userInterfaceStyle == .dark
             ? UIColor(red: 0.17, green: 0.18, blue: 0.22, alpha: 0.52)
@@ -1674,6 +1689,8 @@ final class GlassSegmentPillView: UIView {
         }
         config.cornerStyle = .capsule
         config.baseBackgroundColor = GlassTabBar.glassTint
+        config.background.strokeColor = GlassTabBar.glassRim
+        config.background.strokeWidth = 1
         bg.configuration = config
         // The ground, not a control — the segment buttons take the touches.
         bg.isUserInteractionEnabled = false
@@ -1832,6 +1849,10 @@ final class GlassChipRowView: UIView {
         let foreground: UIColor = seg.active ? .white : GlassTabBar.glassInk
         config.baseBackgroundColor = seg.active ? seg.tint : GlassTabBar.glassTint
         config.baseForegroundColor = foreground
+        if !seg.active {
+            config.background.strokeColor = GlassTabBar.glassRim
+            config.background.strokeWidth = 1
+        }
         var container = AttributeContainer()
         container.font = .systemFont(ofSize: 13.5, weight: .semibold)
         container.foregroundColor = foreground
@@ -1933,6 +1954,8 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         config.cornerStyle = .capsule
         config.contentInsets = .zero
         config.baseBackgroundColor = GlassTabBar.glassTint
+        config.background.strokeColor = GlassTabBar.glassRim
+        config.background.strokeWidth = 1
         bg.configuration = config
         bg.addTarget(self, action: #selector(pressed), for: .touchUpInside)
         addSubview(bg)
@@ -2128,10 +2151,14 @@ final class GlassButtonView: UIButton {
             }
             base.cornerStyle = .capsule
             base.contentInsets = .zero
-            // Plain glass carries the chrome's slate tint — the same fill
-            // the chips and the field wear, so the set reads as one
-            // material. Prominent capsules set their own fill in apply.
-            if !spec.prominent { base.baseBackgroundColor = GlassTabBar.glassTint }
+            // Plain glass carries the chrome's slate tint and rim — the same
+            // fill and edge the chips and the field wear, so the set reads as
+            // one material. Prominent capsules set their own fill in apply.
+            if !spec.prominent {
+                base.baseBackgroundColor = GlassTabBar.glassTint
+                base.background.strokeColor = GlassTabBar.glassRim
+                base.background.strokeWidth = 1
+            }
             configuration = base
         }
         // Sized off the button rather than fixed, so the same spec works for

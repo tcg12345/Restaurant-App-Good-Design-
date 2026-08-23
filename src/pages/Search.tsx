@@ -339,7 +339,14 @@ const PhoneSearch: React.FC = () => {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
           >
-            <div className="absolute inset-0 bg-surface/[0.96] backdrop-blur-2xl" aria-hidden />
+            {/* Blurred, not painted over. Clear glass draws its definition
+                from what is behind it, so a near-opaque wash left every
+                capsule on this screen invisible — the field, the close
+                button, the location chip all vanished. A heavy blur with
+                the ground only partly closed keeps the map present as an
+                abstract wash: enough for the glass to refract, still calm
+                enough to read results against. */}
+            <div className="absolute inset-0 bg-surface/[0.78] backdrop-blur-[40px] backdrop-saturate-150" aria-hidden />
             <motion.div
               className="absolute inset-0 overflow-y-auto no-scrollbar px-4 pb-10"
               style={{ paddingTop: 'calc(env(safe-area-inset-top) + 140px)' }}

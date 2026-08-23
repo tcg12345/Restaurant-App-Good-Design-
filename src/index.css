@@ -950,7 +950,7 @@ input[type="range"].accent-primary::-moz-range-thumb {
   font-weight: 700;
   color: var(--color-on-surface);
   background-color: rgba(252, 251, 250, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(112, 112, 112, 0.3);
   -webkit-backdrop-filter: blur(18px) saturate(180%);
   backdrop-filter: blur(18px) saturate(180%);
   box-shadow: 0 6px 18px rgba(18, 15, 14, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7);
@@ -958,7 +958,7 @@ input[type="range"].accent-primary::-moz-range-thumb {
 }
 .dark .map-chip {
   background-color: rgba(44, 44, 46, 0.66);
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 .map-chip.is-on,
