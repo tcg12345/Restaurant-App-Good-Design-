@@ -4324,7 +4324,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             placeholder="Restaurants, cuisines, lists"
             aria-label="Search"
           />
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1">
+          <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1">
             <MapChip
               id="chip-filters"
               symbol="line.3.horizontal.decrease"

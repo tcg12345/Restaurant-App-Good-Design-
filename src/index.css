@@ -963,8 +963,8 @@ input[type="range"].accent-primary::-moz-range-thumb {
      reserved, and `fit` grows it out from its centre into its neighbours and
      off the screen edge. Slack costs a couple of invisible points; a tight
      box costs alignment. */
-  padding: 0 15px;
-  gap: 9px;
+  padding: 0 17px;
+  gap: 10px;
 }
 .map-chip {
   font-weight: 700;
