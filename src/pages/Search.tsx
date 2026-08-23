@@ -35,7 +35,6 @@ const PhoneSearch: React.FC = () => {
   const [tab, setTab] = useState<SearchTab>('discover');
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  const [sheetFull, setSheetFull] = useState(false);
   const mapSearchRef = useRef<((q: string) => void) | null>(null);
   const glassActive = useGlassButtonsActive();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -80,7 +79,9 @@ const PhoneSearch: React.FC = () => {
     })),
   });
 
-  const pillHidden = searching || (tab === 'discover' && sheetFull);
+  // The pill rides above the sheet now — at full it sits on the risen page
+  // the way the reference's chrome does — so only the takeover hides it.
+  const pillHidden = searching;
 
   return (
     <div className="relative bg-surface overflow-hidden" style={{ height: '100dvh' }}>
@@ -94,7 +95,6 @@ const PhoneSearch: React.FC = () => {
           onOpenSearch={openSearch}
           searchHandlerRef={mapSearchRef}
           dimChrome={searching}
-          onSheetFullChange={setSheetFull}
         />
       </div>
 
@@ -111,10 +111,10 @@ const PhoneSearch: React.FC = () => {
       )}
 
       {/* Discover | Following — the one piece of chrome both tabs share.
-          Fades with the rest of the map chrome when the sheet goes full,
-          and under the takeover. */}
+          Above the sheet like the rest of the chrome, so the risen page
+          carries it; only the takeover hides it. */}
       <div
-        className="absolute inset-x-0 z-30 flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+        className="absolute inset-x-0 z-50 flex justify-center transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
         style={{
           top: 'calc(env(safe-area-inset-top) + 10px)',
           opacity: pillHidden ? 0 : 1,

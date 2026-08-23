@@ -8,7 +8,7 @@ import { attachMapErrorFallback } from '../lib/map-error';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
-import { GlassButton, GlassGroup, useGlassButtonsActive } from '../lib/glass-buttons';
+import { GlassButton, GlassGroup, GlassChipRow } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor, scoreHex, scoreTintStyle } from '../lib/score';
@@ -254,69 +254,6 @@ async function fetchMapboxLeg(
     return null;
   }
 }
-
-/**
- * A filter chip floating on the map — real interactive Liquid Glass.
- *
- * This row is the one place in the app where controls sit directly on a
- * moving map, which is exactly where a real lens earns its keep and where
- * CSS glass gives itself away: `backdrop-filter` blurs the streets behind
- * the chip, but it cannot bend them, and beside the native search field
- * above it the difference was immediate. So each chip is a native capsule,
- * and the system's press physics — swell under the finger, lean with it,
- * settle on release — come with the material rather than being imitated.
- *
- * One capsule per chip, not a `GlassGroup`: these are independent toggles
- * that scroll horizontally, and a group is one control with regions.
- *
- * Selection is the interesting part. Glass has no fill to darken, so a
- * chosen chip cannot simply be recoloured — it switches to the system's
- * PROMINENT glass, a tinted lens that still refracts the map beneath it.
- * The web element keeps the layout, the hit area and the CSS fallback.
- */
-const MapChip: React.FC<{
-  id: string;
-  /** SF Symbol for the native capsule. Cuisine chips are text alone. */
-  symbol?: string;
-  label: string;
-  /** Chosen — prominent glass, the app's ink. */
-  on?: boolean;
-  /** Chosen AND carrying the accent (an active filter count). */
-  accent?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}> = ({ id, symbol = '', label, on, accent, onClick, children }) => {
-  const native = useGlassButtonsActive();
-  return (
-    <GlassButton
-      id={id}
-      role="chip"
-      symbol={symbol}
-      title={label}
-      titleStyle="chip"
-      prominent={!!(on || accent)}
-      // `tint` means two different things depending on prominence: the FILL
-      // of a chosen capsule, and the INK of an unchosen one. Selection is
-      // the brand's rust everywhere else in the app — the Search tab's
-      // pill, the list filter pills — so a chosen chip fills with that and
-      // an unchosen one just writes in the label colour.
-      tint={on || accent ? 'primary' : 'label'}
-      label={label}
-      pressed={on || accent}
-      onClick={onClick}
-      // While native draws it, the web element keeps only the box — the
-      // glass samples the page through itself, and a CSS capsule left
-      // under it reads as a smudge inside the lens.
-      className={cn(
-        native ? 'map-chip-box' : 'map-chip',
-        !native && on && 'is-on',
-        !native && accent && 'is-accent',
-      )}
-    >
-      {children}
-    </GlassButton>
-  );
-};
 
 interface DiscoverProps {
   mode?: 'home' | 'map';
@@ -855,6 +792,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // The Search tab's sheet header folds My Ratings / Friends / Verified
+  // into one dropdown beside the count, per the reference.
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   // Hiding the tab bar is an effect with a cleanup here, like every other
   // writer in the app (SocialFeed.tsx is the reference), rather than a setter
   // that fires and forgets. `/` is a keep-alive layer: it stays mounted while
@@ -1015,7 +955,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
     // with the map, and a full that turns the sheet into the list page (the
     // map chrome fades and a Map pill floats up to come back).
     if (searchTab) {
-      if (state === 'full') return Math.max(safeTop + 6, 6);
+      // Full is the very top: the sheet becomes the page and the floating
+      // chrome sits on it, the way the reference's list state carries its
+      // search bar. The content is padded down past the chrome (see
+      // `chromePad`), so nothing ends up underneath the glass but ground.
+      if (state === 'full') return 0;
       if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
       return FULL_HEIGHT - PEEK_HEIGHT - 76;
     }
@@ -1120,6 +1064,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
     },
   };
   const sheetY = useMotionValue(getSheetY(mode === 'map' ? 'peek' : 'full'));
+  /* ── The morph into a full page ────────────────────────────────────────
+     Both of these ride the sheet's position directly, so the morph is the
+     drag itself rather than a state flip at the end of it. The corners
+     flatten as the sheet approaches the top — a slight curve everywhere
+     else, a straight edge as it becomes the page. And the content is
+     padded down by however much of the floating chrome the sheet has
+     climbed behind, so the list always starts below the chips while the
+     sheet's own ground slides up beneath the glass. */
+  const CHROME_BOTTOM = safeTop + 172;
+  const sheetRadius = useTransform(sheetY, [0, 90], [0, 18]);
+  const chromePad = useTransform(sheetY, (y: number) => Math.max(0, CHROME_BOTTOM - y));
   useEffect(() => {
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
     return () => controls.stop();
@@ -4303,16 +4258,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
           surfaces them; CSS glass here, because over a live map a backdrop
           blur genuinely has something to refract. Everything fades when the
           sheet reaches full or the takeover is above it. */}
+      {/* Above the sheet (z-50 beats its z-40), because the chrome no longer
+          leaves when the sheet rises: dragging to full slides the sheet UP
+          UNDER the floating glass, which lands as a page with the search
+          field and chips at its top — the reference's morph. Only the
+          search takeover still fades it. */}
       {searchTab && (
         <div
-          className="absolute inset-x-0 top-0 z-30 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          className="absolute inset-x-0 top-0 z-50 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
             paddingTop: 'calc(env(safe-area-inset-top) + 66px)',
-            opacity: sheetState === 'full' || dimChrome ? 0 : 1,
-            transform: sheetState === 'full' || dimChrome ? 'translateY(-14px)' : 'none',
-            pointerEvents: sheetState === 'full' || dimChrome ? 'none' : 'auto',
+            opacity: dimChrome ? 0 : 1,
+            transform: dimChrome ? 'translateY(-14px)' : 'none',
+            pointerEvents: dimChrome ? 'none' : 'auto',
           }}
-          aria-hidden={sheetState === 'full' || dimChrome || undefined}
+          aria-hidden={dimChrome || undefined}
         >
           <SearchField
             glassId="map-search"
@@ -4324,64 +4284,57 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             placeholder="Restaurants, cuisines, lists"
             aria-label="Search"
           />
-          <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1">
-            <MapChip
-              id="chip-filters"
-              symbol="line.3.horizontal.decrease"
-              label={activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
-              accent={activeFilterCount > 0}
-              onClick={() => setFilterSheetOpen(true)}
-            >
-              <SlidersHorizontal size={13} strokeWidth={2.2} />
-              Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </MapChip>
-            <MapChip
-              id="chip-open-now"
-              symbol="clock"
-              label="Open now"
-              on={hoursFilter.openNow}
-              onClick={() => {
-                setHoursFilter({ ...hoursFilter, openNow: !hoursFilter.openNow });
-                if (mapMode === 'discover') fetchNearby(selectedCuisines);
-              }}
-            >
-              <Clock size={13} strokeWidth={2.2} />
-              Open now
-            </MapChip>
-            {mapMode === 'discover' && (
-              <MapChip
-                id="chip-top-rated"
-                symbol="star"
-                label="Top rated"
-                on={sortBy === 'rating'}
-                onClick={() => {
-                  setSortBy(sortBy === 'rating' ? 'recommended' : 'rating');
-                  fetchNearby(selectedCuisines);
-                }}
-              >
-                <Star size={13} strokeWidth={2.2} />
-                Top rated
-              </MapChip>
-            )}
-            {mapMode === 'discover' && ['Italian', 'Japanese', 'Mexican'].map((c) => {
-              const on = selectedCuisines.includes(c);
-              return (
-                <MapChip
-                  key={c}
-                  id={`chip-cuisine-${c.toLowerCase()}`}
-                  label={c}
-                  on={on}
-                  onClick={() => {
-                    const next = on ? selectedCuisines.filter((x) => x !== c) : [...selectedCuisines, c];
+          <GlassChipRow
+            id="map-chips"
+            className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1"
+            items={[
+              {
+                id: 'filters',
+                symbol: 'line.3.horizontal.decrease',
+                title: activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters',
+                prominent: activeFilterCount > 0,
+                label: 'Filters',
+                icon: <SlidersHorizontal size={13} strokeWidth={2.2} />,
+                onClick: () => setFilterSheetOpen(true),
+              },
+              {
+                id: 'open-now',
+                symbol: 'clock',
+                title: 'Open now',
+                prominent: hoursFilter.openNow,
+                icon: <Clock size={13} strokeWidth={2.2} />,
+                onClick: () => {
+                  setHoursFilter({ ...hoursFilter, openNow: !hoursFilter.openNow });
+                  if (mapMode === 'discover') fetchNearby(selectedCuisines);
+                },
+              },
+              ...(mapMode === 'discover' ? [
+                {
+                  id: 'top-rated',
+                  symbol: 'star',
+                  title: 'Top rated',
+                  prominent: sortBy === 'rating',
+                  icon: <Star size={13} strokeWidth={2.2} />,
+                  onClick: () => {
+                    setSortBy(sortBy === 'rating' ? 'recommended' : 'rating');
+                    fetchNearby(selectedCuisines);
+                  },
+                },
+                ...['Italian', 'Japanese', 'Mexican'].map((c) => ({
+                  id: `cuisine-${c.toLowerCase()}`,
+                  title: c,
+                  prominent: selectedCuisines.includes(c),
+                  onClick: () => {
+                    const next = selectedCuisines.includes(c)
+                      ? selectedCuisines.filter((x) => x !== c)
+                      : [...selectedCuisines, c];
                     setSelectedCuisines(next);
                     fetchNearby(next);
-                  }}
-                >
-                  {c}
-                </MapChip>
-              );
-            })}
-          </div>
+                  },
+                })),
+              ] : []),
+            ]}
+          />
         </div>
       )}
 
@@ -4798,7 +4751,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        style={{ y: sheetY, height: FULL_HEIGHT }}
+        style={searchTab
+          ? { y: sheetY, height: FULL_HEIGHT, borderTopLeftRadius: sheetRadius, borderTopRightRadius: sheetRadius }
+          : { y: sheetY, height: FULL_HEIGHT }}
         className={cn(
           // NB: the white top hairline (frosted-glass edge) is applied only to
           // the glass sheet states below — NOT the home full state. On the home
@@ -4815,11 +4770,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
           usingDesktopHeader ? "z-[29]" : "z-40",
           searchTab && "transition-opacity duration-300",
           searchTab && dimChrome && "opacity-0 pointer-events-none",
-          sheetState === 'full' && !searchTab
-            ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
-            : "glass rounded-t-[3rem] border-t border-white/40"
+          // The Search tab's sheet is solid ground with a slight curve (the
+          // radius lives in the style below so it can flatten as the sheet
+          // becomes the page); the frosted translucency read as unfinished
+          // over a busy map. The other surfaces keep their glass.
+          searchTab
+            ? "bg-surface"
+            : sheetState === 'full'
+              ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
+              : "glass rounded-t-[3rem] border-t border-white/40"
         )}
       >
+        {/* Room for the chrome the sheet has climbed behind. */}
+        {searchTab && <motion.div className="flex-shrink-0" style={{ height: chromePad }} aria-hidden />}
         {/* Handle — only this area is draggable (hidden in full state;
             the Search tab keeps it, because its full state is still the
             sheet and drags back down) */}
@@ -5262,32 +5225,80 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
               title row stays. */}
           {searchTab ? (
             <div
-              className="flex items-end justify-between gap-3 pb-3 px-1 cursor-grab active:cursor-grabbing"
+              className="flex items-center justify-between gap-2.5 pb-2.5 px-1 cursor-grab active:cursor-grabbing"
               style={{ touchAction: 'none' }}
               {...sheetDrag}
             >
-              <div className="min-w-0">
-                <div className="font-serif font-bold text-[19px] leading-[1.1] tracking-[-0.02em] text-on-surface">
-                  {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}{mapMode === 'discover' && !discoverSearchActive ? ' nearby' : ''}
+              <span className="min-w-0 truncate text-[13px] font-semibold text-on-surface/60">
+                {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}
+                {discoverSearchActive && searchQuery.trim() ? ` · \u201c${searchQuery.trim()}\u201d` : mapMode === 'discover' ? ' nearby' : ''}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* WHAT is plotted — the pills row folded into one control. */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSourceMenuOpen((v) => !v)}
+                    aria-expanded={sourceMenuOpen}
+                    className="flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors max-w-[150px]"
+                  >
+                    <span className="truncate">
+                      {mapMode === 'friends' ? 'Friends'
+                        : mapMode === 'experts' ? 'Verified'
+                        : mapMode === 'myratings'
+                          ? (selectedListId === WISHLIST_LIST_ID ? 'Wishlist'
+                            : selectedListId ? (myLists.find((l: any) => l.id === selectedListId)?.name || 'List')
+                            : 'My Ratings')
+                          : 'Nearby'}
+                    </span>
+                    <ChevronDown size={12} strokeWidth={2.6} className={cn('flex-shrink-0 transition-transform', sourceMenuOpen && 'rotate-180')} />
+                  </button>
+                  {sourceMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-[60]" onClick={() => setSourceMenuOpen(false)} aria-hidden />
+                      <div className={cn(
+                        'absolute right-0 z-[61] w-[200px] max-h-[300px] overflow-y-auto no-scrollbar rounded-2xl bg-paper border border-on-surface/10 shadow-xl py-1.5',
+                        sheetState === 'peek' ? 'bottom-full mb-2' : 'top-full mt-2',
+                      )}>
+                        {([
+                          { key: 'nearby', label: 'Nearby', on: mapMode === 'discover', pick: () => { setMapMode('discover'); setSelectedListId(null); } },
+                          { key: 'myratings', label: 'My Ratings', on: mapMode === 'myratings' && !selectedListId, pick: () => { setMapMode('myratings'); setSelectedListId(null); } },
+                          ...myLists
+                            .filter((l: any) => l.type !== 'home-cooking' && ((l.restaurantIds?.length || 0) + (l.wishlistIds?.length || 0)) > 0)
+                            .map((l: any) => ({ key: l.id as string, label: l.name as string, on: mapMode === 'myratings' && selectedListId === l.id, pick: () => { setMapMode('myratings'); setSelectedListId(l.id); } })),
+                          { key: 'wishlist', label: 'Wishlist', on: mapMode === 'myratings' && selectedListId === WISHLIST_LIST_ID, pick: () => { setMapMode('myratings'); setSelectedListId(WISHLIST_LIST_ID); } },
+                          { key: 'friends', label: 'Friends', on: mapMode === 'friends', pick: () => { setMapMode('friends'); setSelectedListId(null); } },
+                          { key: 'experts', label: 'Verified', on: mapMode === 'experts', pick: () => { setMapMode('experts'); setSelectedListId(null); } },
+                        ]).map((opt) => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => { opt.pick(); setSourceMenuOpen(false); }}
+                            className={cn('w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors', opt.on ? 'bg-primary/[0.07]' : 'hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05]')}
+                          >
+                            <span className={cn('text-[13px] font-semibold truncate flex-1', opt.on ? 'text-primary' : 'text-on-surface')}>{opt.label}</span>
+                            {opt.on && <Check size={14} className="text-primary flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="mt-1.5 text-[12px] text-on-surface/55 truncate">
-                  {discoverSearchActive && searchQuery.trim() ? `“${searchQuery.trim()}” · ` : ''}{panelTitle}
-                </div>
+                {mapMode === 'discover' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = sortBy === 'recommended' ? 'rating' : sortBy === 'rating' ? 'popularity' : 'recommended';
+                      setSortBy(next as SortOption);
+                      fetchNearby(selectedCuisines);
+                    }}
+                    className="flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
+                  >
+                    <ArrowUpDown size={12} strokeWidth={2.4} />
+                    {sortBy === 'recommended' ? 'Best match' : sortBy === 'rating' ? 'Top rated' : 'Popular'}
+                  </button>
+                )}
               </div>
-              {mapMode === 'discover' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = sortBy === 'recommended' ? 'rating' : sortBy === 'rating' ? 'popularity' : 'recommended';
-                    setSortBy(next as SortOption);
-                    fetchNearby(selectedCuisines);
-                  }}
-                  className="flex-none flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
-                >
-                  <ArrowUpDown size={12} strokeWidth={2.4} />
-                  {sortBy === 'recommended' ? 'Best match' : sortBy === 'rating' ? 'Top rated' : 'Popular'}
-                </button>
-              )}
             </div>
           ) : (
           <div className="flex items-baseline gap-2.5 pb-3">
@@ -5295,6 +5306,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
             <span className="text-[13px] font-semibold text-on-surface/45">{panelResultCount} result{panelResultCount === 1 ? '' : 's'}</span>
           </div>
           )}
+          {!searchTab && (
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -5480,6 +5492,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
               </motion.div>
             )}
           </AnimatePresence>
+          )}
 
           {/* Active typed-location search bias — dismissible "near X" chip so
               the restriction on text searches is visible and clearable. */}

@@ -25,6 +25,7 @@ import React, { useCallback, useContext, useEffect, useId, useRef, useState } fr
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { LiquidGlass } from './native-glass';
 import { subscribeOverlay } from './overlay-registry';
+import { cn } from './utils';
 
 /** Named rather than hex so the two sides can't drift on what the brand
  *  colour is — the native side owns the value. */
@@ -67,7 +68,7 @@ export interface GlassButtonSpec {
  *  kinds are different controls with opposite touch handling — an action row's
  *  regions are pressed one at a time, a selector's choice is dragged along the
  *  bar. */
-type GlassGroupKind = 'actions' | 'selector';
+type GlassGroupKind = 'actions' | 'selector' | 'chips';
 
 /** The live state of a native search field. One mutable object per field,
  *  read by the sampler every frame — mutated in place rather than
@@ -491,6 +492,98 @@ export const GlassGroup: React.FC<{
           className={[itemClassName, active ? '' : REGION_PRESS].filter(Boolean).join(' ')}
         >
           {active ? <span className="opacity-0">{item.icon}</span> : item.icon}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * A horizontally scrolling row of independent glass filter chips — the map
+ * chrome's filter row.
+ *
+ * ONE registration for the whole strip, not one per chip, and the native
+ * side owns the row completely: a real UIScrollView lays the capsules out
+ * from their own intrinsic widths, scrolls them with native bounce, and
+ * clips them at its edges. Mirroring chips one-per-box was tried first and
+ * failed twice over — per-chip boxes drift from the system font's metrics
+ * so capsules grew into their neighbours, and native buttons floating over
+ * a web scroller ate every drag, so the row could not scroll at all.
+ *
+ * The web chips render as the fallback and keep the strip's height; while
+ * native owns the row their contents go invisible and inert, and their
+ * widths no longer matter, because nothing native aligns to them.
+ */
+export const GlassChipRow: React.FC<{
+  id: string;
+  className?: string;
+  items: Array<{
+    id: string;
+    /** SF Symbol for the native capsule. Omit for text-only chips. */
+    symbol?: string;
+    title: string;
+    /** Chosen — prominent (tinted) glass with white on it. */
+    prominent?: boolean;
+    label?: string;
+    onClick: () => void;
+    /** Web fallback icon. */
+    icon?: React.ReactNode;
+  }>;
+}> = ({ id, className, items }) => {
+  const onGlass = useContext(OnGlass);
+  const active = useGlassButtonsActive() && !onGlass;
+  const key = `${id}#${useId()}`;
+  const ref = useRef<HTMLDivElement | null>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const shape = JSON.stringify(items.map((i) => [i.id, i.symbol, i.title, i.prominent]));
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return;
+    registry.set(key, {
+      el,
+      symbol: '',
+      label: '',
+      kind: 'chips',
+      onTap: () => {},
+      segments: itemsRef.current.map((item) => ({
+        id: `${key}/${item.id}`,
+        symbol: item.symbol ?? '',
+        title: item.title,
+        active: item.prominent ?? false,
+        // The chosen chip's fill. Selection is the brand's rust everywhere
+        // else in the app, so it is here too.
+        tint: 'primary' as const,
+        label: item.label ?? item.title,
+        onTap: () => {
+          itemsRef.current.find((i) => i.id === item.id)?.onClick();
+        },
+      })),
+    });
+    wake();
+    return () => {
+      registry.delete(key);
+      wake();
+    };
+  }, [active, key, shape]);
+
+  return (
+    <div ref={ref} className={className} role="group">
+      {items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={item.onClick}
+          aria-label={item.label ?? item.title}
+          aria-pressed={item.prominent || undefined}
+          aria-hidden={active || undefined}
+          tabIndex={active ? -1 : undefined}
+          className={cn('map-chip', !active && item.prominent && 'is-accent', active && 'opacity-0')}
+        >
+          {item.icon}
+          {item.title}
         </button>
       ))}
     </div>

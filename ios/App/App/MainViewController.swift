@@ -1182,6 +1182,11 @@ enum GlassGroupKind: String {
     /// Recipes. The selection is dragged along the bar. See
     /// `GlassSelectorBarView`.
     case selector
+    /// A horizontally scrolling row of independent filter capsules — the map
+    /// chrome's chips. Unlike `actions`, the capsules do not share one piece
+    /// of glass; unlike `selector`, more than one can be chosen and the row
+    /// scrolls. See `GlassChipRowView`.
+    case chips
 }
 
 struct GlassButtonSpec {
@@ -1615,6 +1620,133 @@ final class GlassActionGroupView: UIView {
 /// would eat the keystroke. Focus rides a generation for a different reason:
 /// a payload re-asserting `focused` must not re-summon a keyboard the user
 /// dismissed.
+/// The map chrome's filter chips — one native, horizontally scrolling row.
+///
+/// The first version mirrored each chip onto its own web box, the way the
+/// lone chrome buttons work, and the row failed in every direction at once:
+/// per-chip boxes drift from the system font's real metrics, so capsules
+/// grew into their neighbours — and a row of native buttons floating over a
+/// web scroller cannot scroll at all, because the buttons take the touch
+/// and the web container never sees the drag. The fix is to stop mirroring
+/// chips and own the row: ONE registration hands over the strip, and a real
+/// `UIScrollView` lays the capsules out from their own intrinsic widths,
+/// scrolls them with native bounce, clips them at its edges, and keeps its
+/// offset across payload pushes.
+///
+/// A chosen chip is the system's PROMINENT glass filled with the brand's
+/// rust — the same selected language as everywhere else — because a plain
+/// lens has no fill to darken.
+final class GlassChipRowView: UIView {
+    private let scroll = UIScrollView()
+    private var buttons: [UIButton] = []
+    private var ids: [String] = []
+    /// Everything that decides how a capsule draws. A change rebuilds the
+    /// configurations; an identical push costs nothing.
+    private var shape: [String] = []
+
+    var onTap: ((String) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.alwaysBounceHorizontal = true
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.clipsToBounds = true
+        // The web row's own horizontal padding, so the first chip lines up
+        // with the search field's leading edge above it.
+        scroll.contentInset = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+        addSubview(scroll)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private static func configure(_ button: UIButton, with seg: GlassSegmentSpec) {
+        var config: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            config = seg.active ? .prominentGlass() : .glass()
+        } else {
+            config = seg.active ? .filled() : .gray()
+        }
+        config.cornerStyle = .capsule
+        if !seg.symbol.isEmpty {
+            let symbolConfig = UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            config.image = UIImage(systemName: seg.symbol, withConfiguration: symbolConfig)?
+                .withRenderingMode(.alwaysTemplate)
+            config.imagePlacement = .leading
+            config.imagePadding = 6
+        }
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 15, bottom: 0, trailing: 15)
+        // Chosen: white on the chip's fill (the brand rust, or ink). Not
+        // chosen: the label colour on plain glass.
+        let foreground: UIColor = seg.active ? .white : .label
+        if seg.active { config.baseBackgroundColor = seg.tint }
+        config.baseForegroundColor = foreground
+        var container = AttributeContainer()
+        container.font = .systemFont(ofSize: 12.5, weight: .semibold)
+        container.foregroundColor = foreground
+        config.attributedTitle = AttributedString(seg.title, attributes: container)
+        config.titleLineBreakMode = .byClipping
+        // The prominent configuration resolves a foreground of its own from
+        // the fill, after — and over — the attributed string's. The
+        // transformer is the one hook that runs later still.
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.foregroundColor = foreground
+            out.font = .systemFont(ofSize: 12.5, weight: .semibold)
+            return out
+        }
+        button.configuration = config
+        button.accessibilityLabel = seg.label
+        button.accessibilityTraits = seg.active ? [.button, .selected] : .button
+    }
+
+    func apply(_ spec: GlassButtonSpec) {
+        let incomingIds = spec.segments.map(\.id)
+        let incomingShape = spec.segments.map { "\($0.id)|\($0.title)|\($0.active)|\($0.symbol)" }
+        if incomingIds != ids {
+            buttons.forEach { $0.removeFromSuperview() }
+            buttons = spec.segments.map { seg in
+                let button = UIButton(type: .custom)
+                Self.configure(button, with: seg)
+                button.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+                scroll.addSubview(button)
+                return button
+            }
+            ids = incomingIds
+            shape = incomingShape
+            setNeedsLayout()
+        } else if incomingShape != shape {
+            shape = incomingShape
+            for (index, seg) in spec.segments.enumerated() where index < buttons.count {
+                Self.configure(buttons[index], with: seg)
+            }
+            setNeedsLayout()
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Offset survives relayout: the row must not jump back to its start
+        // because a chip's label changed under a toggle.
+        let offset = scroll.contentOffset
+        scroll.frame = bounds
+        let height: CGFloat = min(38, bounds.height)
+        var x: CGFloat = 0
+        for button in buttons {
+            let width = ceil(button.intrinsicContentSize.width)
+            button.frame = CGRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
+            x += width + 10
+        }
+        scroll.contentSize = CGSize(width: max(0, x - 10), height: bounds.height)
+        scroll.contentOffset = offset
+    }
+
+    @objc private func chipTapped(_ sender: UIButton) {
+        guard let index = buttons.firstIndex(where: { $0 === sender }), index < ids.count else { return }
+        onTap?(ids[index])
+    }
+}
+
 final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     private static func makeEffect() -> UIVisualEffect {
         if #available(iOS 26.0, *) {
@@ -1977,6 +2109,7 @@ final class GlassButtonLayer {
         case field(GlassSearchFieldView)
         case actions(GlassActionGroupView)
         case selector(GlassSelectorBarView)
+        case chips(GlassChipRowView)
 
         var view: UIView {
             switch self {
@@ -1984,6 +2117,7 @@ final class GlassButtonLayer {
             case .field(let v): return v
             case .actions(let v): return v
             case .selector(let v): return v
+            case .chips(let v): return v
             }
         }
 
@@ -1996,6 +2130,7 @@ final class GlassButtonLayer {
             case .field: return spec.segments.isEmpty && spec.role == "field"
             case .actions: return !spec.segments.isEmpty && spec.kind == .actions
             case .selector: return !spec.segments.isEmpty && spec.kind == .selector
+            case .chips: return !spec.segments.isEmpty && spec.kind == .chips
             }
         }
     }
@@ -2025,6 +2160,12 @@ final class GlassButtonLayer {
             let chrome: Chrome
             if let existing = views[spec.id] {
                 chrome = existing
+            } else if !spec.segments.isEmpty, spec.kind == .chips {
+                let view = GlassChipRowView(frame: spec.frame)
+                view.onTap = { [weak self] id in self?.onTap?(id) }
+                views[spec.id] = .chips(view)
+                host.addSubview(view)
+                chrome = .chips(view)
             } else if !spec.segments.isEmpty, spec.kind == .actions {
                 let view = GlassActionGroupView(frame: spec.frame)
                 view.onTap = { [weak self] id in self?.onTap?(id) }
@@ -2094,6 +2235,9 @@ final class GlassButtonLayer {
             case .selector(let group):
                 if !group.isLiquidActive { group.frame = spec.frame }
                 group.apply(spec)
+            case .chips(let row):
+                row.frame = spec.frame
+                row.apply(spec)
             }
             view.layoutIfNeeded()
         }
