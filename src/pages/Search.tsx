@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Map as MapIcon, ChevronRight } from 'lucide-react';
+import { Map as MapIcon, ChevronRight, ChevronLeft } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, useReducedMotion } from 'motion/react';
 import { useGlassSegments, GlassButton } from '../lib/glass-buttons';
+import { SearchMain } from './SearchMain';
 import { cn } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
 
@@ -16,16 +17,31 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
 
 export const Search: React.FC = () => {
   const navigate = useNavigate();
-  // Where the field is on THIS page, handed to the search page so it can
-  // start from exactly here. Without it the search page's own field snaps
-  // into place and the move reads as a page swap; with it the same object
-  // slides from one position to the other and the rest resolves around it.
-  const fieldRef = useRef<HTMLDivElement | null>(null);
+
+  /* ── Searching happens HERE ────────────────────────────────────────
+     It used to be a route: tapping the field pushed /search/main, which
+     tore this page down and built another one whose field happened to
+     look similar. Every trick for smoothing that over — a shared-element
+     morph, a FLIP from the old rect — is an attempt to disguise a
+     teardown, and it reads as one however well it is tuned.
+
+     So nothing is torn down. The field below is a single element that is
+     read-only until you tap it and editable afterwards; it never
+     unmounts, never moves, and never animates, because it never has
+     anywhere to go. What changes is what sits under it. */
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const openSearch = () => {
-    const r = fieldRef.current?.getBoundingClientRect();
-    navigate('/search/main', {
-      state: r ? { from: { x: r.left, y: r.top, w: r.width, h: r.height } } : undefined,
-    });
+    setSearching(true);
+    // After the field stops being read-only, so the caret lands in a field
+    // that will accept it.
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const closeSearch = () => {
+    setSearching(false);
+    setQuery('');
+    inputRef.current?.blur();
   };
   const [tab, setTab] = useState<SearchTab>('discover');
   const reduceMotion = useReducedMotion();
@@ -55,7 +71,11 @@ export const Search: React.FC = () => {
 
       {/* Tab switcher — centred, because the control is a capsule now rather
           than a pair of underlined words hugging the left margin. */}
-      <div className="px-4 pt-safe-3 flex justify-center">
+      <div
+        className="px-4 pt-safe-3 flex justify-center overflow-hidden transition-[max-height,opacity] duration-300 ease-[var(--ease-drawer)]"
+        style={{ maxHeight: searching ? 0 : 60, opacity: searching ? 0 : 1, paddingTop: searching ? 0 : undefined }}
+        aria-hidden={searching}
+      >
         <div
           ref={seg.ref}
           className={cn(
@@ -101,39 +121,41 @@ export const Search: React.FC = () => {
         >
         {tab === 'discover' ? (
           <div className="space-y-3">
-            {/* Real input that transitions into the full search page on focus.
-                readOnly keeps the mobile keyboard from flashing before the
-                route change; the auto-focus on SearchMain brings it up there. */}
-            {/* Real glass, not a CSS approximation of it: the native side
-                already knows how to draw a capsule with a glyph and a word
-                (the recipe flow's back chip), it only needed to be told
-                that this one is a field rather than a chip. The children
-                are what a browser — or an iOS older than 26 — falls back
-                to, and they are the same material and metrics, so the two
-                paths agree.
-
-                Tapping it hands the field's own rect to the search page,
-                which starts from exactly there. */}
-            <div ref={fieldRef}>
-            <GlassButton
-              id="search-open"
-              symbol="magnifyingglass"
-              title="Restaurants, cuisines, lists"
-              titleStyle="field"
-              label="Search"
-              onClick={openSearch}
-              className="block w-full"
-            >
+            {/* One field, two states. Back slides in beside it when search
+                opens; the field itself does not move, because a control
+                that stays put cannot glitch on the way anywhere. */}
+            <div className="flex items-center gap-3">
+              <div
+                className="overflow-hidden transition-[width,opacity] duration-300 ease-[var(--ease-drawer)]"
+                style={{ width: searching ? 40 : 0, opacity: searching ? 1 : 0 }}
+                aria-hidden={!searching}
+              >
+                <GlassButton
+                  id="search-back"
+                  symbol="chevron.left"
+                  label="Back"
+                  onClick={closeSearch}
+                  className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                >
+                  <ChevronLeft size={20} />
+                </GlassButton>
+              </div>
               <SearchField
-                readOnly
-                value=""
-                onChange={() => {}}
+                className="flex-1 min-w-0"
+                readOnly={!searching}
+                onPress={searching ? undefined : openSearch}
+                value={query}
+                onChange={setQuery}
+                inputRef={inputRef}
                 placeholder="Restaurants, cuisines, lists"
                 aria-label="Search"
               />
-            </GlassButton>
             </div>
 
+            {searching ? (
+              <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={inputRef} />
+            ) : (
+            <>
             {/* Prominent map entry — replaces the old navbar split. */}
             <button
               type="button"
@@ -149,7 +171,8 @@ export const Search: React.FC = () => {
               </span>
               <ChevronRight size={18} className="flex-shrink-0 text-on-surface/30 group-hover:text-on-surface/55 transition-colors" />
             </button>
-
+            </>
+            )}
           </div>
         ) : (
           <FollowingFeed />

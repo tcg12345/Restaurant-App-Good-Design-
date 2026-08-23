@@ -215,14 +215,25 @@ const ShowAllRow: React.FC<{ expanded: boolean; total: number; phoneMode: boolea
   </div>
 );
 
-export const SearchMain: React.FC = () => {
+export const SearchMain: React.FC<{
+  /** Rendered inside the Search tab rather than as its own route. The host
+   *  owns the field and the back control, because the whole point is that
+   *  neither of them moves when search opens — see Search.tsx. */
+  embedded?: boolean;
+  query?: string;
+  onQueryChange?: (v: string) => void;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+}> = ({ embedded = false, query, onQueryChange, inputRef: hostInputRef }) => {
   const navigate = useNavigate();
   const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
-  const [searchQuery, setSearchQuery] = useState('');
+  // Controlled by the host when embedded; its own otherwise.
+  const [ownQuery, setOwnQuery] = useState('');
+  const searchQuery = embedded ? (query ?? '') : ownQuery;
+  const setSearchQuery = embedded ? (onQueryChange ?? (() => {})) : setOwnQuery;
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
 
   // Per-section results + loading. Restaurants + friends are searched live;
@@ -285,48 +296,10 @@ export const SearchMain: React.FC = () => {
     ? homeAnchor.label.split(',').slice(0, 2).join(',').trim()
     : locationKnown ? 'your location' : '';
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const ownInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = hostInputRef ?? ownInputRef;
   const headerRef = useRef<HTMLElement>(null);
 
-  /* ── Arriving from the Search tab ──────────────────────────────────
-     The tab's own field hands over its rect. This page lays its field out
-     where it belongs, then — before paint — transforms it back onto that
-     rect and releases the transform on the next frame, so the browser
-     interpolates one real position into another (FLIP). Everything else
-     fades up under it. The result is the field staying put while the page
-     resolves around it, rather than one screen replacing another.
-
-     No rect (deep link, refresh, back-forward) means no transform and no
-     fade — there is nothing to continue from, and inventing a slide there
-     would be motion for its own sake. */
-  const from = (useLocation().state as { from?: { x: number; y: number; w: number; h: number } } | null)?.from;
-  const fieldWrapRef = useRef<HTMLDivElement>(null);
-  const [settled, setSettled] = useState(!from);
-
-  useLayoutEffect(() => {
-    if (!from || settled) return;
-    const el = fieldWrapRef.current;
-    if (!el) { setSettled(true); return; }
-    const to = el.getBoundingClientRect();
-    if (to.width === 0) { setSettled(true); return; }
-    el.style.transformOrigin = 'top left';
-    el.style.transform = `translate(${from.x - to.left}px, ${from.y - to.top}px) scale(${from.w / to.width})`;
-    el.style.transition = 'none';
-    // Two frames: one to commit the inverted transform, the next to let
-    // the transition see a change. A single rAF sometimes coalesces both
-    // writes into the same style recalc and the move never plays.
-    requestAnimationFrame(() => requestAnimationFrame(() => setSettled(true)));
-  }, [from, settled]);
-
-  const heroStyle: React.CSSProperties = settled
-    ? { transform: 'none', transition: 'transform 0.44s cubic-bezier(0.32, 0.72, 0, 1)' }
-    : {};
-  const restStyle: React.CSSProperties = from
-    ? {
-        opacity: settled ? 1 : 0,
-        transition: 'opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
-      }
-    : {};
   // Mobile header dissolves with scroll (Discover-style); scroll back to
   // the top to search again — same as the home feed's search bar.
   const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
@@ -892,7 +865,7 @@ export const SearchMain: React.FC = () => {
     const friendsShown = (scope === 'friends' || expanded.friends) ? friendResults : friendResults.slice(0, 6);
 
     return (
-      <div className="min-h-screen bg-surface pb-24" style={restStyle}>
+      <div className="min-h-screen bg-surface pb-24">
         {/* Sticky search band: hero input + scope tabs */}
         <header ref={headerRef} className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
           <div className="px-8 pt-6">
@@ -902,7 +875,7 @@ export const SearchMain: React.FC = () => {
                 puts it back over the trigger is released on the next frame,
                 so the browser interpolates a real position rather than us
                 animating a fake one into place. */}
-            <div ref={fieldWrapRef} style={heroStyle} className="max-w-2xl">
+            <div className="max-w-2xl">
               <SearchField
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -1087,7 +1060,11 @@ export const SearchMain: React.FC = () => {
   }
 
   return (
-    <div className="pb-32 min-h-screen bg-surface">
+    <div className={cn(embedded ? '' : 'pb-32 min-h-screen bg-surface')}>
+      {/* Embedded, the host owns the field and the back control — the whole
+          point is that neither of them moves when search opens, so they must
+          not be torn down and rebuilt by a different component. */}
+      {!embedded && (
       <motion.header
         ref={(el: HTMLElement | null) => {
           headerRef.current = el;
@@ -1105,34 +1082,19 @@ export const SearchMain: React.FC = () => {
           >
             <ArrowLeft size={20} />
           </button>
-          <form
-            className="flex-1 relative"
-            onSubmit={(e) => { e.preventDefault(); void runRestaurantSearch(searchQuery.trim()); }}
-          >
-            <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-            <input
-              ref={inputRef}
-              type="text"
+          <div className="flex-1 min-w-0">
+            <SearchField
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search restaurants, recipes, people..."
-              className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
-              autoCapitalize="off"
-              autoCorrect="off"
+              onChange={setSearchQuery}
+              onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}
+              inputRef={inputRef}
+              placeholder="Restaurants, recipes, people"
+              aria-label="Search"
             />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => { setSearchQuery(''); inputRef.current?.focus(); }}
-                className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60"
-                aria-label="Clear search"
-              >
-                <X size={16} />
-              </button>
-            )}
-          </form>
+          </div>
         </div>
       </motion.header>
+      )}
 
       <main className={cn('pt-2 md:max-w-2xl md:mx-auto md:px-4', !phoneMode && 'px-4')}>
         {hasQuery ? (
