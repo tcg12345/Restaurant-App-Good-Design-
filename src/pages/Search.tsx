@@ -228,7 +228,7 @@ const PhoneSearch: React.FC = () => {
             symbol="xmark"
             label="Close search"
             onClick={closeSearch}
-            className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="relative z-20 hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <X size={18} />
           </GlassButton>
@@ -245,6 +245,9 @@ const PhoneSearch: React.FC = () => {
             )}
           >
             <SearchField
+              // Above the tap-out scrim, or the occlusion probe at the
+              // field's centre finds the scrim and hides the glass.
+              className="relative z-20"
               glassId="location-field"
               glassSymbol="location"
               leadingIcon={<Navigation size={14} strokeWidth={2.2} />}
