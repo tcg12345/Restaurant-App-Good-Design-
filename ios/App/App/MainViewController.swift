@@ -1699,7 +1699,14 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
             appliedTextGen = spec.fieldTextGen
             if field.text != spec.fieldText { field.text = spec.fieldText }
         }
-        if spec.fieldFocusGen != appliedFocusGen {
+        // A focus generation is only consumed while the field is actually
+        // visible. The takeover mounts at opacity 0 and fades in, so the
+        // first payloads carry alpha ≈ 0 — consuming the generation there
+        // summoned the keyboard and the very next line resigned it for
+        // being invisible, which read as autofocus simply not working. Left
+        // pending, the generation applies on the first push where the fade
+        // has actually begun, and the keyboard rises with the wash.
+        if spec.fieldFocusGen != appliedFocusGen, spec.alpha > 0.05 {
             appliedFocusGen = spec.fieldFocusGen
             if spec.fieldFocused, spec.fieldEditable {
                 if !field.isFirstResponder { field.becomeFirstResponder() }
