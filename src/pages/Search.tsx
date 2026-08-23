@@ -243,7 +243,10 @@ const PhoneSearch: React.FC = () => {
                 {locOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setLocOpen(false)} aria-hidden />
-                    <div className="absolute right-0 top-full mt-2 z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
+                    {/* Dropped past the field row: the native glass field
+                        draws above every web layer, and a panel tucked under
+                        the chip put its own input behind the glass. */}
+                    <div className="absolute right-0 top-full mt-[74px] z-20 w-[264px] rounded-2xl bg-paper border border-on-surface/10 shadow-xl overflow-hidden">
                       <input
                         type="text"
                         value={locQuery}
