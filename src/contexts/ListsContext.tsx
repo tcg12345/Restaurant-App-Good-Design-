@@ -2408,22 +2408,42 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [commitMeta]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
-    const cached = restaurantMeta[restaurantId];
-    if (cached) {
-      // The meta blob is written when a detail page renders and then
-      // persists forever, so its cuisine can be older than everything else
-      // on the device. A non-answer in it must not shadow a real cuisine
-      // the rating has since acquired — that is the difference between a
-      // card saying "Restaurant" and saying "Peruvian".
-      if (isUnknownCuisine(cached.cuisine)) {
-        const fresher = ratings.find((r) => r.restaurantId === restaurantId)?.cuisine;
-        if (fresher && !isUnknownCuisine(fresher)) return { ...cached, cuisine: fresher };
-      }
-      return cached;
-    }
     const rated = ratings.find((r) => r.restaurantId === restaurantId);
-    if (rated) return { id: rated.restaurantId, name: rated.name, image: rated.image, cuisine: rated.cuisine, price: rated.price, address: rated.address };
     const wished = wishlist.find((w) => w.restaurantId === restaurantId);
+    const cached = restaurantMeta[restaurantId];
+
+    if (cached) {
+      // A PARTIAL cache entry must not shadow the real values.
+      //
+      // cacheRestaurantMeta fills every text field with '' when it creates
+      // a row, so any caller that knows only coordinates or opening hours —
+      // the hours warmer, a map marker — mints a blob whose name, cuisine,
+      // price and address are all empty strings. Returning that wholesale
+      // hid the name of places the wishlist itself was holding: the row
+      // still rendered, with a distance and an open/closed line and no
+      // restaurant. This used to be patched for `cuisine` alone; a blank is
+      // a blank whichever field it lands in.
+      const fill = (
+        key: 'name' | 'image' | 'cuisine' | 'price' | 'address',
+      ): string => cached[key] || (rated?.[key] ?? '') || (wished?.[key] ?? '') || '';
+      const merged: RestaurantMeta = {
+        ...cached,
+        name: fill('name'),
+        image: fill('image'),
+        cuisine: fill('cuisine'),
+        price: fill('price'),
+        address: fill('address'),
+      };
+      // The meta blob persists forever, so its cuisine can be older than
+      // everything else on the device. A non-answer in it must not shadow a
+      // real cuisine the rating has since acquired — the difference between
+      // a card saying "Restaurant" and saying "Peruvian".
+      if (isUnknownCuisine(merged.cuisine) && rated?.cuisine && !isUnknownCuisine(rated.cuisine)) {
+        merged.cuisine = rated.cuisine;
+      }
+      return merged;
+    }
+    if (rated) return { id: rated.restaurantId, name: rated.name, image: rated.image, cuisine: rated.cuisine, price: rated.price, address: rated.address };
     if (wished) return { id: wished.restaurantId, name: wished.name, image: wished.image, cuisine: wished.cuisine, price: wished.price, address: wished.address };
     return undefined;
   }, [restaurantMeta, ratings, wishlist]);

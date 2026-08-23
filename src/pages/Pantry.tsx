@@ -1594,8 +1594,16 @@ const ListDetailView: React.FC<{
         wishItem: w,
       }))
     : (list.wishlistIds || []).map((id) => {
-        const info = getRestaurantInfo(id);
         const wishItem = wishlist.find((w) => w.restaurantId === id);
+        // Fall back to the saved row's own fields before giving up. This
+        // used to drop the entry outright when getRestaurantInfo came back
+        // empty, so a place you saved into a custom list could vanish from
+        // it with nothing to say it had — the id is still in the list, it
+        // just stopped being drawn.
+        const info = getRestaurantInfo(id)
+          || (wishItem
+            ? { id, name: wishItem.name, image: wishItem.image, cuisine: wishItem.cuisine, price: wishItem.price, address: wishItem.address }
+            : undefined);
         return { id, info, wishItem };
       }).filter(({ info }) => info);
 
