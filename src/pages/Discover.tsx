@@ -1008,18 +1008,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, onOp
     const vel = dragVelRef.current;
     let next = sheetState;
     if (searchTab) {
-      const order = ['full', 'half', 'peek'] as const; // top → bottom
-      if (Math.abs(vel) > 0.5 && Math.abs(delta) > 24) {
-        const i = order.indexOf(sheetState);
-        next = vel > 0 ? order[Math.min(order.length - 1, i + 1)] : order[Math.max(0, i - 1)];
-      } else {
-        const yNow = Math.max(sheetMinY(), Math.min(sheetMaxY(), getSheetY(sheetState) + delta));
-        let bd = Infinity;
-        order.forEach((k) => {
-          const d = Math.abs(getSheetY(k) - yNow);
-          if (d < bd) { bd = d; next = k; }
-        });
-      }
+      // The platform's rule: project the position forward by the release
+      // velocity, then snap to whatever is nearest the projection. One rule
+      // covers everything — a short flick projects past the next state and
+      // lands there, a long committed drag lands where the finger left it,
+      // and a slow nudge stays put.
+      const yNow = getSheetY(sheetState) + delta;
+      const projected = yNow + vel * 220;
+      let bd = Infinity;
+      (['full', 'half', 'peek'] as const).forEach((k) => {
+        const d = Math.abs(getSheetY(k) - projected);
+        if (d < bd) { bd = d; next = k; }
+      });
     } else if (sheetState === 'half') {
       if (delta > 60) next = 'peek';
       else if (delta < -60 && mode !== 'map') {
