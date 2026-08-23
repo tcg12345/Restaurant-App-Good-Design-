@@ -37,6 +37,14 @@ const PhoneSearch: React.FC = () => {
   const [tab, setTab] = useState<SearchTab>('discover');
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
+  // Following shares THE field but not the takeover: its text filters the
+  // feed live, in place. Separate draft so flipping tabs never leaks a map
+  // query into the feed or vice versa.
+  const [followQuery, setFollowQuery] = useState('');
+  // Editable only after a tap — the field bridge re-asserts focus on every
+  // read-only → editable transition, so deriving editable from the active
+  // tab would summon the keyboard on the tab switch itself.
+  const [followEditing, setFollowEditing] = useState(false);
   const mapSearchRef = useRef<((q: string) => void) | null>(null);
   /* ── Where the search is anchored ─────────────────────────────────────
      The takeover's top-right chip names the place being searched and
@@ -99,6 +107,24 @@ const PhoneSearch: React.FC = () => {
     // registry); the web fallback needs the nudge.
     if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
   };
+  // Following: the same tap-to-edit move, minus the takeover. Once editable
+  // the field stays editable (tapping an editable field focuses it natively);
+  // leaving the tab resets it so returning doesn't raise the keyboard.
+  const openFollowSearch = () => {
+    setFollowEditing(true);
+    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const endFollowSearch = () => {
+    setFollowEditing(false);
+    if (!glassActive) inputRef.current?.blur();
+  };
+  useEffect(() => {
+    if (tab !== 'following') {
+      setFollowEditing(false);
+      if (!glassActive) inputRef.current?.blur();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   // Closing with an empty draft is the clear: the map drops its query and
   // restores the pre-search places.
   const closeSearch = () => {
@@ -142,14 +168,16 @@ const PhoneSearch: React.FC = () => {
         />
       </div>
 
-      {/* Following — the same feed it always was, layered over the map. */}
+      {/* Following — layered over the map, wearing the same chrome: the
+          shared glass field above, its own glass chip row at the chips'
+          spot, content starting where the Discover chrome ends. */}
       {tab === 'following' && (
         <div
           className="absolute inset-0 z-20 bg-surface overflow-y-auto no-scrollbar"
-          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 66px)' }}
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 176px)' }}
         >
           <div className="px-4 pb-32">
-            <FollowingFeed />
+            <FollowingFeed variant="searchTab" query={followQuery} onClearQuery={() => setFollowQuery('')} />
           </div>
         </div>
       )}
@@ -326,28 +354,29 @@ const PhoneSearch: React.FC = () => {
         </div>
       </div>
 
-      {/* THE field — the one element both states share. */}
+      {/* THE field — the one element every state shares. On Discover it is
+          read-only until the takeover; on Following it edits in place and
+          its text filters the feed live. Same capsule, same spot. */}
       <div
         className={cn(
           'absolute inset-x-0 z-50 px-3.5 transition-opacity duration-200',
-          tab !== 'discover' && 'invisible',
           locOpen && 'opacity-0 pointer-events-none',
         )}
         style={{ top: 'calc(env(safe-area-inset-top) + 76px)' }}
-        aria-hidden={tab !== 'discover' || locOpen || undefined}
+        aria-hidden={locOpen || undefined}
       >
         <SearchField
           glassId="search-field"
           variant="floating"
           tall
-          readOnly={!searching}
-          onPress={openSearch}
-          value={query}
-          onChange={setQuery}
-          onSubmit={submitToMap}
+          readOnly={tab === 'discover' ? !searching : !followEditing}
+          onPress={tab === 'discover' ? openSearch : openFollowSearch}
+          value={tab === 'discover' ? query : followQuery}
+          onChange={tab === 'discover' ? setQuery : setFollowQuery}
+          onSubmit={tab === 'discover' ? submitToMap : endFollowSearch}
           inputRef={inputRef}
-          placeholder="Restaurants, cuisines, lists"
-          aria-label="Search"
+          placeholder={tab === 'discover' ? 'Restaurants, cuisines, lists' : 'Search followed restaurants'}
+          aria-label={tab === 'discover' ? 'Search' : 'Search followed restaurants'}
         />
       </div>
 

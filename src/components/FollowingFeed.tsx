@@ -13,8 +13,10 @@ import {
   type CommunityRating,
   type UserProfile,
 } from '../lib/supabase-community';
-import { cn } from '../lib/utils';
+import { cn, safeImage } from '../lib/utils';
 import { displayCuisine } from '../lib/cuisine';
+import { scoreTintStyle } from '../lib/score';
+import { GlassChipRow } from '../lib/glass-buttons';
 import { CardShell, CardMedia, MetaRow, SaveButton, AddButton, ScoreBadge } from './cards';
 import { VerifiedBadge } from './VerifiedBadge';
 import { LoadingSkeletonList } from './LoadingSkeleton';
@@ -150,7 +152,16 @@ function extractCity(address: string): string {
 type SortOption = 'recent' | 'highest' | 'lowest';
 type RoleFilter = 'all' | 'friends' | 'experts';
 
-export const FollowingFeed: React.FC = () => {
+export const FollowingFeed: React.FC<{
+  /** Hosted inside the phone search page: the page owns the search field
+   *  (its text arrives via `query`) and this component renders its filter
+   *  row as floating glass in the page's chrome position. Standalone
+   *  (desktop) keeps its own field and web pills. */
+  variant?: 'searchTab';
+  query?: string;
+  onClearQuery?: () => void;
+}> = ({ variant, query: externalQuery, onClearQuery }) => {
+  const searchTab = variant === 'searchTab';
   const { user } = useAuth();
   const { phoneMode, setHideBottomNav } = useSettings();
   const { openAddRestaurantModal, toggleWishlist, isWishlisted, restaurantMeta } = useLists();
@@ -167,8 +178,11 @@ export const FollowingFeed: React.FC = () => {
     !!(feedCache.userId && feedCache.userId === user?.id && feedCache.ratings.length > 0),
   );
 
-  // Search + filters
-  const [query, setQuery] = useState('');
+  // Search + filters. Hosted in the search tab the query comes from the
+  // page's shared glass field; standalone it's this component's own input.
+  const [internalQuery, setInternalQuery] = useState('');
+  const query = searchTab ? (externalQuery ?? '') : internalQuery;
+  const clearQuery = () => { setInternalQuery(''); onClearQuery?.(); };
   const [sortBy, setSortBy] = useState<SortOption>('recent');
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
@@ -409,76 +423,138 @@ export const FollowingFeed: React.FC = () => {
 
   return (
     <div className="space-y-3 max-w-3xl mx-auto">
-      {/* Search — same treatment as the Discover tab's search bar so the
-          two tabs read as one surface. */}
-      <div className="w-full relative">
-        <SearchIcon
-          size={18}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
-        />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search followed restaurants..."
-          className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] rounded-full py-3 pl-11 pr-10 text-base font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:bg-on-surface/[0.06] transition-colors"
-          autoCapitalize="off"
-          autoCorrect="off"
-          aria-label="Search followed restaurants"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => setQuery('')}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60"
-            aria-label="Clear"
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
+      {/* Search — standalone only; hosted in the search tab the page's
+          shared glass field IS the search bar. */}
+      {!searchTab && (
+        <div className="w-full relative">
+          <SearchIcon
+            size={18}
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
+          />
+          <input
+            type="text"
+            value={internalQuery}
+            onChange={(e) => setInternalQuery(e.target.value)}
+            placeholder="Search followed restaurants..."
+            className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] rounded-full py-3 pl-11 pr-10 text-base font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:bg-on-surface/[0.06] transition-colors"
+            autoCapitalize="off"
+            autoCorrect="off"
+            aria-label="Search followed restaurants"
+          />
+          {internalQuery && (
+            <button
+              type="button"
+              onClick={() => setInternalQuery('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60"
+              aria-label="Clear"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
 
-      {/* Filter pill row — mirrors the Pantry / All Recipes chrome so every
-          filterable list shares the same affordance. Each pill opens the
-          unified filter sheet; active pills show their value + inline clear.
-          Geometry matters here: the pills' 44px hit overlays overflow their
-          32px boxes, and an overflow-x-auto row computes overflow-y to auto
-          — without the explicit h-11 + overflow-y-hidden the whole row could
-          be dragged vertically by a few pixels. City lives in the sheet
-          only; five pills keep the row scannable. */}
-      <div
-        className={cn('flex items-center gap-2 h-11 overflow-x-auto overflow-y-hidden scrollbar-hide overscroll-x-contain', phoneMode && '-mx-4 px-4')}
-        style={{ WebkitOverflowScrolling: 'touch' }}
-      >
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          icon={<SlidersHorizontal size={12} />} label="Filters"
-          active={activeFilterCount > 0}
-          badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          icon={<Users size={11} />}
-          label={whoLabel}
-          active={whoActive}
-          onClear={whoActive ? () => { setRoleFilter('all'); setPersonFilter([]); } : undefined} />
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
-          active={cuisineFilter.length > 0}
-          onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          label={priceFilter ?? 'Price'}
-          active={!!priceFilter}
-          onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
-        <FilterPill onClick={() => setFiltersOpen(true)}
-          icon={<ArrowUpDown size={11} />}
-          label={sortBy !== 'recent' ? SORT_LABELS[sortBy] : 'Sort'}
-          active={sortBy !== 'recent'}
-          onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
-        {hasActiveFilters && (
-          <button onClick={resetFilters}
-            className="hit-44-y flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
-            <X size={10} /><span>Clear</span>
-          </button>
-        )}
-      </div>
+      {searchTab ? (
+        /* Glass chips in the page's chrome position — the same geometry as
+           the Discover tab's row, so flipping the pill swaps the chips'
+           contents without moving them. Fixed: the page chrome floats; the
+           list scrolls beneath it. */
+        <div className="fixed inset-x-0 z-30 px-3.5" style={{ top: 'calc(env(safe-area-inset-top) + 130px)' }}>
+          <GlassChipRow
+            id="follow-chips"
+            className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-3.5 px-3.5 pb-1"
+            items={[
+              {
+                id: 'filters',
+                symbol: 'line.3.horizontal.decrease',
+                title: '',
+                prominent: activeFilterCount > 0,
+                label: activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters',
+                icon: <SlidersHorizontal size={14} strokeWidth={2.2} />,
+                onClick: () => setFiltersOpen(true),
+              },
+              {
+                id: 'who',
+                symbol: 'person.2',
+                title: whoLabel,
+                prominent: whoActive,
+                icon: <Users size={13} strokeWidth={2.2} />,
+                onClick: () => setFiltersOpen(true),
+              },
+              {
+                id: 'cuisine',
+                title: cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine',
+                prominent: cuisineFilter.length > 0,
+                onClick: () => setFiltersOpen(true),
+              },
+              {
+                id: 'price',
+                title: priceFilter ?? 'Price',
+                prominent: !!priceFilter,
+                onClick: () => setFiltersOpen(true),
+              },
+              {
+                id: 'sort',
+                symbol: 'arrow.up.arrow.down',
+                title: sortBy !== 'recent' ? SORT_LABELS[sortBy] : 'Sort',
+                prominent: sortBy !== 'recent',
+                icon: <ArrowUpDown size={13} strokeWidth={2.2} />,
+                onClick: () => setFiltersOpen(true),
+              },
+              ...(hasActiveFilters ? [{
+                id: 'clear',
+                symbol: 'xmark',
+                title: 'Clear',
+                label: 'Clear all filters',
+                icon: <X size={13} strokeWidth={2.2} />,
+                onClick: resetFilters,
+              }] : []),
+            ]}
+          />
+        </div>
+      ) : (
+        /* Filter pill row — mirrors the Pantry / All Recipes chrome so every
+           filterable list shares the same affordance. Each pill opens the
+           unified filter sheet; active pills show their value + inline clear.
+           Geometry matters here: the pills' 44px hit overlays overflow their
+           32px boxes, and an overflow-x-auto row computes overflow-y to auto
+           — without the explicit h-11 + overflow-y-hidden the whole row could
+           be dragged vertically by a few pixels. City lives in the sheet
+           only; five pills keep the row scannable. */
+        <div
+          className={cn('flex items-center gap-2 h-11 overflow-x-auto overflow-y-hidden scrollbar-hide overscroll-x-contain', phoneMode && '-mx-4 px-4')}
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <FilterPill onClick={() => setFiltersOpen(true)}
+            icon={<SlidersHorizontal size={12} />} label="Filters"
+            active={activeFilterCount > 0}
+            badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+          <FilterPill onClick={() => setFiltersOpen(true)}
+            icon={<Users size={11} />}
+            label={whoLabel}
+            active={whoActive}
+            onClear={whoActive ? () => { setRoleFilter('all'); setPersonFilter([]); } : undefined} />
+          <FilterPill onClick={() => setFiltersOpen(true)}
+            label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+            active={cuisineFilter.length > 0}
+            onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+          <FilterPill onClick={() => setFiltersOpen(true)}
+            label={priceFilter ?? 'Price'}
+            active={!!priceFilter}
+            onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
+          <FilterPill onClick={() => setFiltersOpen(true)}
+            icon={<ArrowUpDown size={11} />}
+            label={sortBy !== 'recent' ? SORT_LABELS[sortBy] : 'Sort'}
+            active={sortBy !== 'recent'}
+            onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
+          {hasActiveFilters && (
+            <button onClick={resetFilters}
+              className="hit-44-y flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+              <X size={10} /><span>Clear</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Body */}
       {loading && ratings.length === 0 ? (
@@ -508,7 +584,7 @@ export const FollowingFeed: React.FC = () => {
           {(hasActiveFilters || !!query) && (
             <button
               type="button"
-              onClick={() => { setQuery(''); resetFilters(); }}
+              onClick={() => { clearQuery(); resetFilters(); }}
               className="mt-4 px-4 py-2 rounded-full bg-on-surface/[0.05] text-xs font-semibold text-on-surface/70 hover:bg-on-surface/[0.09] transition-colors"
             >
               Clear search & filters
@@ -543,11 +619,89 @@ export const FollowingFeed: React.FC = () => {
                 price: r.price || '',
                 address: r.address || '',
               };
+              if (phoneMode) {
+                /* Phone: the map sheet's row anatomy — score disc leading,
+                   name over one facts line, thumb trailing — with the
+                   attribution line this feed exists for underneath. */
+                const tint = score > 0 ? scoreTintStyle(score) : null;
+                const safe = safeImage(r.photo_url);
+                const facts = [cuisine, r.price, city].filter(Boolean).join('  ·  ');
+                return (
+                  <li key={r.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          navigate(`/restaurant/${r.restaurant_id}`);
+                        }
+                      }}
+                      aria-label={`View ${r.restaurant_name}`}
+                      className="flex items-center gap-3.5 py-[14px] cursor-pointer outline-none transition-colors active:bg-on-surface/[0.03] focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      {tint ? (
+                        <span
+                          className="grid place-items-center rounded-full font-serif font-bold tabular-nums flex-shrink-0"
+                          style={{
+                            width: 40, height: 40, fontSize: 14, letterSpacing: '-0.02em',
+                            color: tint.color, background: tint.background, border: `1.5px solid ${tint.ring}`,
+                          }}
+                          aria-label={`Score ${score.toFixed(1)}`}
+                        >
+                          {score.toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="grid place-items-center rounded-full border-[1.5px] border-on-surface/[0.12] text-on-surface/25 flex-shrink-0" style={{ width: 40, height: 40 }} aria-hidden>
+                          <Bookmark size={15} />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-serif text-[16px] font-bold leading-[1.22] tracking-[-0.012em] text-on-surface truncate">{r.restaurant_name}</h3>
+                        {facts && (
+                          <p className="mt-[4px] truncate text-[12.5px] font-medium text-on-surface/55">{facts}</p>
+                        )}
+                        {/* Attribution — the point of this feed: who rated it, when. */}
+                        {profile && (
+                          <div className="mt-[5px] flex min-w-0 items-center gap-1.5">
+                            <span className={cn('grid h-[15px] w-[15px] flex-shrink-0 place-items-center rounded-full', color.bg)}>
+                              <span className={cn('text-[8px] font-serif font-bold leading-none', color.text)}>{initialOf(reviewer)}</span>
+                            </span>
+                            <p className="truncate text-[11.5px] font-medium text-on-surface/40">
+                              <span className="font-semibold text-on-surface/60">{reviewer}</span>
+                              {profile.is_verified && (
+                                <VerifiedBadge size={12} inline className="ml-1" />
+                              )}
+                              <span className="mx-1 text-on-surface/25">·</span>
+                              {timeAgo(activityTimestamp(r))}{isEditedActivity(r) ? ' · edited' : ''}
+                              {r.rating_method === 'slider' ? ' · self-scored' : ''}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      {safe && (
+                        <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-[12px] bg-on-surface/[0.05]">
+                          <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
+                        aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                        className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-full text-on-surface/45 transition-colors active:bg-on-surface/[0.06] active:scale-95"
+                      >
+                        <Bookmark size={16} className={cn(wishlisted && 'fill-primary text-primary')} />
+                      </button>
+                    </div>
+                  </li>
+                );
+              }
               return (
                 <li key={r.id}>
                   <CardShell
                     as="div"
-                    surface={phoneMode ? 'flat-row' : 'boxed'}
+                    surface="boxed"
                     role="button"
                     tabIndex={0}
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
@@ -560,23 +714,19 @@ export const FollowingFeed: React.FC = () => {
                     aria-label={`View ${r.restaurant_name}`}
                     className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
-                    <div className={cn('flex items-center', phoneMode ? 'gap-3 py-4' : 'gap-4 px-4 py-3.5')}>
-                      {/* Photos are noise in a text feed — desktop keeps the
-                          thumb, the phone row is typographic only. */}
-                      {!phoneMode && (
-                        <CardMedia
-                          src={r.photo_url}
-                          alt={r.restaurant_name || ''}
-                          aspect="thumb"
-                          rounded="xl"
-                          className="h-16 w-16 flex-shrink-0"
-                          imgClassName="group-hover:scale-[1.04]"
-                          zoomOnHover
-                          placeholderSize="sm"
-                        />
-                      )}
+                    <div className="flex items-center gap-4 px-4 py-3.5">
+                      <CardMedia
+                        src={r.photo_url}
+                        alt={r.restaurant_name || ''}
+                        aspect="thumb"
+                        rounded="xl"
+                        className="h-16 w-16 flex-shrink-0"
+                        imgClassName="group-hover:scale-[1.04]"
+                        zoomOnHover
+                        placeholderSize="sm"
+                      />
                       <div className="flex min-w-0 flex-1 flex-col justify-center">
-                        <h3 className={cn('truncate font-serif font-bold leading-tight group-hover:text-primary transition-colors', phoneMode ? 'text-[16.5px] tracking-[-0.01em]' : 'text-[16px]')}>
+                        <h3 className="truncate font-serif font-bold leading-tight group-hover:text-primary transition-colors text-[16px]">
                           {r.restaurant_name}
                         </h3>
                         <MetaRow items={[cuisine, r.price, city]} className="mt-1" />
@@ -598,31 +748,11 @@ export const FollowingFeed: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      {phoneMode ? (
-                        /* Phone: the reviewer's score + one quiet save action.
-                           Rating-it-yourself lives on the restaurant page —
-                           three stacked circles were the old row's clutter. */
-                        <div className="flex flex-shrink-0 items-center gap-1.5">
-                          <ScoreBadge rating={score} size="sm" />
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
-                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                            className={cn(
-                              'grid h-9 w-9 place-items-center rounded-full transition-colors',
-                              wishlisted ? 'text-primary' : 'text-on-surface/30 hover:text-on-surface/60 active:text-primary',
-                            )}
-                          >
-                            <Bookmark size={17} className={cn(wishlisted && 'fill-primary')} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-shrink-0 items-center gap-2">
-                          <ScoreBadge rating={score} size="md" />
-                          <SaveButton filled={wishlisted} onClick={() => toggleWishlist(meta)} />
-                          <AddButton onClick={() => openAddRestaurantModal(meta)} />
-                        </div>
-                      )}
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        <ScoreBadge rating={score} size="md" />
+                        <SaveButton filled={wishlisted} onClick={() => toggleWishlist(meta)} />
+                        <AddButton onClick={() => openAddRestaurantModal(meta)} />
+                      </div>
                     </div>
                   </CardShell>
                 </li>
