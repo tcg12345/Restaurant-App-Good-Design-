@@ -1,10 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, useReducedMotion } from 'motion/react';
 import { useGlassSegments, GlassButton } from '../lib/glass-buttons';
 import { SearchMain } from './SearchMain';
+import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
 
@@ -30,6 +31,14 @@ export const Search: React.FC = () => {
      unmounts, never moves, and never animates, because it never has
      anywhere to go. What changes is what sits under it. */
   const [searching, setSearching] = useState(false);
+  // Full screen while searching: the tab bar underneath is a way OUT of
+  // the thing you just opened, and OpenTable's — the reference here —
+  // hides it for exactly that reason.
+  const { setHideBottomNav } = useSettings();
+  useEffect(() => {
+    setHideBottomNav(searching);
+    return () => setHideBottomNav(false);
+  }, [searching, setHideBottomNav]);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const openSearch = () => {
@@ -71,9 +80,13 @@ export const Search: React.FC = () => {
 
       {/* Tab switcher — centred, because the control is a capsule now rather
           than a pair of underlined words hugging the left margin. */}
+      {/* The safe-area inset lives on the page, not on the pill — collapsing
+          the pill used to take the top padding with it and jam the field
+          under the status bar. */}
+      <div className="pt-safe-3" />
       <div
-        className="px-4 pt-safe-3 flex justify-center overflow-hidden transition-[max-height,opacity] duration-300 ease-[var(--ease-drawer)]"
-        style={{ maxHeight: searching ? 0 : 60, opacity: searching ? 0 : 1, paddingTop: searching ? 0 : undefined }}
+        className="px-4 flex justify-center overflow-hidden transition-[max-height,opacity,margin] duration-[400ms] ease-[var(--ease-drawer)]"
+        style={{ maxHeight: searching ? 0 : 60, opacity: searching ? 0 : 1, marginBottom: searching ? 0 : 0 }}
         aria-hidden={searching}
       >
         <div
@@ -107,7 +120,7 @@ export const Search: React.FC = () => {
         </div>
       </div>
 
-      <main className="px-4 pt-4">
+      <main className={cn('px-4', searching ? 'pt-1' : 'pt-4')}>
         {/* Keyed on the tab, so switching mounts a fresh panel that fades in
             over the outgoing one's place. No exit animation on purpose: a tab
             is a high-frequency control, and waiting for an exit before the
