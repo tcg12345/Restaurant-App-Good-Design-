@@ -420,6 +420,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                     frame: CGRect(x: x, y: y, width: w, height: h),
                     symbol: symbol,
                     title: entry["title"] as? String ?? "",
+                    titleStyle: entry["titleStyle"] as? String ?? "chip",
                     tint: Self.color(named: entry["tint"] as? String),
                     alpha: CGFloat(entry["alpha"] as? Double ?? 1),
                     badge: badge,
@@ -1176,6 +1177,11 @@ struct GlassButtonSpec {
     /// Set for a pill — a back chip with a word on it, rather than a circle
     /// with a glyph in it. Empty for the icon-only case.
     let title: String
+    /// How that word is set. `chip` is a small semibold label centred in the
+    /// capsule; `field` is a search bar — 17pt regular, leading aligned, so
+    /// the capsule reads as somewhere you type rather than as a button whose
+    /// label happens to be long.
+    let titleStyle: String
     let tint: UIColor
     let alpha: CGFloat
     let badge: String?
@@ -1672,8 +1678,20 @@ final class GlassButtonView: UIButton {
             // Through an attributed title rather than `baseForegroundColor`,
             // which the glass configuration resolves for itself.
             var container = AttributeContainer()
-            container.font = .systemFont(ofSize: 12.5, weight: .semibold)
+            let isField = spec.titleStyle == "field"
+            // A search bar is not a chip with a long label: the placeholder is
+            // body-sized and both it and the glyph sit at the leading edge,
+            // with the rest of the capsule empty and waiting.
+            container.font = .systemFont(ofSize: isField ? 17 : 12.5, weight: isField ? .regular : .semibold)
             container.foregroundColor = spec.tint
+            if isField {
+                config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
+                config.imagePadding = 6
+                config.titleAlignment = .leading
+                contentHorizontalAlignment = .leading
+            } else {
+                contentHorizontalAlignment = .center
+            }
             config.attributedTitle = AttributedString(spec.title, attributes: container)
             config.baseForegroundColor = spec.tint
             config.titleLineBreakMode = .byClipping

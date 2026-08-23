@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Star, Plus, Bookmark, UserPlus, Check, Loader2, ChefHat, ChevronDown, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
@@ -287,6 +287,46 @@ export const SearchMain: React.FC = () => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+
+  /* ── Arriving from the Search tab ──────────────────────────────────
+     The tab's own field hands over its rect. This page lays its field out
+     where it belongs, then — before paint — transforms it back onto that
+     rect and releases the transform on the next frame, so the browser
+     interpolates one real position into another (FLIP). Everything else
+     fades up under it. The result is the field staying put while the page
+     resolves around it, rather than one screen replacing another.
+
+     No rect (deep link, refresh, back-forward) means no transform and no
+     fade — there is nothing to continue from, and inventing a slide there
+     would be motion for its own sake. */
+  const from = (useLocation().state as { from?: { x: number; y: number; w: number; h: number } } | null)?.from;
+  const fieldWrapRef = useRef<HTMLDivElement>(null);
+  const [settled, setSettled] = useState(!from);
+
+  useLayoutEffect(() => {
+    if (!from || settled) return;
+    const el = fieldWrapRef.current;
+    if (!el) { setSettled(true); return; }
+    const to = el.getBoundingClientRect();
+    if (to.width === 0) { setSettled(true); return; }
+    el.style.transformOrigin = 'top left';
+    el.style.transform = `translate(${from.x - to.left}px, ${from.y - to.top}px) scale(${from.w / to.width})`;
+    el.style.transition = 'none';
+    // Two frames: one to commit the inverted transform, the next to let
+    // the transition see a change. A single rAF sometimes coalesces both
+    // writes into the same style recalc and the move never plays.
+    requestAnimationFrame(() => requestAnimationFrame(() => setSettled(true)));
+  }, [from, settled]);
+
+  const heroStyle: React.CSSProperties = settled
+    ? { transform: 'none', transition: 'transform 0.44s cubic-bezier(0.32, 0.72, 0, 1)' }
+    : {};
+  const restStyle: React.CSSProperties = from
+    ? {
+        opacity: settled ? 1 : 0,
+        transition: 'opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+      }
+    : {};
   // Mobile header dissolves with scroll (Discover-style); scroll back to
   // the top to search again — same as the home feed's search bar.
   const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
@@ -852,19 +892,26 @@ export const SearchMain: React.FC = () => {
     const friendsShown = (scope === 'friends' || expanded.friends) ? friendResults : friendResults.slice(0, 6);
 
     return (
-      <div className="min-h-screen bg-surface pb-24">
+      <div className="min-h-screen bg-surface pb-24" style={restStyle}>
         {/* Sticky search band: hero input + scope tabs */}
         <header ref={headerRef} className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
           <div className="px-8 pt-6">
-            <SearchField
-              className="max-w-2xl"
-              value={searchQuery}
-              onChange={setSearchQuery}
-              onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}
-              inputRef={inputRef}
-              placeholder="Restaurants, recipes, people"
-              aria-label="Search"
-            />
+            {/* The field arrives from wherever it was on the page you
+                tapped, then everything else resolves around it. FLIP: it is
+                already laid out where it belongs, and the transform that
+                puts it back over the trigger is released on the next frame,
+                so the browser interpolates a real position rather than us
+                animating a fake one into place. */}
+            <div ref={fieldWrapRef} style={heroStyle} className="max-w-2xl">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSubmit={() => { void runRestaurantSearch(searchQuery.trim()); }}
+                inputRef={inputRef}
+                placeholder="Restaurants, recipes, people"
+                aria-label="Search"
+              />
+            </div>
             <div className="flex items-center gap-6 mt-4">
               {scopeTabs.map((t) => (
                 <button

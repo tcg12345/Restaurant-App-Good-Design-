@@ -37,6 +37,11 @@ export interface GlassButtonSpec {
    *  glyph in it — the recipe flow's "‹ New recipe" chip. The native side
    *  lays glyph and text out together when this is present. */
   title?: string;
+  /** How the word on a pill is set. `chip` is the recipe flow's small
+   *  semibold label; `field` is a search bar — 17pt regular, leading
+   *  aligned, so the capsule reads as something you type into rather than
+   *  as a button whose label happens to be long. */
+  titleStyle?: 'chip' | 'field';
   /** Read by VoiceOver on the native control. */
   label: string;
   tint?: GlassTint;
@@ -151,6 +156,7 @@ function sample(): void {
       height: Math.round(rect.height * 100) / 100,
       symbol: reg.symbol,
       title: reg.title ?? '',
+      titleStyle: reg.titleStyle ?? 'chip',
       label: reg.label,
       kind: reg.kind ?? '',
       segments: (reg.segments ?? []).map((seg) => ({
@@ -281,7 +287,7 @@ export const GlassButton: React.FC<{
   onClick: () => void;
   className?: string;
   children: React.ReactNode;
-} & GlassButtonSpec> = ({ id, onClick, className, style, children, symbol, title, label, tint, badge, badgeTone, disabled }) => {
+} & GlassButtonSpec> = ({ id, onClick, className, style, children, symbol, title, titleStyle, label, tint, badge, badgeTone, disabled }) => {
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass;
   // Stable for the life of this element, unique across every other one.
@@ -298,6 +304,7 @@ export const GlassButton: React.FC<{
       el,
       symbol,
       title,
+      titleStyle,
       label,
       tint,
       badge,
@@ -310,7 +317,7 @@ export const GlassButton: React.FC<{
       registry.delete(key);
       wake();
     };
-  }, [active, key, symbol, title, label, tint, badge, badgeTone, disabled]);
+  }, [active, key, symbol, title, titleStyle, label, tint, badge, badgeTone, disabled]);
 
   const handle = useCallback(() => onClickRef.current(), []);
 

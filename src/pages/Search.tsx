@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, Map as MapIcon, ChevronRight } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, useReducedMotion } from 'motion/react';
-import { useGlassSegments } from '../lib/glass-buttons';
+import { useGlassSegments, GlassButton } from '../lib/glass-buttons';
 import { cn } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
 
@@ -16,6 +16,17 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
 
 export const Search: React.FC = () => {
   const navigate = useNavigate();
+  // Where the field is on THIS page, handed to the search page so it can
+  // start from exactly here. Without it the search page's own field snaps
+  // into place and the move reads as a page swap; with it the same object
+  // slides from one position to the other and the rest resolves around it.
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const openSearch = () => {
+    const r = fieldRef.current?.getBoundingClientRect();
+    navigate('/search/main', {
+      state: r ? { from: { x: r.left, y: r.top, w: r.width, h: r.height } } : undefined,
+    });
+  };
   const [tab, setTab] = useState<SearchTab>('discover');
   const reduceMotion = useReducedMotion();
   // Which way the lens just travelled, so the incoming panel enters from the
@@ -93,14 +104,35 @@ export const Search: React.FC = () => {
             {/* Real input that transitions into the full search page on focus.
                 readOnly keeps the mobile keyboard from flashing before the
                 route change; the auto-focus on SearchMain brings it up there. */}
-            <SearchField
-              readOnly
-              value=""
-              onChange={() => {}}
-              onPress={() => navigate('/search/main')}
-              placeholder="Restaurants, cuisines, lists"
-              aria-label="Search"
-            />
+            {/* Real glass, not a CSS approximation of it: the native side
+                already knows how to draw a capsule with a glyph and a word
+                (the recipe flow's back chip), it only needed to be told
+                that this one is a field rather than a chip. The children
+                are what a browser — or an iOS older than 26 — falls back
+                to, and they are the same material and metrics, so the two
+                paths agree.
+
+                Tapping it hands the field's own rect to the search page,
+                which starts from exactly there. */}
+            <div ref={fieldRef}>
+            <GlassButton
+              id="search-open"
+              symbol="magnifyingglass"
+              title="Restaurants, cuisines, lists"
+              titleStyle="field"
+              label="Search"
+              onClick={openSearch}
+              className="block w-full"
+            >
+              <SearchField
+                readOnly
+                value=""
+                onChange={() => {}}
+                placeholder="Restaurants, cuisines, lists"
+                aria-label="Search"
+              />
+            </GlassButton>
+            </div>
 
             {/* Prominent map entry — replaces the old navbar split. */}
             <button
