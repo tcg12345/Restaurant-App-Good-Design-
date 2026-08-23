@@ -1651,6 +1651,11 @@ final class GlassChipRowView: UIView {
     private let scroll = UIScrollView()
     private var buttons: [UIButton] = []
     private var ids: [String] = []
+    /// Which buttons are icon-only. Their intrinsic width cannot be
+    /// trusted: an image-only configuration reports a width that ignores
+    /// the content insets, which rendered the Filters chip as a ~20pt
+    /// pinched oval however wide its insets were set.
+    private var iconOnly: [Bool] = []
     /// Everything that decides how a capsule draws. A change rebuilds the
     /// configurations; an identical push costs nothing.
     private var shape: [String] = []
@@ -1730,6 +1735,7 @@ final class GlassChipRowView: UIView {
                 scroll.addSubview(button)
                 return button
             }
+            iconOnly = spec.segments.map { $0.title.isEmpty }
             ids = incomingIds
             shape = incomingShape
             setNeedsLayout()
@@ -1751,8 +1757,9 @@ final class GlassChipRowView: UIView {
         let height: CGFloat = min(38, bounds.height)
         // Side margins live in the content — see the note in init.
         var x: CGFloat = 14
-        for button in buttons {
-            let width = ceil(button.intrinsicContentSize.width)
+        for (index, button) in buttons.enumerated() {
+            let floor: CGFloat = index < iconOnly.count && iconOnly[index] ? 58 : 44
+            let width = max(ceil(button.intrinsicContentSize.width), floor)
             button.frame = CGRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
             x += width + 10
         }
