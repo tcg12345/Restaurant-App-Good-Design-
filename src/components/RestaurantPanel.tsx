@@ -24,8 +24,8 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
-  X, MapPin, Star, Bookmark, Plus, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff,
-  Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
+  X, Star, Bookmark, Plus, ArrowUpRight, Pencil, Loader2, ImageOff,
+  Navigation, Phone, Globe, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -38,7 +38,7 @@ import { useBlobPhotos } from '../lib/useBlobPhotos';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
-import { scoreColor } from '../lib/score';
+import { scoreColor, scoreTint } from '../lib/score';
 import { useLists } from '../contexts/ListsContext';
 import {
   getCommunityStats,
@@ -90,38 +90,64 @@ function formatVisitDate(iso: string): string {
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
-/* ── Score pill (Community / Friends / Experts) ───────────────────────── */
+/* ── The main detail page's section language, sized for the panel: a
+   rule opens a section and the title speaks in sentence case — no
+   spaced-caps eyebrows, no boxed tiles. ── */
+
+const SECTION_TITLE_STYLE: React.CSSProperties = {
+  fontSize: '17px',
+  fontWeight: 700,
+  lineHeight: 1.15,
+  letterSpacing: '-0.022em',
+};
+
+const SectionRule: React.FC = () => (
+  <div className="border-t border-on-surface/[0.14]" aria-hidden />
+);
+
+const SectionTitle: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <h3 className={cn('text-on-surface', className)} style={SECTION_TITLE_STYLE}>{children}</h3>
+);
+
+/** A fact with a label column — "TODAY · Open · closes 9:30 PM". */
+const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div className="flex items-baseline gap-4">
+    <span
+      className="flex-none w-[52px] text-on-surface/40"
+      style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}
+    >
+      {label}
+    </span>
+    <span className="flex-1 min-w-0" style={{ fontSize: '13.5px' }}>{children}</span>
+  </div>
+);
+
+/* ── Score disc (Community / Friends / Experts) ───────────────────────── */
 
 const ScorePill: React.FC<{
   label: string;
   score: number;
   count: number;
-  icon: React.ReactNode;
-}> = ({ label, score, count, icon }) => {
+}> = ({ label, score, count }) => {
   const has = count > 0;
+  // The tint and the ink come from the score itself, same tier palette
+  // as every other surface — a column can't be "the good one".
+  const unit = label === 'Experts' ? 'pick' : 'rating';
   return (
-    <div className={cn(
-      'flex flex-col gap-1.5 rounded-2xl px-2.5 py-3 transition-colors',
-      has ? 'bg-paper ring-1 ring-on-surface/[0.09]' : 'bg-on-surface/[0.03]',
-    )}>
-      <div className="flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-[0.06em] text-on-surface/55">
-        <span className="opacity-70 flex-shrink-0">{icon}</span>
-        <span className="min-w-0 truncate">{label}</span>
-      </div>
-      {/* Fixed-height value row so "No ratings" cells line up with scored
-          cells along a shared baseline. */}
-      <div className="flex items-end min-h-[24px]">
-        {has ? (
-          <div className="flex items-baseline gap-1">
-            <span className={cn('text-[23px] font-bold tabular-nums leading-none tracking-tight', scoreColor(score))}>
-              {score.toFixed(1)}
-            </span>
-            <span className="text-[11px] text-on-surface/45 tabular-nums">· {count}</span>
-          </div>
-        ) : (
-          <span className="text-[12px] text-on-surface/40 leading-none">No ratings</span>
+    <div className="flex-1 min-w-0 flex flex-col items-center text-center">
+      <span
+        className={cn(
+          'w-16 h-16 rounded-full flex items-center justify-center tabular-nums',
+          has ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
         )}
-      </div>
+        style={{ fontSize: '21px', fontWeight: 700, letterSpacing: '-0.01em' }}
+      >
+        {has ? score.toFixed(1) : '—'}
+      </span>
+      <span className="mt-2.5 text-on-surface" style={{ fontSize: '13px', fontWeight: 700 }}>{label}</span>
+      <span className={cn('mt-1', has ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '11.5px' }}>
+        {has ? `${count} ${unit}${count === 1 ? '' : 's'}` : 'None yet'}
+      </span>
     </div>
   );
 };
@@ -185,12 +211,12 @@ interface ActionButtonProps {
 const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external, onClick }) => {
   const inner = (
     <>
-      <span className="text-on-surface/75">{icon}</span>
-      <span className="text-[11px] font-semibold text-on-surface/75">{label}</span>
+      {icon}
+      <span style={{ fontSize: '12.5px', fontWeight: 700 }}>{label}</span>
     </>
   );
-  const cls = 'flex flex-col items-center justify-center gap-1 h-[60px] rounded-2xl bg-paper ring-1 ring-on-surface/[0.08] hover:bg-on-surface/[0.04] hover:ring-on-surface/[0.14] transition-colors';
-  const disabledCls = 'flex flex-col items-center justify-center gap-1 h-[60px] rounded-2xl bg-on-surface/[0.03] ring-1 ring-on-surface/[0.05] opacity-40 cursor-not-allowed';
+  const cls = 'flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-on-surface/20 text-on-surface px-3 py-[11px] active:opacity-80 transition-opacity';
+  const disabledCls = 'flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-on-surface/[0.12] text-on-surface/30 px-3 py-[11px] cursor-not-allowed';
   if (!href) return <div className={disabledCls}>{inner}</div>;
   return (
     <a
@@ -629,41 +655,42 @@ export const RestaurantPanelBody: React.FC<{
         style={{ overscrollBehavior: 'contain' }}
       >
         {headSlot}
-        {/* Action row — Directions / Call / Website */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Action row — outlined pills, the detail page's control
+            language: each of these leaves the app, so they read as
+            controls rather than tiles. */}
+        <div className="flex gap-2">
           <ActionButton
-            icon={<Navigation size={18} />}
+            icon={<Navigation size={15} />}
             label="Directions"
             href={directionsHref}
             external
             onClick={directionsHref ? () => { void openExternalUrl(directionsHref); } : undefined}
           />
           <ActionButton
-            icon={<Phone size={18} />}
+            icon={<Phone size={15} />}
             label="Call"
             href={phoneHref}
           />
           <ActionButton
-            icon={<Globe size={18} />}
+            icon={<Globe size={15} />}
             label="Website"
             href={websiteHref}
             external
           />
         </div>
 
-        {/* Score grid */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Ratings — three tinted discs over a name and a count, the
+            same tier palette every score wears everywhere. */}
+        <div className="flex gap-2">
           <ScorePill
             label="Community"
             score={community?.avg ?? 0}
             count={community?.count ?? 0}
-            icon={<Users size={11} />}
           />
           <ScorePill
             label="Friends"
             score={friends?.avg ?? 0}
             count={friends?.count ?? 0}
-            icon={<Users size={11} />}
           />
           <ScorePill
             label="Experts"
@@ -673,7 +700,6 @@ export const RestaurantPanelBody: React.FC<{
                 : 0
             }
             count={experts.length}
-            icon={<Award size={11} />}
           />
         </div>
 
@@ -681,37 +707,35 @@ export const RestaurantPanelBody: React.FC<{
             chips so "where it is / when it's open" is at-a-glance without
             scrolling past the social proof. Hours default closed; today's
             slice is shown on the trigger row. */}
-        <div className="space-y-2">
+        <div className="flex flex-col gap-3">
           {snapshot.address && (
-            <div className="flex items-start gap-2.5 text-on-surface/75">
-              <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
-              <p className="text-[13px] leading-snug">{snapshot.address}</p>
-            </div>
+            <MetaRow label="Where">
+              <span className="text-on-surface/80 leading-snug">{snapshot.address}</span>
+            </MetaRow>
           )}
           {hours.length > 0 && (
             <div>
-              <button
-                type="button"
-                onClick={() => setHoursOpen((o) => !o)}
-                aria-expanded={hoursOpen}
-                className="w-full flex items-center gap-2.5 text-on-surface/75 hover:text-on-surface transition-colors py-1.5"
-              >
-                <Clock size={14} className="flex-shrink-0 text-on-surface/50" />
-                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
+              <MetaRow label="Today">
+                <button
+                  type="button"
+                  onClick={() => setHoursOpen((o) => !o)}
+                  aria-expanded={hoursOpen}
+                  className="w-full flex items-center gap-2 text-left"
+                >
                   {isOpenNow !== null && (
                     <>
-                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', isOpenNow ? 'bg-emerald-600' : 'bg-clay')} />
-                      <span className={cn('text-[13px] font-semibold flex-shrink-0', isOpenNow ? 'text-emerald-700' : 'text-clay')}>
+                      <span className={cn('inline-block w-[7px] h-[7px] rounded-full flex-shrink-0', isOpenNow ? 'bg-olive' : 'bg-clay')} />
+                      <span className={cn('font-semibold flex-shrink-0', isOpenNow ? 'text-olive' : 'text-clay')}>
                         {isOpenNow ? 'Open' : 'Closed'}
                       </span>
                     </>
                   )}
                   {todayHours && (
-                    <span className="text-[13px] text-on-surface/65 truncate">· {todayHours}</span>
+                    <span className="text-on-surface/55 truncate">· {todayHours}</span>
                   )}
-                </div>
-                <ChevronDown size={14} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
-              </button>
+                  <ChevronDown size={14} className={cn('ml-auto text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+                </button>
+              </MetaRow>
               <AnimatePresence initial={false}>
                 {hoursOpen && (
                   <motion.div
@@ -721,7 +745,7 @@ export const RestaurantPanelBody: React.FC<{
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <ul className="mt-1.5 pl-[26px] space-y-1">
+                    <ul className="mt-1.5 pl-[68px] space-y-1">
                       {hours.map((line, i) => {
                         const today = new Date().getDay();
                         // Google returns Mon-first; getDay returns Sun=0..Sat=6.
@@ -752,10 +776,10 @@ export const RestaurantPanelBody: React.FC<{
             details accordion that mirrors the layout of the full detail page. */}
         {myRating ? (
           <section aria-label="Your rating">
-            <div className="border-t border-on-surface/[0.09]" />
-            <div className="py-4">
-              <div className="flex items-baseline justify-between gap-3 mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55">Your rating</span>
+            <SectionRule />
+            <div className="pt-3 pb-1">
+              <div className="flex items-baseline justify-between gap-3 mb-3">
+                <SectionTitle>Your rating</SectionTitle>
                 <button
                   type="button"
                   onClick={onRate}
@@ -895,7 +919,6 @@ export const RestaurantPanelBody: React.FC<{
                   : 'Add to a list'}
               </button>
             </div>
-            <div className="border-t border-on-surface/[0.09]" />
           </section>
         ) : (
           <div className="space-y-2">
@@ -926,12 +949,13 @@ export const RestaurantPanelBody: React.FC<{
             community photos. */}
         {communityPhotosDisplay.length > 0 && (
           <section>
+            <SectionRule />
             <button
               type="button"
               onClick={() => { setGalleryStart(0); setGalleryOpen(true); }}
-              className="w-full flex items-baseline justify-between mb-2.5 text-left"
+              className="w-full pt-3 flex items-baseline justify-between mb-2.5 text-left"
             >
-              <h3 className="font-serif font-bold text-on-surface text-[15px]">Photos</h3>
+              <SectionTitle>Photos</SectionTitle>
               <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/60 hover:text-on-surface transition-colors">
                 See all {communityPhotosDisplay.length}
                 <ChevronRight size={13} />
@@ -995,8 +1019,9 @@ export const RestaurantPanelBody: React.FC<{
           <>
             {topFriendReviews.length > 0 && (
               <section>
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <h3 className="font-serif font-bold text-on-surface text-[15px]">From people you follow</h3>
+                <SectionRule />
+                <div className="pt-3 flex items-baseline justify-between mb-1.5">
+                  <SectionTitle>From people you follow</SectionTitle>
                   {friends && friends.count > topFriendReviews.length && (
                     <span className="text-[11px] text-on-surface/45">{friends.count} total</span>
                   )}
@@ -1025,7 +1050,8 @@ export const RestaurantPanelBody: React.FC<{
 
             {experts.length > 0 && (
               <section>
-                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-1.5">Verified picks</h3>
+                <SectionRule />
+                <SectionTitle className="pt-3 mb-1.5">Verified picks</SectionTitle>
                 <div className="divide-y divide-on-surface/[0.06] -mt-1">
                   {experts.slice(0, 3).map((e) => (
                     <ReviewRow
