@@ -1530,11 +1530,31 @@ final class GlassActionGroupView: UIView {
 
     private static func makeEffect() -> UIVisualEffect {
         if #available(iOS 26.0, *) {
-            let effect = UIGlassEffect()
+            // Same pipeline as every lone capsule: CLEAR glass wearing the
+            // family tint. The default (regular) glass reads a step darker
+            // than the buttons beside it — the mismatch the home header
+            // showed between the search circle and this capsule.
+            let effect = UIGlassEffect(style: .clear)
             effect.isInteractive = true
+            effect.tintColor = GlassTabBar.glassTint
             return effect
         }
         return UIBlurEffect(style: .systemChromeMaterial)
+    }
+
+    /// The family hairline, on the effect view's layer — the same rim every
+    /// button draws through its configuration. Re-resolved on trait flips.
+    private func applyRim() {
+        glass.layer.borderColor = GlassTabBar.glassRim.resolvedColor(with: traitCollection).cgColor
+        glass.layer.borderWidth = 1
+        glass.layer.cornerRadius = bounds.height / 2
+        glass.layer.cornerCurve = .continuous
+        glass.layer.masksToBounds = false
+    }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        applyRim()
     }
 
     override init(frame: CGRect) {
@@ -1564,6 +1584,7 @@ final class GlassActionGroupView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        applyRim()
         if #available(iOS 26.0, *) {} else {
             glass.layer.cornerRadius = min(bounds.width, bounds.height) / 2
         }
