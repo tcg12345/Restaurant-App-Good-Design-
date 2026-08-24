@@ -160,6 +160,16 @@
   --color-ink-2: #c2c2c2;
   --color-ink-3: #8a8a8a;
   --color-ink-4: #5d5d5d;
+  /* Warm accents lift, the way iOS system colors do in dark: the deep
+     rust and moss olive sit at ≈2.3:1 against the graphite ground, so
+     every text-primary label, tinted icon and bg-primary wash went mud.
+     Same move the onboarding kit already makes (--ob-terra #a6371d →
+     #d3623d). Solids keep white text (bold labels hold at ≈3.5–3.8:1);
+     `clay`/`olive` are aliases of primary/secondary and flip with them. */
+  --color-primary: #d3623d;
+  --color-clay: #d3623d;
+  --color-secondary: #7f8f60;
+  --color-olive: #7f8f60;
   /* Score tiers: solids stay put (fills under white text); tints become
      low-alpha washes over the dark card and inks lighten for contrast. */
   --color-score-high-tint: rgba(64, 145, 108, 0.16);
