@@ -1021,6 +1021,8 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             </h4>
             {expertsLoading && experts.length === 0 ? (
               <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-on-surface/30" /></div>
+            ) : experts.length === 0 ? (
+              <p className="py-6 text-[12.5px] text-on-surface/45">No verified accounts yet — search for people by name instead.</p>
             ) : (
               <ul>
                 {experts.map((p, i) => personRow(
