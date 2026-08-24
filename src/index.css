@@ -131,6 +131,11 @@
      --ease-out-strong  things arriving and leaving. The default.
      --ease-lens        the tighter one the newer glass chrome uses.
      --ease-drawer      iOS's own sheet curve, for anything from an edge. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 :root {
   --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-lens: cubic-bezier(0.16, 1, 0.3, 1);

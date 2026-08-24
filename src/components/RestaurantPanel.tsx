@@ -25,7 +25,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
   X, Star, Bookmark, Plus, ArrowUpRight, Pencil, Loader2, ImageOff,
-  Navigation, Phone, Globe, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
+  Navigation, Phone, Globe, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -39,6 +39,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { scoreColor, scoreTint } from '../lib/score';
+import { GlassButton } from '../lib/glass-buttons';
 import { useLists } from '../contexts/ListsContext';
 import {
   getCommunityStats,
@@ -232,30 +233,28 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external
 
 /* ── Your Rating expanded details (mirrors detail page layout) ────────── */
 
+/** One recorded fact — the same label-column anatomy the WHERE row uses,
+ *  hairline-divided, with the whole row tappable into that section of the
+ *  editor. Replaces the mono spaced-caps eyebrows + per-label pencils. */
 const RatingDetailRow: React.FC<{
-  icon: React.ReactNode;
   label: string;
   onEdit: () => void;
   children: React.ReactNode;
-}> = ({ icon, label, onEdit, children }) => (
-  <div>
-    <button
-      type="button"
-      onClick={onEdit}
-      className="flex items-center gap-1.5 uppercase text-on-surface/70 hover:text-on-surface transition-colors"
-      style={{
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-        fontSize: '10px',
-        fontWeight: 700,
-        letterSpacing: '0.14em',
-      }}
+}> = ({ label, onEdit, children }) => (
+  <button
+    type="button"
+    onClick={onEdit}
+    className="w-full flex items-start gap-4 py-3 text-left active:opacity-70 transition-opacity group"
+  >
+    <span
+      className="flex-none w-[52px] pt-0.5 text-on-surface/40"
+      style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}
     >
-      {icon}
-      <span>{label}</span>
-      <Pencil size={10} className="text-on-surface/40 ml-0.5" />
-    </button>
-    <div className="mt-1.5">{children}</div>
-  </div>
+      {label}
+    </span>
+    <span className="flex-1 min-w-0">{children}</span>
+    <Pencil size={12} className="flex-none mt-1 text-on-surface/25 group-hover:text-on-surface/60 transition-colors" />
+  </button>
 );
 
 /* ── Body (shared between sheet + panel) ──────────────────────────────── */
@@ -506,6 +505,15 @@ export const RestaurantPanelBody: React.FC<{
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Creating a Mapbox WebGL context is main-thread work heavy enough to
+  // stutter the sheet's entrance — hold the map back until the slide has
+  // settled, then fade it in over the cream placeholder.
+  const [mediaSettled, setMediaSettled] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMediaSettled(true), 460);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <>
       {/* Embedded callers (noHero) supply their own header chrome — a
@@ -522,28 +530,30 @@ export const RestaurantPanelBody: React.FC<{
       <div className="relative flex-1 min-h-0">
         {!noHero && (
           <>
-            <button
-              type="button"
+            <GlassButton
+              id="panel-close"
+              symbol="xmark"
+              label="Close"
               onClick={onClose}
-              aria-label="Close"
-              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-20"
+              className="absolute top-3 right-3 w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-20"
             >
-              <X size={17} />
-            </button>
-            <button
-              type="button"
+              <X size={19} />
+            </GlassButton>
+            <GlassButton
+              id="panel-save"
+              symbol={wishlisted ? 'bookmark.fill' : 'bookmark'}
+              label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+              pressed={wishlisted}
               onClick={onWishlist}
-              aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-              aria-pressed={wishlisted}
               className={cn(
-                'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors z-20',
+                'absolute top-3 left-3 w-11 h-11 rounded-full backdrop-blur flex items-center justify-center transition-colors z-20',
                 wishlisted
                   ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
                   : 'bg-black/55 text-white hover:bg-black/75',
               )}
             >
-              <Bookmark size={17} className={cn(wishlisted && 'fill-white')} />
-            </button>
+              <Bookmark size={19} className={cn(wishlisted && 'fill-white')} />
+            </GlassButton>
           </>
         )}
 
@@ -554,7 +564,7 @@ export const RestaurantPanelBody: React.FC<{
         >
           {!noHero && (
             <div className="relative w-full h-[168px] bg-cream-2 overflow-hidden">
-              {hasMap ? (
+              {hasMap && mediaSettled ? (
                 <div
                   key={`${snapshot.id}-${lat}-${lng}`}
                   ref={mapContainerRef}
@@ -562,8 +572,11 @@ export const RestaurantPanelBody: React.FC<{
                   // { position: relative }`, which beats the Tailwind class
                   // and collapsed the container to zero height. The saturate
                   // filter quiets the cartography so it reads as warm gray.
+                  className="animate-[fadeIn_0.35s_ease_both]"
                   style={{ position: 'absolute', inset: 0, filter: 'saturate(0.55)' }}
                 />
+              ) : hasMap ? (
+                <div className="absolute inset-0 bg-cream-2" />
               ) : snapshot.image ? (
                 <img
                   src={snapshot.image}
@@ -802,74 +815,64 @@ export const RestaurantPanelBody: React.FC<{
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="pt-4 space-y-4">
-                      <RatingDetailRow icon={<StickyNote size={12} />} label="Notes" onEdit={() => openAt('notes')}>
+                    <div className="mt-3 border-t border-on-surface/[0.08] divide-y divide-on-surface/[0.08]">
+                      <RatingDetailRow label="Notes" onEdit={() => openAt('notes')}>
                         {hasNotes ? (
-                          <p className="font-serif italic text-on-surface/85 text-[14px] leading-relaxed">
+                          <p className="font-serif italic text-on-surface/85 text-[13.5px] leading-relaxed">
                             "{myRating.notes}"
                           </p>
                         ) : (
-                          <button onClick={() => openAt('notes')} className="italic text-on-surface/45 hover:text-on-surface/70 transition-colors text-[13px]">
-                            Add notes…
-                          </button>
+                          <p className="italic text-on-surface/40 text-[13px]">Add notes…</p>
                         )}
                       </RatingDetailRow>
 
-                      <RatingDetailRow icon={<Tag size={12} />} label="Tags" onEdit={() => openAt('tags')}>
+                      <RatingDetailRow label="Tags" onEdit={() => openAt('tags')}>
                         {hasTags ? (
-                          <div className="flex flex-wrap gap-1.5">
+                          <span className="flex flex-wrap gap-1.5">
                             {myRating.tags.map((t) => (
                               <span key={t} className="px-2.5 py-1 rounded-full bg-cream-2 text-on-surface/80 text-[11px] font-medium">
                                 {t}
                               </span>
                             ))}
-                          </div>
+                          </span>
                         ) : (
-                          <button onClick={() => openAt('tags')} className="italic text-on-surface/45 hover:text-on-surface/70 transition-colors text-[13px]">
-                            Add tags…
-                          </button>
+                          <p className="italic text-on-surface/40 text-[13px]">Add tags…</p>
                         )}
                       </RatingDetailRow>
 
-                      <RatingDetailRow icon={<ImageIcon size={12} />} label="Photos" onEdit={() => openAt('photos')}>
+                      <RatingDetailRow label="Photos" onEdit={() => openAt('photos')}>
                         {hasPhotos ? (
-                          <div className="flex gap-2 overflow-x-auto -mx-0.5 px-0.5 snap-x snap-mandatory scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+                          <span className="flex gap-1.5 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
                             {myRating.photos.map((p, i) => (
                               <img
                                 key={i}
                                 src={photoBlobMap[p.url] ?? p.url}
                                 alt=""
-                                className="w-20 h-20 rounded-xl object-cover flex-shrink-0 snap-start"
+                                className="w-14 h-14 rounded-[10px] object-cover flex-shrink-0"
                                 referrerPolicy="no-referrer"
                               />
                             ))}
-                          </div>
+                          </span>
                         ) : (
-                          <button onClick={() => openAt('photos')} className="italic text-on-surface/45 hover:text-on-surface/70 transition-colors text-[13px]">
-                            Add photos…
-                          </button>
+                          <p className="italic text-on-surface/40 text-[13px]">Add photos…</p>
                         )}
                       </RatingDetailRow>
 
-                      <RatingDetailRow icon={<CalendarDays size={12} />} label="Visited" onEdit={() => openAt('date')}>
+                      <RatingDetailRow label="Visited" onEdit={() => openAt('date')}>
                         {myRating.visitDate ? (
-                          <p className="text-on-surface/85 text-[13px] font-medium">
+                          <p className="text-on-surface/85 text-[13.5px]">
                             {formatVisitDate(myRating.visitDate)}
                           </p>
                         ) : (
-                          <button onClick={() => openAt('date')} className="italic text-on-surface/45 hover:text-on-surface/70 transition-colors text-[13px]">
-                            Add date…
-                          </button>
+                          <p className="italic text-on-surface/40 text-[13px]">Add date…</p>
                         )}
                       </RatingDetailRow>
 
-                      <RatingDetailRow icon={<DollarSign size={12} />} label="Price" onEdit={() => openAt('price')}>
+                      <RatingDetailRow label="Price" onEdit={() => openAt('price')}>
                         {hasPrice ? (
-                          <p className="text-on-surface/85 text-[13px] font-medium tabular-nums">{myRating.price}</p>
+                          <p className="text-on-surface/85 text-[13.5px] tabular-nums">{myRating.price}</p>
                         ) : (
-                          <button onClick={() => openAt('price')} className="italic text-on-surface/45 hover:text-on-surface/70 transition-colors text-[13px]">
-                            Add price…
-                          </button>
+                          <p className="italic text-on-surface/40 text-[13px]">Add price…</p>
                         )}
                       </RatingDetailRow>
                     </div>
@@ -1098,11 +1101,13 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              // iOS's own sheet curve — the spring stuttered against the
+              // Mapbox init happening mid-entrance.
+              transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
               {...dragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
-              style={{ height: '92%' }}
+              style={{ height: '92%', willChange: 'transform' }}
             >
               {/* Drag-handle pill — absolute so it overlays the hero map
                   at the top of the sheet rather than sitting on its own
