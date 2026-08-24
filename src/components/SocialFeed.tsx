@@ -1741,11 +1741,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
                 {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white w-full rounded-t-3xl flex flex-col"
-                style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
+                className="bg-surface w-full rounded-t-[24px] flex flex-col"
+                style={{ height: '78%', paddingBottom: 'var(--kb-height, 0px)' }}
               >
-                <div className="pt-2 pb-1 flex justify-center">
-                  <span className="w-10 h-1 rounded-full bg-on-surface/20" />
+                <div className="pt-2.5 pb-1 flex justify-center">
+                  <span className="w-9 h-1 rounded-full bg-on-surface/15" />
                 </div>
                 <CommentsBody
                   targetId={openPostCommentsId}

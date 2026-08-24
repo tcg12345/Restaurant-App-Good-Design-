@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft, MapPin, RefreshCw } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, MoreHorizontal, Play, Pause, ArrowLeft, ArrowUp, MapPin, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight } from '../lib/score';
@@ -10,6 +10,8 @@ import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext'
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
+import { useAuth } from '../contexts/AuthContext';
+import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { canonicalShareUrl } from '../lib/native-share';
@@ -1377,10 +1379,15 @@ interface CommentsBodyProps {
   scrollRef?: React.RefObject<HTMLDivElement | null>;
 }
 
+/** One tap drops the emoji into the draft — the low-effort comment that
+ *  makes the composer feel alive (same idea as Instagram's reaction row). */
+const QUICK_EMOJI = ['❤️', '🙌', '🔥', '👏', '😍', '😂', '😮', '😢'];
+
 /** State + composer + list. The wrapper (sheet/panel) decides chrome. */
 export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, variant, loadComments, addComment, deleteComment, currentUserId, scrollRef }) => {
   const { showToast } = useToast();
   const { requireSignIn } = useSignInModal();
+  const { profile } = useAuth();
   const [comments, setComments] = useState<UnifiedComment[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1487,14 +1494,18 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   // with the surface color in light AND dark mode (the mobile sheet used to
   // hardcode a light stone palette, which broke in dark mode).
   const headerCls = 'border-b border-on-surface/[0.07]';
-  const titleCls = 'font-serif font-bold text-on-surface text-base';
+  const titleCls = 'font-serif font-bold text-on-surface text-[17px]';
   const closeCls = 'w-8 h-8 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
-  const composerInputCls = 'h-11 rounded-full bg-on-surface/[0.05] px-4 text-sm placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:ring-2 focus:ring-on-surface/10';
-  const submitActiveCls = 'bg-on-surface text-surface hover:bg-on-surface/90';
   const composerBorderCls = 'border-on-surface/[0.07]';
   const usernameCls = 'text-on-surface';
   const bodyTextCls = 'text-on-surface/85';
   const muteCls = 'text-on-surface/40';
+
+  // Composer identity — your own avatar in front of the input, so the box
+  // reads as "you, about to speak" instead of an anonymous form field.
+  const myName = profile?.display_name || profile?.username || 'You';
+  const myAvatarCls = currentUserId ? pickAvatarColor(currentUserId) : 'bg-on-surface/20';
+  const myInitials = currentUserId ? initialsFor(myName) : 'U';
 
   const renderRow = (c: UnifiedComment, isReply: boolean): React.ReactNode => {
     const replies = !isReply ? (repliesByParent[c.id] || []) : [];
@@ -1530,9 +1541,9 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
             </button>
           )}
 
-          {/* Reply composer */}
+          {/* Reply composer — same embedded-send pill as the main box */}
           {!isReply && replying && (
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex items-center h-9 rounded-full bg-on-surface/[0.05] pl-3.5 pr-1 transition-colors focus-within:bg-on-surface/[0.08] focus-within:ring-2 focus-within:ring-on-surface/10">
               <input
                 value={replyDraft}
                 onChange={(e) => setReplyDraft(e.target.value)}
@@ -1540,19 +1551,21 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
                 placeholder={`Reply to @${c.author?.username || 'user'}…`}
                 autoFocus
                 maxLength={500}
-                className="flex-1 h-9 rounded-full bg-on-surface/[0.05] px-3.5 text-[13px] placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:outline-none focus:ring-2 focus:ring-on-surface/10"
+                className="flex-1 min-w-0 bg-transparent text-[13px] text-on-surface placeholder:text-on-surface/40 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => onSubmitReply(c.id)}
                 disabled={!replyDraft.trim() || replyPosting}
                 className={cn(
-                  'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
-                  replyDraft.trim() && !replyPosting ? submitActiveCls : 'bg-on-surface/[0.08] text-on-surface/35 cursor-not-allowed',
+                  'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
+                  replyDraft.trim() && !replyPosting
+                    ? 'bg-primary text-white scale-100'
+                    : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
                 )}
                 aria-label="Post reply"
               >
-                {replyPosting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                {replyPosting ? <Loader2 size={12} className="animate-spin" /> : <ArrowUp size={13} strokeWidth={2.6} />}
               </button>
             </div>
           )}
@@ -1592,15 +1605,20 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
 
   return (
     <>
-      {/* Header */}
-      <div className={cn('px-5 pt-3 pb-3 flex items-center justify-between flex-shrink-0', headerCls)}>
+      {/* Header — centered title, count as a quiet suffix */}
+      <div className={cn('relative px-5 pt-2.5 pb-3 flex items-center justify-center flex-shrink-0', headerCls)}>
         <h3 className={titleCls}>
-          {comments.length === 0 ? 'Comments' : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+          Comments
+          {comments.length > 0 && (
+            <span className="ml-2 align-middle font-sans text-[12.5px] font-semibold text-on-surface/40 tabular-nums">
+              {comments.length}
+            </span>
+          )}
         </h3>
         <button
           type="button"
           onClick={onClose}
-          className={cn('flex items-center justify-center transition-colors', closeCls)}
+          className={cn('absolute right-4 top-1/2 -translate-y-1/2 flex items-center justify-center transition-colors', closeCls)}
           aria-label="Close comments"
         >
           <X size={16} />
@@ -1626,44 +1644,71 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
             </button>
           </div>
         ) : comments.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-sm text-on-surface/55">No comments yet.</p>
-            <p className={cn('text-xs mt-1', muteCls)}>Be the first to say something.</p>
+          <div className="flex flex-col items-center py-12 text-center">
+            <div className="w-12 h-12 rounded-full bg-on-surface/[0.05] flex items-center justify-center">
+              <MessageCircle size={22} className="text-on-surface/30" />
+            </div>
+            <p className="mt-3 text-[14.5px] font-semibold text-on-surface/75">No comments yet</p>
+            <p className={cn('mt-0.5 text-[12.5px]', muteCls)}>Start the conversation.</p>
           </div>
         ) : (
           topLevel.map((c) => renderRow(c, false))
         )}
       </div>
 
-      {/* Composer */}
-      <div className={cn('border-t px-4 py-3 flex items-center gap-2 flex-shrink-0', composerBorderCls)}>
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
-          // Guests can tap the box to be prompted to sign in (readOnly stops
-          // typing); never a silent dead-end.
-          onMouseDown={() => { if (!currentUserId) requireSignIn('Sign in to comment'); }}
-          placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
-          readOnly={!currentUserId}
-          disabled={posting}
-          maxLength={500}
-          className={cn('flex-1 focus:outline-none disabled:opacity-50', composerInputCls)}
-        />
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={!currentUserId || !draft.trim() || posting}
-          className={cn(
-            'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
-            draft.trim() && !posting && currentUserId
-              ? submitActiveCls
-              : 'bg-on-surface/[0.08] text-on-surface/35 cursor-not-allowed',
-          )}
-          aria-label="Post comment"
-        >
-          {posting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-        </button>
+      {/* Composer — emoji quick-row, then your avatar + a pill with the
+          send button embedded inside it (iMessage-style arrow). */}
+      <div className={cn('border-t flex-shrink-0', composerBorderCls)}>
+        {currentUserId && (
+          <div className="flex items-center justify-between px-5 pt-2.5">
+            {QUICK_EMOJI.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setDraft((d) => (d + e).slice(0, 500))}
+                disabled={posting}
+                className="py-0.5 text-[22px] leading-none transition-transform active:scale-125"
+                aria-label={`React with ${e}`}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className={cn('flex items-center gap-2.5 px-4 pt-2.5', variant === 'sheet' ? 'pb-safe-3' : 'pb-3')}>
+          <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0', myAvatarCls)}>
+            {myInitials}
+          </div>
+          <div className="flex-1 min-w-0 flex items-center h-11 rounded-full bg-on-surface/[0.05] pl-4 pr-1.5 transition-colors focus-within:bg-on-surface/[0.08] focus-within:ring-2 focus-within:ring-on-surface/10">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+              // Guests can tap the box to be prompted to sign in (readOnly stops
+              // typing); never a silent dead-end.
+              onMouseDown={() => { if (!currentUserId) requireSignIn('Sign in to comment'); }}
+              placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
+              readOnly={!currentUserId}
+              disabled={posting}
+              maxLength={500}
+              className="flex-1 min-w-0 bg-transparent text-[14px] text-on-surface placeholder:text-on-surface/40 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={!currentUserId || !draft.trim() || posting}
+              className={cn(
+                'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
+                draft.trim() && !posting && currentUserId
+                  ? 'bg-primary text-white scale-100'
+                  : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
+              )}
+              aria-label="Post comment"
+            >
+              {posting ? <Loader2 size={14} className="animate-spin" /> : <ArrowUp size={15} strokeWidth={2.6} />}
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -1697,14 +1742,14 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
             transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white w-full rounded-t-3xl flex flex-col"
+            className="bg-surface w-full rounded-t-[24px] flex flex-col"
             // --kb-height lifts the bottom-pinned composer above the iOS
             // keyboard (Capacitor Keyboard resize:"none" — the WebView never
             // resizes itself, so without this the user types blind).
-            style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
+            style={{ height: '78%', paddingBottom: 'var(--kb-height, 0px)' }}
           >
-            <div className="pt-2 pb-1 flex justify-center">
-              <span className="w-10 h-1 rounded-full bg-on-surface/20" />
+            <div className="pt-2.5 pb-1 flex justify-center">
+              <span className="w-9 h-1 rounded-full bg-on-surface/15" />
             </div>
             <CommentsBody
               targetId={targetId}

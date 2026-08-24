@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type RefObject } from 'react';
-import { Heart, Send, Loader2, MessageSquare } from 'lucide-react';
+import { Heart, ArrowUp, Loader2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
@@ -48,7 +48,7 @@ interface Props {
 }
 
 export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 'inline', onCountChange, scrollRef }) => {
-  const { user, isSignedIn } = useAuth();
+  const { user, profile, isSignedIn } = useAuth();
   const { requireSignIn } = useSignInModal();
   const [comments, setComments] = useState<RecipeComment[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
@@ -202,10 +202,15 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
               type="button"
               onClick={() => postReply(c.id)}
               disabled={!replyText.trim() || posting}
-              className="grid h-9 w-9 place-items-center rounded-full bg-primary text-white disabled:opacity-40 flex-shrink-0"
+              className={cn(
+                'grid h-9 w-9 place-items-center rounded-full flex-shrink-0 transition-all duration-200',
+                replyText.trim() && !posting
+                  ? 'bg-primary text-white scale-100'
+                  : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
+              )}
               aria-label="Post reply"
             >
-              {posting ? <Loader2 size={15} className="animate-spin" /> : <Send size={14} />}
+              {posting ? <Loader2 size={15} className="animate-spin" /> : <ArrowUp size={14} strokeWidth={2.6} />}
             </button>
           </div>
         )}
@@ -219,25 +224,39 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
     </div>
   );
 
+  const myName = profile?.display_name || profile?.username || 'You';
   const composer = (
     <div className="flex items-center gap-2.5">
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } }}
-        onFocus={() => { if (!isSignedIn) requireSignIn('Sign in to comment'); }}
-        placeholder="Add a comment…"
-        className="flex-1 h-11 rounded-full bg-on-surface/[0.05] border border-on-surface/8 px-4 text-[14px] text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:border-primary/40 transition-colors"
-      />
-      <button
-        type="button"
-        onClick={post}
-        disabled={!text.trim() || posting}
-        className="grid h-11 w-11 place-items-center rounded-full bg-primary text-white disabled:opacity-40 transition-opacity flex-shrink-0"
-        aria-label="Post comment"
+      <div
+        className="w-9 h-9 rounded-full grid place-items-center text-white text-[12px] font-bold flex-shrink-0"
+        style={{ background: user?.id ? `hsl(${avatarHue(user.id)} 50% 45%)` : 'var(--color-on-surface, #999)', opacity: user?.id ? 1 : 0.25 }}
       >
-        {posting ? <Loader2 size={18} className="animate-spin" /> : <Send size={17} />}
-      </button>
+        {myName.charAt(0).toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0 flex items-center h-11 rounded-full bg-on-surface/[0.05] pl-4 pr-1.5 transition-colors focus-within:bg-on-surface/[0.08] focus-within:ring-2 focus-within:ring-on-surface/10">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); } }}
+          onFocus={() => { if (!isSignedIn) requireSignIn('Sign in to comment'); }}
+          placeholder="Add a comment…"
+          className="flex-1 min-w-0 bg-transparent text-[14px] text-on-surface placeholder:text-on-surface/35 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={post}
+          disabled={!text.trim() || posting}
+          className={cn(
+            'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
+            text.trim() && !posting
+              ? 'bg-primary text-white scale-100'
+              : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
+          )}
+          aria-label="Post comment"
+        >
+          {posting ? <Loader2 size={14} className="animate-spin" /> : <ArrowUp size={15} strokeWidth={2.6} />}
+        </button>
+      </div>
     </div>
   );
 
