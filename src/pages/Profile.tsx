@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Loader2, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Globe, EyeOff, Moon, Sun, Film, Plus, UserPlus, Image as ImageIcon, Sparkles,
+  Settings, X, ChevronRight, Lock,
+  Star, MapPin, Globe, EyeOff, Film, Plus, UserPlus, Image as ImageIcon,
   LayoutGrid, List as ListIcon, Upload, Pencil, GripVertical, BookOpen, ChefHat, SquarePen,
-  Shield, LifeBuoy, BadgeCheck, UploadCloud, Utensils, ArrowUpDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,17 +16,13 @@ import { ProfileReelsSection, ProfilePostsSection, ProfileGuidesSection } from '
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { TopBar } from '../components/TopBar';
-import { saveProfile, getFollowCounts, getExpertRecommendationCount, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { getFollowCounts, getExpertRecommendationCount, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
-import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
-import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn, parseVisitDate } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
-import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib/supabase-verification';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
-import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreTint, scoreSolid } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
@@ -37,9 +33,6 @@ import {
   topListPlainLabel, topListKindLabel,
   type TopListConfig, type TopListCustomization,
 } from '../lib/topLists';
-import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
-
-type SettingsPage = 'main' | 'edit' | 'account';
 
 function formatScore(s: unknown): string {
   const n = typeof s === 'number' ? s : Number(s);
@@ -51,12 +44,6 @@ function numericScore(s: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Human names for the profile columns saveProfile may have to skip, so a
- *  partial save can tell the user exactly what didn't stick. */
-const PROFILE_FIELD_LABELS: Record<string, string> = {
-  home_city: 'home city', home_lat: 'home city', home_lng: 'home city',
-  bio: 'bio', is_public: 'account visibility',
-};
 
 /** Single neutral gradient behind cards with no photo. Kept identical
  *  across every card so the section reads as a calm row rather than a
@@ -665,9 +652,6 @@ export const Profile: React.FC = () => {
   useEffect(() => { setCustomization(loadCustomization(user?.id)); }, [user?.id]);
   // Persist on every change.
   useEffect(() => { saveCustomization(user?.id, customization); }, [user?.id, customization]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
-  const settingsDrag = useBottomSheet(settingsOpen && phoneMode, () => setSettingsOpen(false));
   // Create menu — single button under the action row that opens a small
   // popover offering Post or Reel. Mirrors the desktop sidebar's pattern.
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -684,18 +668,6 @@ export const Profile: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [createMenuOpen]);
 
-  const [editName, setEditName] = useState('');
-  const [editUsername, setEditUsername] = useState('');
-  const [editBio, setEditBio] = useState('');
-  // Home city the user is based in. Surfaced on Circle expert cards and
-  // used by /location to suggest experts in the area being explored.
-  // Free-text input here; on save it's forward-geocoded to lat/lng so
-  // location-based queries don't have to re-geocode every profile.
-  const [editHomeCity, setEditHomeCity] = useState('');
-  const [editError, setEditError] = useState('');
-  const [editSaving, setEditSaving] = useState(false);
-  const [editSuccess, setEditSuccess] = useState(false);
-
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
   const [expertPickCount, setExpertPickCount] = useState(0);
@@ -711,13 +683,6 @@ export const Profile: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isDesktop = isWideViewport && !phoneMode;
-
-  const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [accountMsg, setAccountMsg] = useState('');
-  const [accountError, setAccountError] = useState('');
-  const [deleteStep, setDeleteStep] = useState(0);
-  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -748,145 +713,9 @@ export const Profile: React.FC = () => {
     return () => { cancelled = true; };
   }, [user?.id, profile?.is_verified]);
 
-  const resetEditFields = () => {
-    setEditName(profile?.display_name || '');
-    setEditUsername(profile?.username || '');
-    setEditBio(profile?.bio || '');
-    setEditHomeCity(profile?.home_city || '');
-    setEditError('');
-    setEditSuccess(false);
-  };
-
-  const openEditProfile = () => {
-    resetEditFields();
-    setSettingsPage('edit');
-    setSettingsOpen(true);
-  };
-
-  // Latest verification request — drives the settings "Verification" row
-  // (none/denied → apply · pending → under review · verified → edit status).
-  const [verifReq, setVerifReq] = useState<VerificationRequest | null>(null);
-  const openSettings = () => {
-    setSettingsPage('main');
-    if (user?.id && !profile?.is_verified) {
-      void getMyLatestVerificationRequest(user.id).then(setVerifReq);
-    }
-    setAccountMsg('');
-    setAccountError('');
-    setNewEmail('');
-    setNewPassword('');
-    setDeleteStep(0);
-    setSettingsOpen(true);
-  };
-
   const goToMyRatings = () => {
     sessionStorage.setItem('map-mode', 'myratings');
     navigate('/map');
-  };
-
-  const handleSaveProfile = async () => {
-    if (!user?.id) return;
-    if (!editName.trim() || !editUsername.trim()) {
-      setEditError('Name and username are required');
-      return;
-    }
-    if (editUsername.length < 3) {
-      setEditError('Username must be at least 3 characters');
-      return;
-    }
-    setEditSaving(true);
-    setEditError('');
-    // Resolve the typed home-city to coords on save so location-based
-    // queries (e.g. "experts in Westport") don't have to forward-geocode
-    // every profile at read time. Only changed-or-new entries hit Mapbox;
-    // a cleared field resets coords too.
-    const homeCityTrim = editHomeCity.trim();
-    const previousCity = profile?.home_city || '';
-    let homeBase: { homeCity?: string | null; homeLat?: number | null; homeLng?: number | null } | undefined;
-    if (homeCityTrim !== previousCity) {
-      if (!homeCityTrim) {
-        homeBase = { homeCity: null, homeLat: null, homeLng: null };
-      } else {
-        const geo = await geocodePlace(homeCityTrim);
-        homeBase = {
-          homeCity: geo?.label || homeCityTrim,
-          homeLat: geo?.lat ?? null,
-          homeLng: geo?.lng ?? null,
-        };
-      }
-    }
-    const result = await saveProfile(
-      user.id,
-      editName.trim(),
-      editUsername.trim(),
-      editBio.trim(),
-      undefined,
-      homeBase,
-    );
-    if (result.success) {
-      // saveProfile drops a column this database doesn't know rather than
-      // failing the whole write (see migration 067). The row saved, but
-      // those fields didn't — say so instead of flashing a success tick
-      // over an edit that only partly landed.
-      const lost = [...new Set((result.droppedColumns ?? []).map((c) => PROFILE_FIELD_LABELS[c] ?? c))];
-      await refreshProfile();
-      if (lost.length) {
-        setEditError(`Saved — but your ${lost.join(' and ')} couldn't be stored. Please try again later.`);
-      } else {
-        setEditSuccess(true);
-        setTimeout(() => setSettingsPage('main'), 800);
-      }
-    } else {
-      setEditError(result.error || 'Failed to save');
-    }
-    setEditSaving(false);
-  };
-
-  const handleUpdateEmail = async () => {
-    if (!newEmail.trim()) return;
-    setAccountMsg('');
-    setAccountError('');
-    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
-    if (error) setAccountError(error.message);
-    else setAccountMsg('Check your new email for a confirmation link');
-  };
-
-  const handleUpdatePassword = async () => {
-    if (newPassword.length < 6) {
-      setAccountError('Password must be at least 6 characters');
-      return;
-    }
-    setAccountMsg('');
-    setAccountError('');
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) setAccountError(error.message);
-    else {
-      setAccountMsg('Password updated successfully');
-      setNewPassword('');
-    }
-  };
-
-  // Permanently delete the account + every piece of server-side data
-  // (delete-account Edge Function), then wipe the device's local app
-  // data. The local sign-out inside deleteAccount fires onAuthStateChange,
-  // which lands the user on the signed-out screen. In-app deletion is an
-  // App Store requirement (Review Guideline 5.1.1(v)).
-  const handleDeleteAccount = async () => {
-    if (deletingAccount) return;
-    setDeletingAccount(true);
-    setAccountMsg('');
-    setAccountError('');
-    const result = await deleteAccount();
-    if (!result.ok) {
-      setDeletingAccount(false);
-      setDeleteStep(0);
-      setAccountError(result.error || 'Could not delete the account. Please try again.');
-      return;
-    }
-    clearLocalAppData();
-    // Hard reload so provider state (still holding the deleted account's data
-    // in memory) is torn down too — same clean-slate pattern as sign-out.
-    window.location.reload();
   };
 
   const displayName = profile?.display_name || 'Your Name';
@@ -1184,7 +1013,7 @@ export const Profile: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={openEditProfile}
+            onClick={() => navigate('/settings', { state: { page: 'edit' } })}
             className="flex-none inline-flex items-center gap-[7px] rounded-full border border-on-surface/[0.22] text-on-surface px-4 py-[13px] active:bg-on-surface/[0.06] transition-colors"
             style={{ fontSize: '13px', fontWeight: 700 }}
           >
@@ -1200,7 +1029,7 @@ export const Profile: React.FC = () => {
           </Link>
           <button
             type="button"
-            onClick={openSettings}
+            onClick={() => navigate('/settings')}
             className="flex-none w-11 h-11 rounded-full border border-on-surface/[0.22] text-on-surface flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
             aria-label="Settings"
           >
@@ -1632,531 +1461,6 @@ export const Profile: React.FC = () => {
                 <button type="button" onClick={() => setConfirmDeleteGuideId(null)} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
                 <button type="button" onClick={onConfirmDeleteGuide} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingGuide ? 'Deleting…' : 'Delete'}</button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Settings — desktop: centered modal card. Phone: bottom sheet
-          with drag-to-dismiss. Three sub-pages (main / edit / account)
-          slide in and out within the same shell. */}
-      <AnimatePresence>
-        {settingsOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-            className={cn(
-              'fixed inset-0 z-[60]',
-              phoneMode
-                ? 'bg-black/45 backdrop-blur-sm'
-                : 'bg-black/55 backdrop-blur-md flex items-center justify-center px-4',
-            )}
-            onClick={() => setSettingsOpen(false)}
-          >
-            <motion.div
-              {...(phoneMode
-                ? {
-                    initial: { y: '100%' },
-                    animate: { y: 0 },
-                    exit: { y: '100%' },
-                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    ...settingsDrag.dragProps,
-                  }
-                : {
-                    initial: { opacity: 0, scale: 0.95, y: -10 },
-                    animate: { opacity: 1, scale: 1, y: 0 },
-                    exit: { opacity: 0, scale: 0.97, y: -6 },
-                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                  })}
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              className={cn(
-                'bg-surface flex flex-col overflow-hidden',
-                phoneMode
-                  ? 'fixed inset-x-0 bottom-0 rounded-t-[28px] max-h-[88vh]'
-                  : 'w-full max-w-[480px] max-h-[86vh] rounded-[28px] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.45)] ring-1 ring-on-surface/[0.06]',
-              )}
-            >
-              {phoneMode && (
-                <div
-                  className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing"
-                  onPointerDown={settingsDrag.startDrag}
-                >
-                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-                </div>
-              )}
-              <AnimatePresence mode="wait">
-                {settingsPage === 'main' && (
-                  <motion.div
-                    key="main"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="flex flex-col flex-1 overflow-hidden"
-                  >
-                    <div className={cn(
-                      'flex items-center justify-between flex-shrink-0',
-                      phoneMode ? 'px-6 pt-3 pb-4' : 'px-7 pt-6 pb-4',
-                    )}>
-                      <div>
-                        <h3 className="font-serif font-bold text-[22px] leading-none">Settings</h3>
-                        <p className="text-[11.5px] text-on-surface/45 mt-1.5">Manage your profile and preferences.</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSettingsOpen(false)}
-                        aria-label="Close"
-                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center -mr-1"
-                      >
-                        <X size={16} className="text-on-surface/65" />
-                      </button>
-                    </div>
-                    <div className={cn(
-                      'flex-1 overflow-y-auto',
-                      phoneMode ? 'px-5 pb-5' : 'px-5 pb-6',
-                    )}>
-                      <SettingsSection label="Profile">
-                        <SettingsRow
-                          icon={<Sparkles size={17} />}
-                          label="Your Activity"
-                          hint="Saves, likes, and comments"
-                          onClick={() => { setSettingsOpen(false); navigate('/activity'); }}
-                        />
-                        <SettingsRow
-                          icon={<Edit3 size={17} />}
-                          label="Edit Profile"
-                          hint="Name, username, bio, home city"
-                          onClick={() => { resetEditFields(); setSettingsPage('edit'); }}
-                        />
-                        <SettingsRow
-                          icon={<Lock size={17} />}
-                          label="Account"
-                          hint="Email, password, delete account"
-                          onClick={() => {
-                            setSettingsPage('account');
-                            setAccountMsg('');
-                            setAccountError('');
-                            setDeleteStep(0);
-                          }}
-                          isLast
-                        />
-                      </SettingsSection>
-
-                      <SettingsSection label="Preferences">
-                        <SettingsRow
-                          icon={profile?.is_public ? <Globe size={17} /> : <Lock size={17} />}
-                          label="Private Account"
-                          hint={profile?.is_verified
-                            ? 'Verified accounts are always public'
-                            : profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}
-                          toggle
-                          toggleValue={!profile?.is_public}
-                          onClick={async () => {
-                            if (!user?.id || !profile) return;
-                            // The DB trigger enforces this too — the toggle
-                            // just explains instead of silently snapping back.
-                            if (profile.is_verified) return;
-                            const newVal = !profile.is_public;
-                            await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
-                            await refreshProfile();
-                          }}
-                        />
-                        <SettingsRow
-                          icon={darkMode ? <Moon size={17} /> : <Sun size={17} />}
-                          label="Dark Mode"
-                          hint={darkMode ? 'On — dark surface' : 'Off — light cream surface'}
-                          toggle
-                          toggleValue={darkMode}
-                          onClick={toggleDarkMode}
-                          isLast
-                        />
-                      </SettingsSection>
-
-                      {isAdmin && (
-                        <SettingsSection label="Admin">
-                          <SettingsRow
-                            icon={<BadgeCheck size={17} />}
-                            label="Verification requests"
-                            hint="Review and approve applications"
-                            onClick={() => { setSettingsOpen(false); navigate('/admin/verification'); }}
-                          />
-                          <SettingsRow
-                            icon={<Utensils size={17} />}
-                            label="Cuisine suggestions"
-                            hint="Approve proposed cuisine edits"
-                            onClick={() => { setSettingsOpen(false); navigate('/admin/cuisine'); }}
-                            isLast
-                          />
-                        </SettingsSection>
-                      )}
-
-                      {listsCtx.pendingPhotoUploadCount > 0 && (
-                        <SettingsSection label="Sync">
-                          <SettingsRow
-                            icon={<UploadCloud size={17} />}
-                            label={`${listsCtx.pendingPhotoUploadCount} photo${listsCtx.pendingPhotoUploadCount === 1 ? '' : 's'} waiting to upload`}
-                            hint="Kept on this device until back online — tap to retry now"
-                            onClick={listsCtx.retryPendingPhotoUploads}
-                            isLast
-                          />
-                        </SettingsSection>
-                      )}
-
-                      <SettingsSection label="Data">
-                        <SettingsRow
-                          icon={<Upload size={17} />}
-                          label="Import restaurants"
-                          hint="Bring lists over — Beli screenshots or a file"
-                          onClick={() => { setSettingsOpen(false); navigate('/import'); }}
-                          isLast
-                        />
-                      </SettingsSection>
-
-                      <SettingsSection label="About">
-                        <SettingsRow
-                          icon={<Shield size={17} />}
-                          label="Privacy Policy"
-                          hint="How your data is collected and used"
-                          onClick={() => openExternalUrl(PRIVACY_URL)}
-                        />
-                        <SettingsRow
-                          icon={<LifeBuoy size={17} />}
-                          label="Support"
-                          hint="Get help or contact us"
-                          onClick={() => openExternalUrl(SUPPORT_URL)}
-                          isLast
-                        />
-                      </SettingsSection>
-
-                      <button
-                        type="button"
-                        onClick={() => { setSettingsOpen(false); signOut(); }}
-                        className="mt-5 w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-600 text-[14px] font-semibold transition-colors"
-                      >
-                        <LogOut size={15} />
-                        Sign out
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-                {settingsPage === 'edit' && (
-                  <motion.div
-                    key="edit"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="flex flex-col flex-1 overflow-hidden"
-                  >
-                    <div className={cn(
-                      'flex items-center justify-between flex-shrink-0',
-                      phoneMode ? 'px-5 pt-3 pb-3' : 'px-6 pt-6 pb-3',
-                    )}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setSettingsPage('main')}
-                          aria-label="Back"
-                          className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -ml-1"
-                        >
-                          <ArrowLeft size={16} />
-                        </button>
-                        <h3 className="font-serif font-bold text-[20px] leading-none">Edit Profile</h3>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSettingsOpen(false)}
-                        aria-label="Close"
-                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -mr-1"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Display Name</p>
-                        <div className="relative">
-                          <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Username</p>
-                        <div className="relative">
-                          <AtSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input
-                            type="text"
-                            value={editUsername}
-                            onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            autoCapitalize="off"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Bio</p>
-                        <div className="relative">
-                          <FileText size={16} className="absolute left-3 top-3 text-on-surface/30" />
-                          <textarea
-                            value={editBio}
-                            onChange={(e) => setEditBio(e.target.value)}
-                            rows={3}
-                            maxLength={150}
-                            placeholder="Tell people about yourself..."
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                          />
-                        </div>
-                        <p className="text-[11px] text-on-surface/40 text-right mt-1 tabular-nums">{editBio.length}/150 characters</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">
-                          Home city
-                          {profile?.is_verified && (
-                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for verified users</span>
-                          )}
-                        </p>
-                        <div className="relative">
-                          <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input
-                            type="text"
-                            value={editHomeCity}
-                            onChange={(e) => setEditHomeCity(e.target.value)}
-                            placeholder="e.g. Westport, CT"
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            autoCapitalize="words"
-                            autoCorrect="off"
-                          />
-                        </div>
-                        <p className="text-[11px] text-on-surface/40 mt-1">
-                          Where you're based. Shown on your profile and helps surface you to people exploring your area.
-                        </p>
-                      </div>
-                      {editError && <p className="text-xs text-red-500">{editError}</p>}
-                      {editSuccess && (
-                        <div className="flex items-center gap-1.5 text-green-600">
-                          <Check size={14} />
-                          <span className="text-xs font-semibold">Saved!</span>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleSaveProfile}
-                        disabled={editSaving}
-                        className="w-full py-3 bg-primary text-white rounded-2xl text-sm font-semibold disabled:opacity-60"
-                      >
-                        {editSaving ? 'Saving...' : 'Save Changes'}
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-                {settingsPage === 'account' && (
-                  <motion.div
-                    key="account"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className="flex flex-col flex-1 overflow-hidden"
-                  >
-                    <div className={cn(
-                      'flex items-center justify-between flex-shrink-0',
-                      phoneMode ? 'px-5 pt-3 pb-3' : 'px-6 pt-6 pb-3',
-                    )}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => setSettingsPage('main')}
-                          aria-label="Back"
-                          className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -ml-1"
-                        >
-                          <ArrowLeft size={16} />
-                        </button>
-                        <h3 className="font-serif font-bold text-[20px] leading-none">Account</h3>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSettingsOpen(false)}
-                        aria-label="Close"
-                        className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 transition-colors flex items-center justify-center text-on-surface/65 -mr-1"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                      <div className="bg-on-surface/3 rounded-xl px-3 py-2.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-0.5">Current Email</p>
-                        <p className="text-sm font-medium text-on-surface/70">{user?.email}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Change Email</p>
-                        <div className="relative mb-2">
-                          <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input
-                            type="email"
-                            value={newEmail}
-                            onChange={(e) => setNewEmail(e.target.value)}
-                            placeholder="New email"
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleUpdateEmail}
-                          disabled={!newEmail.trim()}
-                          className="w-full py-2.5 bg-primary text-white rounded-xl text-xs font-semibold disabled:opacity-40"
-                        >
-                          Update Email
-                        </button>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Change Password</p>
-                        <div className="relative mb-2">
-                          <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                          <input
-                            type="password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            placeholder="New password (min 6)"
-                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleUpdatePassword}
-                          disabled={newPassword.length < 6}
-                          className="w-full py-2.5 bg-primary text-white rounded-xl text-xs font-semibold disabled:opacity-40"
-                        >
-                          Update Password
-                        </button>
-                      </div>
-                      {accountMsg && (
-                        <div className="flex items-center gap-1.5 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
-                          <Check size={14} className="text-green-600" />
-                          <span className="text-xs text-green-700">{accountMsg}</span>
-                        </div>
-                      )}
-                      {accountError && (
-                        <div className="flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
-                          <AlertTriangle size={14} className="text-red-500" />
-                          <span className="text-xs text-red-600">{accountError}</span>
-                        </div>
-                      )}
-                      {/* ── Verification ── */}
-                      <div className="border-t border-on-surface/6 pt-4">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Verification</p>
-                        {profile?.is_verified ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 px-1">
-                              <VerifiedBadge size={15} />
-                              <p className="text-sm font-medium text-on-surface/75">You're verified</p>
-                            </div>
-                            <p className="text-[11px] text-on-surface/45 px-1 -mt-1">Your public status line, shown on your profile:</p>
-                            <VerifiedStatusPicker
-                              userId={user?.id || ''}
-                              initialValue={profile?.verified_status}
-                              saveLabel="Save status"
-                              onSaved={() => { void refreshProfile(); setAccountMsg('Status updated'); }}
-                            />
-                          </div>
-                        ) : verifReq?.status === 'pending' ? (
-                          <div className="bg-on-surface/3 rounded-xl px-3 py-3 flex items-center gap-2.5">
-                            <VerifiedBadge size={16} />
-                            <div>
-                              <p className="text-sm font-medium text-on-surface/75">Application under review</p>
-                              <p className="text-[11px] text-on-surface/45 mt-0.5">We'll let you know as soon as it's decided.</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => { setSettingsOpen(false); navigate('/verify/apply'); }}
-                            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-on-surface/3 hover:bg-on-surface/[0.06] transition-colors text-left"
-                          >
-                            <VerifiedBadge size={16} />
-                            <span className="flex-1 min-w-0">
-                              <span className="block text-sm font-medium text-on-surface/80">Request a verified badge</span>
-                              <span className="block text-[11px] text-on-surface/45 mt-0.5">For chefs, critics, and creators</span>
-                            </span>
-                            <ChevronRight size={14} className="text-on-surface/30 flex-shrink-0" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="border-t border-on-surface/6 pt-4">
-                        {deleteStep === 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setDeleteStep(1)}
-                            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-red-50 transition-colors text-left"
-                          >
-                            <Trash2 size={16} className="text-red-400" />
-                            <span className="text-sm font-medium text-red-500">Delete Account</span>
-                          </button>
-                        )}
-                        {deleteStep === 1 && (
-                          <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
-                            <p className="text-xs text-red-600 font-medium">
-                              This permanently deletes your account and everything in it —
-                              profile, ratings, recipes, posts, reels, guides, photos and
-                              friends. There is no way to recover it.
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setDeleteStep(0)}
-                                className="flex-1 py-2 border border-on-surface/15 rounded-lg text-xs font-semibold text-on-surface/50"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setDeleteStep(2)}
-                                className="flex-1 py-2 bg-red-500 text-white rounded-lg text-xs font-semibold"
-                              >
-                                Yes, Continue
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        {deleteStep === 2 && (
-                          <div className="bg-red-100 border border-red-300 rounded-xl p-3 space-y-2">
-                            <p className="text-xs text-red-700 font-bold">FINAL WARNING: This cannot be undone!</p>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setDeleteStep(0)}
-                                disabled={deletingAccount}
-                                className="flex-1 py-2 border border-on-surface/15 rounded-lg text-xs font-semibold text-on-surface/50 disabled:opacity-50"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleDeleteAccount}
-                                disabled={deletingAccount}
-                                className="flex-1 py-2 bg-red-700 text-white rounded-lg text-xs font-semibold disabled:opacity-70 flex items-center justify-center gap-1.5"
-                              >
-                                {deletingAccount ? (
-                                  <>
-                                    <Loader2 size={12} className="animate-spin" />
-                                    Deleting…
-                                  </>
-                                ) : (
-                                  'Delete Forever'
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </motion.div>
           </motion.div>
         )}

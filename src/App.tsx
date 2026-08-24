@@ -10,6 +10,7 @@ import { Experts } from './pages/Experts';
 import { VerificationApply } from './pages/VerificationApply';
 import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
+import { SettingsPage } from './pages/SettingsPage';
 import { TopListPage } from './pages/TopListPage';
 import { AdminCuisineSuggestions } from './pages/AdminCuisineSuggestions';
 import { Pantry } from './pages/Pantry';
@@ -238,7 +239,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
@@ -492,6 +493,7 @@ const AppContent: React.FC = () => {
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
+          <Route path="/settings" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />
           <Route path="/profile/top/:listKey" element={<RequireAuthRoute reason="Sign in to view your top lists"><TopListPage /></RequireAuthRoute>} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
           <Route path="/pantry/recommended" element={<RequireAuthRoute reason="Sign in for your recommendations"><RecommendedForYou /></RequireAuthRoute>} />
