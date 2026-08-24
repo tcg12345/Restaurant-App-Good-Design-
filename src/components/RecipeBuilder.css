@@ -86,6 +86,8 @@
 /* ── Method chooser (stage 1) ───────────────────────────────────── */
 
 .rcx-choose {
+  --rcx-card: #ffffff;
+  --rcx-hairline-strong: #e4dfd7;
   position: relative;
   background: #faf9f7;
   color: #1d1a16;
@@ -2374,3 +2376,23 @@
 .dark .rcx-import-add { border-color: #48484c; }
 .dark .rcx-foot-cta.is-disabled { background: #333338; color: #6a6a70; }
 .dark .rcx-modal-error { color: #e08273; }
+
+/* Method chooser dark — the sheet is its own island outside .rcx. */
+.dark .rcx-choose {
+  --rcx-card: #333338;
+  --rcx-hairline-strong: #48484c;
+  background: #2b2b2e;
+  color: #ededed;
+}
+.dark .rcx-choose-handle { background: #48484c; }
+.dark .rcx-choose-close { background: #3a3a3e; color: #a0a0a6; }
+.dark .rcx-choose-close:hover { color: #ededed; background: #48484c; }
+.dark .rcx-choose-title { color: #ededed; }
+.dark .rcx-choose-sub { color: #a0a0a6; }
+.dark .rcx-choose-row { border-bottom-color: #3a3a3e; }
+.dark .rcx-choose-row:active { background: rgba(255, 255, 255, 0.05); }
+.dark .rcx-choose-icon { background: rgba(211, 98, 61, 0.14); }
+.dark .rcx-choose-name { color: #ededed; }
+.dark .rcx-choose-hint { color: #a0a0a6; }
+.dark .rcx-choose-chev { color: #6a6a70; }
+.dark .rcx-choose-card:hover { border-color: #ededed; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); }
