@@ -1094,7 +1094,7 @@ export const RestaurantPanelBody: React.FC<{
 
 export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
-  const { dragProps, sheetDragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef);
+  const { dragProps, sheetRef } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -1113,8 +1113,8 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               // iOS's own sheet curve — the spring stuttered against the
               // Mapbox init happening mid-entrance.
               transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+              ref={sheetRef as React.RefObject<HTMLDivElement>}
               {...dragProps}
-              {...sheetDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
               style={{ height: '92%', willChange: 'transform' }}

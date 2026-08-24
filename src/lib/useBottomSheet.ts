@@ -74,10 +74,10 @@ export function useBottomSheet(
    *  dismissal with correct scroll interop: a downward drag begun while
    *  that container sits at its top takes the whole sheet with it (the
    *  iOS gesture); once the content is scrolled, the same drag scrolls
-   *  the content instead. Spread the returned `sheetDragProps` on the
-   *  sheet root alongside `dragProps` to opt in. */
+   *  the content instead. Attach the returned `sheetRef` to the sheet
+   *  ROOT element (the same node `dragProps` goes on) to opt in. */
   scrollRef?: RefObject<HTMLElement | null>,
-): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void; sheetDragProps: SheetDragHandlers } {
+): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void; sheetRef: RefObject<HTMLElement | null> } {
   // Lock body scroll while the sheet is open — ref-counted so stacked
   // sheets compose regardless of close order (see acquireBodyScrollLock).
   useEffect(() => {
@@ -122,43 +122,82 @@ export function useBottomSheet(
     [dragControls],
   );
 
-  // ── Drag-anywhere: watch the gesture from the sheet root and hand it to
-  // Framer once it reads as a downward pull with the content at its top.
-  // Starting on MOVE (8px in) instead of DOWN keeps taps, buttons and
-  // horizontal swipes untouched.
-  const gestureRef = useRef<{ x: number; y: number; live: boolean } | null>(null);
-  const onSheetPointerDown = useCallback((e: ReactPointerEvent) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    gestureRef.current = { x: e.clientX, y: e.clientY, live: true };
-  }, []);
-  const onSheetPointerMove = useCallback((e: ReactPointerEvent) => {
-    const g = gestureRef.current;
-    if (!g?.live) return;
-    const dx = e.clientX - g.x;
-    const dy = e.clientY - g.y;
-    // Horizontal or upward intent → not a dismiss; stand down for this touch.
-    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { g.live = false; return; }
-    if (dy < -10) { g.live = false; return; }
-    if (dy > 8) {
-      g.live = false;
+  // ── Drag-anywhere ────────────────────────────────────────────────────
+  // React's synthetic pointermove alone isn't enough: on iOS, WebKit
+  // decides whether a touch becomes a native scroll (or a rubber-band
+  // bounce) within the first few pixels of movement, and once it does the
+  // touch is gone — later pointermoves stop arriving (or arrive as
+  // pointercancel). A handler that only calls dragControls.start() after
+  // the fact is too late; the sheet just sits there while the page under
+  // it tries to scroll. The fix is the one every native-feeling web sheet
+  // uses: attach a real (non-passive) listener so `preventDefault()` can
+  // claim the gesture for the sheet BEFORE the browser commits to a
+  // scroll — which requires bypassing React's synthetic event system,
+  // since passivity there isn't guaranteed. Hence a plain DOM listener
+  // on `sheetRef`, added imperatively in an effect.
+  const sheetRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const root = sheetRef.current;
+    if (!open || !root) return;
+
+    let phase: 'idle' | 'undecided' | 'horizontal' | 'content' | 'sheet' = 'idle';
+    let startX = 0;
+    let startY = 0;
+
+    const reset = () => { phase = 'idle'; };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      phase = 'undecided';
+      startX = e.clientX;
+      startY = e.clientY;
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (phase === 'idle' || phase === 'horizontal' || phase === 'content') return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (phase === 'sheet') {
+        // Already committed — keep claiming the gesture so a mid-drag
+        // pause doesn't hand it back to native scroll.
+        e.preventDefault();
+        return;
+      }
+
+      // Undecided: horizontal intent releases to the browser untouched.
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { phase = 'horizontal'; return; }
+      // Upward, or downward with the content scrolled past its top, is a
+      // normal scroll — let it through so momentum / rubber-band still work.
       const scroller = scrollRef?.current;
-      // Content scrolled down → this drag belongs to the scroller.
-      if (scroller && scroller.scrollTop > 0) return;
+      if (dy < 0 || (scroller && scroller.scrollTop > 0)) { phase = 'content'; return; }
+      // Small residual motion — hold the decision but keep the browser
+      // from committing to anything until the gesture is legible.
+      if (Math.abs(dy) <= 6) { e.preventDefault(); return; }
+
+      // A genuine downward pull with nowhere left to scroll: claim it.
+      phase = 'sheet';
+      e.preventDefault();
       dragControls.start(e);
-    }
-  }, [dragControls, scrollRef]);
-  const sheetDragProps = useMemo<SheetDragHandlers>(
-    () => ({ onPointerDown: onSheetPointerDown, onPointerMove: onSheetPointerMove }),
-    [onSheetPointerDown, onSheetPointerMove],
-  );
+    };
 
-  return { dragProps, startDrag, sheetDragProps };
+    // { passive: false } is the whole point — it's what makes
+    // preventDefault() effective instead of a silent no-op.
+    root.addEventListener('pointerdown', onPointerDown, { passive: true });
+    root.addEventListener('pointermove', onPointerMove, { passive: false });
+    root.addEventListener('pointerup', reset, { passive: true });
+    root.addEventListener('pointercancel', reset, { passive: true });
+    return () => {
+      root.removeEventListener('pointerdown', onPointerDown);
+      root.removeEventListener('pointermove', onPointerMove);
+      root.removeEventListener('pointerup', reset);
+      root.removeEventListener('pointercancel', reset);
+    };
+  }, [open, dragControls, scrollRef]);
+
+  return { dragProps, startDrag, sheetRef };
 }
-
-type SheetDragHandlers = {
-  onPointerDown: (e: ReactPointerEvent) => void;
-  onPointerMove: (e: ReactPointerEvent) => void;
-};
 
 type BottomSheetDragProps = {
   drag: 'y';
