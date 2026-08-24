@@ -135,28 +135,28 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-[18px] px-4 py-3 text-left transition-colors',
+        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
         phoneMode
-          ? 'bg-black/45 backdrop-blur-xl border border-white/[0.12] shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/55'
+          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
           : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[9.5px] font-bold uppercase tracking-[0.14em]', phoneMode ? 'text-white/55' : 'text-on-surface/50')}>Featured place</p>
-        <p className={cn('text-[15.5px] font-bold leading-tight tracking-[-0.01em] truncate mt-1', phoneMode ? 'text-white' : 'text-on-surface')}>{r.name}</p>
-        <p className={cn('text-[11.5px] truncate mt-1', phoneMode ? 'text-white/60' : 'text-on-surface/55')}>
+        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured place</p>
+        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.name}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>
           {[r.cuisine, r.price, distance].filter(Boolean).join(' · ')}
         </p>
       </div>
       {score > 0 && (
         <span className={cn(
-          'inline-flex items-center justify-center min-w-[40px] h-8 px-2.5 rounded-full text-[13px] font-bold tabular-nums flex-shrink-0',
-          phoneMode ? cn('bg-white/[0.14]', scoreColorLight(score)) : cn('bg-on-surface/[0.06]', scoreColor(score)),
+          'inline-flex items-center justify-center min-w-[34px] h-7 px-2 rounded-full text-[12px] font-bold tabular-nums flex-shrink-0',
+          phoneMode ? cn('bg-white/[0.10]', scoreColorLight(score)) : cn('bg-on-surface/[0.06]', scoreColor(score)),
         )}>
           {score.toFixed(1)}
         </span>
       )}
-      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-on-surface/40')} />
+      <ChevronRight size={14} className={cn('flex-shrink-0', phoneMode ? 'text-white/35' : 'text-on-surface/40')} />
     </button>
   );
 };
@@ -169,16 +169,16 @@ const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onCli
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-[18px] px-4 py-3 text-left transition-colors',
+        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
         phoneMode
-          ? 'bg-black/45 backdrop-blur-xl border border-white/[0.12] shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/55'
+          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
           : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[9.5px] font-bold uppercase tracking-[0.14em]', phoneMode ? 'text-white/55' : 'text-on-surface/50')}>Featured recipe</p>
-        <p className={cn('text-[15.5px] font-bold leading-tight tracking-[-0.01em] truncate mt-1', phoneMode ? 'text-white' : 'text-on-surface')}>{r.title}</p>
-        <p className={cn('text-[11.5px] truncate mt-1', phoneMode ? 'text-white/60' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured recipe</p>
+        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.title}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
