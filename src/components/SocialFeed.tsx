@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, UtensilsCrossed, Clock, Layers } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 
@@ -1646,8 +1647,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
       {/* Recipe comment thread — bottom sheet opened from a meal card's
           comment button. The full thread also lives on the recipe detail
-          page; this is the quick in-feed entry point. */}
-      <AnimatePresence>
+          page; this is the quick in-feed entry point.
+          Portaled to body: on the phone home layout this feed lives inside
+          Discover's draggable results sheet, whose will-change-transform
+          creates a stacking context that clamps an in-place overlay below
+          the app's other floating chrome (the z-45 assistant FAB). */}
+      {createPortal(<AnimatePresence>
         {openMealComments && (
           <motion.div
             key="recipe-comments-sheet"
@@ -1694,13 +1699,15 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
 
       {/* ─── Post comments overlay ─────────────────────────────────────
           Mobile/phone-frame: bottom sheet (Instagram-style). Desktop:
           centered modal dialog. Both wrap the same CommentsBody so the
-          composer + list logic is shared with the reels page. */}
-      <AnimatePresence>
+          composer + list logic is shared with the reels page.
+          Portaled to body for the same stacking-context reason as the
+          recipe sheet above. */}
+      {createPortal(<AnimatePresence>
         {openPostCommentsId && (
           isDesktop ? (
             <motion.div
@@ -1761,7 +1768,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </motion.div>
           )
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
 
       {/* Share dialog */}
       <ShareDialog

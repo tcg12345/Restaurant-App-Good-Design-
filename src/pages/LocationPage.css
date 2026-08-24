@@ -1840,6 +1840,9 @@
   inset: -4px;
   border-radius: 21px;
   background: rgba(168, 57, 42, 0.32);
+  /* Rest at 0 — without this, the element snaps back to opacity 1 when
+     the 3 pulses finish and permanently tints the button. */
+  opacity: 0;
   animation: lp-chat-fab-pulse 1.8s ease-out 3;
   pointer-events: none;
 }
