@@ -793,9 +793,16 @@ export const UserProfile: React.FC = () => {
           transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
           className="fixed inset-0 z-40 bg-surface flex flex-col">
           <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
-            <button onClick={() => setShowMapPage(false)}
-              className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface"><ArrowLeft size={20} /></button>
-            <h1 className="font-serif font-bold text-lg">{profile.display_name}'s Map</h1>
+            <GlassButton
+              id="pubprofile-map-back"
+              symbol="chevron.left"
+              label="Close map"
+              onClick={() => setShowMapPage(false)}
+              className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+            >
+              <ArrowLeft size={18} />
+            </GlassButton>
+            <h1 className="font-serif font-bold text-[19px] leading-tight tracking-[-0.025em] truncate">{profile.display_name}'s Map</h1>
           </header>
           <div ref={mapContainerRef} className="flex-1" />
         </motion.div>
