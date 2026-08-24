@@ -2208,13 +2208,14 @@ const ListDetailView: React.FC<{
       {isHomeCooking ? (
         /* ── Home Cooking: Recipe list ── */
         recipes.length === 0 ? (
-          <div className="text-center py-16">
-            <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
-            <p className="text-sm font-medium text-on-surface/40">No recipes yet</p>
-            <p className="text-xs text-on-surface/30 mt-1">Add your first home cooking recipe</p>
+          <div className="px-1 pt-10 flex flex-col items-start gap-2.5">
+            <p className="font-serif text-[18px] font-bold tracking-[-0.028em] text-on-surface">Nothing here yet</p>
+            <p className="text-[13.5px] leading-relaxed text-on-surface/55 max-w-[270px]" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              Add the recipe you're thinking of and it lands on this list.
+            </p>
             <button onClick={() => openHomeMealModal(undefined, { targetListId: list.id })}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
-              <Plus size={14} />Add Recipe
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-[15px] py-[11px] text-[12.5px] font-bold text-white active:opacity-85 transition-opacity">
+              <Plus size={14} strokeWidth={2.4} />Add recipe
             </button>
           </div>
         ) : (
@@ -3695,12 +3696,28 @@ const HomeCookingTab: React.FC<{
   const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
   const [recipeViewMode, setRecipeViewMode] = useState<'list' | 'grid'>('list');
   const effectiveRecipeViewMode = phoneMode ? 'list' : recipeViewMode;
+  // "Saved" — recipes saved from other people's cookbooks, the header
+  // pill's one-tap filter (the reference's Saved toggle, wired to the
+  // flag the rows already carry).
+  const [savedOnly, setSavedOnly] = useState(false);
+  // The reference bar: chips stay put while the search field folds away
+  // once the list is actually scrolling.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    if (!phoneMode || hideHeader) return;
+    const onScroll = () => setScrolled(window.scrollY > 60);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [phoneMode, hideHeader]);
 
   const allRecipeCuisines = useMemo(() => {
     const set = new Set<string>();
     meals.forEach((m) => { if (m.cuisine) set.add(m.cuisine); });
     return Array.from(set).sort();
   }, [meals]);
+
+  const savedFromOthersCount = useMemo(() => meals.filter(isSavedFromOtherUser).length, [meals]);
 
   const recipeActiveFilterCount =
     (cuisineFilter.length > 0 ? 1 : 0) +
@@ -3797,6 +3814,9 @@ const HomeCookingTab: React.FC<{
     if (timeFilter) {
       result = result.filter((m) => matchesTimeBand((m.prepTime || 0) + (m.cookTime || 0), timeFilter));
     }
+    if (savedOnly) {
+      result = result.filter(isSavedFromOtherUser);
+    }
 
     if (sortBy === 'recent') {
       result.sort((a, b) => b.createdAt - a.createdAt);
@@ -3812,7 +3832,7 @@ const HomeCookingTab: React.FC<{
     }
 
     return result;
-  }, [meals, searchQuery, sortBy, cuisineFilter, difficultyFilter, timeFilter]);
+  }, [meals, searchQuery, sortBy, cuisineFilter, difficultyFilter, timeFilter, savedOnly]);
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
@@ -4535,69 +4555,111 @@ const HomeCookingTab: React.FC<{
         </div>
       ) : (
         <>
-          {/* Phone top bar — back arrow + prominent Add Recipe. The
-              standalone search-icon toggle and the cluttered title row
-              with chef-hat / count are gone; the always-visible search
-              input below covers search, and the page header in the
-              parent already names the view. */}
-          <div className="pt-safe-4 flex items-center gap-2 mb-3">
-            <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
-              <ArrowLeft size={20} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenModal()}
-              className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex-shrink-0"
+          {/* Reference bar — glass back, the Saved toggle, a green add
+              circle. The whole block sticks; the search field folds away
+              once the list scrolls so the chips ride just under the bar. */}
+          <div className={cn(
+            'sticky top-0 z-30 -mx-3 px-3 bg-surface/[0.94] backdrop-blur-lg border-b transition-colors duration-300',
+            scrolled ? 'border-on-surface/[0.10]' : 'border-transparent',
+          )}>
+            <div className="pt-safe-4 flex items-center gap-2">
+              <GlassButton
+                id="cooking-back"
+                symbol="chevron.left"
+                label="Back"
+                onClick={onBack}
+                className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+              >
+                <ArrowLeft size={18} />
+              </GlassButton>
+              <div className="flex-1" />
+              {savedFromOthersCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSavedOnly((v) => !v)}
+                  aria-pressed={savedOnly}
+                  className={cn(
+                    'flex-none inline-flex items-center gap-1.5 rounded-full border px-3 py-[9px] text-[12px] font-bold transition-colors',
+                    savedOnly
+                      ? 'bg-on-surface border-on-surface text-cream'
+                      : 'border-on-surface/20 text-on-surface active:bg-on-surface/[0.06]',
+                  )}
+                >
+                  <Bookmark size={13} strokeWidth={1.9} className={cn(savedOnly && 'fill-current')} />
+                  Saved {savedFromOthersCount}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onOpenModal()}
+                aria-label="Add a recipe"
+                className="flex-none w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center active:opacity-85 transition-opacity"
+              >
+                <Plus size={17} strokeWidth={2.4} />
+              </button>
+            </div>
+
+            {/* Collapsing search — the native glass field hides itself when
+                the wrapper folds (opacity 0 → the mirror resigns + hides). */}
+            <div
+              className="overflow-hidden transition-[max-height,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+              style={{ maxHeight: scrolled ? 0 : 64, opacity: scrolled ? 0 : 1 }}
+              aria-hidden={scrolled || undefined}
             >
-              <Plus size={15} strokeWidth={2.5} />
-              <span>Add Recipe</span>
-            </button>
+              <div className="pt-3">
+                <SearchField
+                  glassId="cooking-search"
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Dish, cuisine, ingredient"
+                  aria-label="Search your recipes"
+                />
+              </div>
+            </div>
+
+            {meals.length > 0 && (
+              <div className="flex gap-2 pt-3 pb-3 overflow-x-auto scrollbar-hide -mx-3 px-3" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                  icon={<SlidersHorizontal size={12} />} label="Filters"
+                  active={recipeActiveFilterCount > 0}
+                  badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
+                <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                  label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                  active={cuisineFilter.length > 0}
+                  onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+                <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                  label={difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty'}
+                  active={difficultyFilter.length > 0}
+                  onClear={difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined} />
+                <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                  icon={<Clock size={11} />}
+                  label={timeFilter ? timeLabel(timeFilter) : 'Time'}
+                  active={!!timeFilter}
+                  onClear={timeFilter ? () => setTimeFilter(null) : undefined} />
+                <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                  icon={<ArrowUpDown size={11} />}
+                  label={sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort'}
+                  active={sortBy !== 'recent'}
+                  onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
+              </div>
+            )}
           </div>
 
-          {/* Always-visible search input — same look as every other
-              list view on phone. */}
-          <div className="mb-4">
-            <SearchField
-              glassId="cooking-search"
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search by name, cuisine, location…"
-              aria-label="Search your recipes"
-            />
-          </div>
-
-          {/* Filter pill row — mirrors the desktop toolbar's recipe
-              filters (Filters / Cuisine / Difficulty / Time / Sort).
-              Each pill opens the unified RecipeFilterSheet bottom
-              sheet that already covers every section. */}
+          {/* The count line — recomputes with every control above. */}
           {meals.length > 0 && (
-            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
-                icon={<SlidersHorizontal size={12} />} label="Filters"
-                active={recipeActiveFilterCount > 0}
-                badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
-              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
-                label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
-                active={cuisineFilter.length > 0}
-                onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
-              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
-                label={difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty'}
-                active={difficultyFilter.length > 0}
-                onClear={difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined} />
-              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
-                icon={<Clock size={11} />}
-                label={timeFilter ? timeLabel(timeFilter) : 'Time'}
-                active={!!timeFilter}
-                onClear={timeFilter ? () => setTimeFilter(null) : undefined} />
-              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
-                icon={<ArrowUpDown size={11} />}
-                label={sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort'}
-                active={sortBy !== 'recent'}
-                onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
-              {(recipeActiveFilterCount > 0 || sortBy !== 'recent') && (
-                <button onClick={resetRecipeFilters}
-                  className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
-                  <X size={10} /><span>Clear</span>
+            <div className="flex items-center justify-between px-1 pt-3.5">
+              <span className="text-[12px] text-on-surface/55 tabular-nums">
+                {filteredMeals.length} recipe{filteredMeals.length === 1 ? '' : 's'}
+                {savedOnly ? ' saved' : ''}
+                {filteredMeals.length !== meals.length ? ` · of ${meals.length}` : ''}
+              </span>
+              {(recipeActiveFilterCount > 0 || sortBy !== 'recent' || savedOnly) && (
+                <button
+                  type="button"
+                  onClick={() => { resetRecipeFilters(); setSavedOnly(false); }}
+                  className="text-[11.5px] font-bold text-primary active:opacity-70"
+                >
+                  Clear
                 </button>
               )}
             </div>
@@ -4610,23 +4672,35 @@ const HomeCookingTab: React.FC<{
           hat placeholder) + name + cuisine/difficulty/time meta + score
           chip on the right. */}
       {filteredMeals.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <UtensilsCrossed size={40} className="text-on-surface/15 mb-3" />
-          <p className="text-sm font-semibold text-on-surface/40 mb-1">
-            {searchQuery.trim() || recipeActiveFilterCount > 0 ? 'No recipes found' : 'No recipes logged yet'}
-          </p>
-          <p className="text-xs text-on-surface/30 mb-4 max-w-[260px]">
-            {searchQuery.trim() || recipeActiveFilterCount > 0
-              ? 'Try clearing some filters or searching for something else'
-              : 'Tap + to log your first home-cooked meal'}
-          </p>
-          {!searchQuery.trim() && recipeActiveFilterCount === 0 && (
-            <button onClick={() => onOpenModal()}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-semibold hover:bg-emerald-700 transition-colors">
-              Log a Meal
+        (searchQuery.trim() || recipeActiveFilterCount > 0 || savedOnly) ? (
+          <div className="px-1 pt-10 flex flex-col items-start gap-2.5">
+            <p className="font-serif text-[18px] font-bold tracking-[-0.028em] text-on-surface">Nothing matches that</p>
+            <p className="text-[13.5px] leading-relaxed text-on-surface/55 max-w-[270px]" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              Try a different filter, or add the recipe you're thinking of.
+            </p>
+            <button
+              type="button"
+              onClick={() => { resetRecipeFilters(); setSavedOnly(false); setSearchQuery(''); }}
+              className="mt-1.5 rounded-full border border-on-surface/20 px-[15px] py-[11px] text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.06] transition-colors"
+            >
+              Clear filters
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="px-1 pt-10 flex flex-col items-start gap-2.5">
+            <p className="font-serif text-[18px] font-bold tracking-[-0.028em] text-on-surface">No recipes yet</p>
+            <p className="text-[13.5px] leading-relaxed text-on-surface/55 max-w-[270px]" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              Log your first home-cooked meal and it lands here — cookbook, scores and all.
+            </p>
+            <button
+              type="button"
+              onClick={() => onOpenModal()}
+              className="mt-1.5 rounded-full bg-emerald-600 px-[15px] py-[11px] text-[12.5px] font-bold text-white active:opacity-85 transition-opacity"
+            >
+              Log a meal
+            </button>
+          </div>
+        )
       ) : effectiveRecipeViewMode === 'grid' ? (
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
           {filteredMeals.map((meal) => (
@@ -4689,6 +4763,13 @@ const HomeCookingTab: React.FC<{
    Builds the "Cuisine · 45 min · Easy" line shared by every recipe
    card. Falls back to a dish count when there's no time/difficulty so
    the line never reads empty. */
+/** The reference's time pill: fast reads green, an hour neutral, a long
+ *  project reads amber — the score-tint tokens, so dark mode holds. */
+const timePillClass = (m: number): string =>
+  m <= 30 ? 'bg-score-high-tint text-score-high-ink'
+  : m <= 60 ? 'bg-on-surface/[0.06] text-on-surface/80'
+  : 'bg-score-mid-tint text-score-mid-ink';
+
 function recipeMetaText(opts: { cuisine?: string; totalTime?: number; difficulty?: string; dishCount?: number }): string {
   const { cuisine, totalTime = 0, difficulty, dishCount = 0 } = opts;
   return [
@@ -4720,7 +4801,7 @@ interface RecipeCardData {
 /** Adapt a saved home-cooked meal to the shared recipe-card shape. */
 function homeMealToCardData(meal: HomeMeal): RecipeCardData {
   const ingredients = meal.ingredients ?? [];
-  const preview = ingredients.slice(0, 6);
+  const preview = ingredients.slice(0, 3);
   return {
     recipeId: meal.id,
     name: meal.name,
@@ -4730,7 +4811,7 @@ function homeMealToCardData(meal: HomeMeal): RecipeCardData {
     difficulty: meal.difficulty,
     dishCount: meal.dishes.length,
     score: meal.score,
-    ingredientText: preview.map((i) => i.name).filter(Boolean).join(', '),
+    ingredientText: preview.map((i) => i.name).filter(Boolean).join(' · '),
     ingredientOverflow: ingredients.length > preview.length,
     byline: (meal.sourceAuthorUsername || meal.sourceAuthorName)
       ? `by ${meal.sourceAuthorUsername ? `@${meal.sourceAuthorUsername}` : meal.sourceAuthorName}`
@@ -4742,7 +4823,7 @@ function homeMealToCardData(meal: HomeMeal): RecipeCardData {
 /** Adapt a recipe saved into a recipe list to the shared card shape. */
 function recipeToCardData(recipe: Recipe): RecipeCardData {
   const ingredients = recipe.ingredients ?? [];
-  const preview = ingredients.slice(0, 6);
+  const preview = ingredients.slice(0, 3);
   return {
     recipeId: recipe.id,
     name: recipe.title,
@@ -4751,7 +4832,7 @@ function recipeToCardData(recipe: Recipe): RecipeCardData {
     totalTime: (recipe.prepTime ?? 0) + (recipe.cookTime ?? 0),
     difficulty: recipe.difficulty,
     score: recipe.score,
-    ingredientText: preview.map((i) => i.name).filter(Boolean).join(', '),
+    ingredientText: preview.map((i) => i.name).filter(Boolean).join(' · '),
     ingredientOverflow: ingredients.length > preview.length,
     byline: (recipe.sourceAuthorUsername || recipe.sourceAuthorName)
       ? `by ${recipe.sourceAuthorUsername ? `@${recipe.sourceAuthorUsername}` : recipe.sourceAuthorName}`
@@ -4764,13 +4845,15 @@ function recipeToCardData(recipe: Recipe): RecipeCardData {
 const RecipeThumb: React.FC<{ coverPhoto?: string; name: string; size: number }> = ({ coverPhoto, name, size }) => (
   <div
     className="flex-shrink-0 overflow-hidden"
-    style={{ width: size, height: size, borderRadius: 14, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}
+    style={{ width: size, height: size, borderRadius: 20, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}
   >
     {coverPhoto ? (
       <img src={coverPhoto} alt={name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
     ) : (
-      <div className="flex h-full w-full items-center justify-center bg-emerald-50">
-        <ChefHat size={Math.round(size * 0.45)} className="text-emerald-500" strokeWidth={1.7} />
+      /* Neutral, not the old mint tile — a missing photo shouldn't be the
+         loudest thing in the row. */
+      <div className="flex h-full w-full items-center justify-center bg-on-surface/[0.055]">
+        <ChefHat size={Math.round(size * 0.4)} className="text-on-surface/30" strokeWidth={1.7} />
       </div>
     )}
   </div>
@@ -4811,6 +4894,9 @@ const RecipeRow: React.FC<RecipeCardData & {
   const clearLongPress = () => { if (longPressRef.current.timer) { clearTimeout(longPressRef.current.timer); longPressRef.current.timer = null; } };
 
   const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
+  // Phone meta line — time moved into its pill, so this is just the words.
+  const smallMeta = [cuisine, difficulty].filter(Boolean).join(' · ')
+    || (dishCount > 0 ? `${dishCount} dish${dishCount !== 1 ? 'es' : ''}` : '');
   const hasEdit = !!onEdit && canEdit;
   const hasRemove = !!onDelete;
 
@@ -4975,20 +5061,24 @@ const RecipeRow: React.FC<RecipeCardData & {
         >
           <button
             onClick={onForegroundClick}
-            className="flex w-full items-start gap-[15px] px-1 py-4 text-left"
+            className="flex w-full items-start gap-3.5 px-1 py-[15px] text-left"
           >
-            <RecipeThumb coverPhoto={coverPhoto} name={name} size={58} />
+            <RecipeThumb coverPhoto={coverPhoto} name={name} size={74} />
             <div className="min-w-0 flex-1">
-              <h3 className="font-serif text-[18px] font-bold leading-[1.18] tracking-[-0.01em] text-on-surface" style={{ textWrap: 'pretty' } as React.CSSProperties}>{name}</h3>
-              {metaText && (
-                <p className="mt-[5px] flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/70">
-                  {totalTime > 0 && <Clock size={13} className="flex-shrink-0 text-on-surface/40" />}
-                  <span className="truncate">{metaText}</span>
-                </p>
+              <h3 className="font-serif text-[16px] font-bold leading-[1.2] tracking-[-0.025em] text-on-surface line-clamp-2">{name}</h3>
+              {(totalTime > 0 || smallMeta) && (
+                <div className="mt-[7px] flex items-center gap-[7px] min-w-0">
+                  {totalTime > 0 && (
+                    <span className={cn('flex-none rounded-full px-[9px] py-1.5 text-[11px] font-bold tabular-nums', timePillClass(totalTime))}>
+                      {formatDuration(totalTime)}
+                    </span>
+                  )}
+                  {smallMeta && <span className="text-[12px] text-on-surface/55 truncate">{smallMeta}</span>}
+                </div>
               )}
               {ingredientText && (
-                <p className="mt-[7px] text-[12.5px] font-medium leading-[1.45] text-on-surface/40 line-clamp-2">
-                  {ingredientText}{ingredientOverflow ? '…' : ''}
+                <p className="mt-[7px] text-[12px] leading-snug text-on-surface/45 truncate">
+                  {ingredientText}
                 </p>
               )}
               {byline && <p className="mt-1 truncate text-[11px] italic text-on-surface/45">{byline}</p>}
