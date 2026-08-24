@@ -73,6 +73,9 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
         onClick={onToggle}
         className={cn('w-full flex items-center text-left group', pad, compact ? 'gap-3.5 py-[18px]' : 'gap-6 py-5')}
       >
+        {/* Compact (phone) leads with the score — the reference row reads
+            disc → name; desktop keeps the score on the right edge. */}
+        {compact && <RingScore score={score} size={44} />}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={cn('font-serif font-bold leading-tight tracking-[-0.01em] text-on-surface truncate group-hover:text-primary transition-colors', compact ? 'text-[17px]' : 'text-[20px]')}>
@@ -91,7 +94,7 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
             </div>
           )}
         </div>
-        <RingScore score={score} size={compact ? 42 : 46} />
+        {!compact && <RingScore score={score} size={46} />}
       </button>
 
       <Collapse open={expanded}>

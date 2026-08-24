@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin,
   ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon,
-  Share2, Send, ArrowUpDown, Image as ImageIcon,
+  Share2, Send, ArrowUpDown, Image as ImageIcon, Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useHeaderFade } from '../lib/useHeaderFade';
 import { cn } from '../lib/utils';
-import { scoreHex } from '../lib/score';
+import { scoreHex, scoreColor } from '../lib/score';
+import { GlassButton } from '../lib/glass-buttons';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
@@ -84,8 +84,6 @@ export const UserProfile: React.FC = () => {
   const { phoneMode } = useSettings();
   const { restaurantMeta } = useLists();
   const userId = user?.id ?? null;
-  // Mobile top bar dissolves as you scroll, Discover-style.
-  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -133,6 +131,30 @@ export const UserProfile: React.FC = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const sortBtnRef = useRef<HTMLDivElement>(null);
+
+  // Reference-style top bar (mobile): the bar itself never leaves — a mini
+  // identity and follow pill fade IN once the identity band scrolls away,
+  // and the tab strip sticks just under the bar (its measured height).
+  const [scrolled, setScrolled] = useState(false);
+  const barRef = useRef<HTMLElement | null>(null);
+  const [barH, setBarH] = useState(0);
+  useEffect(() => {
+    if (!phoneMode) return;
+    const onScroll = () => setScrolled(window.scrollY > 130);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [phoneMode]);
+  useEffect(() => {
+    if (!phoneMode) return;
+    const el = barRef.current;
+    if (!el) return;
+    const measure = () => setBarH(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [phoneMode, loading, profile]);
 
   useEffect(() => {
     if (!username) return;
@@ -333,6 +355,29 @@ export const UserProfile: React.FC = () => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
   }, [userRatings]);
+
+  // "Taste signature" — the reference card's numbers, every one derived
+  // from ratings already loaded: the average score, the three most-rated
+  // cuisines, and up to three honest trait chips (price mode, scoring
+  // posture, whether they write). Nothing here is invented.
+  const tasteStats = useMemo(() => {
+    if (userRatings.length < 3) return null;
+    const scores = userRatings.map((r) => Number(r.score)).filter((n) => Number.isFinite(n) && n > 0);
+    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const bars = topCuisines.slice(0, 3);
+    const traits: string[] = [];
+    const priceCounts = new Map<string, number>();
+    userRatings.forEach((r) => { if (r.price) priceCounts.set(r.price, (priceCounts.get(r.price) ?? 0) + 1); });
+    const topPrice = Array.from(priceCounts.entries()).sort((a, b) => b[1] - a[1])[0];
+    if (topPrice && topPrice[1] / userRatings.length >= 0.4) traits.push(`Mostly ${topPrice[0]}`);
+    if (scores.length >= 5) {
+      if (avg <= 6.8) traits.push('Rates hard');
+      else if (avg >= 8.5) traits.push('Rates generous');
+    }
+    const noteShare = userRatings.filter((r) => r.notes?.trim()).length / userRatings.length;
+    if (noteShare >= 0.3) traits.push('Writes notes');
+    return { avg, bars, traits, max: bars[0]?.count || 1 };
+  }, [userRatings, topCuisines]);
 
   const activeFilterCount =
     (filterPrice ? 1 : 0) + (filterCity ? 1 : 0) +
@@ -1180,119 +1225,166 @@ export const UserProfile: React.FC = () => {
   );
 
   // ═══════════════════════════════════════════════════════════════════════
-  // MOBILE / narrow — single-column profile (Gourmet Canvas mobile design).
+  // MOBILE / narrow — who they are, in one screen. The identity is one
+  // compact band, the numbers are one line, and a taste signature says what
+  // this person actually rates before the list starts. The top bar never
+  // leaves; a mini identity and follow pill fade in as the band scrolls
+  // away, and the tabs stick just under it.
   // ═══════════════════════════════════════════════════════════════════════
+  const followPill = (mini: boolean) => {
+    if (!userId || isOwnProfile) return null;
+    const base = mini
+      ? 'flex-none rounded-full px-3.5 py-[9px] text-[12px] font-bold transition-colors'
+      : 'flex-1 rounded-full py-[13px] text-[13.5px] font-bold inline-flex items-center justify-center gap-2 transition-colors';
+    if (isFollowing) {
+      return (
+        <button type="button" onClick={handleUnfollow} className={cn(base, 'border border-on-surface/20 text-on-surface bg-transparent active:bg-on-surface/[0.06]')}>
+          Following
+        </button>
+      );
+    }
+    if (followSent) {
+      return (
+        <button type="button" disabled className={cn(base, 'bg-on-surface/[0.06] text-on-surface/45')}>
+          Requested
+        </button>
+      );
+    }
+    return (
+      <button type="button" onClick={handleFollow} className={cn(base, 'bg-primary text-white shadow-[0_6px_16px_rgba(159,48,18,0.22)] active:opacity-85')}>
+        {!mini && <Plus size={15} strokeWidth={2.3} />}
+        {theyFollowMe ? 'Follow back' : 'Follow'}
+      </button>
+    );
+  };
+
+  const countsLine: { n: number; l: string; tab?: 'followers' | 'following' }[] = [
+    { n: userRatings.length, l: 'rated' },
+    { n: publicHomeMeals.length, l: 'cooked' },
+    { n: followers, l: 'followers', tab: 'followers' },
+    { n: following, l: 'following', tab: 'following' },
+  ];
+
   return (
     <div className="min-h-screen bg-surface pb-16">
-      {/* sticky glass top bar — fades away with scroll, back near the top */}
-      <motion.header
-        ref={headerFade.headerRef}
-        style={headerFade.headerStyle}
-        className="sticky top-0 z-30 bg-surface/80 backdrop-blur-xl"
+      {/* Top bar — always present; mini identity + follow fade in on scroll */}
+      <header
+        ref={barRef}
+        className={cn(
+          'sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b transition-colors duration-300',
+          scrolled ? 'border-on-surface/[0.10]' : 'border-transparent',
+        )}
       >
-        <div className="flex items-center justify-between px-3 pt-safe-3 pb-2.5">
-          <button
+        <div className="flex items-center gap-2.5 px-4 pt-safe-3 pb-2.5">
+          <GlassButton
+            id="pubprofile-back"
+            symbol="chevron.left"
+            label="Back"
             onClick={() => navigate(-1)}
-            className="w-9 h-9 -ml-0.5 rounded-full grid place-items-center text-on-surface hover:bg-on-surface/[0.06] transition-colors"
-            aria-label="Back"
+            className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
-            <ArrowLeft size={20} />
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleShare}
-              className="w-[38px] h-[38px] rounded-full grid place-items-center bg-on-surface/[0.05] text-on-surface active:bg-on-surface/[0.1] transition-colors"
-              aria-label={copied ? 'Link copied' : 'Share profile'}
-            >
-              {copied ? <Check size={17} className="text-primary" /> : <Share2 size={17} />}
-            </button>
+            <ArrowLeft size={18} />
+          </GlassButton>
+          <div
+            className={cn(
+              'flex-1 min-w-0 flex items-center gap-2 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+              scrolled ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[5px] pointer-events-none',
+            )}
+            aria-hidden={!scrolled || undefined}
+          >
+            <span className="flex-none w-[26px] h-[26px] rounded-full bg-primary/[0.13] text-primary flex items-center justify-center font-serif font-bold text-[12px]">
+              {profile.display_name.charAt(0).toUpperCase()}
+            </span>
+            <span className="min-w-0 font-serif font-bold text-[15px] tracking-[-0.025em] text-on-surface truncate">
+              {profile.display_name}
+            </span>
           </div>
+          <div
+            className={cn(
+              'flex-none transition-opacity duration-300',
+              scrolled ? 'opacity-100' : 'opacity-0 pointer-events-none',
+            )}
+            aria-hidden={!scrolled || undefined}
+          >
+            {followPill(true)}
+          </div>
+          <GlassButton
+            id="pubprofile-share"
+            symbol="square.and.arrow.up"
+            label={copied ? 'Link copied' : 'Share profile'}
+            onClick={handleShare}
+            className="hit-44 flex-none w-9 h-9 -mr-0.5 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+          >
+            {copied ? <Check size={16} className="text-primary" /> : <Share2 size={16} />}
+          </GlassButton>
         </div>
-      </motion.header>
+      </header>
 
-      {/* identity */}
-      <div className="flex flex-col items-center text-center px-6 pt-2">
+      {/* Identity — one compact band, left-aligned */}
+      <div className="px-5 pt-2 flex items-center gap-3.5">
         <div
-          className="w-[84px] h-[84px] rounded-full grid place-items-center mb-3.5"
+          className="flex-none w-[66px] h-[66px] rounded-full grid place-items-center"
           style={{ background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)' }}
         >
-          <span className="font-serif font-bold text-[38px] leading-none text-primary">
+          <span className="font-serif font-bold text-[27px] leading-none text-primary">
             {profile.display_name.charAt(0).toUpperCase()}
           </span>
         </div>
-        <h1 className="font-serif text-[27px] font-bold leading-none tracking-[-0.02em] text-on-surface max-w-full truncate px-2">
-          {profile.display_name}
-        </h1>
-        <div className="flex items-center justify-center gap-2 mt-1.5 text-[13px] font-semibold text-ink-4 flex-wrap">
-          <span>@{profile.username}</span>
-          {profile.is_verified && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10px] font-bold uppercase tracking-wider text-primary">
-              <VerifiedBadge size={11} /> Verified
-            </span>
-          )}
-          {!profile.is_public && !profile.is_verified && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-4">
-              <Lock size={10} /> Private
-            </span>
-          )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <h1 className="min-w-0 font-serif text-[24px] font-bold leading-none tracking-[-0.03em] text-on-surface truncate">
+              {profile.display_name}
+            </h1>
+            {profile.is_verified && <VerifiedBadge size={15} className="flex-none" />}
+            {!profile.is_public && !profile.is_verified && <Lock size={13} className="flex-none text-ink-4" />}
+          </div>
+          <p className="mt-2 text-[13px] text-ink-3 truncate">
+            @{profile.username}{profile.home_city ? ` · ${profile.home_city}` : ''}
+          </p>
         </div>
-        {profile.bio && canView && (
-          <p className="mt-3 text-[14px] leading-relaxed text-ink-2 max-w-[300px] text-pretty">
-            {profile.bio}
-          </p>
-        )}
-        {profile.is_verified && profile.verified_status && (
-          <p className="mt-2 text-[12.5px] font-semibold text-primary/90">
-            {profile.verified_status}
-          </p>
-        )}
-        {profile.home_city && (
-          <div className="flex items-center gap-1.5 mt-2.5 text-[12.5px] font-semibold text-ink-3">
-            <MapPin size={14} strokeWidth={2.2} className="text-primary" /> {profile.home_city}
-          </div>
-        )}
-        {profile.is_verified && expertRecCount > 0 && (
-          <div className="flex items-center gap-1.5 mt-2 text-[12px] font-semibold text-primary">
-            <VerifiedBadge size={13} /> {expertRecCount} pick{expertRecCount === 1 ? '' : 's'} from this verified user
-          </div>
-        )}
       </div>
 
-      {/* actions */}
+      {profile.is_verified && profile.verified_status && (
+        <p className="mt-3 px-5 text-[13px] font-semibold text-primary">{profile.verified_status}</p>
+      )}
+      {profile.bio && canView && (
+        <p className="mt-3.5 px-5 text-[14px] leading-relaxed text-ink-2" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+          {profile.bio}
+        </p>
+      )}
+      {profile.is_verified && expertRecCount > 0 && (
+        <p className="mt-2.5 px-5 flex items-center gap-1.5 text-[12px] font-semibold text-primary">
+          <VerifiedBadge size={13} /> {expertRecCount} pick{expertRecCount === 1 ? '' : 's'} from this verified user
+        </p>
+      )}
+
+      {/* Actions */}
       {userId && !isOwnProfile ? (
-        <div className="flex gap-2.5 px-6 pt-[18px]">
-          {renderFollowButton('sidebar')}
+        <div className="flex gap-2.5 px-5 pt-4">
+          {followPill(false)}
           <button
             type="button"
             onClick={() => navigate('/messages', { state: { openUserId: profile.user_id } })}
-            className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface active:bg-on-surface/[0.05] transition-colors"
-            aria-label="Message"
+            className="flex-none rounded-full border border-on-surface/20 text-on-surface px-[18px] py-[13px] text-[13.5px] font-bold active:bg-on-surface/[0.06] transition-colors"
           >
-            <Send size={18} />
+            Message
           </button>
         </div>
       ) : isOwnProfile ? (
-        <div className="px-6 pt-[18px]">
+        <div className="px-5 pt-4">
           <button
             type="button"
             onClick={handleShare}
-            className="w-full h-12 rounded-full bg-paper border border-line-2 inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface active:bg-on-surface/[0.05] transition-colors"
+            className="w-full rounded-full border border-on-surface/20 inline-flex items-center justify-center gap-2 py-[13px] text-[13.5px] font-bold text-on-surface active:bg-on-surface/[0.06] transition-colors"
           >
-            {copied ? <><Check size={16} className="text-primary" /> Link copied</> : <><Share2 size={16} /> Share profile</>}
+            {copied ? <><Check size={15} className="text-primary" /> Link copied</> : <><Share2 size={15} /> Share profile</>}
           </button>
         </div>
       ) : null}
 
-      {/* stats — followers / following open the full-page lists when the
-          viewer can see this profile's content at all */}
-      <div className="flex items-stretch mx-6 mt-[22px] py-4 border-y border-line">
-        {([
-          { n: userRatings.length, l: 'Ratings' },
-          { n: publicHomeMeals.length, l: 'Cooked' },
-          { n: followers, l: 'Followers', tab: 'followers' },
-          { n: following, l: 'Following', tab: 'following' },
-        ] as { n: number; l: string; tab?: 'followers' | 'following' }[]).map((it, i) => {
+      {/* The numbers — one line, not four columns */}
+      <div className="px-5 pt-5 flex items-center gap-4 overflow-x-auto scrollbar-hide">
+        {countsLine.map((it) => {
           const clickable = !!it.tab && canView && !!profile.username;
           const Tag = (clickable ? 'button' : 'div') as 'button';
           return (
@@ -1300,161 +1392,192 @@ export const UserProfile: React.FC = () => {
               key={it.l}
               type={clickable ? 'button' : undefined}
               onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
-              className={cn(
-                'flex-1 flex flex-col items-center',
-                i > 0 && 'border-l border-line',
-                clickable && 'active:opacity-60 transition-opacity',
-              )}
+              className={cn('flex-none flex items-baseline gap-1.5', clickable && 'active:opacity-60 transition-opacity')}
             >
-              <span className="font-serif text-[20px] font-bold leading-none text-on-surface tabular-nums">{it.n}</span>
-              <span className="text-[8.5px] font-bold tracking-[0.1em] uppercase text-ink-4 mt-1.5">{it.l}</span>
+              <span className="font-serif text-[15px] font-bold tracking-[-0.03em] text-on-surface tabular-nums">{it.n}</span>
+              <span className="text-[12px] text-ink-3">{it.l}</span>
             </Tag>
           );
         })}
       </div>
 
+      {/* Taste signature — what this person actually rates */}
+      {canView && tasteStats && (
+        <div className="mx-5 mt-5 rounded-[20px] bg-on-surface/[0.045] px-4 py-[15px]">
+          <div className="flex items-center gap-2.5">
+            <span className="flex-none text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Taste signature</span>
+            <span className="flex-1 h-px bg-on-surface/[0.10]" />
+          </div>
+          <div className="mt-3 flex items-center gap-3.5">
+            <div className="flex-none flex flex-col gap-1.5">
+              <span className={cn('font-serif text-[25px] font-bold leading-none tracking-[-0.04em]', scoreColor(tasteStats.avg))}>
+                {tasteStats.avg.toFixed(1)}
+              </span>
+              <span className="text-[11px] text-ink-3">avg score</span>
+            </div>
+            <span className="flex-none w-px h-[34px] bg-on-surface/[0.12]" />
+            <div className="flex-1 min-w-0 flex flex-col gap-2">
+              {tasteStats.bars.map((b) => (
+                <div key={b.name} className="flex items-center gap-2.5">
+                  <span className="flex-none w-[74px] text-[11.5px] font-medium text-ink-2 truncate">{b.name}</span>
+                  <span className="flex-1 h-[5px] rounded-full bg-on-surface/[0.09] overflow-hidden">
+                    <span
+                      className={cn('block h-full rounded-full', b.count >= tasteStats.max ? 'bg-primary' : 'bg-primary/45')}
+                      style={{ width: `${Math.round((b.count / tasteStats.max) * 100)}%` }}
+                    />
+                  </span>
+                  <span className="flex-none text-[11px] font-semibold text-ink-4 tabular-nums">{b.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {tasteStats.traits.length > 0 && (
+            <div className="mt-3 flex gap-1.5 flex-wrap">
+              {tasteStats.traits.map((t) => (
+                <span key={t} className="rounded-full bg-paper border border-on-surface/[0.08] px-3 py-[7px] text-[11px] font-semibold text-ink-2">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {canView ? (
         <>
-          {/* tabs — `-mb-px` lives on the scroller (not the buttons) so the
-              scroller has zero vertical overflow; a stray 1px of scrollable
-              overflow lets iOS drag/rubber-band the whole bar diagonally. */}
-          <div className="mt-6 border-b border-line">
-            <div className="flex gap-1 overflow-x-auto overflow-y-hidden overscroll-x-none scrollbar-hide px-6 -mb-px">
-              {tabs.map((t) => {
-                const active = viewTab === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => setViewTab(t.key)}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 px-1.5 pb-3 border-b-2 whitespace-nowrap flex-none',
-                      active ? 'border-primary' : 'border-transparent',
-                    )}
-                  >
-                    <span className={cn('text-[14px]', active ? 'font-bold text-on-surface' : 'font-semibold text-ink-3')}>
-                      {t.label}
-                    </span>
-                    <span className={cn(
-                      'text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-full',
-                      active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-ink-4',
-                    )}>
-                      {t.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Tabs — pills with counts, stuck just under the top bar */}
+          <div
+            className="sticky z-20 mt-[22px] px-5 pt-3 pb-[11px] bg-surface/[0.94] backdrop-blur-lg border-b border-on-surface/[0.10] flex gap-[7px] overflow-x-auto scrollbar-hide"
+            style={{ top: barH ? barH - 1 : 0 }}
+          >
+            {tabs.map((t) => {
+              const active = viewTab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setViewTab(t.key)}
+                  className={cn(
+                    'flex-none inline-flex items-center gap-[7px] whitespace-nowrap rounded-full px-3.5 py-[9px] text-[12.5px] font-bold transition-colors',
+                    active ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
+                  )}
+                >
+                  {t.label}
+                  <span className={cn('font-medium tabular-nums', active ? 'text-surface/60' : 'text-ink-4')}>{t.count}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* RESTAURANTS */}
           {viewTab === 'restaurants' && (
             <>
-              <div className="flex items-center gap-2.5 px-6 pt-4 pb-3">
+              <div className="flex items-center gap-2 px-5 pt-3.5">
                 <SearchField
                   glassId="profile-rest-search"
                   className="flex-1 min-w-0"
                   value={searchQuery}
                   onChange={setSearchQuery}
-                  placeholder="Search restaurants…"
+                  placeholder="Search their ratings"
                 />
                 <button
                   onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
                   className={cn(
-                    'relative w-11 h-11 flex-none rounded-full grid place-items-center border',
-                    activeFilterCount > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                    'relative w-11 h-11 flex-none rounded-full grid place-items-center transition-colors',
+                    activeFilterCount > 0 ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
                   )}
                   aria-label="Filter"
                 >
-                  <SlidersHorizontal size={18} />
+                  <SlidersHorizontal size={17} />
                   {activeFilterCount > 0 && (
                     <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9.5px] font-bold grid place-items-center tabular-nums">{activeFilterCount}</span>
                   )}
                 </button>
               </div>
 
-              {/* Quick filter chips — sort (anchored menu) plus drill-in
-                  shortcuts that open the filter sheet directly on that
-                  filter's page. */}
-              <div className="flex gap-2 overflow-x-auto scrollbar-hide px-6 pb-1">
+              {/* Quick chips — sort menu plus drill-in shortcuts */}
+              <div className="flex gap-[7px] overflow-x-auto scrollbar-hide px-5 pt-2.5">
                 <div className="relative flex-none">
                   <button
                     onClick={() => setMobileSortOpen((v) => !v)}
                     className={cn(
-                      'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
-                      sortBy !== 'recent' ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
+                      'inline-flex items-center gap-1.5 px-3.5 py-[9px] rounded-full text-[12px] font-bold flex-none transition-colors',
+                      sortBy !== 'recent' ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
                     )}
                     aria-label="Sort"
                   >
-                    <ArrowUpDown size={11.5} className={sortBy !== 'recent' ? 'text-surface/70' : 'text-on-surface/45'} />
+                    <ArrowUpDown size={11.5} />
                     {sortLabel[sortBy]}
-                    <ChevronDown size={12} className={cn('transition-transform', mobileSortOpen && 'rotate-180')} />
                   </button>
                   {mobileSortOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setMobileSortOpen(false)} />
                       <div className="absolute left-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-2xl border border-on-surface/[0.08] bg-paper py-1 shadow-xl">
-                        {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((s) => (
+                        {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((sv) => (
                           <button
-                            key={s}
-                            onClick={() => { setSortBy(s); setMobileSortOpen(false); }}
+                            key={sv}
+                            onClick={() => { setSortBy(sv); setMobileSortOpen(false); }}
                             className={cn(
-                              'flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] font-semibold',
-                              sortBy === s ? 'text-primary' : 'text-on-surface/75',
+                              'flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[13px] font-semibold',
+                              sortBy === sv ? 'text-primary' : 'text-on-surface/75',
                             )}
                           >
-                            {sortLabel[s]}
-                            {sortBy === s && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                            {sortLabel[sv]}
+                            {sortBy === sv && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
                           </button>
                         ))}
                       </div>
                     </>
                   )}
                 </div>
-                <button
-                  onClick={() => { setSheetPage({ id: 'cuisine', title: 'Cuisine' }); setFiltersOpen(true); }}
-                  className={cn(
-                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
-                    filterCuisine ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
-                  )}
-                >
-                  {filterCuisine || 'Cuisines'}
-                  <ChevronDown size={12} className={filterCuisine ? 'text-surface/70' : 'text-on-surface/45'} />
-                </button>
-                <button
-                  onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
-                  className={cn(
-                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
-                    filterPrice ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
-                  )}
-                >
-                  {filterPrice || 'Price'}
-                  <ChevronDown size={12} className={filterPrice ? 'text-surface/70' : 'text-on-surface/45'} />
-                </button>
-                <button
-                  onClick={() => { setSheetPage({ id: 'michelin', title: 'Michelin' }); setFiltersOpen(true); }}
-                  className={cn(
-                    'inline-flex h-8 items-center gap-1 px-3.5 rounded-full text-[12.5px] font-semibold border flex-none',
-                    filterMichelin.length > 0 ? 'bg-on-surface text-surface border-on-surface' : 'bg-paper border-line-2 text-on-surface',
-                  )}
-                >
-                  Michelin{filterMichelin.length > 0 ? ` · ${filterMichelin.length}` : ''}
-                  <ChevronDown size={12} className={filterMichelin.length > 0 ? 'text-surface/70' : 'text-on-surface/45'} />
-                </button>
+                {([
+                  [filterCuisine || 'Cuisines', !!filterCuisine, () => { setSheetPage({ id: 'cuisine', title: 'Cuisine' }); setFiltersOpen(true); }],
+                  [filterPrice || 'Price', !!filterPrice, () => { setSheetPage(null); setFiltersOpen(true); }],
+                  [`Michelin${filterMichelin.length > 0 ? ` · ${filterMichelin.length}` : ''}`, filterMichelin.length > 0, () => { setSheetPage({ id: 'michelin', title: 'Michelin' }); setFiltersOpen(true); }],
+                ] as [string, boolean, () => void][]).map(([label, on, press]) => (
+                  <button
+                    key={label}
+                    onClick={press}
+                    className={cn(
+                      'inline-flex items-center gap-1 px-3.5 py-[9px] rounded-full text-[12px] font-bold flex-none transition-colors',
+                      on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
+                    )}
+                  >
+                    {label}
+                    <ChevronDown size={12} className={on ? 'text-surface/60' : 'text-on-surface/40'} />
+                  </button>
+                ))}
               </div>
 
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-4 px-6 pt-4">
-                <strong className="text-ink-2 font-bold tabular-nums">{filteredRatings.length}</strong>{' '}
-                {filterCuisine ? `${filterCuisine} · ` : ''}{filteredRatings.length === 1 ? 'Restaurant' : 'Restaurants'} rated
+              {/* Result line + map — the map affordance lives here now,
+                  not floating over the content */}
+              <div className="flex items-center gap-2.5 px-5 pt-3.5">
+                <span className="flex-none text-[12px] text-ink-3 tabular-nums">
+                  {searchQuery.trim() || activeFilterCount > 0 || filterCuisine
+                    ? `${filteredRatings.length} of ${userRatings.length} shown`
+                    : `${userRatings.length} place${userRatings.length === 1 ? '' : 's'} rated`}
+                </span>
+                <span className="flex-1 h-px bg-on-surface/[0.12]" />
+                {userRatings.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPage(true)}
+                    className="flex-none inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] px-3 py-2 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.1] transition-colors"
+                  >
+                    <MapIcon size={12} strokeWidth={2.2} /> Map
+                  </button>
+                )}
               </div>
 
               {filteredRatings.length === 0 ? (
-                <div className="text-center py-16 px-6">
-                  <div className="font-serif text-[19px] font-bold text-on-surface mb-1">No restaurants match</div>
-                  <div className="text-[13.5px] text-ink-3">Try a different cuisine or clear your search.</div>
+                <div className="px-5 pt-8">
+                  <div className="font-serif text-[17px] font-bold tracking-[-0.028em] text-on-surface">Nothing matches that</div>
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-ink-3 max-w-[262px]" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+                    Try a shorter search — this is only what {profile.display_name.split(' ')[0]} has rated publicly.
+                  </p>
                 </div>
               ) : (
-                <div className="px-6 pt-1.5">
+                <div className="px-5">
                   {filteredRatings.map((r) => (
                     <ProfileRestaurantRowMinimal
                       key={r.id}
@@ -1476,10 +1599,12 @@ export const UserProfile: React.FC = () => {
             publicHomeMeals.length === 0 ? (
               mobileEmpty('No recipes yet', `When ${profile.display_name} shares a meal, it'll show up here.`)
             ) : (
-              <div className="px-6 pt-4">
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-4 mb-1.5">
-                  <strong className="text-ink-2 font-bold tabular-nums">{publicHomeMeals.length}</strong>{' '}
-                  {publicHomeMeals.length === 1 ? 'Recipe' : 'Recipes'} cooked &amp; rated
+              <div className="px-5 pt-4">
+                <div className="flex items-center gap-2.5 pb-1">
+                  <span className="flex-none text-[12px] text-ink-3 tabular-nums">
+                    {publicHomeMeals.length} {publicHomeMeals.length === 1 ? 'recipe' : 'recipes'} cooked &amp; rated
+                  </span>
+                  <span className="flex-1 h-px bg-on-surface/[0.12]" />
                 </div>
                 <ul className="flex flex-col">
                   {publicHomeMeals.map((meal, i) => (
@@ -1515,19 +1640,6 @@ export const UserProfile: React.FC = () => {
                 ? mobileEmpty('Nothing here yet', `${profile.display_name} hasn't published any public guides yet.`)
                 : <ProfileGuidesSection guides={publicGuides} hideHeader />}
             </div>
-          )}
-
-          {/* floating map button — restaurants tab only (it maps ratings).
-              Bottom-left: the global AI assistant FAB owns the bottom-right
-              corner on this page. */}
-          {userRatings.length > 0 && viewTab === 'restaurants' && (
-            <button
-              onClick={() => setShowMapPage(true)}
-              className="fixed bottom-24 left-5 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center active:scale-95 transition-transform z-30"
-              aria-label="Map view"
-            >
-              <MapIcon size={22} />
-            </button>
           )}
         </>
       ) : (
