@@ -137,10 +137,10 @@ const ScorePill: React.FC<{
     <div className="flex-1 min-w-0 flex flex-col items-center text-center">
       <span
         className={cn(
-          'w-16 h-16 rounded-full flex items-center justify-center tabular-nums',
+          'w-[68px] h-[68px] rounded-full flex items-center justify-center tabular-nums',
           has ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
         )}
-        style={{ fontSize: '21px', fontWeight: 700, letterSpacing: '-0.01em' }}
+        style={{ fontSize: '23px', fontWeight: 700, letterSpacing: '-0.01em' }}
       >
         {has ? score.toFixed(1) : '—'}
       </span>
@@ -512,10 +512,8 @@ export const RestaurantPanelBody: React.FC<{
         whole time. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll({ container: scrollRef });
-  const heroHeight = useTransform(scrollY, [0, 130], [204, 60], { clamp: true });
+  const heroHeight = useTransform(scrollY, [0, 120], [168, 60], { clamp: true });
   const mediaOpacity = useTransform(scrollY, [0, 80], [1, 0], { clamp: true });
-  const expandedOpacity = useTransform(scrollY, [0, 60], [1, 0], { clamp: true });
-  const expandedY = useTransform(scrollY, [0, 120], [0, -22], { clamp: true });
   const compactOpacity = useTransform(scrollY, [60, 120], [0, 1], { clamp: true });
   const bottomLineOpacity = useTransform(scrollY, [80, 120], [0, 1], { clamp: true });
 
@@ -551,48 +549,30 @@ export const RestaurantPanelBody: React.FC<{
             // The saturate filter quiets the cartography slightly so it
             // reads as warm gray rather than bright pastel.
             className="absolute inset-x-0 top-0"
-            style={{ width: '100%', height: 204, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
+            style={{ width: '100%', height: 168, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
           />
         ) : snapshot.image ? (
           <motion.img
             src={snapshot.image}
             alt=""
             className="absolute inset-x-0 top-0 w-full object-cover"
-            style={{ height: 204, opacity: mediaOpacity }}
+            style={{ height: 168, opacity: mediaOpacity }}
             referrerPolicy="no-referrer"
           />
         ) : (
           <motion.div
             className="absolute inset-x-0 top-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30"
-            style={{ height: 204, opacity: mediaOpacity }}
+            style={{ height: 168, opacity: mediaOpacity }}
           >
             <ImageOff size={28} />
           </motion.div>
         )}
-        {/* Bottom legibility wash — fades the cream surface up into the
-            map so dark title text stays legible against map labels.
-            Separate layer so it doesn't constrain the map container's
-            size, and fades together with the media. */}
+        {/* Soft bottom fade so the map settles into the surface — the
+            title lives on the surface below now, not on the map. */}
         <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-cream-2 via-cream-2/55 to-transparent"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent"
           style={{ opacity: mediaOpacity }}
         />
-
-        {/* Expanded title — large serif name + cuisine/price/distance,
-            pinned to the bottom of the expanded hero. Fades + slides up
-            as the hero collapses. Dark text sits over the cream-to-map
-            gradient for crisp legibility. */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-3.5 text-on-surface"
-          style={{ opacity: expandedOpacity, y: expandedY }}
-        >
-          <h2 className="font-serif font-bold text-[21px] leading-[1.1] tracking-tight line-clamp-2">
-            {snapshot.name}
-          </h2>
-          <p className="text-[12px] text-on-surface/70 mt-0.5 truncate">
-            {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
-          </p>
-        </motion.div>
 
         {/* Compact title — vertically centered in the collapsed hero,
             fits between the heart and close pills. Dark text on the
@@ -655,6 +635,26 @@ export const RestaurantPanelBody: React.FC<{
         style={{ overscrollBehavior: 'contain' }}
       >
         {headSlot}
+        {/* Identity — the main detail page's lead: the name says it in
+            large serif ON the surface, with the cuisine speaking in the
+            accent underneath. It used to hide as a caption inside the
+            map wash. */}
+        {!noHero && (
+          <div>
+            <h2 className="font-serif font-bold text-on-surface text-[27px] leading-[1.08] tracking-[-0.02em]" style={{ textWrap: 'balance' } as React.CSSProperties}>
+              {snapshot.name}
+            </h2>
+            {(snapshot.cuisine || snapshot.price || distance) && (
+              <p className="mt-2 text-[13.5px] truncate">
+                {snapshot.cuisine && <span className="font-semibold text-primary">{snapshot.cuisine}</span>}
+                {snapshot.cuisine && (snapshot.price || distance) && <span className="text-on-surface/30">  ·  </span>}
+                {snapshot.price && <span className="text-on-surface/60">{snapshot.price}</span>}
+                {snapshot.price && distance && <span className="text-on-surface/30">  ·  </span>}
+                {distance && <span className="text-on-surface/60">{distance}</span>}
+              </p>
+            )}
+          </div>
+        )}
         {/* Action row — outlined pills, the detail page's control
             language: each of these leaves the app, so they read as
             controls rather than tiles. */}
@@ -681,7 +681,10 @@ export const RestaurantPanelBody: React.FC<{
 
         {/* Ratings — three tinted discs over a name and a count, the
             same tier palette every score wears everywhere. */}
-        <div className="flex gap-2">
+        <section>
+          <SectionRule />
+          <SectionTitle className="pt-3">Ratings</SectionTitle>
+          <div className="mt-5 flex gap-2">
           <ScorePill
             label="Community"
             score={community?.avg ?? 0}
@@ -701,7 +704,8 @@ export const RestaurantPanelBody: React.FC<{
             }
             count={experts.length}
           />
-        </div>
+          </div>
+        </section>
 
         {/* Address + thin hours accordion — sits directly below the score
             chips so "where it is / when it's open" is at-a-glance without
