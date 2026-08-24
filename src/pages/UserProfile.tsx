@@ -82,7 +82,7 @@ export const UserProfile: React.FC = () => {
   const { reels } = useReels();
   const { posts } = usePosts();
   const { phoneMode } = useSettings();
-  const { restaurantMeta } = useLists();
+  const { restaurantMeta, toggleWishlist, isWishlisted } = useLists();
   const userId = user?.id ?? null;
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
@@ -1594,6 +1594,15 @@ export const UserProfile: React.FC = () => {
                       onToggle={() => setExpandedId(expandedId === r.id ? null : r.id)}
                       ownerName={profile.display_name}
                       compact
+                      saved={isWishlisted(r.restaurant_id)}
+                      onToggleSave={isOwnProfile ? undefined : () => toggleWishlist({
+                        id: r.restaurant_id,
+                        name: r.restaurant_name || '',
+                        image: r.photo_url || '',
+                        cuisine: r.cuisine || '',
+                        price: r.price || '',
+                        address: r.address || '',
+                      })}
                     />
                   ))}
                 </div>

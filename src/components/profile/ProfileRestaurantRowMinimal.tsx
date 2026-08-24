@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { SquarePen, ArrowRight, Plus } from 'lucide-react';
+import { SquarePen, ArrowRight, Plus, Bookmark } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { scoreHex } from '../../lib/score';
 import type { CommunityRating, CommunityPhoto } from '../../lib/supabase-community';
@@ -16,6 +16,10 @@ interface Props {
   ownerName: string;
   /** Tighter sizing for the mobile profile (smaller name, score, padding). */
   compact?: boolean;
+  /** Wishlist save — when `onToggleSave` is given, a bookmark rides the
+   *  right edge of the row (the FollowingFeed affordance, brought here). */
+  saved?: boolean;
+  onToggleSave?: () => void;
 }
 
 /** Circular score badge with a soft tinted fill and an inset color ring.
@@ -49,6 +53,7 @@ const RingScore: React.FC<{ score: number; size?: number }> = ({ score, size = 4
  */
 export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
   rating, photos, expanded, onToggle, ownerName, compact = false,
+  saved = false, onToggleSave,
 }) => {
   const score = Number(rating.score);
   const hasReview = !!(rating.notes && rating.notes.trim());
@@ -66,12 +71,18 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
   const pad = compact ? '' : 'px-1';
   const hasExtras = hasReview || photos.length > 0 || !!(rating.tags && rating.tags.length > 0);
 
+  const showSave = compact && !!onToggleSave;
+
   return (
     <div className="border-b border-[var(--color-line)]">
+      {/* The save bookmark is a SIBLING of the row button (buttons can't
+          nest), absolutely positioned on this wrapper so it stays centered
+          on the collapsed row even while the note expands below. */}
+      <div className="relative">
       <button
         type="button"
         onClick={onToggle}
-        className={cn('w-full flex items-center text-left group', pad, compact ? 'gap-3.5 py-[18px]' : 'gap-6 py-5')}
+        className={cn('w-full flex items-center text-left group', pad, compact ? 'gap-3.5 py-[18px]' : 'gap-6 py-5', showSave && 'pr-10')}
       >
         {/* Compact (phone) leads with the score — the reference row reads
             disc → name; desktop keeps the score on the right edge. */}
@@ -96,6 +107,18 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
         </div>
         {!compact && <RingScore score={score} size={46} />}
       </button>
+      {showSave && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSave?.(); }}
+          aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
+          aria-pressed={saved}
+          className="absolute right-0 top-1/2 -translate-y-1/2 grid h-9 w-9 place-items-center rounded-full text-on-surface/45 transition-colors active:bg-on-surface/[0.06] active:scale-95"
+        >
+          <Bookmark size={16} className={cn(saved && 'fill-primary text-primary')} />
+        </button>
+      )}
+      </div>
 
       <Collapse open={expanded}>
             <div className={cn(pad, compact ? 'pb-[18px]' : 'pb-7')}>
