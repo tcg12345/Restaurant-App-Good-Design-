@@ -117,6 +117,7 @@ import {
 import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { SearchField } from '../components/SearchField';
+import { GlassButton } from '../lib/glass-buttons';
 
 /* ── Guide card view-model ────────────────────────────────────────────────────
    The Guides rail renders real, published guides for the selected city
@@ -2177,6 +2178,94 @@ export const LocationPage: React.FC = () => {
     }
   }, [searchingHere, selectedPrice, selectedCuisines]);
 
+  // ── Mobile filter chips — rendered inside the sticky header so the
+  // page opens on controls, the reference way. The page's button reset
+  // (`.location-page-root button { padding:0; border:0; … }`) outranks
+  // Tailwind utilities, so every visual property lives in inline styles.
+  const mobileChipsRow = isMobile ? (() => {
+    const chipBase: React.CSSProperties = {
+      flexShrink: 0,
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px',
+      height: '34px',
+      paddingLeft: '14px',
+      paddingRight: '14px',
+      borderRadius: '9999px',
+      fontSize: '13px',
+      fontWeight: 500,
+      lineHeight: 1,
+      letterSpacing: '-0.01em',
+      whiteSpace: 'nowrap',
+      cursor: 'pointer',
+      transition: 'background-color .15s ease, color .15s ease, border-color .15s ease',
+    };
+    const chipIdle: React.CSSProperties = {
+      ...chipBase,
+      background: 'rgba(var(--overlay-ink), 0.06)',
+      color: 'var(--ink-2)',
+      border: '1px solid transparent',
+    };
+    const chipActive: React.CSSProperties = {
+      ...chipBase,
+      background: 'var(--ink)',
+      color: 'var(--cream)',
+      border: '1px solid var(--ink)',
+    };
+    return (
+      <div className="mt-2 -mx-3 px-3 pb-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={toggleOpenNow}
+          style={openNow ? chipActive : chipIdle}
+        >
+          <span
+            style={{
+              position: 'relative',
+              width: '22px',
+              height: '13px',
+              borderRadius: '9999px',
+              flexShrink: 0,
+              background: openNow ? 'var(--color-score-high)' : 'rgba(var(--overlay-ink), 0.25)',
+              transition: 'background-color .15s ease',
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: '2px',
+                left: openNow ? '11px' : '2px',
+                width: '9px',
+                height: '9px',
+                borderRadius: '9999px',
+                background: '#fff',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                transition: 'left .15s ease',
+              }}
+            />
+          </span>
+          Open now
+        </button>
+        <span
+          style={{ flexShrink: 0, alignSelf: 'center', width: '1px', height: '16px', background: 'var(--border-strong)' }}
+        />
+        {QUICK_CUISINES.map((c) => {
+          const active = selectedCuisines.includes(c.type);
+          return (
+            <button
+              key={c.type}
+              type="button"
+              onClick={() => toggleCuisine(c.type)}
+              style={active ? chipActive : chipIdle}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  })() : null;
+
   return (
     <div className="location-page-root min-h-screen pb-24">
       {/* Mobile header — back arrow, a centered maps-style location pill
@@ -2188,45 +2277,50 @@ export const LocationPage: React.FC = () => {
       {isMobile && (
       <motion.div
         ref={headerFade.headerRef}
-        className="sticky top-0 z-20 pt-safe-3 pb-2.5 px-3"
-        style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)', ...headerFade.headerStyle }}
+        className="sticky top-0 z-20 pt-safe-3 pb-0 px-3"
+        style={{ background: 'var(--loc-bar-bg)', backdropFilter: 'saturate(150%) blur(14px)', WebkitBackdropFilter: 'saturate(150%) blur(14px)', borderBottom: '1px solid var(--border)', ...headerFade.headerStyle }}
       >
         <div className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
-          <button
-            type="button"
+          <GlassButton
+            id="loc-back"
+            symbol="chevron.left"
+            label="Back"
             onClick={() => navigate(-1)}
-            className="w-10 h-10 flex items-center justify-center rounded-full transition-colors active:opacity-60"
-            style={{ color: 'var(--ink-2)' }}
-            aria-label="Back"
+            className="hit-44 w-10 h-10 flex items-center justify-center rounded-full transition-transform active:scale-95"
+            style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
-            <ArrowLeft size={22} />
-          </button>
+            <ArrowLeft size={19} />
+          </GlassButton>
           <div className="flex justify-center min-w-0">
+            {/* The reference wears the city as a plain title, not a boxed
+                pill — pin, name, chevron. Same picker underneath. */}
             <button
               type="button"
               onClick={() => setMobileLocationPickerOpen(true)}
-              className="inline-flex items-center gap-1.5 h-9 max-w-full pl-3 pr-2.5 rounded-full transition-[transform,background] active:scale-[0.97]"
-              style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--ink)', boxShadow: 'var(--shadow-sm)' }}
+              className="inline-flex items-center gap-1.5 h-10 max-w-full px-2 transition-[transform,opacity] active:opacity-60"
+              style={{ color: 'var(--ink)' }}
               aria-label="Change location"
             >
-              <MapPin size={14} strokeWidth={2.4} className="flex-none" style={{ color: 'var(--accent)' }} />
-              <span className="text-[14px] font-semibold tracking-[-0.01em] truncate">{cityDisplay}</span>
-              <ChevronDown size={14} className="flex-none" style={{ color: 'var(--muted)' }} />
+              <MapPin size={15} strokeWidth={2.4} className="flex-none" style={{ color: 'var(--accent)' }} />
+              <span className="text-[16.5px] font-bold tracking-[-0.02em] truncate">{cityDisplay}</span>
+              <ChevronDown size={15} className="flex-none" style={{ color: 'var(--muted)' }} />
             </button>
           </div>
-          <button
-            type="button"
+          <GlassButton
+            id="loc-share"
+            symbol="square.and.arrow.up"
+            label="Share"
             // canonicalShareUrl: window.location.href inside the native shell
             // is capacitor://localhost/… — build the link from the public web
             // origin + the page's path instead.
             onClick={() => { void shareExternally({ title: cityDisplay, url: canonicalShareUrl(window.location.pathname + window.location.search) }); }}
-            className="w-10 h-10 flex items-center justify-center rounded-full transition-colors active:opacity-60"
-            style={{ color: 'var(--ink-2)' }}
-            aria-label="Share"
+            className="hit-44 w-10 h-10 flex items-center justify-center rounded-full transition-transform active:scale-95"
+            style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
-            <Share2 size={20} />
-          </button>
+            <Share2 size={18} />
+          </GlassButton>
         </div>
+        {mobileChipsRow}
       </motion.div>
       )}
 
@@ -2498,27 +2592,38 @@ export const LocationPage: React.FC = () => {
         {/* ── Guides — hidden entirely when this location has none (also
             covers the still-loading phase, so the header never flashes
             in front of an empty row). ─────────────────────────────────── */}
-        {locationGuides.length > 0 && (
-        <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
-          {isMobile ? (
-            <button
-              type="button"
-              onClick={() => setGuidesOpen((v) => !v)}
-              className="w-full flex items-center justify-between gap-3 mb-3 text-left"
-              style={{ paddingLeft: '20px', paddingRight: '20px' }}
-            >
-              <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
-                <span>Guides for {shortCityName}</span>
-                <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
-              </h2>
-              <span
-                className={cn('loc-section-chev', guidesOpen && 'is-open')}
-                aria-hidden="true"
-              >
-                <ChevronDown />
-              </span>
+        {locationGuides.length > 0 && isMobile && (
+        <section className="lp-section">
+          {/* Compact reference rail: a quiet head with an All pill, then
+              small thumbs with the words BELOW the photo — the guides no
+              longer own half the screen. */}
+          <div className="gd-mini-head">
+            <h2>Guides for {shortCityName}</h2>
+            <button type="button" className="gd-all-pill" onClick={() => setGuidesBrowserOpen(true)}>
+              All <ChevronRight />
             </button>
-          ) : (
+          </div>
+          <div className="gd-row is-mobile is-compact">
+            {locationGuides.map((g) => (
+              <Link key={g.id} to={`/guides/${g.id}`} className="gd-mini">
+                <div
+                  className="gd-mini-img"
+                  style={g.image ? { backgroundImage: `url(${g.image})` } : undefined}
+                >
+                  <div className="gd-stamp">
+                    <BookOpen /> Guide · {g.count} spots
+                  </div>
+                </div>
+                <h3 className="gd-mini-title">{g.title}</h3>
+                <p className="gd-mini-by">by {g.author}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+        )}
+        {locationGuides.length > 0 && !isMobile && (
+        <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
+          {(
           <div className="loc-section-head is-collapsible">
             <button
               type="button"
@@ -2554,7 +2659,7 @@ export const LocationPage: React.FC = () => {
           </div>
           )}
           <div className="collapsible-body">
-            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
+            <div className="gd-row" ref={guidesRowRef}>
                 {locationGuides.map((g) => {
                   const initial = (g.author || '?').charAt(0).toUpperCase();
                   return (
@@ -2700,98 +2805,7 @@ export const LocationPage: React.FC = () => {
             A single horizontally-scrollable rail with the highest-value
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
-        {isMobile && (() => {
-          // ── Filter chips, fully rewritten ───────────────────────────────
-          // The page's button reset — `.location-page-root button { padding:0;
-          // border:0; background:none; font:inherit }` — has higher specificity
-          // than Tailwind utilities, so it silently strips `px-*`, `border-*`,
-          // `text-*` and `font-*` off these buttons (that's why the text was
-          // jammed against the pill edges). Every visual property therefore
-          // lives in inline styles here, which outrank the reset. The colours
-          // ride the theme tokens (--ink / --cream / --overlay-ink) so the
-          // chips flip correctly in dark mode.
-          const chipBase: React.CSSProperties = {
-            flexShrink: 0,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            height: '34px',
-            paddingLeft: '14px',
-            paddingRight: '14px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: 500,
-            lineHeight: 1,
-            letterSpacing: '-0.01em',
-            whiteSpace: 'nowrap',
-            cursor: 'pointer',
-            transition: 'background-color .15s ease, color .15s ease, border-color .15s ease',
-          };
-          const chipIdle: React.CSSProperties = {
-            ...chipBase,
-            background: 'rgba(var(--overlay-ink), 0.06)',
-            color: 'var(--ink-2)',
-            border: '1px solid transparent',
-          };
-          const chipActive: React.CSSProperties = {
-            ...chipBase,
-            background: 'var(--ink)',
-            color: 'var(--cream)',
-            border: '1px solid var(--ink)',
-          };
-          return (
-          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-3 py-0.5">
-            <button
-              type="button"
-              onClick={toggleOpenNow}
-              style={openNow ? chipActive : chipIdle}
-            >
-              <span
-                style={{
-                  position: 'relative',
-                  width: '22px',
-                  height: '13px',
-                  borderRadius: '9999px',
-                  flexShrink: 0,
-                  background: openNow ? 'var(--color-score-high)' : 'rgba(var(--overlay-ink), 0.25)',
-                  transition: 'background-color .15s ease',
-                }}
-              >
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: openNow ? '11px' : '2px',
-                    width: '9px',
-                    height: '9px',
-                    borderRadius: '9999px',
-                    background: '#fff',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                    transition: 'left .15s ease',
-                  }}
-                />
-              </span>
-              Open now
-            </button>
-            <span
-              style={{ flexShrink: 0, alignSelf: 'center', width: '1px', height: '16px', background: 'var(--border-strong)' }}
-            />
-            {QUICK_CUISINES.map((c) => {
-              const active = selectedCuisines.includes(c.type);
-              return (
-                <button
-                  key={c.type}
-                  type="button"
-                  onClick={() => toggleCuisine(c.type)}
-                  style={active ? chipActive : chipIdle}
-                >
-                  {c.label}
-                </button>
-              );
-            })}
-          </div>
-          );
-        })()}
+        {/* Filter chips now ride inside the sticky header above. */}
 
         {/* ── All restaurants ─────────────────────────────────────────── */}
         <section className="lp-section">
