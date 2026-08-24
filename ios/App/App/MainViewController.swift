@@ -1849,6 +1849,8 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     private var appliedTextGen = -1
     private var appliedFocusGen = 0
     private var appliedSymbol = "magnifyingglass"
+    /// Mirrors the spec: whether a tap on the glass should begin editing.
+    private var editable = false
 
     var onTap: (() -> Void)?
     var onChange: ((String) -> Void)?
@@ -1923,11 +1925,16 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
                 attributes: [.foregroundColor: GlassTabBar.glassInk.withAlphaComponent(0.75)]
             )
         }
-        field.isUserInteractionEnabled = spec.fieldEditable
-        // Read-only: the ground button is live — the configuration's press
-        // physics and the tap that opens search. Editing: it stands down and
-        // the text field takes the touches.
-        bg.isUserInteractionEnabled = !spec.fieldEditable
+        // The ground button is ALWAYS live, so every field carries the
+        // configuration's press physics — the lens is what makes the bar
+        // read as interactive glass rather than a styled input. While no
+        // edit session is running the text field stands down so the whole
+        // capsule presses; the tap then either opens search (read-only) or
+        // begins editing. During an edit session the text field takes the
+        // touches (caret, selection, clear).
+        editable = spec.fieldEditable
+        field.isUserInteractionEnabled = spec.fieldEditable && field.isFirstResponder
+        bg.isUserInteractionEnabled = true
         if spec.fieldTextGen != appliedTextGen {
             appliedTextGen = spec.fieldTextGen
             if field.text != spec.fieldText { field.text = spec.fieldText }
@@ -1942,7 +1949,10 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
         if spec.fieldFocusGen != appliedFocusGen, spec.alpha > 0.05 {
             appliedFocusGen = spec.fieldFocusGen
             if spec.fieldFocused, spec.fieldEditable {
-                if !field.isFirstResponder { field.becomeFirstResponder() }
+                if !field.isFirstResponder {
+                    field.isUserInteractionEnabled = true
+                    field.becomeFirstResponder()
+                }
             } else if !spec.fieldFocused, field.isFirstResponder {
                 field.resignFirstResponder()
             }
@@ -1957,12 +1967,25 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     }
 
     @objc private func edited() { onChange?(field.text ?? "") }
-    @objc private func pressed() { onTap?() }
+    @objc private func pressed() {
+        if editable {
+            field.isUserInteractionEnabled = true
+            field.becomeFirstResponder()
+        } else {
+            onTap?()
+        }
+    }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         textField.resignFirstResponder()
         onSubmit?()
         return true
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        // Stand the editor down so the next tap lands on the glass and
+        // plays the press before re-entering the edit session.
+        textField.isUserInteractionEnabled = false
     }
 }
 

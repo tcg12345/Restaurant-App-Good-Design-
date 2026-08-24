@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown, Bookmark } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -845,10 +844,9 @@ const FollowingFilterSheet: React.FC<{
 }) => {
   // The shared FilterSheet shell — the same chrome as the Discover tab's
   // filter popup (glass ✕ left, glass "Clear all" right, full-width
-  // Apply). Portaled to body: hosted in the search tab this component
-  // lives inside a low-z page layer, and the shell's fixed overlay
-  // rendered in place would stack under the page's floating glass chrome.
-  return createPortal(
+  // Apply). The shell portals itself to body, clear of this component's
+  // low-z page layer.
+  return (
     <FilterSheet
       open={open}
       onClose={onClose}
@@ -925,7 +923,6 @@ const FollowingFilterSheet: React.FC<{
           searchPlaceholder="Search locations"
         />
       )}
-    </FilterSheet>,
-    document.body,
+    </FilterSheet>
   );
 };

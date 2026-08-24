@@ -4223,21 +4223,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           aria-label="Open search"
         />
         {mode === 'home' && (
-          <GlassButton
-            id="home-location"
-            symbol="location"
-            title={homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
-            titleStyle="chip"
-            label="Change location"
-            onClick={() => setMobileLocationPickerOpen(true)}
-            className="flex-shrink-0 max-w-[45%] h-10 pl-3 pr-3.5 rounded-full flex items-center gap-1.5 text-[13px] font-semibold text-on-surface active:scale-[0.98] transition-transform"
-          >
-            <MapPin size={14} className="text-primary flex-shrink-0" />
-            <span className="min-w-0 truncate">
-              {homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
-            </span>
-            <ChevronDown size={13} className="text-on-surface/45 flex-shrink-0" />
-          </GlassButton>
+          /* The takeover's location-chip construction: a read-only glass
+             FIELD, not a pill — a field fills its web box exactly, so the
+             chip can't outgrow its slot and crowd the search bar the way a
+             self-sizing native pill did. */
+          <SearchField
+            glassId="home-location"
+            className="flex-none w-[38%] max-w-[180px]"
+            glassSymbol="location"
+            leadingIcon={<Navigation size={14} strokeWidth={2.2} />}
+            readOnly
+            onPress={() => setMobileLocationPickerOpen(true)}
+            value={homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
+            onChange={() => {}}
+            placeholder="Location"
+            aria-label="Change location"
+          />
         )}
       </div>
       {/* Who the feed is showing — one full-width segmented track (the same

@@ -106,7 +106,6 @@ interface Registration extends GlassButtonSpec {
  *  a button can register from anywhere without the tree having to carry a
  *  provider through every page that happens to own a header. */
 const registry = new Map<string, Registration>();
-const fieldAlphaLog = new Map<string, number>();
 /** What was last pushed across the bridge, so an unchanged frame costs
  *  nothing. */
 let lastPayload = '';
@@ -224,15 +223,6 @@ function sample(): void {
   const payload = JSON.stringify(buttons);
   if (payload === lastPayload) return;
   lastPayload = payload;
-  for (const b of buttons) {
-    if (b.role === 'field') {
-      const prev = fieldAlphaLog.get(b.id as string);
-      if (prev !== b.alpha) {
-        fieldAlphaLog.set(b.id as string, b.alpha as number);
-        console.log(`[glass-field] ${b.id} alpha=${b.alpha} rect=${b.x},${b.y},${b.width}x${b.height}`);
-      }
-    }
-  }
   void LiquidGlass.setGlassButtons({ buttons }).catch(() => {});
 }
 
@@ -773,7 +763,6 @@ export function useGlassField(options: {
       onTap: () => handlers.current.onPress?.(),
       field,
     });
-    console.log(`[glass-field] register ${key} active=${active}`);
     wake();
     return () => {
       registry.delete(key);

@@ -1,4 +1,5 @@
 import React, { createContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
@@ -118,7 +119,12 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
     container: subContainer,
   };
 
-  return (
+  // Portaled to body: several hosts render this shell inside layers that
+  // create their own stacking contexts (the search tab's map layer is
+  // `isolate`d so its chrome can't rise over the Following wash) — a fixed
+  // overlay rendered in place would be fenced UNDER the page's floating
+  // glass chrome, which then hangs over the open sheet.
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -262,7 +268,8 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };
 
