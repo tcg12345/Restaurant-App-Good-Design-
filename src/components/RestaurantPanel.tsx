@@ -558,10 +558,11 @@ export const RestaurantPanelBody: React.FC<{
                 <div
                   key={`${snapshot.id}-${lat}-${lng}`}
                   ref={mapContainerRef}
-                  // The saturate filter quiets the cartography slightly so
-                  // it reads as warm gray rather than bright pastel.
-                  className="absolute inset-0"
-                  style={{ filter: 'saturate(0.55)' }}
+                  // Inline position/inset: mapbox-gl.css sets `.mapboxgl-map
+                  // { position: relative }`, which beats the Tailwind class
+                  // and collapsed the container to zero height. The saturate
+                  // filter quiets the cartography so it reads as warm gray.
+                  style={{ position: 'absolute', inset: 0, filter: 'saturate(0.55)' }}
                 />
               ) : snapshot.image ? (
                 <img
