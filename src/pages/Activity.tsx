@@ -554,7 +554,10 @@ export const Activity: React.FC = () => {
   if (tab === 'drafts') {
     return (
       <div className="min-h-screen bg-surface pb-32">
-        <ActivityHeader title="Recipe drafts" onBack={() => navigate('/activity')} />
+        {/* Pop, don't push: navigating to '/activity' here grew the history
+            stack every tap, so back from the index returned to this page —
+            an endless index↔sub-page loop. */}
+        <ActivityHeader title="Recipe drafts" onBack={() => navigate(-1)} />
         <main className="max-w-2xl mx-auto px-5 pt-5">
           {drafts.length === 0 ? (
             <EmptyState
@@ -588,7 +591,8 @@ export const Activity: React.FC = () => {
   /* ── List page (saved / likes / comments) ── */
   return (
     <div className="min-h-screen bg-surface pb-32">
-      <ActivityHeader title={title} onBack={() => navigate('/activity')} />
+      {/* Pop, don't push — see the drafts header above. */}
+      <ActivityHeader title={title} onBack={() => navigate(-1)} />
       <main className="max-w-3xl mx-auto px-5 pt-5">
         {activeLoading && items.length === 0 ? (
           <div className="flex items-center justify-center py-20 text-on-surface/45">
