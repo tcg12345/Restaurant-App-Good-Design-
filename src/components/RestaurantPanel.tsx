@@ -21,7 +21,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
   X, Star, Bookmark, Plus, ArrowUpRight, Pencil, Loader2, ImageOff,
@@ -504,18 +504,7 @@ export const RestaurantPanelBody: React.FC<{
   const hasPhotos = !!myRating?.photos && myRating.photos.length > 0;
   const hasPrice = !!myRating?.price;
 
-  /* ── Scroll-driven hero collapse. As the user scrolls the body, the
-        hero shrinks from 220px to a compact 72px sticky bar: the map
-        fades out, the big white title slides up and fades, and a
-        compact dark title fades in centered between the heart + close
-        pills. The pills themselves stay pinned to top-3 / top-3 the
-        whole time. */
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { scrollY } = useScroll({ container: scrollRef });
-  const heroHeight = useTransform(scrollY, [0, 120], [168, 60], { clamp: true });
-  const mediaOpacity = useTransform(scrollY, [0, 80], [1, 0], { clamp: true });
-  const compactOpacity = useTransform(scrollY, [60, 120], [0, 1], { clamp: true });
-  const bottomLineOpacity = useTransform(scrollY, [80, 120], [0, 1], { clamp: true });
 
   return (
     <>
@@ -525,116 +514,74 @@ export const RestaurantPanelBody: React.FC<{
       {noHero && topChrome && (
         <div className="flex-shrink-0">{topChrome}</div>
       )}
-      {/* Header — map hero (or fallback photo/gradient) that collapses on
-          scroll. The OUTER wrapper changes height to drive the layout
-          effect, but the media layer inside is pinned to a fixed 204px
-          height so Mapbox's ResizeObserver doesn't fire on every frame
-          (resizing the canvas every scroll tick is what caused the
-          glitchy collapse — the parent shrinks, the media clips
-          smoothly underneath). */}
-      {!noHero && (
-      <motion.div
-        className="relative flex-shrink-0 w-full bg-cream-2 overflow-hidden"
-        style={{ height: heroHeight, willChange: 'height' }}
-      >
-        {/* Media layer — map (preferred) / image / gradient. Pinned to
-            the top with a fixed 204px height so its size never changes
-            as the outer shrinks. The outer's overflow-hidden clips the
-            bottom of the media as the hero collapses. Mapbox only
-            sees one canvas resize (on mount). */}
-        {hasMap ? (
-          <motion.div
-            key={`${snapshot.id}-${lat}-${lng}`}
-            ref={mapContainerRef}
-            // The saturate filter quiets the cartography slightly so it
-            // reads as warm gray rather than bright pastel.
-            className="absolute inset-x-0 top-0"
-            style={{ width: '100%', height: 168, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
-          />
-        ) : snapshot.image ? (
-          <motion.img
-            src={snapshot.image}
-            alt=""
-            className="absolute inset-x-0 top-0 w-full object-cover"
-            style={{ height: 168, opacity: mediaOpacity }}
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <motion.div
-            className="absolute inset-x-0 top-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30"
-            style={{ height: 168, opacity: mediaOpacity }}
-          >
-            <ImageOff size={28} />
-          </motion.div>
+      {/* The old scroll-driven hero collapse (a height transform racing
+          three opacity fades) fought the sheet's own drag and read as a
+          glitch. Now the map is an ordinary block at the top of ONE
+          scroll container — it scrolls away like content, the way modern
+          sheets behave — and only the save/close buttons stay pinned. */}
+      <div className="relative flex-1 min-h-0">
+        {!noHero && (
+          <>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-20"
+            >
+              <X size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={onWishlist}
+              aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+              aria-pressed={wishlisted}
+              className={cn(
+                'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors z-20',
+                wishlisted
+                  ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
+                  : 'bg-black/55 text-white hover:bg-black/75',
+              )}
+            >
+              <Bookmark size={17} className={cn(wishlisted && 'fill-white')} />
+            </button>
+          </>
         )}
-        {/* Soft bottom fade so the map settles into the surface — the
-            title lives on the surface below now, not on the map. */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent"
-          style={{ opacity: mediaOpacity }}
-        />
 
-        {/* Compact title — vertically centered in the collapsed hero,
-            fits between the heart and close pills. Dark text on the
-            cream surface that the media layer reveals as it fades. */}
-        <motion.div
-          className="pointer-events-none absolute inset-0 flex items-center justify-center px-16"
-          style={{ opacity: compactOpacity }}
+        <div
+          ref={scrollRef}
+          className="h-full overflow-y-auto pb-6"
+          style={{ overscrollBehavior: 'contain' }}
         >
-          <div className="min-w-0 text-center">
-            <h3 className="font-serif font-bold text-on-surface text-[15px] leading-tight truncate">
-              {snapshot.name}
-            </h3>
-            <p className="text-[11px] text-on-surface/55 truncate mt-0.5">
-              {[snapshot.cuisine, snapshot.price].filter(Boolean).join(' · ')}
-            </p>
-          </div>
-        </motion.div>
-
-        {/* Save + close pills — pinned to the top corners across both
-            states. Kept dark so they read against the map at the top of
-            the panel AND remain visible against the cream surface when
-            collapsed. */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-10"
-        >
-          <X size={17} />
-        </button>
-        <button
-          type="button"
-          onClick={onWishlist}
-          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-          aria-pressed={wishlisted}
-          className={cn(
-            'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors z-10',
-            wishlisted
-              ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
-              : 'bg-black/55 text-white hover:bg-black/75',
+          {!noHero && (
+            <div className="relative w-full h-[168px] bg-cream-2 overflow-hidden">
+              {hasMap ? (
+                <div
+                  key={`${snapshot.id}-${lat}-${lng}`}
+                  ref={mapContainerRef}
+                  // The saturate filter quiets the cartography slightly so
+                  // it reads as warm gray rather than bright pastel.
+                  className="absolute inset-0"
+                  style={{ filter: 'saturate(0.55)' }}
+                />
+              ) : snapshot.image ? (
+                <img
+                  src={snapshot.image}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30">
+                  <ImageOff size={28} />
+                </div>
+              )}
+              {/* Soft bottom fade so the map settles into the surface. */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent" />
+            </div>
           )}
-        >
-          <Bookmark size={17} className={cn(wishlisted && 'fill-white')} />
-        </button>
 
-        {/* Hairline separator that appears once the header has fully
-            collapsed onto the body — gives the compact header a clear
-            edge against the scroll area below. */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-on-surface/[0.09]"
-          style={{ opacity: bottomLineOpacity }}
-        />
-      </motion.div>
-      )}
-
-      {/* Scrollable body — scrollRef drives the hero collapse above. */}
-      <div
-        ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6"
-        style={{ overscrollBehavior: 'contain' }}
-      >
-        {headSlot}
+          <div className={cn('px-5 space-y-6', noHero ? 'pt-5' : 'pt-4')}>
+          {headSlot}
         {/* Identity — the main detail page's lead: the name says it in
             large serif ON the surface, with the cuisine speaking in the
             accent underneath. It used to hide as a caption inside the
@@ -711,70 +658,80 @@ export const RestaurantPanelBody: React.FC<{
             chips so "where it is / when it's open" is at-a-glance without
             scrolling past the social proof. Hours default closed; today's
             slice is shown on the trigger row. */}
-        <div className="flex flex-col gap-3">
-          {snapshot.address && (
-            <MetaRow label="Where">
-              <span className="text-on-surface/80 leading-snug">{snapshot.address}</span>
-            </MetaRow>
-          )}
-          {hours.length > 0 && (
-            <div>
-              <MetaRow label="Today">
-                <button
-                  type="button"
-                  onClick={() => setHoursOpen((o) => !o)}
-                  aria-expanded={hoursOpen}
-                  className="w-full flex items-center gap-2 text-left"
-                >
-                  {isOpenNow !== null && (
-                    <>
-                      <span className={cn('inline-block w-[7px] h-[7px] rounded-full flex-shrink-0', isOpenNow ? 'bg-olive' : 'bg-clay')} />
-                      <span className={cn('font-semibold flex-shrink-0', isOpenNow ? 'text-olive' : 'text-clay')}>
-                        {isOpenNow ? 'Open' : 'Closed'}
-                      </span>
-                    </>
-                  )}
-                  {todayHours && (
-                    <span className="text-on-surface/55 truncate">· {todayHours}</span>
-                  )}
-                  <ChevronDown size={14} className={cn('ml-auto text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
-                </button>
-              </MetaRow>
-              <AnimatePresence initial={false}>
-                {hoursOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <ul className="mt-1.5 pl-[68px] space-y-1">
-                      {hours.map((line, i) => {
-                        const today = new Date().getDay();
-                        // Google returns Mon-first; getDay returns Sun=0..Sat=6.
-                        // Convert getDay → Mon=0..Sun=6 to match.
-                        const idxMonFirst = (today + 6) % 7;
-                        const isToday = i === idxMonFirst;
-                        return (
-                          <li
-                            key={i}
-                            className={cn(
-                              'text-[12px] tabular-nums',
-                              isToday ? 'text-on-surface font-semibold' : 'text-on-surface/65',
-                            )}
-                          >
-                            {line}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </motion.div>
+        {snapshot.address && (
+          <MetaRow label="Where">
+            <span className="text-on-surface/80 leading-snug">{snapshot.address}</span>
+          </MetaRow>
+        )}
+
+        {/* Hours — a real section, not a whisper: the status word leads
+            at full size, today's window sits beside it, and the chevron
+            opens a proper week table with today emphasized. (The status
+            word and a "Closed" hours line used to double up as
+            "Closed · Closed".) */}
+        {hours.length > 0 && (
+          <section>
+            <SectionRule />
+            <button
+              type="button"
+              onClick={() => setHoursOpen((o) => !o)}
+              aria-expanded={hoursOpen}
+              className="w-full pt-3 flex items-center justify-between gap-3 text-left"
+            >
+              <SectionTitle>Hours</SectionTitle>
+              <span className="flex items-center gap-2 min-w-0">
+                {isOpenNow !== null && (
+                  <>
+                    <span className={cn('inline-block w-[7px] h-[7px] rounded-full flex-shrink-0', isOpenNow ? 'bg-olive' : 'bg-clay')} />
+                    <span className={cn('font-bold flex-shrink-0', isOpenNow ? 'text-olive' : 'text-clay')} style={{ fontSize: '14px' }}>
+                      {isOpenNow ? 'Open' : 'Closed'}
+                    </span>
+                  </>
                 )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
+                <ChevronDown size={15} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+              </span>
+            </button>
+            {todayHours && todayHours.trim().toLowerCase() !== 'closed' && (
+              <p className="mt-2 text-[14px] text-on-surface/70">Today · {todayHours}</p>
+            )}
+            <AnimatePresence initial={false}>
+              {hoursOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <ul className="mt-3 space-y-0.5">
+                    {hours.map((line, i) => {
+                      const today = new Date().getDay();
+                      // Google returns Mon-first; getDay returns Sun=0..Sat=6.
+                      const idxMonFirst = (today + 6) % 7;
+                      const isToday = i === idxMonFirst;
+                      // "Monday: 11:30 AM – 2:00 PM" → two columns.
+                      const sep = line.indexOf(': ');
+                      const day = sep > 0 ? line.slice(0, sep) : line;
+                      const time = sep > 0 ? line.slice(sep + 2) : '';
+                      return (
+                        <li
+                          key={i}
+                          className={cn(
+                            'flex items-baseline justify-between gap-4 py-[5px]',
+                            isToday ? 'text-on-surface' : 'text-on-surface/55',
+                          )}
+                        >
+                          <span style={{ fontSize: '13.5px', fontWeight: isToday ? 700 : 500 }}>{day}</span>
+                          <span className="text-right tabular-nums" style={{ fontSize: '13.5px', fontWeight: isToday ? 600 : 400 }}>{time}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        )}
 
         {/* Your rating — chrome-free, divider-separated, with an expandable
             details accordion that mirrors the layout of the full detail page. */}
@@ -793,23 +750,40 @@ export const RestaurantPanelBody: React.FC<{
                   Edit
                 </button>
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className={cn('text-[32px] font-bold tabular-nums leading-none tracking-tight', scoreColor(myRating.score))}>
+              {/* The score wears its tier disc beside what you recorded —
+                  the naked number floating over whitespace read as a
+                  half-empty section. */}
+              <div className="flex items-center gap-4">
+                <span
+                  className={cn('flex-none w-[64px] h-[64px] rounded-full flex items-center justify-center tabular-nums', scoreTint(myRating.score))}
+                  style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.01em' }}
+                >
                   {myRating.score.toFixed(1)}
                 </span>
-                {myRating.visitDate && (
-                  <span className="text-[11px] text-on-surface/50">
-                    {formatRelativeDate(myRating.visitDate)}
-                  </span>
-                )}
+                <div className="flex-1 min-w-0">
+                  {myRating.visitDate && (
+                    <p className="text-[12px] text-on-surface/50">Rated {formatRelativeDate(myRating.visitDate)}</p>
+                  )}
+                  {myRating.notes ? (
+                    <p className="font-serif italic text-on-surface/80 text-[14px] leading-snug mt-1 line-clamp-2">
+                      "{myRating.notes}"
+                    </p>
+                  ) : (
+                    <p className="text-[13px] text-on-surface/40 italic mt-1">No notes yet</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMyRatingOpen((o) => !o)}
+                    aria-expanded={myRatingOpen}
+                    className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/60 hover:text-on-surface transition-colors"
+                  >
+                    {myRatingOpen ? 'Hide details' : 'Show details'}
+                    <ChevronDown size={13} className={cn('transition-transform duration-200', myRatingOpen && 'rotate-180')} />
+                  </button>
+                </div>
               </div>
-              {myRating.notes && (
-                <p className="font-serif italic text-on-surface/80 text-[15px] leading-snug mt-2.5 line-clamp-3">
-                  "{myRating.notes}"
-                </p>
-              )}
               {myRating.tags && myRating.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
+                <div className="flex flex-wrap gap-1.5 mt-3.5">
                   {myRating.tags.slice(0, 6).map((t) => (
                     <span key={t} className="px-2.5 py-1 rounded-full bg-cream-2 text-on-surface/80 text-[11px] font-medium">
                       {t}
@@ -817,16 +791,6 @@ export const RestaurantPanelBody: React.FC<{
                   ))}
                 </div>
               )}
-
-              <button
-                type="button"
-                onClick={() => setMyRatingOpen((o) => !o)}
-                aria-expanded={myRatingOpen}
-                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
-              >
-                {myRatingOpen ? 'Hide details' : 'Show details'}
-                <ChevronDown size={13} className={cn('transition-transform duration-200', myRatingOpen && 'rotate-180')} />
-              </button>
 
               <AnimatePresence initial={false}>
                 {myRatingOpen && (
@@ -1092,6 +1056,8 @@ export const RestaurantPanelBody: React.FC<{
           View full restaurant page
           <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
+          </div>
+        </div>
       </div>
 
       {/* Full-screen community photo gallery. Portaled to document.body
